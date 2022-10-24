@@ -7,8 +7,13 @@
         mc:Ignorable="d"
         Title="MainWindow" Height="450" Width="800">
     <Grid>
-        <Button x:Name="DrawImage" Content="Busen" HorizontalAlignment="Left" Margin="224,130,0,0" VerticalAlignment="Top" Click="DrawImage_Click"/>
-        <Button x:Name="ResetWallpaper" Content="Reset" HorizontalAlignment="Left" Margin="224,176,0,0" VerticalAlignment="Top" Click="ResetWallpaper_Click"/>
+        <Button x:Name="btn_DrawImage" Content="Busen" HorizontalAlignment="Left" Margin="224,130,0,0" VerticalAlignment="Top" Click="btn_DrawImage_Click"/>
+        <Button x:Name="btn_ResetWallpaper" Content="Reset" HorizontalAlignment="Left" Margin="224,176,0,0" VerticalAlignment="Top" Click="btn_ResetWallpaper_Click"/>
+        <TextBox x:Name="textBox_Port" HorizontalAlignment="Left" Margin="376,140,0,0" TextWrapping="Wrap" Text="51234" VerticalAlignment="Top" Width="120"/>
+        <Button x:Name="btn_StartServer" Content="Start Server" HorizontalAlignment="Left" Margin="376,176,0,0" VerticalAlignment="Top" Click="btn_StartServer_Click"/>
+        <Button x:Name="btn_Connect" Content="Connect to Server" HorizontalAlignment="Left" Margin="376,273,0,0" VerticalAlignment="Top" Click="btn_Connect_Click"/>
+        <ListBox x:Name="listBox_Clients" Margin="554,0,0,0"/>
+        <TextBox x:Name="textBox_IP" HorizontalAlignment="Left" Margin="376,250,0,0" TextWrapping="Wrap" Text="127.0.0.1" VerticalAlignment="Top" Width="120"/>
 
     </Grid>
 </Window>

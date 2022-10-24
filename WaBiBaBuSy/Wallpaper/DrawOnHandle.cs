@@ -19,11 +19,11 @@ namespace WaBiBaBuSy.Wallpaper
 
         public void DrawBiBaBuLogo()
         {
-            Image bibabuImage = Image.FromFile("C:\\Users\\Patrick\\Dropbox\\Wohnung\\BiBaBu LOGO\\Sticker\\LogoBiBaBuColoring.png");
+            Image bibabuImage = new Bitmap(Properties.Resources.LogoBiBaBuColoring);
 
             Graphics screenGrahpics = Graphics.FromHwnd(_screenHandle);
 
-            screenGrahpics.DrawImage(bibabuImage, 100, 100);
+            screenGrahpics.DrawImage(bibabuImage, 100, 100, 1000, 1000);
 
             Debug.WriteLine(screenGrahpics.VisibleClipBounds);
         }
