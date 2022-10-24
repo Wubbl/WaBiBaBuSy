@@ -33,6 +33,16 @@ namespace WaBiBaBuSy
 
             listBox_Clients.ItemsSource = _clients;
 
+            var host = Dns.GetHostEntry(Dns.GetHostName());
+
+            foreach (var ip in host.AddressList)
+            {
+                if (ip.AddressFamily == AddressFamily.InterNetwork)
+                {
+                    textBox_IP.Text = ip.ToString();
+                }
+            }
+
             if (screenHandle != IntPtr.Zero)
             {
                 _drawOn = new DrawOnHandle(screenHandle);
