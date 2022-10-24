@@ -57,11 +57,9 @@ namespace WaBiBaBuSy
 
         private async void btn_StartServer_Click(object sender, RoutedEventArgs e)
         {
-            if (int.TryParse(textBox_Port.Text, out int port))
+            if (int.TryParse(textBox_Port.Text, out int port) && IPAddress.TryParse(textBox_IP.Text, out IPAddress? ip))
             {
-                IPAddress localIP = IPAddress.Loopback;
-
-                _server = new TcpListener(localIP, port);
+                _server = new TcpListener(ip, port);
 
                 // Start listening for client requests.
                 _server.Start();
