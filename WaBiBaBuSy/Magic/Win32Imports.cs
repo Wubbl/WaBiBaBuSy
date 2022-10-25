@@ -5,6 +5,12 @@ namespace WaBiBaBuSy
 {
     internal class Win32Imports
     {
+        public static readonly int MAX_PATH = 260;
+        public static readonly uint SPI_GETDESKWALLPAPER = 0x73;
+        public static readonly uint SPI_SETDESKWALLPAPER = 0x14;
+        public static readonly uint SPIF_UPDATEINIFILE = 0x01;
+        public static readonly uint SPIF_SENDWININICHANGE = 0x02;
+
         public delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
 
         [Flags]
@@ -24,7 +30,6 @@ namespace WaBiBaBuSy
         [DllImport("user32.dll", SetLastError = true)]
         public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
 
-
         [DllImport("user32.dll", SetLastError = true)]
         public static extern IntPtr FindWindowEx(IntPtr parentHandle, IntPtr childAfter, string className, IntPtr windowTitle);
 
@@ -33,5 +38,8 @@ namespace WaBiBaBuSy
 
         [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
         public static extern IntPtr SendMessageTimeout(IntPtr windowHandle, uint Msg, IntPtr wParam, IntPtr lParam, SendMessageTimeoutFlags flags, uint timeout, out IntPtr result);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        public static extern Int32 SystemParametersInfo(UInt32 action, int uParam, string vParam, UInt32 winIni);
     }
 }

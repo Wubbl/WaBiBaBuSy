@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -30,9 +31,22 @@ namespace WaBiBaBuSy.Wallpaper
 
         public void ClearWallpaper()
         {
-            Graphics screenGrahpics = Graphics.FromHwnd(_screenHandle);
+            // Didn't find a way to Redraw / Invalidate the workerW screenHandle
 
-            screenGrahpics.Clear(Color.Transparent);
+            SetDesktopWallpaper(GetDesktopWallpaper());
+        }
+
+        static string GetDesktopWallpaper()
+        {
+            string wallpaper = new string('\0', Win32Imports.MAX_PATH);
+            Win32Imports.SystemParametersInfo(Win32Imports.SPI_GETDESKWALLPAPER, wallpaper.Length, wallpaper, 0);
+            return wallpaper.Substring(0, wallpaper.IndexOf('\0'));
+        }
+
+        static void SetDesktopWallpaper(string filename)
+        {
+            Win32Imports.SystemParametersInfo(Win32Imports.SPI_SETDESKWALLPAPER, 0, filename,
+                Win32Imports.SPIF_UPDATEINIFILE | Win32Imports.SPIF_SENDWININICHANGE);
         }
     }
 }
