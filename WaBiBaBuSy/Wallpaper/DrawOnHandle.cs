@@ -32,7 +32,6 @@ namespace WaBiBaBuSy.Wallpaper
         public void ClearWallpaper()
         {
             // Didn't find a way to Redraw / Invalidate the workerW screenHandle
-
             SetDesktopWallpaper(GetDesktopWallpaper());
         }
 
