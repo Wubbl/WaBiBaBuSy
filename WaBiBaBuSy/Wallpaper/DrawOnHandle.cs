@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace WaBiBaBuSy.Wallpaper
@@ -18,15 +19,26 @@ namespace WaBiBaBuSy.Wallpaper
             _screenHandle = screenHandle;
         }
 
-        public void DrawBiBaBuLogo()
+        public async void DrawBiBaBuLogoAnimation()
         {
             Image bibabuImage = new Bitmap(Properties.Resources.LogoBiBaBuColoring);
-
             Graphics screenGrahpics = Graphics.FromHwnd(_screenHandle);
+            var screenSize = screenGrahpics.VisibleClipBounds;
 
-            screenGrahpics.DrawImage(bibabuImage, 100, 100, 1000, 1000);
+            Bitmap doubleBuffer = new Bitmap((int)screenSize.Width, (int)screenSize.Height);
+            Graphics gBuffer = Graphics.FromImage(doubleBuffer);
+            
+            for (int x = 100; x < (screenSize.Width - 1100); x += 3)
+            {
+                //screenGrahpics.DrawImage(bibabuImage, x, 100, 1000, 1000);
+                gBuffer.Clear(Color.Gray);
+                gBuffer.DrawImage(bibabuImage, x, 100, 1000, 1000);
+                gBuffer.Flush();
 
-            Debug.WriteLine(screenGrahpics.VisibleClipBounds);
+                screenGrahpics.DrawImageUnscaled(doubleBuffer, 0, 0);
+
+                await Task.Delay(16);
+            }
         }
 
         public void ClearWallpaper()

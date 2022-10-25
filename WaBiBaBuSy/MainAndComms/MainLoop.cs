@@ -63,6 +63,11 @@ namespace WaBiBaBuSy
             _drawOn?.ClearWallpaper();
         }
 
+        public async void DrawBiBaBuLogAnimation()
+        {
+            await Task.Run(() => _drawOn?.DrawBiBaBuLogoAnimation());
+        }
+
         #endregion Public Methods for UI
 
     }

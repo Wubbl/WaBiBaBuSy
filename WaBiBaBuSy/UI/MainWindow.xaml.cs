@@ -25,15 +25,12 @@ namespace WaBiBaBuSy
 
         private void btn_ResetWallpaper_Click(object sender, RoutedEventArgs e)
         {
-
+            _mainLoop.CleartWallpaper();
         }
 
         private void btn_DrawImage_Click(object sender, RoutedEventArgs e)
         {
-            //if (_drawOn != null)
-            //{
-            //    _drawOn.DrawBiBaBuLogo();
-            //}
+            _mainLoop.DrawBiBaBuLogAnimation();
         }
 
         private void btn_StartServer_Click(object sender, RoutedEventArgs e)
