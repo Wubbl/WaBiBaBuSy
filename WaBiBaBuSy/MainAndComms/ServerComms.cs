@@ -14,6 +14,7 @@ namespace WaBiBaBuSy
     {
         private TcpListener _tcpReceiver;
         private UdpClient _udpClient;
+        private CancellationTokenSource _cts;
 
         private System.Timers.Timer _timerBroadcast;
         private int _broadcastsLeft = 0;
@@ -29,14 +30,19 @@ namespace WaBiBaBuSy
 
             Debug.WriteLine("Server started!");
 
-            await ListeningForTCPRequests();
+            _cts = new CancellationTokenSource();
+
+            _udpClient = new UdpClient(MainLoop.Port);
+            _udpClient.EnableBroadcast = true;
+
+            await ReceiveClientPackages();
         }
 
         public void StopServer()
         {
-
+            _cts.Cancel();
+            _udpClient?.Close();
         }
-
         private async Task ListeningForTCPRequests()
         {
             while (true)
@@ -44,7 +50,7 @@ namespace WaBiBaBuSy
                 if (_tcpReceiver != null)
                 {
                     var client = await _tcpReceiver.AcceptTcpClientAsync().ConfigureAwait(false);
-                    Debug.WriteLine("Client connected!");
+                    Debug.WriteLine("Client Hello messag received from: " + ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString());
 
                     //if (client != null && client.Client.RemoteEndPoint != null) _clients.Add(((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString());
 
@@ -56,8 +62,7 @@ namespace WaBiBaBuSy
         public async Task RetrieveFirstMessageFromClient(TcpClient? client)
         {
             // Buffer for reading data
-            Byte[] bytes = new Byte[256];
-            string data = null;
+            byte[] bytes = new byte[256];
             int i;
 
             try
@@ -67,22 +72,19 @@ namespace WaBiBaBuSy
                     // Loop to receive all the data sent by the client.
                     while ((i = stream.Read(bytes, 0, bytes.Length)) != 0)
                     {
-                        // Translate data bytes to a ASCII string.
-                        data = System.Text.Encoding.ASCII.GetString(bytes, 0, i);
-                        Debug.WriteLine("Received: " + data);
+                        Classes.UDPPackage data = new Classes.UDPPackage(bytes);
 
-                        // Process the data sent by the client.
-                        data = data.ToUpper();
+                        Debug.WriteLine("Server: Received: " + data.Type);
 
-                        byte[] msg = System.Text.Encoding.ASCII.GetBytes(data);
+                        byte[] msg = System.Text.Encoding.ASCII.GetBytes("ACK");
 
                         // Send back a response.
                         stream.Write(msg, 0, msg.Length);
-                        Debug.WriteLine("Sent: " + data);
+                        Debug.WriteLine("Server: Sent: " + data);
                     }
 
                     // Shutdown and end the connection
-                    Debug.WriteLine("Client closing");
+                    Debug.WriteLine("Server: TCPClient closing");
                     client.Close();
                 }
             }
@@ -97,9 +99,6 @@ namespace WaBiBaBuSy
 
         public void StartBroadcast(int durationInSec)
         {
-            _udpClient = new UdpClient();
-            _udpClient.EnableBroadcast = true;
-
             _broadcastsLeft = (durationInSec) / 5;
 
             _timerBroadcast = new System.Timers.Timer(5000);
@@ -132,6 +131,30 @@ namespace WaBiBaBuSy
             _udpClient.SendAsync(bytes, bytes.Length, endPoint);
 
             Debug.WriteLine("Primary: Broadcast sent with payload: " + MainLoop.IPcurrent.ToString());
+        }
+
+        public async Task ReceiveClientUDPPackages()
+        {
+            try
+            {
+                var receiveResult = await _udpClient.ReceiveAsync(_cts.Token);
+                Classes.UDPPackage data = new Classes.UDPPackage(receiveResult.Buffer);
+
+                Debug.WriteLine("From {0} received: {1} ", receiveResult.RemoteEndPoint.Address.ToString(), data.Type.ToString());
+
+                switch (data.Type)
+                {
+                    case Classes.PayloadType.ClientHello:
+
+                        break;
+                    default:
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("Server: Exception in ReceiveClientPackages: " + ex.Message);
+            }
         }
     }
 }

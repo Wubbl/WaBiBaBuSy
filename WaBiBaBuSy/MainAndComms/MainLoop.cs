@@ -25,13 +25,15 @@ namespace WaBiBaBuSy
             }
          }
 
+        public static List<string> Clients { get; set; }
+
         private static IPAddress _ipControlServer = IPAddress.Loopback;
         private static MainWindow _mainUI;
 
         private ServerOrClientMode _mode;
         private DrawOnHandle? _drawOn = null;
         
-        private List<string> _clients;
+        
         private List<TcpClient> _tcpClients;
 
         

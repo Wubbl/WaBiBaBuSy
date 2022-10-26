@@ -14,13 +14,16 @@ namespace WaBiBaBuSy
     {
         private UdpClient _udpClient;
         private CancellationTokenSource _cts;
+        private IPAddress _knownServer;
 
         public async void StartClient()
         {
             Debug.WriteLine("Client started!");
 
-            _cts = new CancellationTokenSource();
+            _udpClient = new UdpClient(MainLoop.Port);
+            _udpClient.EnableBroadcast = true;
 
+            _cts = new CancellationTokenSource();
             await ReceiveBroadcasts();
         }
 
@@ -30,30 +33,30 @@ namespace WaBiBaBuSy
             _udpClient?.Close();
         }
 
-        public void Connect()
+        public void ConnectToServer()
         {
-            string message = "Hello";
-
             try
             {
+                Classes.UDPPackage hello = new Classes.UDPPackage(Classes.PayloadType.ClientHello, System.Text.Encoding.ASCII.GetBytes(_knownServer.ToString() + "_" + Dns.GetHostName()));
+                
+                // UDP Package
+                //IPEndPoint endPoint = new IPEndPoint(MainLoop.IPcontrolServer, MainLoop.Port);
+                //_udpClient.SendAsync(hello.GetBytes(), hello.Length(), endPoint);
+                //Debug.WriteLine("Client: Sent hello message to Server");
+
                 // Prefer using declaration to ensure the instance is Disposed later.
                 using TcpClient client = new TcpClient(MainLoop.IPcurrent.ToString(), MainLoop.Port);
-
-                // Translate the passed message into ASCII and store it as a Byte array.
-                Byte[] data = System.Text.Encoding.ASCII.GetBytes(message);
 
                 // Get a client stream for reading and writing.
                 NetworkStream stream = client.GetStream();
 
                 // Send the message to the connected TcpServer.
-                stream.Write(data, 0, data.Length);
-
-                Debug.WriteLine("Sent: " + message);
+                stream.Write(hello.GetBytes(), 0, hello.Length());
+                Debug.WriteLine("Client: Sent hello message to Server");
 
                 // Receive the server response.
-
                 // Buffer to store the response bytes.
-                data = new Byte[256];
+                byte[] data = new byte[256];
 
                 // String to store the response ASCII representation.
                 String responseData = String.Empty;
@@ -80,21 +83,24 @@ namespace WaBiBaBuSy
 
         public async Task ReceiveBroadcasts()
         {
-            using (_udpClient = new UdpClient(MainLoop.Port) { EnableBroadcast = true })
+            try
             {
-                try
-                {
-                    var receiveResult = await _udpClient.ReceiveAsync(_cts.Token);
-                    string serverIP = Encoding.ASCII.GetString(receiveResult.Buffer);
+                var receiveResult = await _udpClient.ReceiveAsync(_cts.Token);
+                string serverIP = Encoding.ASCII.GetString(receiveResult.Buffer);
 
-                    Debug.WriteLine("From {0} received: {1} ", receiveResult.RemoteEndPoint.Address.ToString(), serverIP);
+                Debug.WriteLine("From {0} received: {1} ", receiveResult.RemoteEndPoint.Address.ToString(), serverIP);
 
-                    MainLoop.IPcontrolServer = receiveResult.RemoteEndPoint.Address;
-                }
-                catch (Exception ex)
+                MainLoop.IPcontrolServer = receiveResult.RemoteEndPoint.Address;
+
+                if (_knownServer == null)
                 {
-                    Debug.WriteLine("Client: Exception in BroadcastReceived: " + ex.Message);
+                    _knownServer = receiveResult.RemoteEndPoint.Address;
+                    ConnectToServer();
                 }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("Client: Exception in BroadcastReceived: " + ex.Message);
             }
         }
     }
