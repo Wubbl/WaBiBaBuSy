@@ -27,9 +27,6 @@ namespace WaBiBaBuSy
             // Start listening for client requests.
             _tcpReceiver.Start();
 
-            IPEndPoint endPoint = new IPEndPoint(IPAddress.Any, MainLoop.Port);
-            _udpClient = new UdpClient(endPoint);
-
             Debug.WriteLine("Server started!");
 
             await ListeningForTCPRequests();
@@ -100,6 +97,9 @@ namespace WaBiBaBuSy
 
         public void StartBroadcast(int durationInSec)
         {
+            _udpClient = new UdpClient();
+            _udpClient.EnableBroadcast = true;
+
             _broadcastsLeft = (durationInSec) / 5;
 
             _timerBroadcast = new System.Timers.Timer(5000);
@@ -107,24 +107,31 @@ namespace WaBiBaBuSy
             _timerBroadcast.Elapsed += TimerBroadcast_Elapsed;
             _timerBroadcast.AutoReset = true;
             _timerBroadcast.Enabled = true;
+
+            UDPBroadcast(MainLoop.Port);
         }
 
         private void TimerBroadcast_Elapsed(object? sender, System.Timers.ElapsedEventArgs e)
         {
+            UDPBroadcast(MainLoop.Port);
+
             if (--_broadcastsLeft == 0)
             {
                 _timerBroadcast.Enabled = false;
+                _udpClient.Close();
             }
         }
 
         public void UDPBroadcast(int port)
         {
-            byte[] bytes = Encoding.ASCII.GetBytes(MainLoop.ipCurrent.ToString());
+            //var firstTwoOctetSegments = string.Join(".", MainLoop.IPcurrent.GetAddressBytes()[0], MainLoop.IPcurrent.GetAddressBytes()[1]);
 
-            _udpClient.SendAsync(bytes, bytes.Length);
-            _udpClient.Close();
+            byte[] bytes = Encoding.ASCII.GetBytes(MainLoop.IPcurrent.ToString());
 
-            Debug.WriteLine("Primary: Broadcast sent with payload: " + MainLoop.ipCurrent.ToString());
+            IPEndPoint endPoint = new IPEndPoint(IPAddress.Broadcast, MainLoop.Port);
+            _udpClient.SendAsync(bytes, bytes.Length, endPoint);
+
+            Debug.WriteLine("Primary: Broadcast sent with payload: " + MainLoop.IPcurrent.ToString());
         }
     }
 }

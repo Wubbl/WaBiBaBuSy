@@ -6,6 +6,9 @@
     <Nullable>enable</Nullable>
     <UseWPF>true</UseWPF>
     <PlatformTarget>x64</PlatformTarget>
+    <Company>BiBaBu</Company>
+    <Version>1.0.1</Version>
+    <Authors>Wubbl</Authors>
   </PropertyGroup>
 
   <ItemGroup>

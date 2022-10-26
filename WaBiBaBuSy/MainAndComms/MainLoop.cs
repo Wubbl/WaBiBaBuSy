@@ -14,14 +14,14 @@ namespace WaBiBaBuSy
     public class MainLoop
     {
         public static int Port { get; set; } = 51234;
-        public static IPAddress ipCurrent { get; set; } = IPAddress.Loopback;
-        public static IPAddress ipControlServer 
+        public static IPAddress IPcurrent { get; set; } = IPAddress.Loopback;
+        public static IPAddress IPcontrolServer 
         { 
             get => _ipControlServer; 
             set
             {
                 _ipControlServer = value;
-                _mainUI?.UpdateTitle("Client connected to: " + ipControlServer.ToString());
+                _mainUI?.UpdateTitle("Client connected to: " + IPcontrolServer.ToString());
             }
          }
 
@@ -91,7 +91,7 @@ namespace WaBiBaBuSy
             {
                 if (ip.AddressFamily == AddressFamily.InterNetwork)
                 {
-                    ipCurrent = ip;
+                    IPcurrent = ip;
                     break;
                 }
             }

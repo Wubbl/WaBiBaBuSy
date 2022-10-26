@@ -37,7 +37,7 @@ namespace WaBiBaBuSy
             try
             {
                 // Prefer using declaration to ensure the instance is Disposed later.
-                using TcpClient client = new TcpClient(MainLoop.ipCurrent.ToString(), MainLoop.Port);
+                using TcpClient client = new TcpClient(MainLoop.IPcurrent.ToString(), MainLoop.Port);
 
                 // Translate the passed message into ASCII and store it as a Byte array.
                 Byte[] data = System.Text.Encoding.ASCII.GetBytes(message);
@@ -89,7 +89,7 @@ namespace WaBiBaBuSy
 
                     Debug.WriteLine("From {0} received: {1} ", receiveResult.RemoteEndPoint.Address.ToString(), serverIP);
 
-                    MainLoop.ipControlServer = receiveResult.RemoteEndPoint.Address;
+                    MainLoop.IPcontrolServer = receiveResult.RemoteEndPoint.Address;
                 }
                 catch (Exception ex)
                 {
