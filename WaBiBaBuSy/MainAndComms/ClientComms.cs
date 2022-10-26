@@ -13,20 +13,21 @@ namespace WaBiBaBuSy
     internal class ClientComms
     {
         private UdpClient _udpClient;
-        private bool _stop = false;
+        private CancellationTokenSource _cts;
 
         public async void StartClient()
         {
             Debug.WriteLine("Client started!");
+
+            _cts = new CancellationTokenSource();
 
             await ReceiveBroadcasts();
         }
 
         public void StopClient()
         {
-            _stop = true;
+            _cts.Cancel();
             _udpClient?.Close();
-            _udpClient?.Dispose();
         }
 
         public void Connect()
@@ -81,26 +82,18 @@ namespace WaBiBaBuSy
         {
             using (_udpClient = new UdpClient(MainLoop.Port) { EnableBroadcast = true })
             {
-                while (!_stop)
+                try
                 {
-                    try
-                    {
-                        IPEndPoint endPoint = new IPEndPoint(IPAddress.Any, MainLoop.Port);
+                    var receiveResult = await _udpClient.ReceiveAsync(_cts.Token);
+                    string serverIP = Encoding.ASCII.GetString(receiveResult.Buffer);
 
-                        CancellationTokenSource cts = new CancellationTokenSource();
-                        cts.CancelAfter(10000);
+                    Debug.WriteLine("From {0} received: {1} ", receiveResult.RemoteEndPoint.Address.ToString(), serverIP);
 
-                        var receiveResult = await _udpClient.ReceiveAsync(cts.Token);
-                        string serverIP = Encoding.ASCII.GetString(receiveResult.Buffer);
-
-                        Debug.WriteLine("From {0} received: {1} ", endPoint.Address.ToString(), serverIP);
-
-                        MainLoop.ipControlServer = endPoint.Address;
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine("Client: Exception in BroadcastReceived: " + ex.Message);
-                    }
+                    MainLoop.ipControlServer = receiveResult.RemoteEndPoint.Address;
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("Client: Exception in BroadcastReceived: " + ex.Message);
                 }
             }
         }

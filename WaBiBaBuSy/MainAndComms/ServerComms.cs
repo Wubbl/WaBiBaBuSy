@@ -32,7 +32,7 @@ namespace WaBiBaBuSy
 
             Debug.WriteLine("Server started!");
 
-            //await ListeningForTCPRequests();
+            await ListeningForTCPRequests();
         }
 
         public void StopServer()
@@ -121,7 +121,7 @@ namespace WaBiBaBuSy
         {
             byte[] bytes = Encoding.ASCII.GetBytes(MainLoop.ipCurrent.ToString());
 
-            _udpClient.Send(bytes);
+            _udpClient.SendAsync(bytes, bytes.Length);
             _udpClient.Close();
 
             Debug.WriteLine("Primary: Broadcast sent with payload: " + MainLoop.ipCurrent.ToString());

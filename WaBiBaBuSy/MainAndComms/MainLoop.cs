@@ -47,7 +47,7 @@ namespace WaBiBaBuSy
                 if (_mode == ServerOrClientMode.Server)
                 {
                     _clientComms?.StopClient();
-                    _clientComms = null;
+                    //_clientComms = null;
 
                     if (_serverComms == null)
                     {
