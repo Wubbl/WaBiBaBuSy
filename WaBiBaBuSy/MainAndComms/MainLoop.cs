@@ -66,6 +66,7 @@ namespace WaBiBaBuSy
         public async void DrawBiBaBuLogAnimation()
         {
             await Task.Run(() => _drawOn?.DrawBiBaBuLogoAnimation());
+            //await Task.Run(() => _drawOn?.DrawDirect2DBiBaBuLogoAnimation());
         }
 
         #endregion Public Methods for UI
