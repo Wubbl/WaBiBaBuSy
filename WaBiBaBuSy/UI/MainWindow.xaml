@@ -8,17 +8,19 @@
         Title="Wallpaper Bier Bart und Busen Synchromat - Client" Height="450" Width="800">
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="33*"/>
-            <ColumnDefinition Width="17*"/>
+            <ColumnDefinition Width="53*"/>
+            <ColumnDefinition Width="27*"/>
         </Grid.ColumnDefinitions>
-        <Button x:Name="btn_DrawImage" Content="Busen" HorizontalAlignment="Left" Margin="224,130,0,0" VerticalAlignment="Top" Click="btn_DrawImage_Click"/>
-        <Button x:Name="btn_ResetWallpaper" Content="Reset" HorizontalAlignment="Left" Margin="224,176,0,0" VerticalAlignment="Top" Click="btn_ResetWallpaper_Click"/>
-        <TextBox x:Name="textBox_Port" HorizontalAlignment="Left" Margin="376,140,0,0" TextWrapping="Wrap" Text="51234" VerticalAlignment="Top" Width="120"/>
-        <Button x:Name="btn_StartServer" Content="Start Server" HorizontalAlignment="Left" Margin="376,176,0,0" VerticalAlignment="Top" Click="btn_StartServer_Click"/>
-        <Button x:Name="btn_Connect" Content="Connect to Server" HorizontalAlignment="Left" Margin="376,273,0,0" VerticalAlignment="Top" Click="btn_Connect_Click"/>
+        <Button x:Name="btn_DrawImage" Content="Busen" HorizontalAlignment="Left" Margin="224,130,0,0" VerticalAlignment="Top" Click="btn_DrawImage_Click" Height="20" Width="36"/>
+        <Button x:Name="btn_ResetWallpaper" Content="Reset" HorizontalAlignment="Left" Margin="224,176,0,0" VerticalAlignment="Top" Click="btn_ResetWallpaper_Click" Height="20" Width="33"/>
+        <TextBox x:Name="textBox_Port" HorizontalAlignment="Left" Margin="376,140,0,0" TextWrapping="Wrap" Text="51234" VerticalAlignment="Top" Width="120" Height="18"/>
+        <Button x:Name="btn_StartServer" Content="Start Server" HorizontalAlignment="Left" Margin="376,176,0,0" VerticalAlignment="Top" Click="btn_StartServer_Click" Height="20" Width="65"/>
+        <Button x:Name="btn_Connect" Content="Connect to Server" HorizontalAlignment="Left" Margin="376,273,0,0" VerticalAlignment="Top" Click="btn_Connect_Click" Height="20" Width="99"/>
         <ListBox x:Name="listBox_Clients" Margin="26,0,0,0" Grid.Column="1"/>
-        <TextBox x:Name="textBox_IP" HorizontalAlignment="Left" Margin="376,250,0,0" TextWrapping="Wrap" Text="127.0.0.1" VerticalAlignment="Top" Width="120"/>
-        <Button x:Name="btn_SwitchMode" Content="Switch Mode" HorizontalAlignment="Left" Margin="85,58,0,0" VerticalAlignment="Top" Click="btn_SwitchMode_Click"/>
+        <TextBox x:Name="textBox_IP" HorizontalAlignment="Left" Margin="376,250,0,0" TextWrapping="Wrap" Text="127.0.0.1" VerticalAlignment="Top" Width="120" Height="18"/>
+        <Button x:Name="btn_SwitchMode" Content="Switch Mode" HorizontalAlignment="Left" Margin="85,58,0,0" VerticalAlignment="Top" Click="btn_SwitchMode_Click" Height="20" Width="73"/>
+        <Button x:Name="btn_StartBroadcast" Content="Start Broadcast" HorizontalAlignment="Left" Margin="85,130,0,0" VerticalAlignment="Top" RenderTransformOrigin="0.656,-1.2" Width="100" Click="btn_StartBroadcast_Click"/>
+        <Slider x:Name="slider_BroadcastDuration" HorizontalAlignment="Left" Margin="85,168,0,0" VerticalAlignment="Top" Width="100" Minimum="10" Maximum="240"/>
 
     </Grid>
 </Window>

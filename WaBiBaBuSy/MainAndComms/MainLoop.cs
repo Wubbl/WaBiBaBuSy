@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -123,6 +124,12 @@ namespace WaBiBaBuSy
         {
             await Task.Run(() => _drawOn?.DrawBiBaBuLogoAnimation());
             //await Task.Run(() => _drawOn?.DrawDirect2DBiBaBuLogoAnimation());
+        }
+
+        public void StartBroadcast(int durationInSec)
+        {
+            Debug.WriteLine("Broadcast started for " + durationInSec + " seconds!");
+            _serverComms?.StartBroadcast(durationInSec);
         }
 
         #endregion Public Methods for UI

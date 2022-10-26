@@ -61,5 +61,10 @@ namespace WaBiBaBuSy
         {
             this.Title = "Wallpaper Bier Bart und Busen Synchromat" + titleAddition;
         }
+
+        private void btn_StartBroadcast_Click(object sender, RoutedEventArgs e)
+        {
+            _mainLoop.StartBroadcast((int)slider_BroadcastDuration.Value);
+        }
     }
 }

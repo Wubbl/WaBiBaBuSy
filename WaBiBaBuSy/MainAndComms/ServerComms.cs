@@ -98,11 +98,11 @@ namespace WaBiBaBuSy
             }
         }
 
-        public void StartBroadcast(int durationInMin, int intervalInSec)
+        public void StartBroadcast(int durationInSec)
         {
-            _broadcastsLeft = (durationInMin * 60) / intervalInSec;
+            _broadcastsLeft = (durationInSec) / 5;
 
-            _timerBroadcast = new System.Timers.Timer(intervalInSec);
+            _timerBroadcast = new System.Timers.Timer(5000);
 
             _timerBroadcast.Elapsed += TimerBroadcast_Elapsed;
             _timerBroadcast.AutoReset = true;
