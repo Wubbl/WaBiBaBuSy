@@ -10,32 +10,43 @@ using System.Threading.Tasks;
 
 namespace WaBiBaBuSy
 {
-    internal class Primary
+    internal class ServerComms
     {
-        private TcpListener? _server;
+        private TcpListener _tcpReceiver;
+        private UdpClient _udpClient;
+
         private System.Timers.Timer _timerBroadcast;
         private int _broadcastsLeft = 0;
 
-        public async void StartPrimary()
+        public async void StartServer()
         {
             IPAddress localIP = IPAddress.Any;
 
-            _server = new TcpListener(localIP, MainLoop.Port);
+            _tcpReceiver = new TcpListener(localIP, MainLoop.Port);
 
             // Start listening for client requests.
-            _server.Start();
+            _tcpReceiver.Start();
+
+            IPEndPoint endPoint = new IPEndPoint(IPAddress.Any, MainLoop.Port);
+            _udpClient = new UdpClient(endPoint);
+
             Debug.WriteLine("Server started!");
 
             await ListeningForTCPRequests();
+        }
+
+        public void StopServer()
+        {
+
         }
 
         private async Task ListeningForTCPRequests()
         {
             while (true)
             {
-                if (_server != null)
+                if (_tcpReceiver != null)
                 {
-                    var client = await _server.AcceptTcpClientAsync().ConfigureAwait(false);
+                    var client = await _tcpReceiver.AcceptTcpClientAsync().ConfigureAwait(false);
                     Debug.WriteLine("Client connected!");
 
                     //if (client != null && client.Client.RemoteEndPoint != null) _clients.Add(((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString());
@@ -108,15 +119,12 @@ namespace WaBiBaBuSy
 
         public void UDPBroadcast(int port)
         {
-            IPEndPoint endPoint = new IPEndPoint(IPAddress.Any, port);
-            UdpClient udpClient = new UdpClient(endPoint);
+            byte[] bytes = Encoding.ASCII.GetBytes(MainLoop.currentIP.ToString());
 
-            byte[] bytes = Encoding.ASCII.GetBytes(MainLoop.PrimeIP.ToString());
+            _udpClient.Send(bytes);
+            _udpClient.Close();
 
-            udpClient.Send(bytes);
-            udpClient.Close();
-
-            Debug.WriteLine("Primary: Broadcast sent with payload: " + MainLoop.PrimeIP.ToString());
+            Debug.WriteLine("Primary: Broadcast sent with payload: " + MainLoop.currentIP.ToString());
         }
     }
 }

@@ -5,15 +5,20 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:WaBiBaBuSy"
         mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
+        Title="Wallpaper Bier Bart und Busen Synchromat - Client" Height="450" Width="800">
     <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="33*"/>
+            <ColumnDefinition Width="17*"/>
+        </Grid.ColumnDefinitions>
         <Button x:Name="btn_DrawImage" Content="Busen" HorizontalAlignment="Left" Margin="224,130,0,0" VerticalAlignment="Top" Click="btn_DrawImage_Click"/>
         <Button x:Name="btn_ResetWallpaper" Content="Reset" HorizontalAlignment="Left" Margin="224,176,0,0" VerticalAlignment="Top" Click="btn_ResetWallpaper_Click"/>
         <TextBox x:Name="textBox_Port" HorizontalAlignment="Left" Margin="376,140,0,0" TextWrapping="Wrap" Text="51234" VerticalAlignment="Top" Width="120"/>
         <Button x:Name="btn_StartServer" Content="Start Server" HorizontalAlignment="Left" Margin="376,176,0,0" VerticalAlignment="Top" Click="btn_StartServer_Click"/>
         <Button x:Name="btn_Connect" Content="Connect to Server" HorizontalAlignment="Left" Margin="376,273,0,0" VerticalAlignment="Top" Click="btn_Connect_Click"/>
-        <ListBox x:Name="listBox_Clients" Margin="554,0,0,0"/>
+        <ListBox x:Name="listBox_Clients" Margin="26,0,0,0" Grid.Column="1"/>
         <TextBox x:Name="textBox_IP" HorizontalAlignment="Left" Margin="376,250,0,0" TextWrapping="Wrap" Text="127.0.0.1" VerticalAlignment="Top" Width="120"/>
+        <Button x:Name="btn_SwitchMode" Content="Switch Mode" HorizontalAlignment="Left" Margin="85,58,0,0" VerticalAlignment="Top" Click="btn_SwitchMode_Click"/>
 
     </Grid>
 </Window>

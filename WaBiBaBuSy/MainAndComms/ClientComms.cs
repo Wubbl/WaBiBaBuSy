@@ -9,9 +9,23 @@ using System.Threading.Tasks;
 
 namespace WaBiBaBuSy
 {
-    internal class Secondary
+    internal class ClientComms
     {
-        
+        private UdpClient _udpClient;
+
+        public void StartClient()
+        {
+            _udpClient = new UdpClient(MainLoop.Port) { EnableBroadcast = true };
+
+            _udpClient.BeginReceive(BroadcastReceived, null);
+
+            Debug.WriteLine("Client started!");
+        }
+
+        public void StopClient()
+        {
+
+        }
 
         public void Connect()
         {
@@ -20,7 +34,7 @@ namespace WaBiBaBuSy
             try
             {
                 // Prefer using declaration to ensure the instance is Disposed later.
-                using TcpClient client = new TcpClient(MainLoop.PrimeIP.ToString(), MainLoop.Port);
+                using TcpClient client = new TcpClient(MainLoop.currentIP.ToString(), MainLoop.Port);
 
                 // Translate the passed message into ASCII and store it as a Byte array.
                 Byte[] data = System.Text.Encoding.ASCII.GetBytes(message);
@@ -59,6 +73,18 @@ namespace WaBiBaBuSy
             {
                 Debug.WriteLine("SocketException: " + ex);
             }
+        }
+
+        public void BroadcastReceived(IAsyncResult ar)
+        {
+            IPEndPoint endPoint = new IPEndPoint(IPAddress.Any, MainLoop.Port);
+
+            byte[] bytes = _udpClient.EndReceive(ar, ref endPoint);
+            string serverIP = Encoding.ASCII.GetString(bytes);
+
+            Debug.WriteLine("From {0} received: {1} ", endPoint.Address.ToString(), serverIP);
+
+            _udpClient.BeginReceive(BroadcastReceived, null);
         }
     }
 }

@@ -41,6 +41,20 @@ namespace WaBiBaBuSy
         private void btn_Connect_Click(object sender, RoutedEventArgs e)
         {
             
-        }   
+        }
+
+        private void btn_SwitchMode_Click(object sender, RoutedEventArgs e)
+        {
+            if (_mainLoop.Mode == MainLoop.ServerOrClientMode.Client)
+            {
+                _mainLoop.Mode = MainLoop.ServerOrClientMode.Server;
+                this.Title = "Wallpaper Bier Bart und Busen Synchromat - Server";
+            }
+            else
+            {
+                _mainLoop.Mode = MainLoop.ServerOrClientMode.Client;
+                this.Title = "Wallpaper Bier Bart und Busen Synchromat - Client";
+            }
+        }
     }
 }

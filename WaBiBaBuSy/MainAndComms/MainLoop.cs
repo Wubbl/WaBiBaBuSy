@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
 using WaBiBaBuSy.Wallpaper;
@@ -11,19 +12,49 @@ namespace WaBiBaBuSy
 {
     public class MainLoop
     {
-        private readonly DrawOnHandle? _drawOn = null;
+        public static int Port { get; set; } = 51234;
+        public static IPAddress currentIP { get; set; } = IPAddress.Loopback;
+
+        private ServerOrClientMode mode;
+        private DrawOnHandle? _drawOn = null;
 
         private List<string> _clients;
         private List<TcpClient> _tcpClients;
 
-        
-        public static int Port = 51234;
-        public static IPAddress PrimeIP = IPAddress.Loopback;
+        private ServerComms serverComms;
+        private ClientComms clientComms;
+
+        public ServerOrClientMode Mode
+        {
+            get => mode;
+            set
+            {
+                mode = value;
+                if (mode == ServerOrClientMode.Server)
+                {
+                    serverComms = new ServerComms();
+                    clientComms?.StopClient();
+                }
+                else
+                {
+                    clientComms = new ClientComms();
+                    serverComms?.StopServer();
+                }
+            }
+        }
+
+        public enum ServerOrClientMode
+        {
+            Client,
+            Server
+        }
 
         public MainLoop()
         {
             // Find Handle
             IntPtr screenHandle = WindowHandle.FindWindowHandle();
+
+            Mode = ServerOrClientMode.Client;
 
             _clients = new List<string>();
             _tcpClients = new List<TcpClient>();
@@ -34,7 +65,7 @@ namespace WaBiBaBuSy
             {
                 if (ip.AddressFamily == AddressFamily.InterNetwork)
                 {
-                    PrimeIP = ip;
+                    currentIP = ip;
                     break;
                 }
             }
