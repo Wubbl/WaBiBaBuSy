@@ -83,8 +83,8 @@ namespace WaBiBaBuSy
             IntPtr screenHandle = WindowHandle.FindWindowHandle();
 
             Mode = ServerOrClientMode.Client;
+            Clients = new List<string>();
 
-            _clients = new List<string>();
             _tcpClients = new List<TcpClient>();
 
             var host = Dns.GetHostEntry(Dns.GetHostName());
@@ -132,6 +132,11 @@ namespace WaBiBaBuSy
         {
             Debug.WriteLine("Broadcast started for " + durationInSec + " seconds!");
             _serverComms?.StartBroadcast(durationInSec);
+        }
+
+        public void ConnectFromClient()
+        {
+            _clientComms?.ConnectToServer();
         }
 
         #endregion Public Methods for UI

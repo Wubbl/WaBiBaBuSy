@@ -35,7 +35,7 @@ namespace WaBiBaBuSy
             _udpClient = new UdpClient(MainLoop.Port);
             _udpClient.EnableBroadcast = true;
 
-            await ReceiveClientPackages();
+            await ListeningForTCPRequests();
         }
 
         public void StopServer()

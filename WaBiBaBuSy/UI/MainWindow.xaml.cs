@@ -42,7 +42,7 @@ namespace WaBiBaBuSy
 
         private void btn_Connect_Click(object sender, RoutedEventArgs e)
         {
-            
+            _mainLoop.ConnectFromClient();
         }
 
         private void btn_SwitchMode_Click(object sender, RoutedEventArgs e)

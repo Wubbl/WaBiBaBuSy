@@ -38,14 +38,14 @@ namespace WaBiBaBuSy
             try
             {
                 Classes.UDPPackage hello = new Classes.UDPPackage(Classes.PayloadType.ClientHello, System.Text.Encoding.ASCII.GetBytes(_knownServer.ToString() + "_" + Dns.GetHostName()));
-                
+                IPEndPoint endPoint = new IPEndPoint(_knownServer, MainLoop.Port);
                 // UDP Package
                 //IPEndPoint endPoint = new IPEndPoint(MainLoop.IPcontrolServer, MainLoop.Port);
                 //_udpClient.SendAsync(hello.GetBytes(), hello.Length(), endPoint);
                 //Debug.WriteLine("Client: Sent hello message to Server");
 
                 // Prefer using declaration to ensure the instance is Disposed later.
-                using TcpClient client = new TcpClient(MainLoop.IPcurrent.ToString(), MainLoop.Port);
+                using TcpClient client = new TcpClient();
 
                 // Get a client stream for reading and writing.
                 NetworkStream stream = client.GetStream();
@@ -63,6 +63,9 @@ namespace WaBiBaBuSy
 
                 string responseData = System.Text.Encoding.ASCII.GetString(data, 0, bytes);
                 Debug.WriteLine("Received: " + responseData);
+
+                if (responseData != "ACK")
+                    _knownServer = IPAddress.None;
 
                 // Explicit close is not necessary since TcpClient.Dispose() will be
                 // called automatically.
@@ -90,7 +93,7 @@ namespace WaBiBaBuSy
 
                 MainLoop.IPcontrolServer = receiveResult.RemoteEndPoint.Address;
 
-                if (_knownServer == null)
+                if (_knownServer == null || _knownServer == IPAddress.None)
                 {
                     _knownServer = receiveResult.RemoteEndPoint.Address;
                     ConnectToServer();
