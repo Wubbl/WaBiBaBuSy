@@ -46,25 +46,25 @@ namespace WaBiBaBuSy
                 _mode = value;
                 if (_mode == ServerOrClientMode.Server)
                 {
+                    _clientComms?.StopClient();
+                    _clientComms = null;
+
                     if (_serverComms == null)
                     {
                         _serverComms = new ServerComms();
                         _serverComms.StartServer();
                     }
-
-                    //clientComms?.StopClient();
-                    //clientComms = null;
                 }
                 else
                 {
+                    _serverComms?.StopServer();
+                    _serverComms = null;
+
                     if (_clientComms == null)
                     {
                         _clientComms = new ClientComms();
                         _clientComms.StartClient();
                     }
-
-                    //serverComms?.StopServer();
-                    //serverComms = null;
                 }
             }
         }

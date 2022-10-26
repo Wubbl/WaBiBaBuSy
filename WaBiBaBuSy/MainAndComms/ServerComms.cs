@@ -32,7 +32,7 @@ namespace WaBiBaBuSy
 
             Debug.WriteLine("Server started!");
 
-            await ListeningForTCPRequests();
+            //await ListeningForTCPRequests();
         }
 
         public void StopServer()

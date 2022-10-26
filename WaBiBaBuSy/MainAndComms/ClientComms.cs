@@ -6,25 +6,27 @@ using System.Net.Sockets;
 using System.Net;
 using System.Text;
 using System.Threading.Tasks;
+using System.Threading;
 
 namespace WaBiBaBuSy
 {
     internal class ClientComms
     {
         private UdpClient _udpClient;
+        private bool _stop = false;
 
-        public void StartClient()
+        public async void StartClient()
         {
-            _udpClient = new UdpClient(MainLoop.Port) { EnableBroadcast = true };
-
-            _udpClient.BeginReceive(BroadcastReceived, null);
-
             Debug.WriteLine("Client started!");
+
+            await ReceiveBroadcasts();
         }
 
         public void StopClient()
         {
-
+            _stop = true;
+            _udpClient?.Close();
+            _udpClient?.Dispose();
         }
 
         public void Connect()
@@ -75,18 +77,32 @@ namespace WaBiBaBuSy
             }
         }
 
-        public void BroadcastReceived(IAsyncResult ar)
+        public async Task ReceiveBroadcasts()
         {
-            IPEndPoint endPoint = new IPEndPoint(IPAddress.Any, MainLoop.Port);
+            using (_udpClient = new UdpClient(MainLoop.Port) { EnableBroadcast = true })
+            {
+                while (!_stop)
+                {
+                    try
+                    {
+                        IPEndPoint endPoint = new IPEndPoint(IPAddress.Any, MainLoop.Port);
 
-            byte[] bytes = _udpClient.EndReceive(ar, ref endPoint);
-            string serverIP = Encoding.ASCII.GetString(bytes);
+                        CancellationTokenSource cts = new CancellationTokenSource();
+                        cts.CancelAfter(10000);
 
-            Debug.WriteLine("From {0} received: {1} ", endPoint.Address.ToString(), serverIP);
+                        var receiveResult = await _udpClient.ReceiveAsync(cts.Token);
+                        string serverIP = Encoding.ASCII.GetString(receiveResult.Buffer);
 
-            MainLoop.ipControlServer = endPoint.Address;
+                        Debug.WriteLine("From {0} received: {1} ", endPoint.Address.ToString(), serverIP);
 
-            _udpClient.BeginReceive(BroadcastReceived, null);
+                        MainLoop.ipControlServer = endPoint.Address;
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine("Client: Exception in BroadcastReceived: " + ex.Message);
+                    }
+                }
+            }
         }
     }
 }
