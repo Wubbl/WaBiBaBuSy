@@ -17,7 +17,6 @@ namespace WaBiBaBuSy
         private List<TcpClient> _tcpClients;
 
         
-
         public static int Port = 51234;
         public static IPAddress PrimeIP = IPAddress.Loopback;
 
@@ -31,13 +30,14 @@ namespace WaBiBaBuSy
 
             var host = Dns.GetHostEntry(Dns.GetHostName());
 
-            //foreach (var ip in host.AddressList)
-            //{
-            //    if (ip.AddressFamily == AddressFamily.InterNetwork)
-            //    {
-            //        textBox_IP.Text = ip.ToString();
-            //    }
-            //}
+            foreach (var ip in host.AddressList)
+            {
+                if (ip.AddressFamily == AddressFamily.InterNetwork)
+                {
+                    PrimeIP = ip;
+                    break;
+                }
+            }
 
             if (screenHandle != IntPtr.Zero)
             {

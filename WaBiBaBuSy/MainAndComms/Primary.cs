@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace WaBiBaBuSy
@@ -12,6 +13,8 @@ namespace WaBiBaBuSy
     internal class Primary
     {
         private TcpListener? _server;
+        private System.Timers.Timer _timerBroadcast;
+        private int _broadcastsLeft = 0;
 
         public async void StartPrimary()
         {
@@ -23,10 +26,10 @@ namespace WaBiBaBuSy
             _server.Start();
             Debug.WriteLine("Server started!");
 
-            await Listening();
+            await ListeningForTCPRequests();
         }
 
-        private async Task Listening()
+        private async Task ListeningForTCPRequests()
         {
             while (true)
             {
@@ -82,6 +85,38 @@ namespace WaBiBaBuSy
                     (client as IDisposable).Dispose();
                 }
             }
+        }
+
+        public void StartBroadcast(int durationInMin, int intervalInSec)
+        {
+            _broadcastsLeft = (durationInMin * 60) / intervalInSec;
+
+            _timerBroadcast = new System.Timers.Timer(intervalInSec);
+
+            _timerBroadcast.Elapsed += TimerBroadcast_Elapsed;
+            _timerBroadcast.AutoReset = true;
+            _timerBroadcast.Enabled = true;
+        }
+
+        private void TimerBroadcast_Elapsed(object? sender, System.Timers.ElapsedEventArgs e)
+        {
+            if (--_broadcastsLeft == 0)
+            {
+                _timerBroadcast.Enabled = false;
+            }
+        }
+
+        public void UDPBroadcast(int port)
+        {
+            IPEndPoint endPoint = new IPEndPoint(IPAddress.Any, port);
+            UdpClient udpClient = new UdpClient(endPoint);
+
+            byte[] bytes = Encoding.ASCII.GetBytes(MainLoop.PrimeIP.ToString());
+
+            udpClient.Send(bytes);
+            udpClient.Close();
+
+            Debug.WriteLine("Primary: Broadcast sent with payload: " + MainLoop.PrimeIP.ToString());
         }
     }
 }
