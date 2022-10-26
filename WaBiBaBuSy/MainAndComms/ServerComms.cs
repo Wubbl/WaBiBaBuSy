@@ -119,12 +119,12 @@ namespace WaBiBaBuSy
 
         public void UDPBroadcast(int port)
         {
-            byte[] bytes = Encoding.ASCII.GetBytes(MainLoop.currentIP.ToString());
+            byte[] bytes = Encoding.ASCII.GetBytes(MainLoop.ipCurrent.ToString());
 
             _udpClient.Send(bytes);
             _udpClient.Close();
 
-            Debug.WriteLine("Primary: Broadcast sent with payload: " + MainLoop.currentIP.ToString());
+            Debug.WriteLine("Primary: Broadcast sent with payload: " + MainLoop.ipCurrent.ToString());
         }
     }
 }

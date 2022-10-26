@@ -13,32 +13,57 @@ namespace WaBiBaBuSy
     public class MainLoop
     {
         public static int Port { get; set; } = 51234;
-        public static IPAddress currentIP { get; set; } = IPAddress.Loopback;
+        public static IPAddress ipCurrent { get; set; } = IPAddress.Loopback;
+        public static IPAddress ipControlServer 
+        { 
+            get => _ipControlServer; 
+            set
+            {
+                _ipControlServer = value;
+                _mainUI?.UpdateTitle("Client connected to: " + ipControlServer.ToString());
+            }
+         }
 
-        private ServerOrClientMode mode;
+        private static IPAddress _ipControlServer = IPAddress.Loopback;
+        private static MainWindow _mainUI;
+
+        private ServerOrClientMode _mode;
         private DrawOnHandle? _drawOn = null;
-
+        
         private List<string> _clients;
         private List<TcpClient> _tcpClients;
 
-        private ServerComms serverComms;
-        private ClientComms clientComms;
+        
+        private ServerComms _serverComms;
+        private ClientComms _clientComms;   
 
         public ServerOrClientMode Mode
         {
-            get => mode;
+            get => _mode;
             set
             {
-                mode = value;
-                if (mode == ServerOrClientMode.Server)
+                _mode = value;
+                if (_mode == ServerOrClientMode.Server)
                 {
-                    serverComms = new ServerComms();
-                    clientComms?.StopClient();
+                    if (_serverComms == null)
+                    {
+                        _serverComms = new ServerComms();
+                        _serverComms.StartServer();
+                    }
+
+                    //clientComms?.StopClient();
+                    //clientComms = null;
                 }
                 else
                 {
-                    clientComms = new ClientComms();
-                    serverComms?.StopServer();
+                    if (_clientComms == null)
+                    {
+                        _clientComms = new ClientComms();
+                        _clientComms.StartClient();
+                    }
+
+                    //serverComms?.StopServer();
+                    //serverComms = null;
                 }
             }
         }
@@ -65,7 +90,7 @@ namespace WaBiBaBuSy
             {
                 if (ip.AddressFamily == AddressFamily.InterNetwork)
                 {
-                    currentIP = ip;
+                    ipCurrent = ip;
                     break;
                 }
             }
@@ -78,8 +103,8 @@ namespace WaBiBaBuSy
 
         public void ShowUI()
         {
-            MainWindow ui = new MainWindow(this);
-            ui.Show();
+            if (_mainUI == null) _mainUI = new MainWindow(this);
+            _mainUI.Show();
         }
 
         public async void LoopMain()

@@ -48,13 +48,18 @@ namespace WaBiBaBuSy
             if (_mainLoop.Mode == MainLoop.ServerOrClientMode.Client)
             {
                 _mainLoop.Mode = MainLoop.ServerOrClientMode.Server;
-                this.Title = "Wallpaper Bier Bart und Busen Synchromat - Server";
+                UpdateTitle("Server");
             }
             else
             {
                 _mainLoop.Mode = MainLoop.ServerOrClientMode.Client;
-                this.Title = "Wallpaper Bier Bart und Busen Synchromat - Client";
+                UpdateTitle("Client");
             }
+        }
+
+        public void UpdateTitle(string titleAddition)
+        {
+            this.Title = "Wallpaper Bier Bart und Busen Synchromat" + titleAddition;
         }
     }
 }

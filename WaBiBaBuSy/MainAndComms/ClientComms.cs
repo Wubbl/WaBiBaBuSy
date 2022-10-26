@@ -34,7 +34,7 @@ namespace WaBiBaBuSy
             try
             {
                 // Prefer using declaration to ensure the instance is Disposed later.
-                using TcpClient client = new TcpClient(MainLoop.currentIP.ToString(), MainLoop.Port);
+                using TcpClient client = new TcpClient(MainLoop.ipCurrent.ToString(), MainLoop.Port);
 
                 // Translate the passed message into ASCII and store it as a Byte array.
                 Byte[] data = System.Text.Encoding.ASCII.GetBytes(message);
@@ -83,6 +83,8 @@ namespace WaBiBaBuSy
             string serverIP = Encoding.ASCII.GetString(bytes);
 
             Debug.WriteLine("From {0} received: {1} ", endPoint.Address.ToString(), serverIP);
+
+            MainLoop.ipControlServer = endPoint.Address;
 
             _udpClient.BeginReceive(BroadcastReceived, null);
         }
