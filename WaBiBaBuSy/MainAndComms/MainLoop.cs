@@ -134,8 +134,12 @@ namespace WaBiBaBuSy
             _serverComms?.StartBroadcast(durationInSec);
         }
 
-        public void ConnectFromClient()
+        public void ConnectFromClient(int newPort)
         {
+            if(newPort != 0)
+            {
+            Port = newPort;
+            }
             _clientComms?.ConnectToServer();
         }
 

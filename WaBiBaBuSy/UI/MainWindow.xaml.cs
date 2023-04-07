@@ -46,7 +46,10 @@ namespace WaBiBaBuSy
 
         private void btn_Connect_Click(object sender, RoutedEventArgs e)
         {
-            _mainLoop.ConnectFromClient();
+            MainViewModel? vm = this.DataContext as MainViewModel;
+
+            _mainLoop.ConnectFromClient(vm.Port);
+
         }
 
         private void btn_SwitchMode_Click(object sender, RoutedEventArgs e)
