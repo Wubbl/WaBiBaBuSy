@@ -65,7 +65,7 @@ namespace WaBiBaBuSy
                     if (_clientComms == null)
                     {
                         _clientComms = new ClientComms();
-                        _clientComms.StartClient();
+                       // _clientComms.StartClient();
                     }
                 }
             }

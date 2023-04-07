@@ -5,6 +5,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading.Tasks;
 using System.Windows;
+using WaBiBaBuSy.ViewModel;
 using WaBiBaBuSy.Wallpaper;
 
 namespace WaBiBaBuSy
@@ -23,6 +24,9 @@ namespace WaBiBaBuSy
             UpdateTitle("Client");
 
             _mainLoop = refToMain;
+
+            MainViewModel vm = new MainViewModel();
+            this.DataContext = vm;
         }
 
         private void btn_ResetWallpaper_Click(object sender, RoutedEventArgs e)
