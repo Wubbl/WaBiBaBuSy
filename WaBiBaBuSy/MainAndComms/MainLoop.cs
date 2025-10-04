@@ -65,7 +65,7 @@ namespace WaBiBaBuSy
                     if (_clientComms == null)
                     {
                         _clientComms = new ClientComms();
-                        _clientComms.StartClient();
+                       // _clientComms.StartClient();
                     }
                 }
             }
@@ -134,8 +134,12 @@ namespace WaBiBaBuSy
             _serverComms?.StartBroadcast(durationInSec);
         }
 
-        public void ConnectFromClient()
+        public void ConnectFromClient(int newPort)
         {
+            if(newPort != 0)
+            {
+            Port = newPort;
+            }
             _clientComms?.ConnectToServer();
         }
 
