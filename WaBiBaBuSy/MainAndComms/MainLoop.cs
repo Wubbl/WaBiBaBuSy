@@ -117,12 +117,12 @@ namespace WaBiBaBuSy
 
         #region Public Methods for UI
 
-        public void CleartWallpaper()
+        public void ClearWallpaper()
         {
             _drawOn?.ClearWallpaper();
         }
 
-        public async void DrawBiBaBuLogAnimation()
+        public async void DrawBiBaBuLogOAnimation()
         {
             await Task.Run(() => _drawOn?.DrawBiBaBuLogoAnimation());
             //await Task.Run(() => _drawOn?.DrawDirect2DBiBaBuLogoAnimation());
