@@ -17,4 +17,8 @@
     <Protobuf Include="Protos\**\*.proto" GrpcServices="Both" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\WaBiBaBuSy.Models\WaBiBaBuSy.Models.csproj" />
+  </ItemGroup>
+
 </Project>

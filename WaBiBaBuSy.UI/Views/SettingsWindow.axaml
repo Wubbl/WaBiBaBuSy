@@ -1,0 +1,87 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:WaBiBaBuSy.UI.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="600" d:DesignHeight="500"
+        x:Class="WaBiBaBuSy.UI.Views.SettingsWindow"
+        x:DataType="vm:SettingsViewModel"
+        Title="WaBiBaBuSy Settings"
+        Width="600" Height="500"
+        MinWidth="500" MinHeight="400"
+        WindowStartupLocation="CenterOwner">
+
+    <Design.DataContext>
+        <vm:SettingsViewModel/>
+    </Design.DataContext>
+
+    <Grid RowDefinitions="*,Auto" Margin="20">
+        <!-- Settings Content -->
+        <ScrollViewer Grid.Row="0">
+            <StackPanel Spacing="20">
+                <!-- Server Settings -->
+                <Border Background="#252526" CornerRadius="5" Padding="15">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="Server Settings" FontSize="16" FontWeight="Bold" Foreground="White"/>
+
+                        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Port:" VerticalAlignment="Center" Margin="0,0,10,10" Foreground="#CCCCCC"/>
+                            <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding ServerPort}" Minimum="1" Maximum="65535" Margin="0,0,0,10"/>
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Max Clients:" VerticalAlignment="Center" Margin="0,0,10,10" Foreground="#CCCCCC"/>
+                            <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding MaxClients}" Minimum="1" Maximum="100" Margin="0,0,0,10"/>
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Service Name:" VerticalAlignment="Center" Margin="0,0,10,10" Foreground="#CCCCCC"/>
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding ServiceName}" Margin="0,0,0,10"/>
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Content Directory:" VerticalAlignment="Center" Margin="0,0,10,10" Foreground="#CCCCCC"/>
+                            <Grid Grid.Row="3" Grid.Column="1" ColumnDefinitions="*,Auto" Margin="0,0,0,10">
+                                <TextBox Grid.Column="0" Text="{Binding ContentDirectory}" Margin="0,0,5,0"/>
+                                <Button Grid.Column="1" Content="Browse" Command="{Binding BrowseContentDirectoryCommand}"/>
+                            </Grid>
+
+                            <CheckBox Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2" Content="Enable Auto-Discovery (mDNS)" IsChecked="{Binding EnableAutoDiscovery}" Foreground="White"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Client Settings -->
+                <Border Background="#252526" CornerRadius="5" Padding="15">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="Client Settings" FontSize="16" FontWeight="Bold" Foreground="White"/>
+
+                        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Server Address:" VerticalAlignment="Center" Margin="0,0,10,10" Foreground="#CCCCCC"/>
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ServerAddress}" Watermark="192.168.1.100 or hostname" Margin="0,0,0,10"/>
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Server Port:" VerticalAlignment="Center" Margin="0,0,10,10" Foreground="#CCCCCC"/>
+                            <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding ClientServerPort}" Minimum="1" Maximum="65535" Margin="0,0,0,10"/>
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Heartbeat Interval (s):" VerticalAlignment="Center" Margin="0,0,10,10" Foreground="#CCCCCC"/>
+                            <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding HeartbeatIntervalSeconds}" Minimum="1" Maximum="60" Margin="0,0,0,10"/>
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Cache Directory:" VerticalAlignment="Center" Margin="0,0,10,10" Foreground="#CCCCCC"/>
+                            <Grid Grid.Row="3" Grid.Column="1" ColumnDefinitions="*,Auto" Margin="0,0,0,10">
+                                <TextBox Grid.Column="0" Text="{Binding CacheDirectory}" Margin="0,0,5,0"/>
+                                <Button Grid.Column="1" Content="Browse" Command="{Binding BrowseCacheDirectoryCommand}"/>
+                            </Grid>
+
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Max Cache Size (MB):" VerticalAlignment="Center" Margin="0,0,10,10" Foreground="#CCCCCC"/>
+                            <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding MaxCacheSizeMB}" Minimum="100" Maximum="102400" Increment="512" Margin="0,0,0,10"/>
+
+                            <CheckBox Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="2" Content="Auto-connect on startup" IsChecked="{Binding AutoConnect}" Margin="0,0,0,5" Foreground="White"/>
+                        </Grid>
+
+                        <CheckBox Content="Prefer auto-discovery over manual address" IsChecked="{Binding PreferAutoDiscovery}" Foreground="White"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Action Buttons -->
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto" Margin="0,20,0,0">
+            <Button Grid.Column="1" Content="Save" Command="{Binding SaveCommand}" Width="100" Margin="0,0,10,0"/>
+            <Button Grid.Column="2" Content="Cancel" Command="{Binding CancelCommand}" Width="100"/>
+        </Grid>
+    </Grid>
+</Window>

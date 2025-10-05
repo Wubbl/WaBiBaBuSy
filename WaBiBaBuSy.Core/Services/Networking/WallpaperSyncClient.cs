@@ -3,6 +3,8 @@ using Grpc.Net.Client;
 using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Grpc;
 using WaBiBaBuSy.Models.Configuration;
+using System.Security.Cryptography;
+using Google.Protobuf;
 
 namespace WaBiBaBuSy.Core.Services.Networking;
 
@@ -249,6 +251,145 @@ public class WallpaperSyncClient : IDisposable
     }
 
     /// <summary>
+    /// Update physical distance for a client on the server
+    /// </summary>
+    public async Task<bool> UpdateClientDistanceAsync(string clientId, int distanceCm)
+    {
+        if (_client == null || !IsConnected)
+        {
+            _logger.LogWarning("Cannot update client distance - not connected");
+            return false;
+        }
+
+        try
+        {
+            var request = new ClientDistanceUpdate
+            {
+                ClientId = clientId,
+                PhysicalDistanceCm = distanceCm
+            };
+
+            var response = await _client.UpdateClientDistanceAsync(request);
+
+            if (response.Success)
+            {
+                _logger.LogInformation("Successfully updated distance for client {ClientId} to {Distance} cm",
+                    clientId, distanceCm);
+            }
+            else
+            {
+                _logger.LogWarning("Failed to update distance for client {ClientId}: {Message}",
+                    clientId, response.Message);
+            }
+
+            return response.Success;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating client distance");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Transfer a content file to the server
+    /// </summary>
+    public async Task<bool> TransferContentAsync(string filePath, string contentId, int chunkSizeBytes = 1024 * 1024)
+    {
+        if (_client == null || !IsConnected)
+        {
+            _logger.LogWarning("Cannot transfer content - not connected");
+            return false;
+        }
+
+        if (!File.Exists(filePath))
+        {
+            _logger.LogError("File not found: {FilePath}", filePath);
+            return false;
+        }
+
+        try
+        {
+            var fileInfo = new FileInfo(filePath);
+            var filename = fileInfo.Name;
+            var fileSize = fileInfo.Length;
+            var totalChunks = (int)Math.Ceiling((double)fileSize / chunkSizeBytes);
+
+            _logger.LogInformation("Starting content transfer: {Filename} ({FileSize} bytes, {TotalChunks} chunks)",
+                filename, fileSize, totalChunks);
+
+            // Compute file hash
+            var fileHash = await ComputeFileHashAsync(filePath);
+
+            // Start streaming call
+            using var call = _client.TransferContent();
+
+            // Read and send chunks
+            await using var fileStream = File.OpenRead(filePath);
+            var buffer = new byte[chunkSizeBytes];
+            int chunkIndex = 0;
+
+            while (true)
+            {
+                var bytesRead = await fileStream.ReadAsync(buffer);
+                if (bytesRead == 0)
+                    break;
+
+                var chunk = new ContentChunk
+                {
+                    ContentId = contentId,
+                    Filename = filename,
+                    TotalSize = fileSize,
+                    ChunkIndex = chunkIndex,
+                    TotalChunks = totalChunks,
+                    Data = ByteString.CopyFrom(buffer, 0, bytesRead),
+                    Hash = fileHash
+                };
+
+                await call.RequestStream.WriteAsync(chunk);
+
+                _logger.LogDebug("Sent chunk {ChunkIndex}/{TotalChunks} ({BytesRead} bytes)",
+                    chunkIndex, totalChunks, bytesRead);
+
+                chunkIndex++;
+            }
+
+            // Complete the request
+            await call.RequestStream.CompleteAsync();
+
+            // Get response
+            var response = await call.ResponseAsync;
+
+            if (response.Success)
+            {
+                _logger.LogInformation("Content transfer completed successfully: {Filename}", filename);
+                return true;
+            }
+            else
+            {
+                _logger.LogError("Content transfer failed: {Message}", response.Message);
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error transferring content");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Compute SHA-256 hash of a file
+    /// </summary>
+    private async Task<string> ComputeFileHashAsync(string filePath)
+    {
+        using var sha256 = SHA256.Create();
+        await using var fileStream = File.OpenRead(filePath);
+        var hashBytes = await sha256.ComputeHashAsync(fileStream);
+        return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
+    }
+
+    /// <summary>
     /// Get local IP address
     /// </summary>
     private string GetLocalIpAddress()
@@ -374,14 +515,51 @@ public class WallpaperSyncClient : IDisposable
     /// </summary>
     private ScreenConfiguration GetScreenConfiguration()
     {
-        // TODO: Implement actual screen detection using Windows APIs
-        // For now, return a placeholder
-        return new ScreenConfiguration
+        var config = new ScreenConfiguration();
+
+        // Get all screens
+        var screens = System.Windows.Forms.Screen.AllScreens;
+        config.MonitorCount = screens.Length;
+
+        // Sort screens by X position (left to right)
+        var sortedScreens = screens.OrderBy(s => s.Bounds.X).ToArray();
+
+        // Calculate total width and height
+        if (sortedScreens.Length > 0)
         {
-            MonitorCount = 1,
-            TotalWidth = 1920,
-            TotalHeight = 1080
-        };
+            // Find the leftmost and rightmost X coordinates
+            var minX = sortedScreens.Min(s => s.Bounds.X);
+            var maxX = sortedScreens.Max(s => s.Bounds.Right);
+            config.TotalWidth = maxX - minX;
+
+            // Find the topmost and bottommost Y coordinates
+            var minY = sortedScreens.Min(s => s.Bounds.Y);
+            var maxY = sortedScreens.Max(s => s.Bounds.Bottom);
+            config.TotalHeight = maxY - minY;
+        }
+
+        // Add monitor information in left-to-right order
+        for (int i = 0; i < sortedScreens.Length; i++)
+        {
+            var screen = sortedScreens[i];
+            var monitorInfo = new MonitorInfo
+            {
+                Index = i,
+                Width = screen.Bounds.Width,
+                Height = screen.Bounds.Height,
+                X = screen.Bounds.X,
+                Y = screen.Bounds.Y,
+                IsPrimary = screen.Primary,
+                DeviceName = screen.DeviceName
+            };
+
+            config.Monitors.Add(monitorInfo);
+        }
+
+        _logger.LogInformation("Detected {MonitorCount} monitor(s), total resolution: {Width}x{Height}",
+            config.MonitorCount, config.TotalWidth, config.TotalHeight);
+
+        return config;
     }
 
     public void Dispose()

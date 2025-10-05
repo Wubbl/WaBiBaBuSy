@@ -22,6 +22,7 @@ service WallpaperSync {
   // Network topology
   rpc GetTopology(TopologyRequest) returns (TopologyResponse);
   rpc UpdateClientOrder(ClientOrderUpdate) returns (OrderUpdateResponse);
+  rpc UpdateClientDistance(ClientDistanceUpdate) returns (DistanceUpdateResponse);
 }
 
 // Client information message
@@ -167,6 +168,18 @@ message ClientOrderItem {
 
 // Order update response
 message OrderUpdateResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Client distance update request
+message ClientDistanceUpdate {
+  string client_id = 1;
+  int32 physical_distance_cm = 2;
+}
+
+// Distance update response
+message DistanceUpdateResponse {
   bool success = 1;
   string message = 2;
 }

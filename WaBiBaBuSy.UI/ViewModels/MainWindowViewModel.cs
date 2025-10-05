@@ -141,10 +141,45 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void UpdateClientDistance(ClientNodeViewModel client)
+    private async Task UpdateClientDistance(ClientNodeViewModel client)
     {
-        // TODO: Show dialog to update physical distance
-        // For now this will be triggered from UI when user edits distance
+        if (client == null)
+            return;
+
+        try
+        {
+            // Update via sync coordinator if in server mode
+            if (_service.IsServerRunning && _service.SyncCoordinator != null)
+            {
+                _service.SyncCoordinator.UpdateClientDistance(client.ClientId, client.PhysicalDistanceCm);
+                Console.WriteLine($"Updated physical distance for client {client.ClientId} to {client.PhysicalDistanceCm} cm");
+            }
+            else if (_service.IsClientConnected)
+            {
+                // If we're a client, we need to send this update to the server via gRPC
+                await UpdateClientDistanceOnServerAsync(client.ClientId, client.PhysicalDistanceCm);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error updating client distance: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Update client distance on server via gRPC (when in client mode)
+    /// </summary>
+    private async Task UpdateClientDistanceOnServerAsync(string clientId, int distanceCm)
+    {
+        var success = await _service.UpdateClientDistanceAsync(clientId, distanceCm);
+        if (success)
+        {
+            Console.WriteLine($"Successfully updated physical distance for client {clientId} to {distanceCm} cm on server");
+        }
+        else
+        {
+            Console.WriteLine($"Failed to update physical distance for client {clientId}");
+        }
     }
 
     [RelayCommand]

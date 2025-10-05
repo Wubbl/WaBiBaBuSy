@@ -30,10 +30,12 @@ public partial class TrayViewModel : ObservableObject
     {
         _desktop = desktop;
 
-        // Create service with default configuration
-        // TODO: Load configuration from file
-        var serverConfig = new ServerConfiguration();
-        var clientConfig = new ClientConfiguration();
+        // Load configuration from file
+        var serverConfig = ConfigurationManager.LoadServerConfiguration();
+        var clientConfig = ConfigurationManager.LoadClientConfiguration();
+
+        Console.WriteLine($"Loaded server config from: {ConfigurationManager.GetServerConfigPath()}");
+        Console.WriteLine($"Loaded client config from: {ConfigurationManager.GetClientConfigPath()}");
 
         var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
         var logger = loggerFactory.CreateLogger<WaBiBaBuSyService>();
@@ -129,7 +131,8 @@ public partial class TrayViewModel : ObservableObject
     [RelayCommand]
     private void Settings()
     {
-        // TODO: Show settings window
+        var settingsWindow = new SettingsWindow();
+        settingsWindow.Show();
     }
 
     [RelayCommand]

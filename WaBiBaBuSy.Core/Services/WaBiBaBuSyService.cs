@@ -19,6 +19,7 @@ public class WaBiBaBuSyService : IDisposable
     private WallpaperSyncClient? _client;
     private MdnsClientDiscoveryService? _mdnsClientDiscovery;
     private WallpaperSyncCoordinator? _syncCoordinator;
+    private WallpaperPlaybackService? _playbackService;
 
     public bool IsServerMode { get; private set; }
     public bool IsClientMode { get; private set; }
@@ -29,6 +30,11 @@ public class WaBiBaBuSyService : IDisposable
     /// Get the sync coordinator (only available in server mode)
     /// </summary>
     public WallpaperSyncCoordinator? SyncCoordinator => _syncCoordinator;
+
+    /// <summary>
+    /// Get the playback service (only available in client mode)
+    /// </summary>
+    public WallpaperPlaybackService? PlaybackService => _playbackService;
 
     // Events for UI updates
     public event EventHandler<ServerStatusChangedEventArgs>? ServerStatusChanged;
@@ -154,6 +160,11 @@ public class WaBiBaBuSyService : IDisposable
 
             if (connected)
             {
+                // Create and initialize wallpaper playback service
+                var playbackLogger = LoggerFactory.Create(builder => builder.AddConsole())
+                    .CreateLogger<WallpaperPlaybackService>();
+                _playbackService = new WallpaperPlaybackService(playbackLogger, _client);
+
                 IsClientMode = true;
                 _logger.LogInformation("Client mode started successfully");
             }
@@ -180,6 +191,10 @@ public class WaBiBaBuSyService : IDisposable
         try
         {
             _logger.LogInformation("Disconnecting from server");
+
+            // Dispose playback service first
+            _playbackService?.Dispose();
+            _playbackService = null;
 
             if (_client != null)
             {
@@ -273,6 +288,48 @@ public class WaBiBaBuSyService : IDisposable
         }
 
         return _serverHost.SyncService.GetConnectedClients();
+    }
+
+    /// <summary>
+    /// Update client physical distance (when in client mode)
+    /// </summary>
+    public async Task<bool> UpdateClientDistanceAsync(string clientId, int distanceCm)
+    {
+        if (_client == null || !IsClientConnected)
+        {
+            _logger.LogWarning("Cannot update client distance - not connected to server");
+            return false;
+        }
+
+        return await _client.UpdateClientDistanceAsync(clientId, distanceCm);
+    }
+
+    /// <summary>
+    /// Transfer content file to server (when in client mode)
+    /// </summary>
+    public async Task<bool> TransferContentToServerAsync(string filePath, string contentId)
+    {
+        if (_client == null || !IsClientConnected)
+        {
+            _logger.LogWarning("Cannot transfer content - not connected to server");
+            return false;
+        }
+
+        return await _client.TransferContentAsync(filePath, contentId);
+    }
+
+    /// <summary>
+    /// Register content for wallpaper playback (when in client mode)
+    /// </summary>
+    public void RegisterWallpaperContent(string contentId, string localFilePath)
+    {
+        if (_playbackService == null)
+        {
+            _logger.LogWarning("Cannot register wallpaper content - playback service not initialized");
+            return;
+        }
+
+        _playbackService.RegisterContent(contentId, localFilePath);
     }
 
     private void OnServerStatusChanged(object? sender, ServerStatusChangedEventArgs e)

@@ -1,6 +1,8 @@
 using Grpc.Core;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using WaBiBaBuSy.Models.Configuration;
 
 namespace WaBiBaBuSy.Grpc.Services;
 
@@ -10,15 +12,22 @@ namespace WaBiBaBuSy.Grpc.Services;
 public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
 {
     private readonly ILogger<WallpaperSyncService> _logger;
+    private readonly ServerConfiguration _serverConfig;
     private readonly ConcurrentDictionary<string, ConnectedClient> _connectedClients;
     private readonly ConcurrentDictionary<string, IServerStreamWriter<SyncCommand>> _clientCommandStreams;
     private int _nextClientOrder = 1;
 
-    public WallpaperSyncService(ILogger<WallpaperSyncService> logger)
+    public WallpaperSyncService(
+        ILogger<WallpaperSyncService> logger,
+        ServerConfiguration serverConfig)
     {
         _logger = logger;
+        _serverConfig = serverConfig;
         _connectedClients = new ConcurrentDictionary<string, ConnectedClient>();
         _clientCommandStreams = new ConcurrentDictionary<string, IServerStreamWriter<SyncCommand>>();
+
+        // Ensure content directory exists
+        Directory.CreateDirectory(_serverConfig.ContentDirectory);
     }
 
     /// <summary>
@@ -205,16 +214,61 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                     chunk.ChunkIndex, chunk.TotalChunks, chunk.Filename);
             }
 
-            // TODO: Reassemble chunks and save file
-            // This will be implemented when adding content management
+            // Validate all chunks received
+            if (chunksReceived != totalChunks)
+            {
+                _logger.LogError("Incomplete transfer: received {Received}/{Total} chunks", chunksReceived, totalChunks);
+                return new TransferStatus
+                {
+                    Success = false,
+                    Message = $"Incomplete transfer: received {chunksReceived}/{totalChunks} chunks",
+                    ChunksReceived = chunksReceived,
+                    TotalChunks = totalChunks
+                };
+            }
 
-            _logger.LogInformation("Content transfer completed for {Filename}. Received {ChunksReceived}/{TotalChunks} chunks",
-                filename, chunksReceived, totalChunks);
+            // Sort chunks by index
+            var sortedChunks = chunks.OrderBy(c => c.ChunkIndex).ToList();
+
+            // Reassemble file
+            var filePath = Path.Combine(_serverConfig.ContentDirectory, filename ?? "unknown");
+            await using (var fileStream = File.Create(filePath))
+            {
+                foreach (var chunk in sortedChunks)
+                {
+                    await fileStream.WriteAsync(chunk.Data.ToByteArray(), context.CancellationToken);
+                }
+            }
+
+            // Verify file hash if provided
+            if (!string.IsNullOrEmpty(sortedChunks[0].Hash))
+            {
+                var actualHash = await ComputeFileHashAsync(filePath);
+                if (!actualHash.Equals(sortedChunks[0].Hash, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogError("Hash mismatch for {Filename}. Expected: {Expected}, Actual: {Actual}",
+                        filename, sortedChunks[0].Hash, actualHash);
+
+                    // Delete corrupted file
+                    File.Delete(filePath);
+
+                    return new TransferStatus
+                    {
+                        Success = false,
+                        Message = "Hash verification failed - file corrupted",
+                        ChunksReceived = chunksReceived,
+                        TotalChunks = totalChunks
+                    };
+                }
+            }
+
+            _logger.LogInformation("Content transfer completed successfully for {Filename}. Saved to {FilePath}",
+                filename, filePath);
 
             return new TransferStatus
             {
                 Success = true,
-                Message = "Transfer completed successfully",
+                Message = $"Transfer completed successfully. File saved to {filePath}",
                 ChunksReceived = chunksReceived,
                 TotalChunks = totalChunks
             };
@@ -280,6 +334,51 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         {
             _logger.LogError(ex, "Error updating client order");
             return Task.FromResult(new OrderUpdateResponse
+            {
+                Success = false,
+                Message = $"Update failed: {ex.Message}"
+            });
+        }
+    }
+
+    /// <summary>
+    /// Update the physical distance of a client
+    /// </summary>
+    public override Task<DistanceUpdateResponse> UpdateClientDistance(
+        ClientDistanceUpdate request,
+        ServerCallContext context)
+    {
+        _logger.LogInformation("Updating physical distance for client {ClientId} to {Distance} cm",
+            request.ClientId, request.PhysicalDistanceCm);
+
+        try
+        {
+            if (_connectedClients.TryGetValue(request.ClientId, out var client))
+            {
+                client.PhysicalDistanceCm = request.PhysicalDistanceCm;
+                _logger.LogInformation("Updated client {ClientId} physical distance to {Distance} cm",
+                    request.ClientId, request.PhysicalDistanceCm);
+
+                return Task.FromResult(new DistanceUpdateResponse
+                {
+                    Success = true,
+                    Message = "Physical distance updated successfully"
+                });
+            }
+            else
+            {
+                _logger.LogWarning("Client {ClientId} not found", request.ClientId);
+                return Task.FromResult(new DistanceUpdateResponse
+                {
+                    Success = false,
+                    Message = $"Client {request.ClientId} not found"
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating client distance");
+            return Task.FromResult(new DistanceUpdateResponse
             {
                 Success = false,
                 Message = $"Update failed: {ex.Message}"
@@ -362,5 +461,16 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         await Task.WhenAll(tasks);
         _logger.LogInformation("Broadcasted {CommandType} command to {ClientCount} clients",
             command.Type, tasks.Count);
+    }
+
+    /// <summary>
+    /// Compute SHA-256 hash of a file
+    /// </summary>
+    private async Task<string> ComputeFileHashAsync(string filePath)
+    {
+        using var sha256 = SHA256.Create();
+        await using var fileStream = File.OpenRead(filePath);
+        var hashBytes = await sha256.ComputeHashAsync(fileStream);
+        return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
     }
 }

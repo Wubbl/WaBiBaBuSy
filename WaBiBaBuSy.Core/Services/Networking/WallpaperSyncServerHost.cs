@@ -65,6 +65,9 @@ public class WallpaperSyncServerHost : IDisposable
             // Add services
             builder.Services.AddGrpc();
 
+            // Register server configuration as singleton
+            builder.Services.AddSingleton(_configuration);
+
             // Register our gRPC service as singleton so we can access it
             builder.Services.AddSingleton<WallpaperSyncService>();
 
