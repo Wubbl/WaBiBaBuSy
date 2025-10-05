@@ -11,12 +11,14 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
 {
     private readonly ILogger<WallpaperSyncService> _logger;
     private readonly ConcurrentDictionary<string, ConnectedClient> _connectedClients;
+    private readonly ConcurrentDictionary<string, IServerStreamWriter<SyncCommand>> _clientCommandStreams;
     private int _nextClientOrder = 1;
 
     public WallpaperSyncService(ILogger<WallpaperSyncService> logger)
     {
         _logger = logger;
         _connectedClients = new ConcurrentDictionary<string, ConnectedClient>();
+        _clientCommandStreams = new ConcurrentDictionary<string, IServerStreamWriter<SyncCommand>>();
     }
 
     /// <summary>
@@ -105,40 +107,71 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
 
     /// <summary>
     /// Bidirectional streaming for sync commands
-    /// Client sends commands/responses, server processes them
+    /// Client sends responses/status, server sends commands
     /// </summary>
     public override async Task SyncStream(
-        IAsyncStreamReader<SyncCommand> requestStream,
-        IServerStreamWriter<SyncResponse> responseStream,
+        IAsyncStreamReader<SyncResponse> requestStream,
+        IServerStreamWriter<SyncCommand> responseStream,
         ServerCallContext context)
     {
-        _logger.LogInformation("SyncStream started");
+        // Extract client ID from metadata
+        var clientIdHeader = context.RequestHeaders.FirstOrDefault(h => h.Key == "client-id");
+        var clientId = clientIdHeader?.Value;
+
+        if (string.IsNullOrEmpty(clientId))
+        {
+            _logger.LogWarning("SyncStream started without client-id header");
+            return;
+        }
+
+        _logger.LogInformation("SyncStream started for client {ClientId}", clientId);
 
         try
         {
-            // Listen for client commands/status
-            await foreach (var command in requestStream.ReadAllAsync(context.CancellationToken))
+            // Register this client's command stream (server->client direction)
+            _clientCommandStreams.AddOrUpdate(clientId, responseStream, (key, existing) => responseStream);
+
+            // Listen for client responses/status updates
+            await foreach (var response in requestStream.ReadAllAsync(context.CancellationToken))
             {
-                _logger.LogInformation("Received sync command: {CommandType} for content {ContentId}",
-                    command.Type, command.ContentId);
+                _logger.LogDebug("Received sync response from client {ClientId}: Sequence {SequenceNumber}, State {State}",
+                    response.ClientId, response.SequenceNumber, response.State);
 
-                // TODO: Process commands and broadcast to other clients
-                // This will be implemented when integrating with the wallpaper engine
-
-                // Send acknowledgment back
-                await responseStream.WriteAsync(new SyncResponse
+                // Update client status based on wallpaper state
+                if (_connectedClients.TryGetValue(clientId, out var client))
                 {
-                    ClientId = "server",
-                    SequenceNumber = command.SequenceNumber,
-                    Acknowledged = true,
-                    State = WallpaperStateEnum.WallpaperPlaying
-                });
+                    client.Status = MapWallpaperStateToClientStatus(response.State);
+                    client.LastHeartbeat = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                }
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error in SyncStream");
+            _logger.LogError(ex, "Error in SyncStream for client {ClientId}", clientId);
         }
+        finally
+        {
+            // Remove client stream when disconnected
+            _clientCommandStreams.TryRemove(clientId, out _);
+            _logger.LogInformation("SyncStream ended for client {ClientId}", clientId);
+        }
+    }
+
+    /// <summary>
+    /// Map wallpaper state to client status
+    /// </summary>
+    private ClientStatusEnum MapWallpaperStateToClientStatus(WallpaperStateEnum state)
+    {
+        return state switch
+        {
+            WallpaperStateEnum.WallpaperUninitialized => ClientStatusEnum.ClientConnected,
+            WallpaperStateEnum.WallpaperStopped => ClientStatusEnum.ClientConnected,
+            WallpaperStateEnum.WallpaperPlaying => ClientStatusEnum.ClientPlaying,
+            WallpaperStateEnum.WallpaperPaused => ClientStatusEnum.ClientConnected,
+            WallpaperStateEnum.WallpaperBuffering => ClientStatusEnum.ClientSyncing,
+            WallpaperStateEnum.WallpaperError => ClientStatusEnum.ClientError,
+            _ => ClientStatusEnum.ClientConnected
+        };
     }
 
     /// <summary>
@@ -272,6 +305,62 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         {
             _logger.LogInformation("Client {ClientId} removed", clientId);
         }
+        _clientCommandStreams.TryRemove(clientId, out _);
         return removed;
+    }
+
+    /// <summary>
+    /// Send a command to a specific client
+    /// </summary>
+    public async Task<bool> SendCommandToClientAsync(string clientId, SyncCommand command)
+    {
+        if (_clientCommandStreams.TryGetValue(clientId, out var stream))
+        {
+            try
+            {
+                await stream.WriteAsync(command);
+                _logger.LogDebug("Sent {CommandType} command to client {ClientId}", command.Type, clientId);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send command to client {ClientId}", clientId);
+                return false;
+            }
+        }
+
+        _logger.LogWarning("Cannot send command to client {ClientId} - no active stream", clientId);
+        return false;
+    }
+
+    /// <summary>
+    /// Broadcast a command to all connected clients
+    /// </summary>
+    public async Task BroadcastCommandAsync(SyncCommand command)
+    {
+        var tasks = new List<Task>();
+
+        foreach (var kvp in _clientCommandStreams)
+        {
+            var clientId = kvp.Key;
+            var stream = kvp.Value;
+
+            tasks.Add(Task.Run(async () =>
+            {
+                try
+                {
+                    await stream.WriteAsync(command);
+                    _logger.LogDebug("Sent {CommandType} command to client {ClientId}", command.Type, clientId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to send command to client {ClientId}", clientId);
+                }
+            }));
+        }
+
+        await Task.WhenAll(tasks);
+        _logger.LogInformation("Broadcasted {CommandType} command to {ClientCount} clients",
+            command.Type, tasks.Count);
     }
 }

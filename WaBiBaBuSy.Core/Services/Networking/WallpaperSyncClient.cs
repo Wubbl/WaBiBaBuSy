@@ -18,11 +18,15 @@ public class WallpaperSyncClient : IDisposable
     private string? _clientId;
     private CancellationTokenSource? _heartbeatCts;
     private Task? _heartbeatTask;
+    private CancellationTokenSource? _syncStreamCts;
+    private Task? _syncStreamTask;
+    private AsyncDuplexStreamingCall<SyncResponse, SyncCommand>? _syncStreamCall;
 
     public bool IsConnected { get; private set; }
     public string? ClientId => _clientId;
 
     public event EventHandler<ConnectionStatusChangedEventArgs>? ConnectionStatusChanged;
+    public event EventHandler<SyncCommandReceivedEventArgs>? SyncCommandReceived;
 
     public WallpaperSyncClient(
         ILogger<WallpaperSyncClient> logger,
@@ -68,6 +72,9 @@ public class WallpaperSyncClient : IDisposable
             // Start heartbeat
             StartHeartbeat();
 
+            // Start sync stream to receive commands
+            StartSyncStream();
+
             _logger.LogInformation("Successfully connected to server. Client ID: {ClientId}", _clientId);
             return true;
         }
@@ -94,6 +101,7 @@ public class WallpaperSyncClient : IDisposable
         _logger.LogInformation("Disconnecting from server");
 
         StopHeartbeat();
+        StopSyncStream();
 
         IsConnected = false;
         ConnectionStatusChanged?.Invoke(this,
@@ -259,6 +267,109 @@ public class WallpaperSyncClient : IDisposable
     }
 
     /// <summary>
+    /// Start sync stream to receive commands from server
+    /// </summary>
+    private void StartSyncStream()
+    {
+        if (_client == null || string.IsNullOrEmpty(_clientId))
+        {
+            _logger.LogWarning("Cannot start sync stream - not connected");
+            return;
+        }
+
+        _syncStreamCts = new CancellationTokenSource();
+
+        // Create metadata with client ID
+        var metadata = new Metadata
+        {
+            { "client-id", _clientId }
+        };
+
+        // Start the bidirectional stream
+        _syncStreamCall = _client.SyncStream(metadata, cancellationToken: _syncStreamCts.Token);
+
+        // Start task to receive commands
+        _syncStreamTask = Task.Run(async () =>
+        {
+            try
+            {
+                _logger.LogInformation("Sync stream started, listening for commands");
+
+                await foreach (var command in _syncStreamCall.ResponseStream.ReadAllAsync(_syncStreamCts.Token))
+                {
+                    _logger.LogInformation("Received {CommandType} command for content {ContentId}, sequence {SequenceNumber}",
+                        command.Type, command.ContentId, command.SequenceNumber);
+
+                    // Raise event for command processing
+                    SyncCommandReceived?.Invoke(this, new SyncCommandReceivedEventArgs(command));
+
+                    // Send acknowledgment back to server
+                    await SendSyncResponseAsync(command.SequenceNumber, WallpaperStateEnum.WallpaperBuffering);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Sync stream cancelled");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in sync stream");
+            }
+        }, _syncStreamCts.Token);
+
+        _logger.LogInformation("Sync stream initialized");
+    }
+
+    /// <summary>
+    /// Stop sync stream
+    /// </summary>
+    private void StopSyncStream()
+    {
+        if (_syncStreamCts != null)
+        {
+            _syncStreamCts.Cancel();
+            _syncStreamTask?.Wait(TimeSpan.FromSeconds(2));
+            _syncStreamCts.Dispose();
+            _syncStreamCts = null;
+            _syncStreamTask = null;
+        }
+
+        _syncStreamCall?.Dispose();
+        _syncStreamCall = null;
+
+        _logger.LogInformation("Sync stream stopped");
+    }
+
+    /// <summary>
+    /// Send a sync response to the server
+    /// </summary>
+    private async Task SendSyncResponseAsync(int sequenceNumber, WallpaperStateEnum state)
+    {
+        if (_syncStreamCall == null || string.IsNullOrEmpty(_clientId))
+        {
+            return;
+        }
+
+        try
+        {
+            var response = new SyncResponse
+            {
+                ClientId = _clientId,
+                SequenceNumber = sequenceNumber,
+                Acknowledged = true,
+                State = state
+            };
+
+            await _syncStreamCall.RequestStream.WriteAsync(response);
+            _logger.LogDebug("Sent sync response for sequence {SequenceNumber}", sequenceNumber);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error sending sync response");
+        }
+    }
+
+    /// <summary>
     /// Get screen configuration for this machine
     /// </summary>
     private ScreenConfiguration GetScreenConfiguration()
@@ -290,5 +401,15 @@ public class ConnectionStatusChangedEventArgs : EventArgs
         IsConnected = isConnected;
         ServerAddress = serverAddress;
         ServerPort = serverPort;
+    }
+}
+
+public class SyncCommandReceivedEventArgs : EventArgs
+{
+    public SyncCommand Command { get; }
+
+    public SyncCommandReceivedEventArgs(SyncCommand command)
+    {
+        Command = command;
     }
 }

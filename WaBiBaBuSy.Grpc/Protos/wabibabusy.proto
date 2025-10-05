@@ -13,7 +13,8 @@ service WallpaperSync {
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
 
   // Wallpaper control commands (bidirectional streaming)
-  rpc SyncStream(stream SyncCommand) returns (stream SyncResponse);
+  // Client sends responses/status, server sends commands
+  rpc SyncStream(stream SyncResponse) returns (stream SyncCommand);
 
   // Content transfer (chunked file streaming)
   rpc TransferContent(stream ContentChunk) returns (TransferStatus);

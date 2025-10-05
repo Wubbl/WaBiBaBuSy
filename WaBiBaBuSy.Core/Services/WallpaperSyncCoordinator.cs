@@ -85,8 +85,8 @@ public class WallpaperSyncCoordinator
                 client.ClientId, client.OrderPosition, client.PhysicalDistanceCm, cumulativeDelayMs,
                 DateTimeOffset.FromUnixTimeMilliseconds(command.TimestampUtc).ToString("HH:mm:ss.fff"));
 
-            // TODO: Send command to specific client via streaming
-            // This will be implemented when we set up client streaming connections
+            // Send command to specific client via streaming
+            await _syncService.SendCommandToClientAsync(client.ClientId, command);
         }
 
         _logger.LogInformation("Broadcast complete. Total animation duration: {Duration}ms", cumulativeDelayMs);
@@ -131,7 +131,8 @@ public class WallpaperSyncCoordinator
                 }
             };
 
-            // TODO: Send to client
+            // Send command to specific client via streaming
+            await _syncService.SendCommandToClientAsync(client.ClientId, command);
         }
 
         _logger.LogInformation("PLAY broadcast complete");
@@ -163,7 +164,8 @@ public class WallpaperSyncCoordinator
                 Params = new SyncParameters()
             };
 
-            // TODO: Send to client
+            // Send command to specific client via streaming
+            await _syncService.SendCommandToClientAsync(client.ClientId, command);
         }
 
         _logger.LogInformation("PAUSE broadcast complete");
@@ -195,7 +197,8 @@ public class WallpaperSyncCoordinator
                 Params = new SyncParameters()
             };
 
-            // TODO: Send to client
+            // Send command to specific client via streaming
+            await _syncService.SendCommandToClientAsync(client.ClientId, command);
         }
 
         _logger.LogInformation("STOP broadcast complete");
