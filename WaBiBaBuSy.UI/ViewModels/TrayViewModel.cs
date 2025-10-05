@@ -1,13 +1,17 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls.ApplicationLifetimes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
+using WaBiBaBuSy.Core.Interfaces;
 using WaBiBaBuSy.Core.Services;
 using WaBiBaBuSy.Models.Configuration;
 using WaBiBaBuSy.UI.Views;
+using WaBiBaBuSy.WallpaperEngine.Native;
+using WaBiBaBuSy.WallpaperEngine.Renderers;
 
 namespace WaBiBaBuSy.UI.ViewModels;
 
@@ -40,11 +44,49 @@ public partial class TrayViewModel : ObservableObject
         var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
         var logger = loggerFactory.CreateLogger<WaBiBaBuSyService>();
 
-        _service = new WaBiBaBuSyService(logger, serverConfig, clientConfig);
+        // Create renderer factory for wallpaper playback
+        var rendererFactory = CreateRendererFactory(loggerFactory);
+
+        _service = new WaBiBaBuSyService(logger, serverConfig, clientConfig, rendererFactory);
 
         // Subscribe to service events
         _service.ServerStatusChanged += OnServerStatusChanged;
         _service.ClientConnectionStatusChanged += OnClientConnectionStatusChanged;
+    }
+
+    /// <summary>
+    /// Creates a renderer factory that instantiates appropriate renderers based on file type
+    /// </summary>
+    private Func<string, IWallpaperRenderer?> CreateRendererFactory(ILoggerFactory loggerFactory)
+    {
+        // Create desktop window manager (shared across all renderers)
+        var desktopManagerLogger = loggerFactory.CreateLogger<DesktopWindowManager>();
+        var desktopManager = new DesktopWindowManager(desktopManagerLogger);
+
+        return filePath =>
+        {
+            var extension = Path.GetExtension(filePath).ToLowerInvariant();
+
+            return extension switch
+            {
+                ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv" =>
+                    new VideoWallpaperRenderer(
+                        loggerFactory.CreateLogger<VideoWallpaperRenderer>(),
+                        desktopManager),
+
+                ".gif" =>
+                    new GifWallpaperRenderer(
+                        loggerFactory.CreateLogger<GifWallpaperRenderer>(),
+                        desktopManager),
+
+                ".jpg" or ".jpeg" or ".png" or ".bmp" =>
+                    new ImageWallpaperRenderer(
+                        loggerFactory.CreateLogger<ImageWallpaperRenderer>(),
+                        desktopManager),
+
+                _ => null
+            };
+        };
     }
 
     [RelayCommand]

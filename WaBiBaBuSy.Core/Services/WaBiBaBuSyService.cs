@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using WaBiBaBuSy.Core.Interfaces;
 using WaBiBaBuSy.Core.Services.Networking;
 using WaBiBaBuSy.Grpc;
 using WaBiBaBuSy.Models.Configuration;
@@ -13,6 +14,7 @@ public class WaBiBaBuSyService : IDisposable
     private readonly ILogger<WaBiBaBuSyService> _logger;
     private readonly ServerConfiguration _serverConfig;
     private readonly ClientConfiguration _clientConfig;
+    private readonly Func<string, IWallpaperRenderer?>? _rendererFactory;
 
     private WallpaperSyncServerHost? _serverHost;
     private MdnsServerService? _mdnsServerService;
@@ -45,11 +47,13 @@ public class WaBiBaBuSyService : IDisposable
     public WaBiBaBuSyService(
         ILogger<WaBiBaBuSyService> logger,
         ServerConfiguration serverConfig,
-        ClientConfiguration clientConfig)
+        ClientConfiguration clientConfig,
+        Func<string, IWallpaperRenderer?>? rendererFactory = null)
     {
         _logger = logger;
         _serverConfig = serverConfig;
         _clientConfig = clientConfig;
+        _rendererFactory = rendererFactory;
     }
 
     /// <summary>
@@ -163,7 +167,7 @@ public class WaBiBaBuSyService : IDisposable
                 // Create and initialize wallpaper playback service
                 var playbackLogger = LoggerFactory.Create(builder => builder.AddConsole())
                     .CreateLogger<WallpaperPlaybackService>();
-                _playbackService = new WallpaperPlaybackService(playbackLogger, _client);
+                _playbackService = new WallpaperPlaybackService(playbackLogger, _client, _rendererFactory);
 
                 IsClientMode = true;
                 _logger.LogInformation("Client mode started successfully");

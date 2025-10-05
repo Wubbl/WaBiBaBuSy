@@ -11,11 +11,21 @@ namespace WaBiBaBuSy.Core.Services;
 /// </summary>
 public class WallpaperPlaybackService : IDisposable
 {
+    private const int MAX_DRIFT_MS = 50; // Maximum allowed drift before correction
+    private const int DRIFT_CHECK_INTERVAL_MS = 1000; // Check drift every second
+
     private readonly ILogger<WallpaperPlaybackService> _logger;
     private readonly WallpaperSyncClient _syncClient;
     private readonly Dictionary<string, IWallpaperRenderer> _renderers;
     private readonly Dictionary<string, string> _contentCache; // contentId -> local file path
     private readonly Func<string, IWallpaperRenderer?>? _rendererFactory;
+
+    // Drift detection state
+    private CancellationTokenSource? _driftMonitorCts;
+    private Task? _driftMonitorTask;
+    private string? _activeContentId;
+    private long _playbackStartTimestamp; // UTC timestamp when playback started
+    private long _initialPositionMs; // Initial position when playback started
 
     public WallpaperPlaybackService(
         ILogger<WallpaperPlaybackService> logger,
@@ -187,12 +197,21 @@ public class WallpaperPlaybackService : IDisposable
             _logger.LogInformation("Playing wallpaper: {ContentId}", command.ContentId);
 
             // Seek to target position if specified
+            long initialPosition = 0;
             if (command.Params != null && command.Params.TargetPositionMs > 0)
             {
-                await renderer.SeekAsync(TimeSpan.FromMilliseconds(command.Params.TargetPositionMs));
+                initialPosition = command.Params.TargetPositionMs;
+                await renderer.SeekAsync(TimeSpan.FromMilliseconds(initialPosition));
             }
 
             await renderer.StartAsync();
+
+            // Start drift monitoring
+            _activeContentId = command.ContentId;
+            _playbackStartTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            _initialPositionMs = initialPosition;
+            StartDriftMonitoring();
+
             _logger.LogInformation("Wallpaper playback started: {ContentId}", command.ContentId);
         }
         catch (Exception ex)
@@ -215,6 +234,10 @@ public class WallpaperPlaybackService : IDisposable
             }
 
             _logger.LogInformation("Pausing wallpaper: {ContentId}", command.ContentId);
+
+            // Stop drift monitoring when paused
+            StopDriftMonitoring();
+
             await renderer.PauseAsync();
             _logger.LogInformation("Wallpaper paused: {ContentId}", command.ContentId);
         }
@@ -238,6 +261,10 @@ public class WallpaperPlaybackService : IDisposable
             }
 
             _logger.LogInformation("Stopping wallpaper: {ContentId}", command.ContentId);
+
+            // Stop drift monitoring when stopped
+            StopDriftMonitoring();
+
             await renderer.StopAsync();
             _logger.LogInformation("Wallpaper stopped: {ContentId}", command.ContentId);
         }
@@ -278,9 +305,101 @@ public class WallpaperPlaybackService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Start background task to monitor playback drift
+    /// </summary>
+    private void StartDriftMonitoring()
+    {
+        // Stop any existing monitoring task
+        StopDriftMonitoring();
+
+        _driftMonitorCts = new CancellationTokenSource();
+        _driftMonitorTask = Task.Run(async () => await MonitorDriftAsync(_driftMonitorCts.Token));
+
+        _logger.LogDebug("Started drift monitoring for content {ContentId}", _activeContentId);
+    }
+
+    /// <summary>
+    /// Stop drift monitoring task
+    /// </summary>
+    private void StopDriftMonitoring()
+    {
+        if (_driftMonitorCts != null)
+        {
+            _driftMonitorCts.Cancel();
+            _driftMonitorCts.Dispose();
+            _driftMonitorCts = null;
+        }
+
+        _driftMonitorTask = null;
+        _activeContentId = null;
+
+        _logger.LogDebug("Stopped drift monitoring");
+    }
+
+    /// <summary>
+    /// Background task that monitors playback position and corrects drift
+    /// </summary>
+    private async Task MonitorDriftAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(DRIFT_CHECK_INTERVAL_MS, cancellationToken);
+
+                if (_activeContentId == null || !_renderers.TryGetValue(_activeContentId, out var renderer))
+                {
+                    continue;
+                }
+
+                // Calculate expected position based on elapsed time
+                var currentTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                var elapsedMs = currentTimestamp - _playbackStartTimestamp;
+                var expectedPositionMs = _initialPositionMs + elapsedMs;
+
+                // Get actual position from renderer
+                var actualPositionMs = renderer.PositionMs;
+
+                // Calculate drift
+                var driftMs = Math.Abs(expectedPositionMs - actualPositionMs);
+
+                if (driftMs > MAX_DRIFT_MS)
+                {
+                    _logger.LogWarning(
+                        "Playback drift detected: {DriftMs}ms (expected: {ExpectedPos}ms, actual: {ActualPos}ms). Correcting...",
+                        driftMs, expectedPositionMs, actualPositionMs);
+
+                    // Perform micro-seek to correct drift
+                    await renderer.SeekAsync(TimeSpan.FromMilliseconds(expectedPositionMs));
+
+                    _logger.LogInformation("Drift corrected by seeking to {Position}ms", expectedPositionMs);
+                }
+                else
+                {
+                    _logger.LogDebug(
+                        "Playback drift: {DriftMs}ms (within tolerance of {MaxDrift}ms)",
+                        driftMs, MAX_DRIFT_MS);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when cancellation is requested
+            _logger.LogDebug("Drift monitoring cancelled");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in drift monitoring task");
+        }
+    }
+
     public void Dispose()
     {
         _logger.LogInformation("Disposing WallpaperPlaybackService");
+
+        // Stop drift monitoring
+        StopDriftMonitoring();
 
         // Unsubscribe from events
         _syncClient.SyncCommandReceived -= OnSyncCommandReceived;
