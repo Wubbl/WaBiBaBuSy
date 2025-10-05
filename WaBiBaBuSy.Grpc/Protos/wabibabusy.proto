@@ -1,0 +1,186 @@
+syntax = "proto3";
+
+package wabibabusy.v1;
+
+option csharp_namespace = "WaBiBaBuSy.Grpc";
+
+// Server ↔ Client communication service
+service WallpaperSync {
+  // Client registration
+  rpc RegisterClient(ClientInfo) returns (RegistrationResponse);
+
+  // Heartbeat
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+
+  // Wallpaper control commands (bidirectional streaming)
+  rpc SyncStream(stream SyncCommand) returns (stream SyncResponse);
+
+  // Content transfer (chunked file streaming)
+  rpc TransferContent(stream ContentChunk) returns (TransferStatus);
+
+  // Network topology
+  rpc GetTopology(TopologyRequest) returns (TopologyResponse);
+  rpc UpdateClientOrder(ClientOrderUpdate) returns (OrderUpdateResponse);
+}
+
+// Client information message
+message ClientInfo {
+  string client_id = 1;
+  string hostname = 2;
+  string ip_address = 3;
+  ScreenConfiguration screen_config = 4;
+  int64 registration_timestamp = 5;
+}
+
+// Screen configuration
+message ScreenConfiguration {
+  int32 monitor_count = 1;
+  int32 total_width = 2;
+  int32 total_height = 3;
+  repeated MonitorInfo monitors = 4;
+}
+
+// Monitor information
+message MonitorInfo {
+  int32 index = 1;
+  int32 width = 2;
+  int32 height = 3;
+  int32 x = 4;
+  int32 y = 5;
+  bool is_primary = 6;
+  string device_name = 7;
+}
+
+// Registration response
+message RegistrationResponse {
+  bool success = 1;
+  string message = 2;
+  string assigned_client_id = 3;
+  int32 order_position = 4;
+}
+
+// Heartbeat request
+message HeartbeatRequest {
+  string client_id = 1;
+  int64 timestamp = 2;
+  ClientStatusEnum status = 3;
+}
+
+// Heartbeat response
+message HeartbeatResponse {
+  bool acknowledged = 1;
+  int64 server_timestamp = 2;
+}
+
+// Synchronization command
+message SyncCommand {
+  CommandType type = 1;
+  int64 timestamp_utc = 2;
+  int32 sequence_number = 3;
+  string content_id = 4;
+  SyncParameters params = 5;
+}
+
+// Command types
+enum CommandType {
+  LOAD = 0;
+  PLAY = 1;
+  PAUSE = 2;
+  SEEK = 3;
+  STOP = 4;
+  SYNC_FRAME = 5;
+}
+
+// Sync parameters
+message SyncParameters {
+  int64 target_position_ms = 1;
+  int32 playback_speed = 2;
+  bool loop = 3;
+  string transition_effect = 4;
+}
+
+// Sync response (client acknowledgment)
+message SyncResponse {
+  string client_id = 1;
+  int32 sequence_number = 2;
+  bool acknowledged = 3;
+  string error_message = 4;
+  int64 current_position_ms = 5;
+  WallpaperStateEnum state = 6;
+}
+
+// Content chunk for file transfer
+message ContentChunk {
+  string content_id = 1;
+  string filename = 2;
+  int64 total_size = 3;
+  int32 chunk_index = 4;
+  int32 total_chunks = 5;
+  bytes data = 6;
+  string hash = 7; // SHA-256 hash of complete file
+}
+
+// Transfer status response
+message TransferStatus {
+  bool success = 1;
+  string message = 2;
+  int32 chunks_received = 3;
+  int32 total_chunks = 4;
+}
+
+// Topology request
+message TopologyRequest {
+  // Empty for now, can add filters later
+}
+
+// Topology response
+message TopologyResponse {
+  repeated ConnectedClient clients = 1;
+}
+
+// Connected client information
+message ConnectedClient {
+  string client_id = 1;
+  string hostname = 2;
+  string ip_address = 3;
+  int32 order_position = 4;
+  ClientStatusEnum status = 5;
+  int64 last_heartbeat = 6;
+  ScreenConfiguration screen_config = 7;
+}
+
+// Client order update
+message ClientOrderUpdate {
+  repeated ClientOrderItem client_orders = 1;
+}
+
+// Client order item
+message ClientOrderItem {
+  string client_id = 1;
+  int32 new_position = 2;
+}
+
+// Order update response
+message OrderUpdateResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Client status enum
+enum ClientStatusEnum {
+  CLIENT_DISCONNECTED = 0;
+  CLIENT_CONNECTED = 1;
+  CLIENT_SYNCING = 2;
+  CLIENT_PLAYING = 3;
+  CLIENT_ERROR = 4;
+}
+
+// Wallpaper state enum
+enum WallpaperStateEnum {
+  WALLPAPER_UNINITIALIZED = 0;
+  WALLPAPER_STOPPED = 1;
+  WALLPAPER_PLAYING = 2;
+  WALLPAPER_PAUSED = 3;
+  WALLPAPER_BUFFERING = 4;
+  WALLPAPER_ERROR = 5;
+}
