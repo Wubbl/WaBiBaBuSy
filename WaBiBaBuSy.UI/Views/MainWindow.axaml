@@ -3,18 +3,219 @@
         xmlns:vm="using:WaBiBaBuSy.UI.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+        mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="700"
         x:Class="WaBiBaBuSy.UI.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Icon="/Assets/avalonia-logo.ico"
-        Title="WaBiBaBuSy.UI">
+        Title="WaBiBaBuSy - Wallpaper Sync Control"
+        Width="1200" Height="700"
+        MinWidth="900" MinHeight="600">
 
     <Design.DataContext>
-        <!-- This only sets the DataContext for the previewer in an IDE,
-             to set the actual DataContext for runtime, set the DataContext property in code (look at App.axaml.cs) -->
         <vm:MainWindowViewModel/>
     </Design.DataContext>
 
-    <TextBlock Text="{Binding Greeting}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+    <Grid RowDefinitions="Auto,*">
+        <!-- Top Bar with Server Controls -->
+        <Border Grid.Row="0" Background="#2D2D30" Padding="15,10">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10">
+                    <TextBlock Text="WaBiBaBuSy" FontSize="18" FontWeight="Bold"
+                               Foreground="White" VerticalAlignment="Center"/>
+                    <Border Background="#0078D4" CornerRadius="3" Padding="8,4">
+                        <TextBlock Text="{Binding ServerStatus}" Foreground="White" FontSize="12"/>
+                    </Border>
+                </StackPanel>
 
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10">
+                    <Button Content="Add Wallpaper" Command="{Binding AddWallpaperCommand}"/>
+                    <Button Content="Apply to Selected" Command="{Binding ApplyWallpaperToSelectedCommand}"/>
+                    <Button Content="Apply to All Clients" Command="{Binding ApplyWallpaperToAllCommand}"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Main Split View: Client Graph (Left) | Wallpaper Gallery (Right) -->
+        <Grid Grid.Row="1" ColumnDefinitions="*,5,*">
+
+            <!-- Left Panel: Client Network Graph -->
+            <Border Grid.Column="0" Background="#1E1E1E" Padding="15">
+                <Grid RowDefinitions="Auto,*">
+                    <TextBlock Grid.Row="0" Text="Network Topology" FontSize="16"
+                               FontWeight="SemiBold" Foreground="White" Margin="0,0,0,10"/>
+
+                    <Border Grid.Row="1" Background="#252526" CornerRadius="5" Padding="10">
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                                      VerticalScrollBarVisibility="Auto">
+                            <Canvas Width="800" Height="400" Background="Transparent">
+                                <!-- Client Nodes -->
+                                <ItemsControl ItemsSource="{Binding Clients}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <Canvas/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="vm:ClientNodeViewModel">
+                                            <Button Width="150" Height="100"
+                                                    CornerRadius="8"
+                                                    Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).SelectClientCommand}"
+                                                    CommandParameter="{Binding}"
+                                                    HorizontalContentAlignment="Left"
+                                                    VerticalContentAlignment="Top"
+                                                    Padding="10">
+                                                <Button.Styles>
+                                                    <Style Selector="Button">
+                                                        <Setter Property="Background" Value="#3E3E42"/>
+                                                        <Setter Property="BorderBrush" Value="#666666"/>
+                                                        <Setter Property="BorderThickness" Value="2"/>
+                                                    </Style>
+                                                    <Style Selector="Button:pointerover /template/ ContentPresenter">
+                                                        <Setter Property="Background" Value="#4E4E52"/>
+                                                    </Style>
+                                                    <Style Selector="Button[IsPressed=True] /template/ ContentPresenter">
+                                                        <Setter Property="Background" Value="#0078D4"/>
+                                                    </Style>
+                                                </Button.Styles>
+
+                                                <StackPanel Spacing="5">
+                                                    <TextBlock Text="{Binding DisplayName}"
+                                                               FontWeight="Bold"
+                                                               Foreground="White"
+                                                               FontSize="12"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Text="{Binding IpAddress}"
+                                                               Foreground="#AAAAAA"
+                                                               FontSize="11"/>
+                                                    <TextBlock Text="{Binding Status}"
+                                                               Foreground="#00FF00"
+                                                               FontSize="10"/>
+                                                    <TextBlock Text="{Binding CurrentWallpaper, StringFormat='WP: {0}'}"
+                                                               Foreground="#888888"
+                                                               FontSize="9"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               IsVisible="{Binding CurrentWallpaper, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+
+                                    <ItemsControl.Styles>
+                                        <Style Selector="ItemsControl > ContentPresenter" x:DataType="vm:ClientNodeViewModel">
+                                            <Setter Property="Canvas.Left" Value="{Binding X}"/>
+                                            <Setter Property="Canvas.Top" Value="{Binding Y}"/>
+                                        </Style>
+                                    </ItemsControl.Styles>
+                                </ItemsControl>
+                            </Canvas>
+                        </ScrollViewer>
+                    </Border>
+                </Grid>
+            </Border>
+
+            <!-- Splitter -->
+            <GridSplitter Grid.Column="1" Background="#3E3E42"/>
+
+            <!-- Right Panel: Wallpaper Gallery -->
+            <Border Grid.Column="2" Background="#1E1E1E" Padding="15">
+                <Grid RowDefinitions="Auto,*,Auto">
+                    <TextBlock Grid.Row="0" Text="Wallpaper Gallery" FontSize="16"
+                               FontWeight="SemiBold" Foreground="White" Margin="0,0,0,10"/>
+
+                    <!-- Wallpaper Grid -->
+                    <ScrollViewer Grid.Row="1">
+                        <ItemsControl ItemsSource="{Binding Wallpapers}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel Orientation="Horizontal"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="vm:WallpaperItemViewModel">
+                                    <Button Width="180" Height="140"
+                                            Margin="5"
+                                            CornerRadius="5"
+                                            Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).SelectWallpaperCommand}"
+                                            CommandParameter="{Binding}"
+                                            HorizontalContentAlignment="Stretch"
+                                            VerticalContentAlignment="Stretch"
+                                            Padding="8">
+                                        <Button.Styles>
+                                            <Style Selector="Button">
+                                                <Setter Property="Background" Value="#2D2D30"/>
+                                                <Setter Property="BorderBrush" Value="#555555"/>
+                                                <Setter Property="BorderThickness" Value="2"/>
+                                            </Style>
+                                            <Style Selector="Button:pointerover /template/ ContentPresenter">
+                                                <Setter Property="Background" Value="#3E3E42"/>
+                                            </Style>
+                                        </Button.Styles>
+
+                                        <Grid RowDefinitions="*,Auto">
+                                            <!-- Thumbnail Preview Area -->
+                                            <Border Grid.Row="0"
+                                                    Background="#404040"
+                                                    CornerRadius="3"
+                                                    HorizontalAlignment="Center"
+                                                    VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Type}"
+                                                           Foreground="#AAAAAA"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center"
+                                                           FontSize="11"
+                                                           Padding="20"/>
+                                            </Border>
+
+                                            <!-- Wallpaper Info -->
+                                            <StackPanel Grid.Row="1" Spacing="2" Margin="0,5,0,0">
+                                                <TextBlock Text="{Binding Name}"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="White"
+                                                           FontSize="11"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <Grid ColumnDefinitions="*,Auto">
+                                                    <TextBlock Grid.Column="0"
+                                                               Text="{Binding Resolution}"
+                                                               Foreground="#888888"
+                                                               FontSize="9"/>
+                                                    <TextBlock Grid.Column="1"
+                                                               Text="{Binding FileSize}"
+                                                               Foreground="#888888"
+                                                               FontSize="9"/>
+                                                </Grid>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+
+                    <!-- Selected Wallpaper Preview -->
+                    <Border Grid.Row="2"
+                            Background="#252526"
+                            CornerRadius="5"
+                            Padding="10"
+                            Margin="0,10,0,0"
+                            IsVisible="{Binding SelectedWallpaper, Converter={x:Static ObjectConverters.IsNotNull}}">
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="Selected Wallpaper"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       Foreground="White"/>
+                            <TextBlock Text="{Binding SelectedWallpaper.Name}"
+                                       Foreground="#CCCCCC"
+                                       FontSize="11"/>
+                            <TextBlock Text="{Binding SelectedWallpaper.FilePath}"
+                                       Foreground="#888888"
+                                       FontSize="9"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
 </Window>

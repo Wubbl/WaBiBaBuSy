@@ -97,6 +97,8 @@ message SyncParameters {
   int32 playback_speed = 2;
   bool loop = 3;
   string transition_effect = 4;
+  int32 animation_speed_cm_per_sec = 5; // Speed of animation travel (cm/s)
+  int64 calculated_delay_ms = 6; // Calculated delay based on distance and speed
 }
 
 // Sync response (client acknowledgment)
@@ -147,6 +149,7 @@ message ConnectedClient {
   ClientStatusEnum status = 5;
   int64 last_heartbeat = 6;
   ScreenConfiguration screen_config = 7;
+  int32 physical_distance_cm = 8; // Distance to previous client in chain (cm)
 }
 
 // Client order update
@@ -158,6 +161,7 @@ message ClientOrderUpdate {
 message ClientOrderItem {
   string client_id = 1;
   int32 new_position = 2;
+  int32 physical_distance_cm = 3; // Distance to previous client (cm)
 }
 
 // Order update response
