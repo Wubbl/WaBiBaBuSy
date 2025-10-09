@@ -1,4 +1,5 @@
 using System.Text.Json;
+using WaBiBaBuSy.Models.Wallpaper;
 
 namespace WaBiBaBuSy.Models.Configuration;
 
@@ -13,6 +14,7 @@ public class ConfigurationManager
 
     private static readonly string ServerConfigPath = Path.Combine(ConfigDirectory, "server-config.json");
     private static readonly string ClientConfigPath = Path.Combine(ConfigDirectory, "client-config.json");
+    private static readonly string WallpaperGalleryPath = Path.Combine(ConfigDirectory, "wallpaper-gallery.json");
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -128,6 +130,59 @@ public class ConfigurationManager
     /// Get the configuration directory path
     /// </summary>
     public static string GetConfigDirectory() => ConfigDirectory;
+
+    /// <summary>
+    /// Load wallpaper gallery from file, or create empty if not exists
+    /// </summary>
+    public static WallpaperGallery LoadWallpaperGallery()
+    {
+        EnsureConfigDirectoryExists();
+
+        if (File.Exists(WallpaperGalleryPath))
+        {
+            try
+            {
+                var json = File.ReadAllText(WallpaperGalleryPath);
+                var gallery = JsonSerializer.Deserialize<WallpaperGallery>(json, JsonOptions);
+                return gallery ?? new WallpaperGallery();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading wallpaper gallery: {ex.Message}. Using empty gallery.");
+                return new WallpaperGallery();
+            }
+        }
+
+        // Create empty gallery
+        var defaultGallery = new WallpaperGallery();
+        SaveWallpaperGallery(defaultGallery);
+        return defaultGallery;
+    }
+
+    /// <summary>
+    /// Save wallpaper gallery to file
+    /// </summary>
+    public static void SaveWallpaperGallery(WallpaperGallery gallery)
+    {
+        EnsureConfigDirectoryExists();
+
+        try
+        {
+            var json = JsonSerializer.Serialize(gallery, JsonOptions);
+            File.WriteAllText(WallpaperGalleryPath, json);
+            Console.WriteLine($"Wallpaper gallery saved to: {WallpaperGalleryPath}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error saving wallpaper gallery: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Get the path to the wallpaper gallery file
+    /// </summary>
+    public static string GetWallpaperGalleryPath() => WallpaperGalleryPath;
 
     /// <summary>
     /// Ensure the configuration directory exists

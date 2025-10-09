@@ -9,6 +9,8 @@ using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WaBiBaBuSy.Core.Services;
+using WaBiBaBuSy.Models.Configuration;
+using WaBiBaBuSy.Models.Wallpaper;
 
 namespace WaBiBaBuSy.UI.ViewModels;
 
@@ -51,8 +53,92 @@ public partial class MainWindowViewModel : ViewModelBase
         _refreshTimer.Elapsed += OnRefreshTimerElapsed;
         _refreshTimer.Start();
 
+        // Load wallpaper gallery from disk
+        LoadWallpaperGallery();
+
         // Initial refresh
         RefreshTopology();
+    }
+
+    /// <summary>
+    /// Load wallpaper gallery from persistent storage
+    /// </summary>
+    private void LoadWallpaperGallery()
+    {
+        try
+        {
+            var gallery = ConfigurationManager.LoadWallpaperGallery();
+
+            Console.WriteLine($"Loading {gallery.Wallpapers.Count} wallpapers from gallery");
+
+            foreach (var item in gallery.Wallpapers)
+            {
+                // Verify file still exists
+                if (!File.Exists(item.FilePath))
+                {
+                    Console.WriteLine($"Wallpaper file not found, skipping: {item.FilePath}");
+                    continue;
+                }
+
+                // Convert to view model
+                var viewModel = new WallpaperItemViewModel
+                {
+                    WallpaperId = item.WallpaperId,
+                    Name = item.Name,
+                    FilePath = item.FilePath,
+                    Type = Enum.Parse<WallpaperType>(item.Type),
+                    Resolution = item.Resolution,
+                    FileSizeBytes = item.FileSizeBytes,
+                    IsActive = item.IsActive
+                };
+
+                // Set thumbnail path for images and GIFs
+                if (viewModel.Type == WallpaperType.Image || viewModel.Type == WallpaperType.Gif)
+                {
+                    viewModel.ThumbnailPath = item.FilePath;
+                }
+
+                // Load thumbnail
+                viewModel.LoadThumbnail();
+
+                Wallpapers.Add(viewModel);
+            }
+
+            Console.WriteLine($"Loaded {Wallpapers.Count} wallpapers successfully");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading wallpaper gallery: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Save wallpaper gallery to persistent storage
+    /// </summary>
+    private void SaveWallpaperGallery()
+    {
+        try
+        {
+            var gallery = new WallpaperGallery
+            {
+                Wallpapers = Wallpapers.Select(vm => new WallpaperGalleryItem
+                {
+                    WallpaperId = vm.WallpaperId,
+                    Name = vm.Name,
+                    FilePath = vm.FilePath,
+                    Type = vm.Type.ToString(),
+                    Resolution = vm.Resolution,
+                    FileSizeBytes = vm.FileSizeBytes,
+                    IsActive = vm.IsActive
+                }).ToList()
+            };
+
+            ConfigurationManager.SaveWallpaperGallery(gallery);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error saving wallpaper gallery: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -281,6 +367,9 @@ public partial class MainWindowViewModel : ViewModelBase
             Wallpapers.Add(wallpaper);
 
             Console.WriteLine($"Added wallpaper: {fileName} ({type}, {wallpaper.FileSize})");
+
+            // Save gallery to disk
+            SaveWallpaperGallery();
         }
         catch (Exception ex)
         {
@@ -292,6 +381,11 @@ public partial class MainWindowViewModel : ViewModelBase
     private void RemoveWallpaper(WallpaperItemViewModel wallpaper)
     {
         Wallpapers.Remove(wallpaper);
+
+        // Save gallery to disk
+        SaveWallpaperGallery();
+
+        Console.WriteLine($"Removed wallpaper: {wallpaper.Name}");
     }
 
     [RelayCommand]
