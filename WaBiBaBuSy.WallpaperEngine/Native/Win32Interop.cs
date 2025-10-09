@@ -13,6 +13,7 @@ internal static class Win32Interop
     public const uint SPIF_UPDATEINIFILE = 0x01;
     public const uint SPIF_SENDWININICHANGE = 0x02;
     public const uint WM_SPAWN_WORKER = 0x052C;
+    public const uint WM_CLOSE = 0x0010;
 
     public delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
 
@@ -37,7 +38,7 @@ internal static class Win32Interop
     public static extern IntPtr FindWindowEx(IntPtr parentHandle, IntPtr childAfter, string className, IntPtr windowTitle);
 
     [DllImport("user32.dll", CharSet = CharSet.Auto)]
-    public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, int wParam, IntPtr lParam);
+    public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
     public static extern IntPtr SendMessageTimeout(

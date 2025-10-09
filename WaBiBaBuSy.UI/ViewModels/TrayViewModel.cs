@@ -22,6 +22,7 @@ public partial class TrayViewModel : ObservableObject
 {
     private readonly IClassicDesktopStyleApplicationLifetime _desktop;
     private readonly WaBiBaBuSyService _service;
+    private readonly DesktopWindowManager _desktopManager;
     private MainWindow? _mainWindow;
 
     [ObservableProperty]
@@ -44,25 +45,28 @@ public partial class TrayViewModel : ObservableObject
         var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
         var logger = loggerFactory.CreateLogger<WaBiBaBuSyService>();
 
+        // Create desktop window manager (will be used for wallpaper restoration on exit)
+        var desktopManagerLogger = loggerFactory.CreateLogger<DesktopWindowManager>();
+        _desktopManager = new DesktopWindowManager(desktopManagerLogger);
+
         // Create renderer factory for wallpaper playback
-        var rendererFactory = CreateRendererFactory(loggerFactory);
+        var rendererFactory = CreateRendererFactory(loggerFactory, _desktopManager);
 
         _service = new WaBiBaBuSyService(logger, serverConfig, clientConfig, rendererFactory);
 
         // Subscribe to service events
         _service.ServerStatusChanged += OnServerStatusChanged;
         _service.ClientConnectionStatusChanged += OnClientConnectionStatusChanged;
+
+        // Subscribe to application exit event to restore desktop
+        _desktop.Exit += OnApplicationExit;
     }
 
     /// <summary>
     /// Creates a renderer factory that instantiates appropriate renderers based on file type
     /// </summary>
-    private Func<string, IWallpaperRenderer?> CreateRendererFactory(ILoggerFactory loggerFactory)
+    private Func<string, IWallpaperRenderer?> CreateRendererFactory(ILoggerFactory loggerFactory, DesktopWindowManager desktopManager)
     {
-        // Create desktop window manager (shared across all renderers)
-        var desktopManagerLogger = loggerFactory.CreateLogger<DesktopWindowManager>();
-        var desktopManager = new DesktopWindowManager(desktopManagerLogger);
-
         return filePath =>
         {
             var extension = Path.GetExtension(filePath).ToLowerInvariant();
@@ -199,5 +203,28 @@ public partial class TrayViewModel : ObservableObject
     private void OnClientConnectionStatusChanged(object? sender, Core.Services.Networking.ConnectionStatusChangedEventArgs e)
     {
         IsClientConnected = e.IsConnected;
+    }
+
+    /// <summary>
+    /// Called when the application is exiting. Restores the Windows desktop wallpaper.
+    /// </summary>
+    private void OnApplicationExit(object? sender, ControlledApplicationLifetimeExitEventArgs e)
+    {
+        Console.WriteLine("Application exiting, restoring desktop wallpaper...");
+
+        try
+        {
+            // Restore the desktop to its original state
+            _desktopManager.RestoreDesktop();
+
+            // Dispose the service to clean up resources
+            _service.Dispose();
+
+            Console.WriteLine("Desktop wallpaper restored successfully");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error restoring desktop on exit: {ex.Message}");
+        }
     }
 }

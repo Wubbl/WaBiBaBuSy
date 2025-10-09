@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Timers;
+using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WaBiBaBuSy.Core.Services;
@@ -33,6 +35,9 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private string _serverStatus = "Stopped";
 
+    // Storage provider for file picker dialogs
+    private IStorageProvider? _storageProvider;
+
     public MainWindowViewModel(WaBiBaBuSyService service)
     {
         _service = service;
@@ -46,47 +51,18 @@ public partial class MainWindowViewModel : ViewModelBase
         _refreshTimer.Elapsed += OnRefreshTimerElapsed;
         _refreshTimer.Start();
 
-        // Add sample wallpapers for design-time preview
-        InitializeSampleWallpapers();
-
         // Initial refresh
         RefreshTopology();
     }
 
-    private void InitializeSampleWallpapers()
+    /// <summary>
+    /// Set the storage provider for file picker dialogs (called from View)
+    /// </summary>
+    public void SetStorageProvider(IStorageProvider storageProvider)
     {
-        // Sample wallpapers
-        Wallpapers.Add(new WallpaperItemViewModel
-        {
-            WallpaperId = "wp-1",
-            Name = "Mountain Sunset",
-            FilePath = "C:\\Wallpapers\\sunset.mp4",
-            Type = WallpaperType.Video,
-            Resolution = "1920x1080",
-            FileSizeBytes = 52428800, // 50MB
-            IsActive = true
-        });
-
-        Wallpapers.Add(new WallpaperItemViewModel
-        {
-            WallpaperId = "wp-2",
-            Name = "Ocean Waves",
-            FilePath = "C:\\Wallpapers\\ocean.gif",
-            Type = WallpaperType.Gif,
-            Resolution = "1920x1080",
-            FileSizeBytes = 10485760 // 10MB
-        });
-
-        Wallpapers.Add(new WallpaperItemViewModel
-        {
-            WallpaperId = "wp-3",
-            Name = "Forest Path",
-            FilePath = "C:\\Wallpapers\\forest.jpg",
-            Type = WallpaperType.Image,
-            Resolution = "3840x2160",
-            FileSizeBytes = 5242880 // 5MB
-        });
+        _storageProvider = storageProvider;
     }
+
 
     [RelayCommand]
     private void SelectClient(ClientNodeViewModel client)
@@ -183,9 +159,133 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void AddWallpaper()
+    private async Task AddWallpaper()
     {
-        // TODO: Open file picker and add wallpaper
+        if (_storageProvider == null)
+        {
+            Console.WriteLine("Storage provider not available");
+            return;
+        }
+
+        try
+        {
+            // Define file type filters
+            var fileTypeFilters = new List<FilePickerFileType>
+            {
+                new("All Supported")
+                {
+                    Patterns = new[] { "*.mp4", "*.avi", "*.mkv", "*.mov", "*.wmv", "*.webm", "*.flv",
+                                       "*.gif", "*.jpg", "*.jpeg", "*.png", "*.bmp" }
+                },
+                new("Videos")
+                {
+                    Patterns = new[] { "*.mp4", "*.avi", "*.mkv", "*.mov", "*.wmv", "*.webm", "*.flv" }
+                },
+                new("GIFs")
+                {
+                    Patterns = new[] { "*.gif" }
+                },
+                new("Images")
+                {
+                    Patterns = new[] { "*.jpg", "*.jpeg", "*.png", "*.bmp" }
+                }
+            };
+
+            // Open file picker
+            var result = await _storageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Select Wallpaper",
+                AllowMultiple = true,
+                FileTypeFilter = fileTypeFilters
+            });
+
+            if (result == null || result.Count == 0)
+                return;
+
+            // Add each selected file to the wallpapers collection
+            foreach (var file in result)
+            {
+                await AddWallpaperFromFile(file);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error adding wallpaper: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Add a wallpaper from a storage file
+    /// </summary>
+    private async Task AddWallpaperFromFile(IStorageFile file)
+    {
+        try
+        {
+            var filePath = file.Path.LocalPath;
+            var fileName = Path.GetFileNameWithoutExtension(filePath);
+            var extension = Path.GetExtension(filePath).ToLowerInvariant();
+
+            // Get file size
+            var fileInfo = new FileInfo(filePath);
+            var fileSizeBytes = fileInfo.Length;
+
+            // Determine wallpaper type
+            WallpaperType type;
+            if (new[] { ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".webm", ".flv" }.Contains(extension))
+                type = WallpaperType.Video;
+            else if (extension == ".gif")
+                type = WallpaperType.Gif;
+            else if (new[] { ".jpg", ".jpeg", ".png", ".bmp" }.Contains(extension))
+                type = WallpaperType.Image;
+            else
+                return; // Unsupported format
+
+            // Get image/video dimensions (simplified - you could use proper video/image libraries for this)
+            var resolution = "Unknown";
+            string? thumbnailPath = null;
+
+            // For images and GIFs, we can use them directly as thumbnails
+            if (type == WallpaperType.Image || type == WallpaperType.Gif)
+            {
+                thumbnailPath = filePath;
+
+                // Try to get actual resolution
+                try
+                {
+                    using var image = System.Drawing.Image.FromFile(filePath);
+                    resolution = $"{image.Width}x{image.Height}";
+                }
+                catch
+                {
+                    // Ignore resolution detection errors
+                }
+            }
+
+            // Create wallpaper view model
+            var wallpaper = new WallpaperItemViewModel
+            {
+                WallpaperId = Guid.NewGuid().ToString(),
+                Name = fileName,
+                FilePath = filePath,
+                Type = type,
+                Resolution = resolution,
+                FileSizeBytes = fileSizeBytes,
+                ThumbnailPath = thumbnailPath ?? string.Empty,
+                IsActive = false
+            };
+
+            // Load thumbnail bitmap
+            wallpaper.LoadThumbnail();
+
+            // Add to collection
+            Wallpapers.Add(wallpaper);
+
+            Console.WriteLine($"Added wallpaper: {fileName} ({type}, {wallpaper.FileSize})");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error adding wallpaper from file: {ex.Message}");
+        }
     }
 
     [RelayCommand]

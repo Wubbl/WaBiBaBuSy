@@ -1,3 +1,6 @@
+using System;
+using System.IO;
+using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace WaBiBaBuSy.UI.ViewModels;
@@ -18,6 +21,9 @@ public partial class WallpaperItemViewModel : ObservableObject
 
     [ObservableProperty]
     private string _thumbnailPath = string.Empty;
+
+    [ObservableProperty]
+    private Bitmap? _thumbnail;
 
     [ObservableProperty]
     private WallpaperType _type;
@@ -45,6 +51,25 @@ public partial class WallpaperItemViewModel : ObservableObject
             if (FileSizeBytes < 1024 * 1024 * 1024)
                 return $"{FileSizeBytes / (1024.0 * 1024.0):F1} MB";
             return $"{FileSizeBytes / (1024.0 * 1024.0 * 1024.0):F1} GB";
+        }
+    }
+
+    /// <summary>
+    /// Load thumbnail from file path
+    /// </summary>
+    public void LoadThumbnail()
+    {
+        if (string.IsNullOrEmpty(ThumbnailPath) || !File.Exists(ThumbnailPath))
+            return;
+
+        try
+        {
+            Thumbnail = new Bitmap(ThumbnailPath);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading thumbnail for {Name}: {ex.Message}");
+            Thumbnail = null;
         }
     }
 }

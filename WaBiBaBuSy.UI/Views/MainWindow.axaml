@@ -6,7 +6,7 @@
         mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="700"
         x:Class="WaBiBaBuSy.UI.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        Icon="/Assets/avalonia-logo.ico"
+        Icon="/Assets/BiBaBuColorIcon.ico"
         Title="WaBiBaBuSy - Wallpaper Sync Control"
         Width="1200" Height="700"
         MinWidth="900" MinHeight="600">
@@ -187,6 +187,13 @@
                                             HorizontalContentAlignment="Stretch"
                                             VerticalContentAlignment="Stretch"
                                             Padding="8">
+                                        <Button.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="Remove"
+                                                          Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).RemoveWallpaperCommand}"
+                                                          CommandParameter="{Binding}"/>
+                                            </ContextMenu>
+                                        </Button.ContextMenu>
                                         <Button.Styles>
                                             <Style Selector="Button">
                                                 <Setter Property="Background" Value="#2D2D30"/>
@@ -203,14 +210,23 @@
                                             <Border Grid.Row="0"
                                                     Background="#404040"
                                                     CornerRadius="3"
-                                                    HorizontalAlignment="Center"
-                                                    VerticalAlignment="Center">
-                                                <TextBlock Text="{Binding Type}"
-                                                           Foreground="#AAAAAA"
-                                                           HorizontalAlignment="Center"
-                                                           VerticalAlignment="Center"
-                                                           FontSize="11"
-                                                           Padding="20"/>
+                                                    HorizontalAlignment="Stretch"
+                                                    VerticalAlignment="Stretch">
+                                                <Panel>
+                                                    <!-- Show image preview if available -->
+                                                    <Image Source="{Binding Thumbnail}"
+                                                           Stretch="UniformToFill"
+                                                           IsVisible="{Binding Thumbnail, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+
+                                                    <!-- Fallback to type text if no thumbnail -->
+                                                    <TextBlock Text="{Binding Type}"
+                                                               Foreground="#AAAAAA"
+                                                               HorizontalAlignment="Center"
+                                                               VerticalAlignment="Center"
+                                                               FontSize="11"
+                                                               Padding="20"
+                                                               IsVisible="{Binding Thumbnail, Converter={x:Static ObjectConverters.IsNull}}"/>
+                                                </Panel>
                                             </Border>
 
                                             <!-- Wallpaper Info -->
@@ -245,19 +261,53 @@
                             Padding="10"
                             Margin="0,10,0,0"
                             IsVisible="{Binding SelectedWallpaper, Converter={x:Static ObjectConverters.IsNotNull}}">
-                        <StackPanel Spacing="5">
-                            <TextBlock Text="Selected Wallpaper"
-                                       FontSize="12"
-                                       FontWeight="SemiBold"
-                                       Foreground="White"/>
-                            <TextBlock Text="{Binding SelectedWallpaper.Name}"
-                                       Foreground="#CCCCCC"
-                                       FontSize="11"/>
-                            <TextBlock Text="{Binding SelectedWallpaper.FilePath}"
-                                       Foreground="#888888"
-                                       FontSize="9"
-                                       TextTrimming="CharacterEllipsis"/>
-                        </StackPanel>
+                        <Grid ColumnDefinitions="120,*" RowDefinitions="Auto">
+                            <!-- Preview Image -->
+                            <Border Grid.Column="0"
+                                    Width="100" Height="75"
+                                    Background="#404040"
+                                    CornerRadius="3"
+                                    Margin="0,0,10,0">
+                                <Panel>
+                                    <Image Source="{Binding SelectedWallpaper.Thumbnail}"
+                                           Stretch="UniformToFill"
+                                           IsVisible="{Binding SelectedWallpaper.Thumbnail, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                                    <TextBlock Text="{Binding SelectedWallpaper.Type}"
+                                               Foreground="#AAAAAA"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               FontSize="10"
+                                               IsVisible="{Binding SelectedWallpaper.Thumbnail, Converter={x:Static ObjectConverters.IsNull}}"/>
+                                </Panel>
+                            </Border>
+
+                            <!-- Wallpaper Details -->
+                            <StackPanel Grid.Column="1" Spacing="3">
+                                <TextBlock Text="Selected Wallpaper"
+                                           FontSize="11"
+                                           FontWeight="SemiBold"
+                                           Foreground="White"/>
+                                <TextBlock Text="{Binding SelectedWallpaper.Name}"
+                                           Foreground="#CCCCCC"
+                                           FontSize="11"
+                                           FontWeight="Medium"/>
+                                <Grid ColumnDefinitions="Auto,*">
+                                    <TextBlock Grid.Column="0"
+                                               Text="{Binding SelectedWallpaper.Resolution}"
+                                               Foreground="#888888"
+                                               FontSize="9"
+                                               Margin="0,0,10,0"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding SelectedWallpaper.FileSize}"
+                                               Foreground="#888888"
+                                               FontSize="9"/>
+                                </Grid>
+                                <TextBlock Text="{Binding SelectedWallpaper.FilePath}"
+                                           Foreground="#666666"
+                                           FontSize="8"
+                                           TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Grid>
                     </Border>
                 </Grid>
             </Border>

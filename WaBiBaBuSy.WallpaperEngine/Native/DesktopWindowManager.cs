@@ -136,4 +136,34 @@ public class DesktopWindowManager
             return false;
         }
     }
+
+    /// <summary>
+    /// Restores the Windows desktop to its original state by closing the WorkerW window.
+    /// This should be called when the application exits to reset the wallpaper.
+    /// </summary>
+    public void RestoreDesktop()
+    {
+        try
+        {
+            if (_workerW != IntPtr.Zero)
+            {
+                _logger.LogInformation("Restoring desktop, closing WorkerW window: {WorkerW}", _workerW);
+
+                // Send close message to WorkerW window
+                Win32Interop.SendMessage(_workerW, Win32Interop.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+
+                _workerW = IntPtr.Zero;
+
+                _logger.LogInformation("Desktop restored successfully");
+            }
+            else
+            {
+                _logger.LogDebug("No WorkerW window to restore");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error restoring desktop");
+        }
+    }
 }
