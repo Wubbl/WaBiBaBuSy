@@ -17,7 +17,7 @@
 
     <TrayIcon.Icons>
         <TrayIcons>
-            <TrayIcon ToolTipText="WaBiBaBuSy - Wallpaper Sync">
+            <TrayIcon Icon="/Assets/BiBaBuColorIcon.ico" ToolTipText="WaBiBaBuSy - Wallpaper Sync">
                 <TrayIcon.Menu>
                     <NativeMenu>
                         <NativeMenuItem Header="Open Control Panel" Command="{Binding ShowWindowCommand}"/>
