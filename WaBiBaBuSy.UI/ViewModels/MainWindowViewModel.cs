@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Timers;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WaBiBaBuSy.Core.Services;
@@ -408,11 +409,49 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         try
         {
+            Console.WriteLine($"RefreshTopology called - IsServerRunning: {_service.IsServerRunning}, IsClientConnected: {_service.IsClientConnected}");
+
             if (_service.IsServerRunning)
             {
-                // Server mode - get connected clients directly
+                // Server mode - get connected clients and add localhost as server node
                 var connectedClients = _service.GetConnectedClients().ToList();
-                UpdateClientList(connectedClients);
+                Console.WriteLine($"Server mode: Got {connectedClients.Count} connected clients");
+
+                // Create a list that includes the server (localhost) as the first node
+                var allNodes = new List<WaBiBaBuSy.Grpc.ConnectedClient>();
+
+                // Add localhost server node
+                var serverNode = new WaBiBaBuSy.Grpc.ConnectedClient
+                {
+                    ClientId = "SERVER_LOCALHOST",
+                    Hostname = Environment.MachineName,
+                    IpAddress = "127.0.0.1 (Server)",
+                    Status = WaBiBaBuSy.Grpc.ClientStatusEnum.ClientConnected,
+                    OrderPosition = 0,
+                    PhysicalDistanceCm = 0,
+                    ScreenConfig = new WaBiBaBuSy.Grpc.ScreenConfiguration()
+                };
+
+                allNodes.Add(serverNode);
+                Console.WriteLine($"Added server node: {serverNode.Hostname} at position {serverNode.OrderPosition}");
+
+                // Add all connected clients with adjusted order positions
+                foreach (var client in connectedClients)
+                {
+                    allNodes.Add(new WaBiBaBuSy.Grpc.ConnectedClient
+                    {
+                        ClientId = client.ClientId,
+                        Hostname = client.Hostname,
+                        IpAddress = client.IpAddress,
+                        Status = client.Status,
+                        OrderPosition = client.OrderPosition + 1, // Offset by 1 since server is position 0
+                        PhysicalDistanceCm = client.PhysicalDistanceCm,
+                        ScreenConfig = client.ScreenConfig
+                    });
+                }
+
+                Console.WriteLine($"Total nodes to display: {allNodes.Count}");
+                UpdateClientList(allNodes);
             }
             else if (_service.IsClientConnected)
             {
@@ -420,18 +459,21 @@ public partial class MainWindowViewModel : ViewModelBase
                 var topology = await _service.GetTopologyAsync();
                 if (topology != null)
                 {
+                    Console.WriteLine($"Client mode: Got topology with {topology.Clients.Count} clients");
                     UpdateClientList(topology.Clients);
                 }
             }
             else
             {
                 // Not connected - clear clients
+                Console.WriteLine("Not connected - clearing clients");
                 Clients.Clear();
             }
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error refreshing topology: {ex.Message}");
+            Console.WriteLine($"Stack trace: {ex.StackTrace}");
         }
     }
 
@@ -440,50 +482,65 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void UpdateClientList(IEnumerable<WaBiBaBuSy.Grpc.ConnectedClient> connectedClients)
     {
-        // Remove clients that are no longer connected
-        var clientIds = connectedClients.Select(c => c.ClientId).ToHashSet();
-        var toRemove = Clients.Where(c => !clientIds.Contains(c.ClientId)).ToList();
-        foreach (var client in toRemove)
-        {
-            Clients.Remove(client);
-        }
+        Console.WriteLine($"UpdateClientList called with {connectedClients.Count()} clients");
 
-        // Add or update clients
-        int index = 0;
-        foreach (var grpcClient in connectedClients.OrderBy(c => c.OrderPosition))
+        // Ensure UI updates happen on the UI thread
+        Dispatcher.UIThread.Post(() =>
         {
-            var existing = Clients.FirstOrDefault(c => c.ClientId == grpcClient.ClientId);
-            if (existing != null)
+            // Remove clients that are no longer connected
+            var clientIds = connectedClients.Select(c => c.ClientId).ToHashSet();
+            var toRemove = Clients.Where(c => !clientIds.Contains(c.ClientId)).ToList();
+            foreach (var client in toRemove)
             {
-                // Update existing
-                existing.Hostname = grpcClient.Hostname;
-                existing.IpAddress = grpcClient.IpAddress;
-                existing.IsConnected = grpcClient.Status == WaBiBaBuSy.Grpc.ClientStatusEnum.ClientConnected ||
-                                      grpcClient.Status == WaBiBaBuSy.Grpc.ClientStatusEnum.ClientPlaying;
-                existing.Status = grpcClient.Status.ToString();
-                existing.Order = grpcClient.OrderPosition;
-                existing.PhysicalDistanceCm = grpcClient.PhysicalDistanceCm;
+                Console.WriteLine($"Removing client: {client.ClientId}");
+                Clients.Remove(client);
             }
-            else
+
+            // Add or update clients
+            int index = 0;
+            foreach (var grpcClient in connectedClients.OrderBy(c => c.OrderPosition))
             {
-                // Add new client
-                var newClient = new ClientNodeViewModel
+                var existing = Clients.FirstOrDefault(c => c.ClientId == grpcClient.ClientId);
+                if (existing != null)
                 {
-                    ClientId = grpcClient.ClientId,
-                    Hostname = grpcClient.Hostname,
-                    IpAddress = grpcClient.IpAddress,
-                    IsConnected = grpcClient.Status == WaBiBaBuSy.Grpc.ClientStatusEnum.ClientConnected ||
-                                 grpcClient.Status == WaBiBaBuSy.Grpc.ClientStatusEnum.ClientPlaying,
-                    Status = grpcClient.Status.ToString(),
-                    Order = grpcClient.OrderPosition,
-                    PhysicalDistanceCm = grpcClient.PhysicalDistanceCm,
-                    X = 100 + (index * 200), // Space clients horizontally
-                    Y = 100
-                };
-                Clients.Add(newClient);
+                    // Update existing
+                    Console.WriteLine($"Updating existing client: {grpcClient.ClientId} at position {grpcClient.OrderPosition}");
+                    existing.Hostname = grpcClient.Hostname;
+                    existing.IpAddress = grpcClient.IpAddress;
+                    existing.IsConnected = grpcClient.Status == WaBiBaBuSy.Grpc.ClientStatusEnum.ClientConnected ||
+                                          grpcClient.Status == WaBiBaBuSy.Grpc.ClientStatusEnum.ClientPlaying;
+                    existing.Status = grpcClient.Status.ToString();
+                    existing.Order = grpcClient.OrderPosition;
+                    existing.PhysicalDistanceCm = grpcClient.PhysicalDistanceCm;
+                }
+                else
+                {
+                    // Add new client
+                    var x = 100 + (index * 200);
+                    var y = 100;
+                    Console.WriteLine($"Adding new client: {grpcClient.ClientId} ({grpcClient.Hostname}) at X={x}, Y={y}");
+
+                    var newClient = new ClientNodeViewModel
+                    {
+                        ClientId = grpcClient.ClientId,
+                        Hostname = grpcClient.Hostname,
+                        IpAddress = grpcClient.IpAddress,
+                        IsConnected = grpcClient.Status == WaBiBaBuSy.Grpc.ClientStatusEnum.ClientConnected ||
+                                     grpcClient.Status == WaBiBaBuSy.Grpc.ClientStatusEnum.ClientPlaying,
+                        Status = grpcClient.Status.ToString(),
+                        Order = grpcClient.OrderPosition,
+                        PhysicalDistanceCm = grpcClient.PhysicalDistanceCm,
+                        X = x,
+                        Y = y
+                    };
+                    Clients.Add(newClient);
+                    Console.WriteLine($"Client added. Total clients now: {Clients.Count}");
+                }
+                index++;
             }
-            index++;
-        }
+
+            Console.WriteLine($"UpdateClientList complete. Final client count: {Clients.Count}");
+        });
     }
 
     private void OnRefreshTimerElapsed(object? sender, ElapsedEventArgs e)

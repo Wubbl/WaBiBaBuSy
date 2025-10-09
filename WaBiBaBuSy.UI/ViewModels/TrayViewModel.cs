@@ -96,16 +96,20 @@ public partial class TrayViewModel : ObservableObject
     [RelayCommand]
     private void ShowWindow()
     {
-        if (_mainWindow == null)
+        // Always create a new window if the old one doesn't exist or check if it's visible
+        if (_mainWindow == null || !_mainWindow.IsVisible)
         {
             _mainWindow = new MainWindow
             {
                 DataContext = new MainWindowViewModel(_service)
             };
+            _mainWindow.Show();
         }
-
-        _mainWindow.Show();
-        _mainWindow.Activate();
+        else
+        {
+            // Window exists and is visible, just activate it
+            _mainWindow.Activate();
+        }
     }
 
     [RelayCommand]
