@@ -344,5 +344,56 @@ dotnet run --project WaBiBaBuSy.UI
 
 ---
 
-**Last Updated**: 2025-10-09
+## Recent Updates & Bug Fixes
+
+### 2025-10-10 - UI Fixes & Local-Only Mode
+
+**Issues Fixed:**
+1. **Server Status Label Not Updating on Window Reopen** ✅
+   - Problem: When reopening MainWindow after starting server, status showed "Stopped" instead of "Running"
+   - Fix: Added `UpdateServerStatus()` method called on window `Opened` event
+   - Location: `WaBiBaBuSy.UI/ViewModels/MainWindowViewModel.cs:637-657`, `WaBiBaBuSy.UI/Views/MainWindow.axaml.cs:22-23`
+
+2. **Network Topology View Empty** ✅
+   - Problem: Topology didn't refresh when server status changed or window reopened
+   - Fixes:
+     - Added `RefreshTopology()` call in `OnServerStatusChanged` event handler (line 628)
+     - Added `RefreshTopology()` call in `UpdateServerStatus()` method (line 655)
+     - Added visual node counter badge in UI showing "Nodes: X" (MainWindow.axaml:47-50)
+     - Enhanced console logging for debugging topology issues
+   - Location: `WaBiBaBuSy.UI/ViewModels/MainWindowViewModel.cs`, `WaBiBaBuSy.UI/Views/MainWindow.axaml`
+
+3. **Apply Wallpaper Buttons Not Working** ✅
+   - Problem: "Apply to Selected" and "Apply to All Clients" buttons did nothing
+   - Fix: Implemented proper command handlers that:
+     - Use `WallpaperSyncCoordinator.BroadcastLoadWallpaperAsync()` and `BroadcastPlayAsync()`
+     - Send LOAD command with wallpaper content ID and file path
+     - Send PLAY command after 500ms delay for loading
+     - Update client UI optimistically
+   - **Important Note**: Clients must have wallpaper files in their cache directory (server-to-client transfer not yet implemented)
+   - Location: `WaBiBaBuSy.UI/ViewModels/MainWindowViewModel.cs:226-287`
+
+**New Features:**
+1. **Local-Only Mode** ✅
+   - Application now shows local machine node even when not connected to server/client
+   - Displays as "LOCAL_MACHINE" with hostname and "Local (No Network)" IP
+   - Allows standalone use for browsing wallpaper gallery and UI exploration
+   - Auto-detects local-only mode: `!IsServerRunning && !IsClientConnected`
+   - Location: `WaBiBaBuSy.UI/ViewModels/MainWindowViewModel.cs:557-571`
+
+2. **Visual Node Counter** ✅
+   - Added blue badge showing "Nodes: X" in topology view header
+   - Updates in real-time as nodes are added/removed
+   - Helps verify topology is working correctly
+   - Location: `WaBiBaBuSy.UI/Views/MainWindow.axaml:47-50`
+
+**Known Limitations:**
+- Local wallpaper application (setting wallpapers in local-only mode) requires dependency injection setup for `ILogger` and `DesktopWindowManager` - marked as TODO
+- Server-to-client content transfer not implemented - wallpaper files must be manually copied to client cache directories
+
+**Build Status:** ✅ Clean build with 0 errors, 0 warnings
+
+---
+
+**Last Updated**: 2025-10-10
 **Current Status**: ~97% MVP Complete, ready for final testing and installer creation

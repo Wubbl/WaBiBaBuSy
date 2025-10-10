@@ -9,7 +9,9 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using WaBiBaBuSy.Core.Interfaces;
 using WaBiBaBuSy.Core.Services;
+using WaBiBaBuSy.Models;
 using WaBiBaBuSy.Models.Configuration;
 using WaBiBaBuSy.Models.Wallpaper;
 
@@ -19,12 +21,16 @@ public partial class MainWindowViewModel : ViewModelBase
 {
     private readonly WaBiBaBuSyService _service;
     private readonly System.Timers.Timer _refreshTimer;
+    // private IWallpaperRenderer? _localWallpaperRenderer; // For local-only mode - TODO: implement with proper DI
 
     [ObservableProperty]
     private ObservableCollection<ClientNodeViewModel> _clients = new();
 
     [ObservableProperty]
     private ObservableCollection<WallpaperItemViewModel> _wallpapers = new();
+
+    [ObservableProperty]
+    private int _clientCount = 0;
 
     [ObservableProperty]
     private ClientNodeViewModel? _selectedClient;
@@ -208,9 +214,9 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Apply selected wallpaper to all connected clients
+    /// Apply selected wallpaper to all connected clients OR to local machine in local-only mode
     ///
-    /// IMPORTANT NOTE: For this to work, clients must have the wallpaper file in their cache directory.
+    /// IMPORTANT NOTE: For networked mode, clients must have the wallpaper file in their cache directory.
     /// Current limitation: Server-to-client content transfer not yet implemented.
     ///
     /// Workaround for testing:
@@ -224,6 +230,18 @@ public partial class MainWindowViewModel : ViewModelBase
         if (SelectedWallpaper == null)
         {
             Console.WriteLine("[ApplyWallpaperToAll] No wallpaper selected");
+            return;
+        }
+
+        // Check if we're in local-only mode
+        var isLocalOnlyMode = !_service.IsServerRunning && !_service.IsClientConnected;
+
+        if (isLocalOnlyMode)
+        {
+            Console.WriteLine("[ApplyWallpaperToAll] Local-only mode detected");
+            Console.WriteLine("[ApplyWallpaperToAll] NOTE: Local wallpaper application requires proper renderer setup with DI");
+            Console.WriteLine("[ApplyWallpaperToAll] TODO: Implement local wallpaper application with proper dependency injection");
+            // await ApplyWallpaperLocally(SelectedWallpaper);
             return;
         }
 
@@ -270,6 +288,69 @@ public partial class MainWindowViewModel : ViewModelBase
             Console.WriteLine($"[ApplyWallpaperToAll] Stack trace: {ex.StackTrace}");
         }
     }
+
+    // TODO: Implement local wallpaper application
+    // This requires proper dependency injection for ILogger and DesktopWindowManager
+    // For now, this is disabled - local wallpaper application will be implemented later
+    /*
+    /// <summary>
+    /// Apply wallpaper locally without network (local-only mode)
+    /// Uses the same wallpaper rendering engine as networked mode
+    /// </summary>
+    private async Task ApplyWallpaperLocally(WallpaperItemViewModel wallpaper)
+    {
+        try
+        {
+            Console.WriteLine($"[ApplyWallpaperLocally] Applying '{wallpaper.Name}' to local machine");
+
+            // Dispose previous renderer if exists
+            _localWallpaperRenderer?.Dispose();
+
+            // Create appropriate renderer based on file extension
+            var extension = Path.GetExtension(wallpaper.FilePath).ToLowerInvariant();
+            _localWallpaperRenderer = extension switch
+            {
+                ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv"
+                    => new WaBiBaBuSy.WallpaperEngine.Renderers.VideoWallpaperRenderer(),
+                ".gif"
+                    => new WaBiBaBuSy.WallpaperEngine.Renderers.GifWallpaperRenderer(),
+                ".jpg" or ".jpeg" or ".png" or ".bmp"
+                    => new WaBiBaBuSy.WallpaperEngine.Renderers.ImageWallpaperRenderer(),
+                _ => null
+            };
+
+            if (_localWallpaperRenderer == null)
+            {
+                Console.WriteLine($"[ApplyWallpaperLocally] Unsupported file type: {extension}");
+                return;
+            }
+
+            // Initialize and play
+            var config = new WallpaperConfig
+            {
+                FilePath = wallpaper.FilePath,
+                Loop = true
+            };
+
+            await _localWallpaperRenderer.InitializeAsync(config);
+            await _localWallpaperRenderer.StartAsync();
+
+            // Update UI
+            var localClient = Clients.FirstOrDefault(c => c.ClientId == "LOCAL_MACHINE");
+            if (localClient != null)
+            {
+                localClient.CurrentWallpaper = wallpaper.Name;
+            }
+
+            Console.WriteLine($"[ApplyWallpaperLocally] Successfully applied '{wallpaper.Name}' locally");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ApplyWallpaperLocally] Error: {ex.Message}");
+            Console.WriteLine($"[ApplyWallpaperLocally] Stack trace: {ex.StackTrace}");
+        }
+    }
+    */
 
     [RelayCommand]
     private async Task UpdateClientDistance(ClientNodeViewModel client)
@@ -473,7 +554,7 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Refresh client topology from server
+    /// Refresh client topology from server OR show local-only mode
     /// </summary>
     public async void RefreshTopology()
     {
@@ -481,6 +562,7 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             Console.WriteLine($"[RefreshTopology] Called - IsServerRunning: {_service.IsServerRunning}, IsClientConnected: {_service.IsClientConnected}");
 
+            // Always show at least the local machine
             if (_service.IsServerRunning)
             {
                 // Server mode - get connected clients and add localhost as server node
@@ -535,9 +617,9 @@ public partial class MainWindowViewModel : ViewModelBase
             }
             else
             {
-                // Not connected - clear clients
-                Console.WriteLine("Not connected - clearing clients");
-                Clients.Clear();
+                // Local-only mode - show local machine node
+                Console.WriteLine("[RefreshTopology] Local-only mode - showing local machine");
+                ShowLocalMachineNode();
             }
         }
         catch (Exception ex)
@@ -545,6 +627,25 @@ public partial class MainWindowViewModel : ViewModelBase
             Console.WriteLine($"Error refreshing topology: {ex.Message}");
             Console.WriteLine($"Stack trace: {ex.StackTrace}");
         }
+    }
+
+    /// <summary>
+    /// Show local machine node in local-only mode (when not connected to server/client)
+    /// </summary>
+    private void ShowLocalMachineNode()
+    {
+        var localNode = new WaBiBaBuSy.Grpc.ConnectedClient
+        {
+            ClientId = "LOCAL_MACHINE",
+            Hostname = Environment.MachineName,
+            IpAddress = "Local (No Network)",
+            Status = WaBiBaBuSy.Grpc.ClientStatusEnum.ClientConnected,
+            OrderPosition = 0,
+            PhysicalDistanceCm = 0,
+            ScreenConfig = new WaBiBaBuSy.Grpc.ScreenConfiguration()
+        };
+
+        UpdateClientList(new[] { localNode });
     }
 
     /// <summary>
@@ -609,7 +710,9 @@ public partial class MainWindowViewModel : ViewModelBase
                 index++;
             }
 
-            Console.WriteLine($"UpdateClientList complete. Final client count: {Clients.Count}");
+            ClientCount = Clients.Count;
+            Console.WriteLine($"[UpdateClientList] Complete. Final client count: {Clients.Count}");
+            Console.WriteLine($"[UpdateClientList] Clients in collection: {string.Join(", ", Clients.Select(c => c.Hostname))}");
         });
     }
 
@@ -622,6 +725,10 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         IsServerMode = e.IsRunning;
         ServerStatus = e.IsRunning ? $"Running on port {e.Port}" : "Stopped";
+
+        // Refresh topology when server status changes
+        Console.WriteLine($"[OnServerStatusChanged] Server status changed to: {(e.IsRunning ? "Running" : "Stopped")}");
+        RefreshTopology();
     }
 
     private void OnClientConnectionStatusChanged(object? sender, Core.Services.Networking.ConnectionStatusChangedEventArgs e)
