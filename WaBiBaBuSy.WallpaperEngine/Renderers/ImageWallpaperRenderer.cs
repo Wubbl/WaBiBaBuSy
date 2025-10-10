@@ -158,60 +158,61 @@ public class ImageWallpaperRenderer : IWallpaperRenderer
         return Task.CompletedTask;
     }
 
-    private async Task CreateRenderWindowAsync(WallpaperConfig config)
+    private Task CreateRenderWindowAsync(WallpaperConfig config)
     {
-        await Task.Run(() =>
+        // Windows Forms controls must be created on the calling thread
+        // Do NOT wrap in Task.Run - this causes threading issues
+        _renderForm = new Form
         {
-            _renderForm = new Form
-            {
-                FormBorderStyle = FormBorderStyle.None,
-                StartPosition = FormStartPosition.Manual,
-                ShowInTaskbar = false,
-                TopMost = false,
-                BackColor = Color.Black
-            };
+            FormBorderStyle = FormBorderStyle.None,
+            StartPosition = FormStartPosition.Manual,
+            ShowInTaskbar = false,
+            TopMost = false,
+            BackColor = Color.Black
+        };
 
-            // Set window bounds based on monitor
-            if (config.MonitorIndex >= 0 && config.MonitorIndex < Screen.AllScreens.Length)
-            {
-                var screen = Screen.AllScreens[config.MonitorIndex];
-                _renderForm.Bounds = screen.Bounds;
-                _logger.LogInformation("Rendering on monitor {Index}: {Bounds}",
-                    config.MonitorIndex, screen.Bounds);
-            }
-            else
-            {
-                // Span all monitors
-                _renderForm.Bounds = SystemInformation.VirtualScreen;
-                _logger.LogInformation("Rendering across all monitors: {Bounds}",
-                    SystemInformation.VirtualScreen);
-            }
+        // Set window bounds based on monitor
+        if (config.MonitorIndex >= 0 && config.MonitorIndex < Screen.AllScreens.Length)
+        {
+            var screen = Screen.AllScreens[config.MonitorIndex];
+            _renderForm.Bounds = screen.Bounds;
+            _logger.LogInformation("Rendering on monitor {Index}: {Bounds}",
+                config.MonitorIndex, screen.Bounds);
+        }
+        else
+        {
+            // Span all monitors
+            _renderForm.Bounds = SystemInformation.VirtualScreen;
+            _logger.LogInformation("Rendering across all monitors: {Bounds}",
+                SystemInformation.VirtualScreen);
+        }
 
-            // Create PictureBox to display image
-            _pictureBox = new PictureBox
-            {
-                Dock = DockStyle.Fill,
-                SizeMode = PictureBoxSizeMode.Zoom, // Maintain aspect ratio
-                BackColor = Color.Black,
-                Image = _image
-            };
+        // Create PictureBox to display image
+        _pictureBox = new PictureBox
+        {
+            Dock = DockStyle.Fill,
+            SizeMode = PictureBoxSizeMode.Zoom, // Maintain aspect ratio
+            BackColor = Color.Black,
+            Image = _image
+        };
 
-            _renderForm.Controls.Add(_pictureBox);
+        _renderForm.Controls.Add(_pictureBox);
 
-            // Find WorkerW window and set as parent
-            var workerW = _desktopManager.FindDesktopWorkerWindow();
-            if (workerW != IntPtr.Zero)
-            {
-                _desktopManager.SetAsWallpaperWindow(_renderForm.Handle);
-                _logger.LogInformation("Set as wallpaper window behind desktop icons");
-            }
-            else
-            {
-                _logger.LogWarning("Could not find WorkerW window, wallpaper may not render behind icons");
-            }
+        // Find WorkerW window and set as parent
+        var workerW = _desktopManager.FindDesktopWorkerWindow();
+        if (workerW != IntPtr.Zero)
+        {
+            _desktopManager.SetAsWallpaperWindow(_renderForm.Handle);
+            _logger.LogInformation("Set as wallpaper window behind desktop icons");
+        }
+        else
+        {
+            _logger.LogWarning("Could not find WorkerW window, wallpaper may not render behind icons");
+        }
 
-            _renderForm.Show();
-        });
+        _renderForm.Show();
+
+        return Task.CompletedTask;
     }
 
     public void Dispose()

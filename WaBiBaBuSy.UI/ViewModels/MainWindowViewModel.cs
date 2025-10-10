@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -9,11 +10,14 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Core.Interfaces;
 using WaBiBaBuSy.Core.Services;
 using WaBiBaBuSy.Models;
 using WaBiBaBuSy.Models.Configuration;
 using WaBiBaBuSy.Models.Wallpaper;
+using WaBiBaBuSy.WallpaperEngine.Native;
+using WaBiBaBuSy.WallpaperEngine.Renderers;
 
 namespace WaBiBaBuSy.UI.ViewModels;
 
@@ -21,7 +25,9 @@ public partial class MainWindowViewModel : ViewModelBase
 {
     private readonly WaBiBaBuSyService _service;
     private readonly System.Timers.Timer _refreshTimer;
-    // private IWallpaperRenderer? _localWallpaperRenderer; // For local-only mode - TODO: implement with proper DI
+    private readonly ILoggerFactory _loggerFactory;
+    private readonly DesktopWindowManager _desktopManager;
+    private IWallpaperRenderer? _localWallpaperRenderer; // For local-only mode
 
     [ObservableProperty]
     private ObservableCollection<ClientNodeViewModel> _clients = new();
@@ -51,23 +57,21 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         _service = service;
 
+        // Initialize logger factory and desktop manager for local wallpaper rendering
+        _loggerFactory = LoggerFactory.Create(builder => builder.AddConsole().AddDebug());
+        _desktopManager = new DesktopWindowManager(_loggerFactory.CreateLogger<DesktopWindowManager>());
+
         // Subscribe to service events
         _service.ServerStatusChanged += OnServerStatusChanged;
         _service.ClientConnectionStatusChanged += OnClientConnectionStatusChanged;
 
-        // Setup refresh timer for topology updates
+        // Setup refresh timer for topology updates (but don't start it yet - window will start it)
         _refreshTimer = new System.Timers.Timer(2000); // Refresh every 2 seconds
         _refreshTimer.Elapsed += OnRefreshTimerElapsed;
-        _refreshTimer.Start();
+        // Note: Timer is started by the window's Opened event to avoid background updates
 
         // Load wallpaper gallery from disk
         LoadWallpaperGallery();
-
-        // Initial refresh
-        RefreshTopology();
-
-        // Update server status on initialization
-        UpdateServerStatus();
     }
 
     /// <summary>
@@ -79,14 +83,14 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             var gallery = ConfigurationManager.LoadWallpaperGallery();
 
-            Console.WriteLine($"Loading {gallery.Wallpapers.Count} wallpapers from gallery");
+            Debug.WriteLine($"Loading {gallery.Wallpapers.Count} wallpapers from gallery");
 
             foreach (var item in gallery.Wallpapers)
             {
                 // Verify file still exists
                 if (!File.Exists(item.FilePath))
                 {
-                    Console.WriteLine($"Wallpaper file not found, skipping: {item.FilePath}");
+                    Debug.WriteLine($"Wallpaper file not found, skipping: {item.FilePath}");
                     continue;
                 }
 
@@ -114,11 +118,11 @@ public partial class MainWindowViewModel : ViewModelBase
                 Wallpapers.Add(viewModel);
             }
 
-            Console.WriteLine($"Loaded {Wallpapers.Count} wallpapers successfully");
+            Debug.WriteLine($"Loaded {Wallpapers.Count} wallpapers successfully");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error loading wallpaper gallery: {ex.Message}");
+            Debug.WriteLine($"Error loading wallpaper gallery: {ex.Message}");
         }
     }
 
@@ -147,7 +151,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error saving wallpaper gallery: {ex.Message}");
+            Debug.WriteLine($"Error saving wallpaper gallery: {ex.Message}");
         }
     }
 
@@ -157,6 +161,26 @@ public partial class MainWindowViewModel : ViewModelBase
     public void SetStorageProvider(IStorageProvider storageProvider)
     {
         _storageProvider = storageProvider;
+    }
+
+    /// <summary>
+    /// Start the refresh timer (called when window becomes visible)
+    /// </summary>
+    public void StartRefreshTimer()
+    {
+        Debug.WriteLine("[MainWindowViewModel] Starting refresh timer");
+        _refreshTimer.Start();
+        // Do an immediate refresh
+        RefreshTopology();
+    }
+
+    /// <summary>
+    /// Stop the refresh timer (called when window is closed/hidden)
+    /// </summary>
+    public void StopRefreshTimer()
+    {
+        Debug.WriteLine("[MainWindowViewModel] Stopping refresh timer");
+        _refreshTimer.Stop();
     }
 
 
@@ -179,37 +203,47 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void ApplyWallpaperToSelected()
+    private async Task ApplyWallpaperToSelected()
     {
         if (SelectedClient == null || SelectedWallpaper == null)
         {
-            Console.WriteLine("[ApplyWallpaperToSelected] No client or wallpaper selected");
+            Debug.WriteLine("[ApplyWallpaperToSelected] No client or wallpaper selected");
+            return;
+        }
+
+        // Check if we're in local-only mode
+        var isLocalOnlyMode = !_service.IsServerRunning && !_service.IsClientConnected;
+
+        if (isLocalOnlyMode && SelectedClient.ClientId == "LOCAL_MACHINE")
+        {
+            Debug.WriteLine("[ApplyWallpaperToSelected] Local-only mode - applying wallpaper locally");
+            await ApplyWallpaperLocally(SelectedWallpaper);
             return;
         }
 
         if (!_service.IsServerRunning || _service.SyncCoordinator == null)
         {
-            Console.WriteLine("[ApplyWallpaperToSelected] Server not running or sync coordinator not available");
+            Debug.WriteLine("[ApplyWallpaperToSelected] Server not running or sync coordinator not available");
             return;
         }
 
         try
         {
-            Console.WriteLine($"[ApplyWallpaperToSelected] Applying wallpaper '{SelectedWallpaper.Name}' to client '{SelectedClient.Hostname}'");
+            Debug.WriteLine($"[ApplyWallpaperToSelected] Applying wallpaper '{SelectedWallpaper.Name}' to client '{SelectedClient.Hostname}'");
 
             // Use wallpaper ID as content ID
             var contentId = SelectedWallpaper.WallpaperId;
 
             // For single client, we need to implement a targeted send
             // For now, we'll just update the UI and log a warning
-            Console.WriteLine($"WARNING: Single client wallpaper application not yet implemented in coordinator. Use 'Apply to All Clients' instead.");
+            Debug.WriteLine($"WARNING: Single client wallpaper application not yet implemented in coordinator. Use 'Apply to All Clients' instead.");
 
             // Update UI optimistically
             SelectedClient.CurrentWallpaper = SelectedWallpaper.Name;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[ApplyWallpaperToSelected] Error: {ex.Message}");
+            Debug.WriteLine($"[ApplyWallpaperToSelected] Error: {ex.Message}");
         }
     }
 
@@ -229,7 +263,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         if (SelectedWallpaper == null)
         {
-            Console.WriteLine("[ApplyWallpaperToAll] No wallpaper selected");
+            Debug.WriteLine("[ApplyWallpaperToAll] No wallpaper selected");
             return;
         }
 
@@ -238,30 +272,28 @@ public partial class MainWindowViewModel : ViewModelBase
 
         if (isLocalOnlyMode)
         {
-            Console.WriteLine("[ApplyWallpaperToAll] Local-only mode detected");
-            Console.WriteLine("[ApplyWallpaperToAll] NOTE: Local wallpaper application requires proper renderer setup with DI");
-            Console.WriteLine("[ApplyWallpaperToAll] TODO: Implement local wallpaper application with proper dependency injection");
-            // await ApplyWallpaperLocally(SelectedWallpaper);
+            Debug.WriteLine("[ApplyWallpaperToAll] Local-only mode detected - applying wallpaper locally");
+            await ApplyWallpaperLocally(SelectedWallpaper);
             return;
         }
 
         if (!_service.IsServerRunning || _service.SyncCoordinator == null)
         {
-            Console.WriteLine("[ApplyWallpaperToAll] Server not running or sync coordinator not available");
+            Debug.WriteLine("[ApplyWallpaperToAll] Server not running or sync coordinator not available");
             return;
         }
 
         try
         {
-            Console.WriteLine($"[ApplyWallpaperToAll] Broadcasting wallpaper '{SelectedWallpaper.Name}' to all clients");
+            Debug.WriteLine($"[ApplyWallpaperToAll] Broadcasting wallpaper '{SelectedWallpaper.Name}' to all clients");
 
             // Use wallpaper ID as content ID
             var contentId = SelectedWallpaper.WallpaperId;
             var filePath = SelectedWallpaper.FilePath;
 
-            Console.WriteLine($"[ApplyWallpaperToAll] Content ID: {contentId}");
-            Console.WriteLine($"[ApplyWallpaperToAll] File Path: {filePath}");
-            Console.WriteLine($"[ApplyWallpaperToAll] NOTE: Clients must have this file in their cache directory!");
+            Debug.WriteLine($"[ApplyWallpaperToAll] Content ID: {contentId}");
+            Debug.WriteLine($"[ApplyWallpaperToAll] File Path: {filePath}");
+            Debug.WriteLine($"[ApplyWallpaperToAll] NOTE: Clients must have this file in their cache directory!");
 
             // Update UI optimistically
             foreach (var client in Clients.Where(c => c.IsConnected && c.ClientId != "SERVER_LOCALHOST"))
@@ -270,29 +302,25 @@ public partial class MainWindowViewModel : ViewModelBase
             }
 
             // Send LOAD command to all clients
-            Console.WriteLine($"[ApplyWallpaperToAll] Sending LOAD command...");
+            Debug.WriteLine($"[ApplyWallpaperToAll] Sending LOAD command...");
             await _service.SyncCoordinator.BroadcastLoadWallpaperAsync(contentId, filePath);
 
             // Wait a moment for LOAD to complete
             await Task.Delay(500);
 
             // Send PLAY command to all clients
-            Console.WriteLine($"[ApplyWallpaperToAll] Sending PLAY command...");
+            Debug.WriteLine($"[ApplyWallpaperToAll] Sending PLAY command...");
             await _service.SyncCoordinator.BroadcastPlayAsync(contentId);
 
-            Console.WriteLine($"[ApplyWallpaperToAll] Successfully broadcast wallpaper to all clients");
+            Debug.WriteLine($"[ApplyWallpaperToAll] Successfully broadcast wallpaper to all clients");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[ApplyWallpaperToAll] Error applying wallpaper: {ex.Message}");
-            Console.WriteLine($"[ApplyWallpaperToAll] Stack trace: {ex.StackTrace}");
+            Debug.WriteLine($"[ApplyWallpaperToAll] Error applying wallpaper: {ex.Message}");
+            Debug.WriteLine($"[ApplyWallpaperToAll] Stack trace: {ex.StackTrace}");
         }
     }
 
-    // TODO: Implement local wallpaper application
-    // This requires proper dependency injection for ILogger and DesktopWindowManager
-    // For now, this is disabled - local wallpaper application will be implemented later
-    /*
     /// <summary>
     /// Apply wallpaper locally without network (local-only mode)
     /// Uses the same wallpaper rendering engine as networked mode
@@ -301,7 +329,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            Console.WriteLine($"[ApplyWallpaperLocally] Applying '{wallpaper.Name}' to local machine");
+            Debug.WriteLine($"[ApplyWallpaperLocally] Applying '{wallpaper.Name}' to local machine");
 
             // Dispose previous renderer if exists
             _localWallpaperRenderer?.Dispose();
@@ -311,17 +339,23 @@ public partial class MainWindowViewModel : ViewModelBase
             _localWallpaperRenderer = extension switch
             {
                 ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv"
-                    => new WaBiBaBuSy.WallpaperEngine.Renderers.VideoWallpaperRenderer(),
+                    => new VideoWallpaperRenderer(
+                        _loggerFactory.CreateLogger<VideoWallpaperRenderer>(),
+                        _desktopManager),
                 ".gif"
-                    => new WaBiBaBuSy.WallpaperEngine.Renderers.GifWallpaperRenderer(),
+                    => new GifWallpaperRenderer(
+                        _loggerFactory.CreateLogger<GifWallpaperRenderer>(),
+                        _desktopManager),
                 ".jpg" or ".jpeg" or ".png" or ".bmp"
-                    => new WaBiBaBuSy.WallpaperEngine.Renderers.ImageWallpaperRenderer(),
+                    => new ImageWallpaperRenderer(
+                        _loggerFactory.CreateLogger<ImageWallpaperRenderer>(),
+                        _desktopManager),
                 _ => null
             };
 
             if (_localWallpaperRenderer == null)
             {
-                Console.WriteLine($"[ApplyWallpaperLocally] Unsupported file type: {extension}");
+                Debug.WriteLine($"[ApplyWallpaperLocally] Unsupported file type: {extension}");
                 return;
             }
 
@@ -342,15 +376,14 @@ public partial class MainWindowViewModel : ViewModelBase
                 localClient.CurrentWallpaper = wallpaper.Name;
             }
 
-            Console.WriteLine($"[ApplyWallpaperLocally] Successfully applied '{wallpaper.Name}' locally");
+            Debug.WriteLine($"[ApplyWallpaperLocally] Successfully applied '{wallpaper.Name}' locally");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[ApplyWallpaperLocally] Error: {ex.Message}");
-            Console.WriteLine($"[ApplyWallpaperLocally] Stack trace: {ex.StackTrace}");
+            Debug.WriteLine($"[ApplyWallpaperLocally] Error: {ex.Message}");
+            Debug.WriteLine($"[ApplyWallpaperLocally] Stack trace: {ex.StackTrace}");
         }
     }
-    */
 
     [RelayCommand]
     private async Task UpdateClientDistance(ClientNodeViewModel client)
@@ -364,7 +397,7 @@ public partial class MainWindowViewModel : ViewModelBase
             if (_service.IsServerRunning && _service.SyncCoordinator != null)
             {
                 _service.SyncCoordinator.UpdateClientDistance(client.ClientId, client.PhysicalDistanceCm);
-                Console.WriteLine($"Updated physical distance for client {client.ClientId} to {client.PhysicalDistanceCm} cm");
+                Debug.WriteLine($"Updated physical distance for client {client.ClientId} to {client.PhysicalDistanceCm} cm");
             }
             else if (_service.IsClientConnected)
             {
@@ -374,7 +407,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error updating client distance: {ex.Message}");
+            Debug.WriteLine($"Error updating client distance: {ex.Message}");
         }
     }
 
@@ -386,11 +419,11 @@ public partial class MainWindowViewModel : ViewModelBase
         var success = await _service.UpdateClientDistanceAsync(clientId, distanceCm);
         if (success)
         {
-            Console.WriteLine($"Successfully updated physical distance for client {clientId} to {distanceCm} cm on server");
+            Debug.WriteLine($"Successfully updated physical distance for client {clientId} to {distanceCm} cm on server");
         }
         else
         {
-            Console.WriteLine($"Failed to update physical distance for client {clientId}");
+            Debug.WriteLine($"Failed to update physical distance for client {clientId}");
         }
     }
 
@@ -399,7 +432,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         if (_storageProvider == null)
         {
-            Console.WriteLine("Storage provider not available");
+            Debug.WriteLine("Storage provider not available");
             return;
         }
 
@@ -446,7 +479,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error adding wallpaper: {ex.Message}");
+            Debug.WriteLine($"Error adding wallpaper: {ex.Message}");
         }
     }
 
@@ -516,14 +549,14 @@ public partial class MainWindowViewModel : ViewModelBase
             // Add to collection
             Wallpapers.Add(wallpaper);
 
-            Console.WriteLine($"Added wallpaper: {fileName} ({type}, {wallpaper.FileSize})");
+            Debug.WriteLine($"Added wallpaper: {fileName} ({type}, {wallpaper.FileSize})");
 
             // Save gallery to disk
             SaveWallpaperGallery();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error adding wallpaper from file: {ex.Message}");
+            Debug.WriteLine($"Error adding wallpaper from file: {ex.Message}");
         }
 
         return Task.CompletedTask;
@@ -537,7 +570,7 @@ public partial class MainWindowViewModel : ViewModelBase
         // Save gallery to disk
         SaveWallpaperGallery();
 
-        Console.WriteLine($"Removed wallpaper: {wallpaper.Name}");
+        Debug.WriteLine($"Removed wallpaper: {wallpaper.Name}");
     }
 
     [RelayCommand]
@@ -560,14 +593,14 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            Console.WriteLine($"[RefreshTopology] Called - IsServerRunning: {_service.IsServerRunning}, IsClientConnected: {_service.IsClientConnected}");
+            Debug.WriteLine($"[RefreshTopology] Called - IsServerRunning: {_service.IsServerRunning}, IsClientConnected: {_service.IsClientConnected}");
 
             // Always show at least the local machine
             if (_service.IsServerRunning)
             {
                 // Server mode - get connected clients and add localhost as server node
                 var connectedClients = _service.GetConnectedClients().ToList();
-                Console.WriteLine($"Server mode: Got {connectedClients.Count} connected clients");
+                Debug.WriteLine($"Server mode: Got {connectedClients.Count} connected clients");
 
                 // Create a list that includes the server (localhost) as the first node
                 var allNodes = new List<WaBiBaBuSy.Grpc.ConnectedClient>();
@@ -585,7 +618,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 };
 
                 allNodes.Add(serverNode);
-                Console.WriteLine($"Added server node: {serverNode.Hostname} at position {serverNode.OrderPosition}");
+                Debug.WriteLine($"Added server node: {serverNode.Hostname} at position {serverNode.OrderPosition}");
 
                 // Add all connected clients with adjusted order positions
                 foreach (var client in connectedClients)
@@ -602,7 +635,7 @@ public partial class MainWindowViewModel : ViewModelBase
                     });
                 }
 
-                Console.WriteLine($"Total nodes to display: {allNodes.Count}");
+                Debug.WriteLine($"Total nodes to display: {allNodes.Count}");
                 UpdateClientList(allNodes);
             }
             else if (_service.IsClientConnected)
@@ -611,21 +644,21 @@ public partial class MainWindowViewModel : ViewModelBase
                 var topology = await _service.GetTopologyAsync();
                 if (topology != null)
                 {
-                    Console.WriteLine($"Client mode: Got topology with {topology.Clients.Count} clients");
+                    Debug.WriteLine($"Client mode: Got topology with {topology.Clients.Count} clients");
                     UpdateClientList(topology.Clients);
                 }
             }
             else
             {
                 // Local-only mode - show local machine node
-                Console.WriteLine("[RefreshTopology] Local-only mode - showing local machine");
+                Debug.WriteLine("[RefreshTopology] Local-only mode - showing local machine");
                 ShowLocalMachineNode();
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error refreshing topology: {ex.Message}");
-            Console.WriteLine($"Stack trace: {ex.StackTrace}");
+            Debug.WriteLine($"Error refreshing topology: {ex.Message}");
+            Debug.WriteLine($"Stack trace: {ex.StackTrace}");
         }
     }
 
@@ -653,7 +686,7 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void UpdateClientList(IEnumerable<WaBiBaBuSy.Grpc.ConnectedClient> connectedClients)
     {
-        Console.WriteLine($"UpdateClientList called with {connectedClients.Count()} clients");
+        Debug.WriteLine($"UpdateClientList called with {connectedClients.Count()} clients");
 
         // Ensure UI updates happen on the UI thread
         Dispatcher.UIThread.Post(() =>
@@ -663,7 +696,7 @@ public partial class MainWindowViewModel : ViewModelBase
             var toRemove = Clients.Where(c => !clientIds.Contains(c.ClientId)).ToList();
             foreach (var client in toRemove)
             {
-                Console.WriteLine($"Removing client: {client.ClientId}");
+                Debug.WriteLine($"Removing client: {client.ClientId}");
                 Clients.Remove(client);
             }
 
@@ -675,7 +708,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 if (existing != null)
                 {
                     // Update existing
-                    Console.WriteLine($"Updating existing client: {grpcClient.ClientId} at position {grpcClient.OrderPosition}");
+                    Debug.WriteLine($"Updating existing client: {grpcClient.ClientId} at position {grpcClient.OrderPosition}");
                     existing.Hostname = grpcClient.Hostname;
                     existing.IpAddress = grpcClient.IpAddress;
                     existing.IsConnected = grpcClient.Status == WaBiBaBuSy.Grpc.ClientStatusEnum.ClientConnected ||
@@ -689,7 +722,7 @@ public partial class MainWindowViewModel : ViewModelBase
                     // Add new client
                     var x = 100 + (index * 200);
                     var y = 100;
-                    Console.WriteLine($"Adding new client: {grpcClient.ClientId} ({grpcClient.Hostname}) at X={x}, Y={y}");
+                    Debug.WriteLine($"[UpdateClientList] Adding new client: {grpcClient.ClientId} ({grpcClient.Hostname}) at X={x}, Y={y}");
 
                     var newClient = new ClientNodeViewModel
                     {
@@ -704,15 +737,21 @@ public partial class MainWindowViewModel : ViewModelBase
                         X = x,
                         Y = y
                     };
+
+                    Debug.WriteLine($"[UpdateClientList] About to add client to Clients collection");
+                    Debug.WriteLine($"[UpdateClientList] Client details - ID: {newClient.ClientId}, Hostname: {newClient.Hostname}, DisplayName: {newClient.DisplayName}");
+                    Debug.WriteLine($"[UpdateClientList] Position - X: {newClient.X}, Y: {newClient.Y}");
+                    Debug.WriteLine($"[UpdateClientList] Status: {newClient.Status}, IsConnected: {newClient.IsConnected}");
+
                     Clients.Add(newClient);
-                    Console.WriteLine($"Client added. Total clients now: {Clients.Count}");
+                    Debug.WriteLine($"[UpdateClientList] Client added. Total clients now: {Clients.Count}");
                 }
                 index++;
             }
 
             ClientCount = Clients.Count;
-            Console.WriteLine($"[UpdateClientList] Complete. Final client count: {Clients.Count}");
-            Console.WriteLine($"[UpdateClientList] Clients in collection: {string.Join(", ", Clients.Select(c => c.Hostname))}");
+            Debug.WriteLine($"[UpdateClientList] Complete. Final client count: {Clients.Count}");
+            Debug.WriteLine($"[UpdateClientList] Clients in collection: {string.Join(", ", Clients.Select(c => c.Hostname))}");
         });
     }
 
@@ -727,7 +766,7 @@ public partial class MainWindowViewModel : ViewModelBase
         ServerStatus = e.IsRunning ? $"Running on port {e.Port}" : "Stopped";
 
         // Refresh topology when server status changes
-        Console.WriteLine($"[OnServerStatusChanged] Server status changed to: {(e.IsRunning ? "Running" : "Stopped")}");
+        Debug.WriteLine($"[OnServerStatusChanged] Server status changed to: {(e.IsRunning ? "Running" : "Stopped")}");
         RefreshTopology();
     }
 
