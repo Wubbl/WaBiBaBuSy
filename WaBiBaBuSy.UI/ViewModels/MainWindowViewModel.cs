@@ -59,6 +59,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
         // Initial refresh
         RefreshTopology();
+
+        // Update server status on initialization
+        UpdateServerStatus();
     }
 
     /// <summary>
@@ -170,36 +173,101 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private async Task ApplyWallpaperToSelected()
+    private void ApplyWallpaperToSelected()
     {
         if (SelectedClient == null || SelectedWallpaper == null)
+        {
+            Console.WriteLine("[ApplyWallpaperToSelected] No client or wallpaper selected");
             return;
+        }
 
-        // TODO: Implement single client wallpaper application
-        SelectedClient.CurrentWallpaper = SelectedWallpaper.Name;
+        if (!_service.IsServerRunning || _service.SyncCoordinator == null)
+        {
+            Console.WriteLine("[ApplyWallpaperToSelected] Server not running or sync coordinator not available");
+            return;
+        }
+
+        try
+        {
+            Console.WriteLine($"[ApplyWallpaperToSelected] Applying wallpaper '{SelectedWallpaper.Name}' to client '{SelectedClient.Hostname}'");
+
+            // Use wallpaper ID as content ID
+            var contentId = SelectedWallpaper.WallpaperId;
+
+            // For single client, we need to implement a targeted send
+            // For now, we'll just update the UI and log a warning
+            Console.WriteLine($"WARNING: Single client wallpaper application not yet implemented in coordinator. Use 'Apply to All Clients' instead.");
+
+            // Update UI optimistically
+            SelectedClient.CurrentWallpaper = SelectedWallpaper.Name;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ApplyWallpaperToSelected] Error: {ex.Message}");
+        }
     }
 
+    /// <summary>
+    /// Apply selected wallpaper to all connected clients
+    ///
+    /// IMPORTANT NOTE: For this to work, clients must have the wallpaper file in their cache directory.
+    /// Current limitation: Server-to-client content transfer not yet implemented.
+    ///
+    /// Workaround for testing:
+    /// 1. Ensure wallpaper files are in server's ContentDirectory
+    /// 2. Manually copy the same files to each client's CacheDirectory
+    /// 3. The WallpaperId is used as the contentId for synchronization
+    /// </summary>
     [RelayCommand]
     private async Task ApplyWallpaperToAll()
     {
         if (SelectedWallpaper == null)
+        {
+            Console.WriteLine("[ApplyWallpaperToAll] No wallpaper selected");
             return;
+        }
+
+        if (!_service.IsServerRunning || _service.SyncCoordinator == null)
+        {
+            Console.WriteLine("[ApplyWallpaperToAll] Server not running or sync coordinator not available");
+            return;
+        }
 
         try
         {
-            // Use the sync coordinator to broadcast with delays
-            // TODO: Get sync coordinator from service
-            // For now, just update UI
-            foreach (var client in Clients.Where(c => c.IsConnected))
+            Console.WriteLine($"[ApplyWallpaperToAll] Broadcasting wallpaper '{SelectedWallpaper.Name}' to all clients");
+
+            // Use wallpaper ID as content ID
+            var contentId = SelectedWallpaper.WallpaperId;
+            var filePath = SelectedWallpaper.FilePath;
+
+            Console.WriteLine($"[ApplyWallpaperToAll] Content ID: {contentId}");
+            Console.WriteLine($"[ApplyWallpaperToAll] File Path: {filePath}");
+            Console.WriteLine($"[ApplyWallpaperToAll] NOTE: Clients must have this file in their cache directory!");
+
+            // Update UI optimistically
+            foreach (var client in Clients.Where(c => c.IsConnected && c.ClientId != "SERVER_LOCALHOST"))
             {
                 client.CurrentWallpaper = SelectedWallpaper.Name;
             }
 
-            Console.WriteLine($"Broadcasting wallpaper {SelectedWallpaper.Name} to all clients");
+            // Send LOAD command to all clients
+            Console.WriteLine($"[ApplyWallpaperToAll] Sending LOAD command...");
+            await _service.SyncCoordinator.BroadcastLoadWallpaperAsync(contentId, filePath);
+
+            // Wait a moment for LOAD to complete
+            await Task.Delay(500);
+
+            // Send PLAY command to all clients
+            Console.WriteLine($"[ApplyWallpaperToAll] Sending PLAY command...");
+            await _service.SyncCoordinator.BroadcastPlayAsync(contentId);
+
+            Console.WriteLine($"[ApplyWallpaperToAll] Successfully broadcast wallpaper to all clients");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error applying wallpaper: {ex.Message}");
+            Console.WriteLine($"[ApplyWallpaperToAll] Error applying wallpaper: {ex.Message}");
+            Console.WriteLine($"[ApplyWallpaperToAll] Stack trace: {ex.StackTrace}");
         }
     }
 
@@ -304,7 +372,7 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>
     /// Add a wallpaper from a storage file
     /// </summary>
-    private async Task AddWallpaperFromFile(IStorageFile file)
+    private Task AddWallpaperFromFile(IStorageFile file)
     {
         try
         {
@@ -325,7 +393,7 @@ public partial class MainWindowViewModel : ViewModelBase
             else if (new[] { ".jpg", ".jpeg", ".png", ".bmp" }.Contains(extension))
                 type = WallpaperType.Image;
             else
-                return; // Unsupported format
+                return Task.CompletedTask; // Unsupported format
 
             // Get image/video dimensions (simplified - you could use proper video/image libraries for this)
             var resolution = "Unknown";
@@ -376,6 +444,8 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             Console.WriteLine($"Error adding wallpaper from file: {ex.Message}");
         }
+
+        return Task.CompletedTask;
     }
 
     [RelayCommand]
@@ -405,11 +475,11 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>
     /// Refresh client topology from server
     /// </summary>
-    private async void RefreshTopology()
+    public async void RefreshTopology()
     {
         try
         {
-            Console.WriteLine($"RefreshTopology called - IsServerRunning: {_service.IsServerRunning}, IsClientConnected: {_service.IsClientConnected}");
+            Console.WriteLine($"[RefreshTopology] Called - IsServerRunning: {_service.IsServerRunning}, IsClientConnected: {_service.IsClientConnected}");
 
             if (_service.IsServerRunning)
             {
@@ -560,5 +630,31 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             IsServerMode = false;
         }
+    }
+
+    /// <summary>
+    /// Update server status display based on current state
+    /// Called when window is opened to sync status with actual server state
+    /// </summary>
+    public void UpdateServerStatus()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_service.IsServerRunning)
+            {
+                IsServerMode = true;
+                // Get port from configuration
+                var config = ConfigurationManager.LoadServerConfiguration();
+                ServerStatus = $"Running on port {config.Port}";
+            }
+            else
+            {
+                IsServerMode = false;
+                ServerStatus = "Stopped";
+            }
+
+            // Also refresh topology when status is updated
+            RefreshTopology();
+        });
     }
 }

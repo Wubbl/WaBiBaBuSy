@@ -19,6 +19,8 @@ public partial class MainWindow : Window
         if (DataContext is MainWindowViewModel viewModel)
         {
             viewModel.SetStorageProvider(StorageProvider);
+            // Update server status to reflect current state when window is reopened
+            viewModel.UpdateServerStatus();
         }
     }
 }
