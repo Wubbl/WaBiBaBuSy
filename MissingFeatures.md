@@ -1,13 +1,15 @@
-# WaBiBaBuSy - Missing Features & TODO List
+# WaBiBaBuSy - Missing Features
 
-**Last Updated:** 2025-10-05
-**Project Status:** ~97% MVP Complete
+**Last Updated:** 2025-10-11
+**Project Status:** ~95% MVP Complete (reduced due to multi-monitor rendering issues)
 
 This document tracks features from the design document that are not yet implemented.
 
 ---
 
 ## Critical Missing Features
+
+---
 
 ### 1. Serilog Logging Infrastructure
 **Priority:** High
@@ -231,7 +233,7 @@ if (driftMs > MAX_DRIFT_MS):
 
 ## Nice-to-Have Features
 
-### 8. Pause on Fullscreen Application
+### 9. Pause on Fullscreen Application
 **Priority:** Low
 **Design Reference:** Design Doc Line 860
 **Status:** Not Started
@@ -243,7 +245,7 @@ if (driftMs > MAX_DRIFT_MS):
 
 ---
 
-### 9. Pause on Battery Power
+### 10. Pause on Battery Power
 **Priority:** Low
 **Design Reference:** Config Line 558
 **Status:** Not Started
@@ -255,7 +257,7 @@ if (driftMs > MAX_DRIFT_MS):
 
 ---
 
-### 10. mTLS Authentication
+### 11. mTLS Authentication
 **Priority:** Low
 **Design Reference:** Section 7.1, Line 660
 **Status:** Not Started
@@ -267,7 +269,7 @@ if (driftMs > MAX_DRIFT_MS):
 
 ---
 
-### 11. Auto-Discovery Browse UI
+### 12. Auto-Discovery Browse UI
 **Priority:** Low
 **Design Reference:** Section 3.4.3, Line 419
 **Status:** Partially Complete

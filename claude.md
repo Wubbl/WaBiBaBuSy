@@ -231,27 +231,6 @@ WaBiBaBuSy/
 - **Local Network Only**: Default operation on LAN
 - **No Internet Required**: Fully offline capable
 
-### Planned Enhancements
-- **mTLS Authentication**: Mutual certificate authentication for production
-- **Server Allow-List**: Restrict clients by ID
-- **File Validation**: MIME type and extension checking
-
-## Known Limitations & TODOs
-
-### Critical Missing Features
-1. **Serilog Logging** - Replace console logging with structured file logging (High Priority)
-2. **Cache Management** - LRU eviction when cache exceeds 5GB (Medium Priority)
-3. **Exponential Backoff** - Improve reconnection strategy (Medium Priority)
-4. **Installer** - Create MSI/Setup package for deployment (High Priority)
-
-### Nice-to-Have Features
-- Pause on fullscreen application (saves resources during gaming)
-- Pause on battery power (laptop power saving)
-- Auto-discovery browse UI (visual server selection)
-- HTML/Web wallpapers (CEF integration like Lively)
-- Audio synchronization across machines
-- Mobile app for remote control
-
 ### Phase 5: Polish & Testing
 - Performance optimization
 - Multi-machine testing
@@ -307,10 +286,26 @@ WaBiBaBuSy/
 - ✅ System recovers gracefully from network disconnects
 - ❌ Installer works on clean Windows 10/11 systems (not created yet)
 
+## Documentation Structure
+
+**IMPORTANT:** This project uses separate files for different types of documentation:
+
+- **`CLAUDE.md`** (this file) - Project overview, architecture, guidelines (read automatically on startup)
+- **`MissingFeatures.md`** - Features not yet implemented, planned enhancements, TODO tracking
+- **`OpenIssues.md`** - Active bugs and issues that need fixing (current problems)
+- **`wabibabusy-design-doc.md`** - Comprehensive architecture and design decisions
+
+**When documenting:**
+- **New bugs or broken functionality** → Add to `OpenIssues.md`
+- **Features to be implemented** → Add to `MissingFeatures.md`
+- **Architecture changes or guidelines** → Update `CLAUDE.md`
+- **Completed fixes** → Move from `OpenIssues.md` to Recent Updates section in `CLAUDE.md`
+
 ## References
 
 - **Design Document**: `wabibabusy-design-doc.md` (comprehensive architecture and design decisions)
-- **Missing Features**: `MissingFeatures.md` (detailed TODO tracking)
+- **Missing Features**: `MissingFeatures.md` (features not yet implemented, TODO tracking)
+- **Open Issues**: `OpenIssues.md` (active bugs and broken functionality)
 - **Lively Wallpaper**: https://github.com/rocksdanister/lively (inspiration for wallpaper engine)
 - **gRPC Documentation**: https://grpc.io/docs/languages/csharp/
 - **Avalonia UI**: https://docs.avaloniaui.net/
