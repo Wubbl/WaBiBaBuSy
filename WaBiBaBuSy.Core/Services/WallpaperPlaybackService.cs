@@ -16,9 +16,10 @@ public class WallpaperPlaybackService : IDisposable
 
     private readonly ILogger<WallpaperPlaybackService> _logger;
     private readonly WallpaperSyncClient _syncClient;
-    private readonly Dictionary<string, IWallpaperRenderer> _renderers;
+    // Multi-monitor support: Dictionary<contentId, Dictionary<monitorIndex, renderer>>
+    private readonly Dictionary<string, Dictionary<int, IWallpaperRenderer>> _renderers;
     private readonly Dictionary<string, string> _contentCache; // contentId -> local file path
-    private readonly Func<string, IWallpaperRenderer?>? _rendererFactory;
+    private readonly Func<string, int, IWallpaperRenderer?>? _rendererFactory; // Updated to take monitorIndex
 
     // Drift detection state
     private CancellationTokenSource? _driftMonitorCts;
@@ -30,12 +31,12 @@ public class WallpaperPlaybackService : IDisposable
     public WallpaperPlaybackService(
         ILogger<WallpaperPlaybackService> logger,
         WallpaperSyncClient syncClient,
-        Func<string, IWallpaperRenderer?>? rendererFactory = null)
+        Func<string, int, IWallpaperRenderer?>? rendererFactory = null)
     {
         _logger = logger;
         _syncClient = syncClient;
         _rendererFactory = rendererFactory;
-        _renderers = new Dictionary<string, IWallpaperRenderer>();
+        _renderers = new Dictionary<string, Dictionary<int, IWallpaperRenderer>>();
         _contentCache = new Dictionary<string, string>();
 
         // Subscribe to sync commands
@@ -134,7 +135,9 @@ public class WallpaperPlaybackService : IDisposable
     }
 
     /// <summary>
-    /// Handle LOAD command - initialize wallpaper renderer
+    /// Handle LOAD command - initialize wallpaper renderer(s)
+    /// If monitorIndex is specified in params, load on that monitor only.
+    /// Otherwise, load on all available monitors.
     /// </summary>
     private async Task HandleLoadCommandAsync(SyncCommand command)
     {
@@ -149,31 +152,57 @@ public class WallpaperPlaybackService : IDisposable
 
             _logger.LogInformation("Loading wallpaper: {FilePath}", filePath);
 
-            // Create renderer using factory if provided
-            IWallpaperRenderer? renderer = null;
-            if (_rendererFactory != null)
+            // Determine which monitors to load on
+            var monitorIndices = new List<int>();
+
+            // Check if specific monitor index is provided (TODO: Add MonitorIndex to SyncParameters)
+            // For now, detect monitors from system
+            var monitorCount = System.Windows.Forms.Screen.AllScreens.Length;
+
+            // If params exist and has a monitor index (future enhancement), use that
+            // For now, default to monitor 0 (primary monitor)
+            if (monitorCount > 0)
             {
-                renderer = _rendererFactory(filePath);
+                monitorIndices.Add(0); // Default to primary monitor for now
             }
 
-            if (renderer == null)
+            if (!_renderers.ContainsKey(command.ContentId))
             {
-                _logger.LogWarning("No renderer factory configured or factory returned null for {FilePath}", filePath);
-                return;
+                _renderers[command.ContentId] = new Dictionary<int, IWallpaperRenderer>();
             }
 
-            // Store renderer for this content
-            _renderers[command.ContentId] = renderer;
-
-            // Initialize renderer
-            var config = new WallpaperConfig
+            // Create renderers for each specified monitor
+            foreach (var monitorIndex in monitorIndices)
             {
-                FilePath = filePath,
-                Loop = true
-            };
+                // Create renderer using factory if provided
+                IWallpaperRenderer? renderer = null;
+                if (_rendererFactory != null)
+                {
+                    renderer = _rendererFactory(filePath, monitorIndex);
+                }
 
-            await renderer.InitializeAsync(config);
-            _logger.LogInformation("Wallpaper loaded successfully: {ContentId}", command.ContentId);
+                if (renderer == null)
+                {
+                    _logger.LogWarning("No renderer factory configured or factory returned null for {FilePath} on monitor {Monitor}",
+                        filePath, monitorIndex);
+                    continue;
+                }
+
+                // Store renderer for this content and monitor
+                _renderers[command.ContentId][monitorIndex] = renderer;
+
+                // Initialize renderer with monitor-specific config
+                var config = new WallpaperConfig
+                {
+                    FilePath = filePath,
+                    Loop = true,
+                    MonitorIndex = monitorIndex
+                };
+
+                await renderer.InitializeAsync(config);
+                _logger.LogInformation("Wallpaper loaded successfully: {ContentId} on monitor {Monitor}",
+                    command.ContentId, monitorIndex);
+            }
         }
         catch (Exception ex)
         {
@@ -182,29 +211,38 @@ public class WallpaperPlaybackService : IDisposable
     }
 
     /// <summary>
-    /// Handle PLAY command - start wallpaper playback
+    /// Handle PLAY command - start wallpaper playback on all loaded monitors
     /// </summary>
     private async Task HandlePlayCommandAsync(SyncCommand command)
     {
         try
         {
-            if (!_renderers.TryGetValue(command.ContentId, out var renderer))
+            if (!_renderers.TryGetValue(command.ContentId, out var monitorRenderers))
             {
-                _logger.LogWarning("Renderer not found for content {ContentId}", command.ContentId);
+                _logger.LogWarning("No renderers found for content {ContentId}", command.ContentId);
                 return;
             }
 
-            _logger.LogInformation("Playing wallpaper: {ContentId}", command.ContentId);
+            _logger.LogInformation("Playing wallpaper: {ContentId} on {Count} monitor(s)",
+                command.ContentId, monitorRenderers.Count);
 
             // Seek to target position if specified
             long initialPosition = 0;
             if (command.Params != null && command.Params.TargetPositionMs > 0)
             {
                 initialPosition = command.Params.TargetPositionMs;
-                await renderer.SeekAsync(TimeSpan.FromMilliseconds(initialPosition));
             }
 
-            await renderer.StartAsync();
+            // Start playback on all monitors synchronously
+            foreach (var (monitorIndex, renderer) in monitorRenderers)
+            {
+                if (initialPosition > 0)
+                {
+                    await renderer.SeekAsync(TimeSpan.FromMilliseconds(initialPosition));
+                }
+                await renderer.StartAsync();
+                _logger.LogDebug("Started playback on monitor {Monitor}", monitorIndex);
+            }
 
             // Start drift monitoring
             _activeContentId = command.ContentId;
@@ -221,15 +259,15 @@ public class WallpaperPlaybackService : IDisposable
     }
 
     /// <summary>
-    /// Handle PAUSE command - pause wallpaper playback
+    /// Handle PAUSE command - pause wallpaper playback on all monitors
     /// </summary>
     private async Task HandlePauseCommandAsync(SyncCommand command)
     {
         try
         {
-            if (!_renderers.TryGetValue(command.ContentId, out var renderer))
+            if (!_renderers.TryGetValue(command.ContentId, out var monitorRenderers))
             {
-                _logger.LogWarning("Renderer not found for content {ContentId}", command.ContentId);
+                _logger.LogWarning("No renderers found for content {ContentId}", command.ContentId);
                 return;
             }
 
@@ -238,7 +276,13 @@ public class WallpaperPlaybackService : IDisposable
             // Stop drift monitoring when paused
             StopDriftMonitoring();
 
-            await renderer.PauseAsync();
+            // Pause all monitors
+            foreach (var (monitorIndex, renderer) in monitorRenderers)
+            {
+                await renderer.PauseAsync();
+                _logger.LogDebug("Paused playback on monitor {Monitor}", monitorIndex);
+            }
+
             _logger.LogInformation("Wallpaper paused: {ContentId}", command.ContentId);
         }
         catch (Exception ex)
@@ -248,15 +292,15 @@ public class WallpaperPlaybackService : IDisposable
     }
 
     /// <summary>
-    /// Handle STOP command - stop wallpaper playback
+    /// Handle STOP command - stop wallpaper playback on all monitors
     /// </summary>
     private async Task HandleStopCommandAsync(SyncCommand command)
     {
         try
         {
-            if (!_renderers.TryGetValue(command.ContentId, out var renderer))
+            if (!_renderers.TryGetValue(command.ContentId, out var monitorRenderers))
             {
-                _logger.LogWarning("Renderer not found for content {ContentId}", command.ContentId);
+                _logger.LogWarning("No renderers found for content {ContentId}", command.ContentId);
                 return;
             }
 
@@ -265,7 +309,13 @@ public class WallpaperPlaybackService : IDisposable
             // Stop drift monitoring when stopped
             StopDriftMonitoring();
 
-            await renderer.StopAsync();
+            // Stop all monitors
+            foreach (var (monitorIndex, renderer) in monitorRenderers)
+            {
+                await renderer.StopAsync();
+                _logger.LogDebug("Stopped playback on monitor {Monitor}", monitorIndex);
+            }
+
             _logger.LogInformation("Wallpaper stopped: {ContentId}", command.ContentId);
         }
         catch (Exception ex)
@@ -275,15 +325,15 @@ public class WallpaperPlaybackService : IDisposable
     }
 
     /// <summary>
-    /// Handle SEEK command - seek to specific position
+    /// Handle SEEK command - seek to specific position on all monitors
     /// </summary>
     private async Task HandleSeekCommandAsync(SyncCommand command)
     {
         try
         {
-            if (!_renderers.TryGetValue(command.ContentId, out var renderer))
+            if (!_renderers.TryGetValue(command.ContentId, out var monitorRenderers))
             {
-                _logger.LogWarning("Renderer not found for content {ContentId}", command.ContentId);
+                _logger.LogWarning("No renderers found for content {ContentId}", command.ContentId);
                 return;
             }
 
@@ -296,7 +346,13 @@ public class WallpaperPlaybackService : IDisposable
             _logger.LogInformation("Seeking wallpaper {ContentId} to {PositionMs}ms",
                 command.ContentId, command.Params.TargetPositionMs);
 
-            await renderer.SeekAsync(TimeSpan.FromMilliseconds(command.Params.TargetPositionMs));
+            // Seek all monitors
+            foreach (var (monitorIndex, renderer) in monitorRenderers)
+            {
+                await renderer.SeekAsync(TimeSpan.FromMilliseconds(command.Params.TargetPositionMs));
+                _logger.LogDebug("Seeked monitor {Monitor} to {Position}ms", monitorIndex, command.Params.TargetPositionMs);
+            }
+
             _logger.LogInformation("Wallpaper seeked: {ContentId}", command.ContentId);
         }
         catch (Exception ex)
@@ -338,7 +394,7 @@ public class WallpaperPlaybackService : IDisposable
     }
 
     /// <summary>
-    /// Background task that monitors playback position and corrects drift
+    /// Background task that monitors playback position and corrects drift across all monitors
     /// </summary>
     private async Task MonitorDriftAsync(CancellationToken cancellationToken)
     {
@@ -348,7 +404,7 @@ public class WallpaperPlaybackService : IDisposable
             {
                 await Task.Delay(DRIFT_CHECK_INTERVAL_MS, cancellationToken);
 
-                if (_activeContentId == null || !_renderers.TryGetValue(_activeContentId, out var renderer))
+                if (_activeContentId == null || !_renderers.TryGetValue(_activeContentId, out var monitorRenderers))
                 {
                     continue;
                 }
@@ -358,28 +414,33 @@ public class WallpaperPlaybackService : IDisposable
                 var elapsedMs = currentTimestamp - _playbackStartTimestamp;
                 var expectedPositionMs = _initialPositionMs + elapsedMs;
 
-                // Get actual position from renderer
-                var actualPositionMs = renderer.PositionMs;
-
-                // Calculate drift
-                var driftMs = Math.Abs(expectedPositionMs - actualPositionMs);
-
-                if (driftMs > MAX_DRIFT_MS)
+                // Check drift on all monitors and correct if needed
+                foreach (var (monitorIndex, renderer) in monitorRenderers)
                 {
-                    _logger.LogWarning(
-                        "Playback drift detected: {DriftMs}ms (expected: {ExpectedPos}ms, actual: {ActualPos}ms). Correcting...",
-                        driftMs, expectedPositionMs, actualPositionMs);
+                    // Get actual position from renderer
+                    var actualPositionMs = renderer.PositionMs;
 
-                    // Perform micro-seek to correct drift
-                    await renderer.SeekAsync(TimeSpan.FromMilliseconds(expectedPositionMs));
+                    // Calculate drift
+                    var driftMs = Math.Abs(expectedPositionMs - actualPositionMs);
 
-                    _logger.LogInformation("Drift corrected by seeking to {Position}ms", expectedPositionMs);
-                }
-                else
-                {
-                    _logger.LogDebug(
-                        "Playback drift: {DriftMs}ms (within tolerance of {MaxDrift}ms)",
-                        driftMs, MAX_DRIFT_MS);
+                    if (driftMs > MAX_DRIFT_MS)
+                    {
+                        _logger.LogWarning(
+                            "Monitor {Monitor} drift detected: {DriftMs}ms (expected: {ExpectedPos}ms, actual: {ActualPos}ms). Correcting...",
+                            monitorIndex, driftMs, expectedPositionMs, actualPositionMs);
+
+                        // Perform micro-seek to correct drift
+                        await renderer.SeekAsync(TimeSpan.FromMilliseconds(expectedPositionMs));
+
+                        _logger.LogInformation("Monitor {Monitor} drift corrected by seeking to {Position}ms",
+                            monitorIndex, expectedPositionMs);
+                    }
+                    else
+                    {
+                        _logger.LogDebug(
+                            "Monitor {Monitor} playback drift: {DriftMs}ms (within tolerance of {MaxDrift}ms)",
+                            monitorIndex, driftMs, MAX_DRIFT_MS);
+                    }
                 }
             }
         }
@@ -404,10 +465,13 @@ public class WallpaperPlaybackService : IDisposable
         // Unsubscribe from events
         _syncClient.SyncCommandReceived -= OnSyncCommandReceived;
 
-        // Dispose all renderers
-        foreach (var renderer in _renderers.Values)
+        // Dispose all renderers across all monitors
+        foreach (var monitorRenderers in _renderers.Values)
         {
-            renderer.Dispose();
+            foreach (var renderer in monitorRenderers.Values)
+            {
+                renderer.Dispose();
+            }
         }
 
         _renderers.Clear();

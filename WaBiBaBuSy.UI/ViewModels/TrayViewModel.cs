@@ -63,14 +63,15 @@ public partial class TrayViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Creates a renderer factory that instantiates appropriate renderers based on file type
+    /// Creates a renderer factory that instantiates appropriate renderers based on file type and monitor index
     /// </summary>
-    private Func<string, IWallpaperRenderer?> CreateRendererFactory(ILoggerFactory loggerFactory, DesktopWindowManager desktopManager)
+    private Func<string, int, IWallpaperRenderer?> CreateRendererFactory(ILoggerFactory loggerFactory, DesktopWindowManager desktopManager)
     {
-        return filePath =>
+        return (filePath, monitorIndex) =>
         {
             var extension = Path.GetExtension(filePath).ToLowerInvariant();
 
+            // Note: monitorIndex will be used when WallpaperConfig is passed to InitializeAsync
             return extension switch
             {
                 ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv" =>

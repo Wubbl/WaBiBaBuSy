@@ -40,10 +40,51 @@ public partial class ClientNodeViewModel : ObservableObject
     [ObservableProperty]
     private int _physicalDistanceCm;
 
+    [ObservableProperty]
+    private int _monitorIndex = -1; // -1 means all monitors (legacy mode)
+
+    [ObservableProperty]
+    private string? _monitorName;
+
+    [ObservableProperty]
+    private int _monitorWidth;
+
+    [ObservableProperty]
+    private int _monitorHeight;
+
+    [ObservableProperty]
+    private bool _isPrimaryMonitor;
+
     /// <summary>
     /// Display name for the client
     /// </summary>
-    public string DisplayName => string.IsNullOrEmpty(Hostname) ? IpAddress : Hostname;
+    public string DisplayName
+    {
+        get
+        {
+            var baseName = string.IsNullOrEmpty(Hostname) ? IpAddress : Hostname;
+            if (MonitorIndex >= 0 && !string.IsNullOrEmpty(MonitorName))
+            {
+                return $"{baseName} - {MonitorName}";
+            }
+            return baseName;
+        }
+    }
+
+    /// <summary>
+    /// Display name for the monitor
+    /// </summary>
+    public string MonitorDisplayName
+    {
+        get
+        {
+            if (MonitorIndex < 0)
+                return "All Monitors";
+
+            var primary = IsPrimaryMonitor ? " (Primary)" : "";
+            return $"Monitor {MonitorIndex + 1}: {MonitorWidth}x{MonitorHeight}{primary}";
+        }
+    }
 
     /// <summary>
     /// Calculate delay in milliseconds based on physical distance and animation speed

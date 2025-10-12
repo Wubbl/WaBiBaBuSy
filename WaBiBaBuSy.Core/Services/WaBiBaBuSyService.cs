@@ -14,7 +14,7 @@ public class WaBiBaBuSyService : IDisposable
     private readonly ILogger<WaBiBaBuSyService> _logger;
     private readonly ServerConfiguration _serverConfig;
     private readonly ClientConfiguration _clientConfig;
-    private readonly Func<string, IWallpaperRenderer?>? _rendererFactory;
+    private readonly Func<string, int, IWallpaperRenderer?>? _rendererFactory; // Updated to include monitorIndex
 
     private WallpaperSyncServerHost? _serverHost;
     private MdnsServerService? _mdnsServerService;
@@ -48,7 +48,7 @@ public class WaBiBaBuSyService : IDisposable
         ILogger<WaBiBaBuSyService> logger,
         ServerConfiguration serverConfig,
         ClientConfiguration clientConfig,
-        Func<string, IWallpaperRenderer?>? rendererFactory = null)
+        Func<string, int, IWallpaperRenderer?>? rendererFactory = null)
     {
         _logger = logger;
         _serverConfig = serverConfig;

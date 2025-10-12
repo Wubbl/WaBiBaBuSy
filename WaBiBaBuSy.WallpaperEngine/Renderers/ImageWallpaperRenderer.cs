@@ -171,21 +171,22 @@ public class ImageWallpaperRenderer : IWallpaperRenderer
             BackColor = Color.Black
         };
 
-        // Set window bounds based on monitor
-        if (config.MonitorIndex >= 0 && config.MonitorIndex < Screen.AllScreens.Length)
+        // Validate monitor index
+        if (config.MonitorIndex < 0 || config.MonitorIndex >= Screen.AllScreens.Length)
         {
-            var screen = Screen.AllScreens[config.MonitorIndex];
-            _renderForm.Bounds = screen.Bounds;
-            _logger.LogInformation("Rendering on monitor {Index}: {Bounds}",
-                config.MonitorIndex, screen.Bounds);
+            throw new ArgumentOutOfRangeException(
+                nameof(config.MonitorIndex),
+                $"Invalid monitor index {config.MonitorIndex}. Must be between 0 and {Screen.AllScreens.Length - 1}. Total monitors: {Screen.AllScreens.Length}");
         }
-        else
-        {
-            // Span all monitors
-            _renderForm.Bounds = SystemInformation.VirtualScreen;
-            _logger.LogInformation("Rendering across all monitors: {Bounds}",
-                SystemInformation.VirtualScreen);
-        }
+
+        // Set window bounds for the specific monitor
+        var screen = Screen.AllScreens[config.MonitorIndex];
+        _renderForm.Bounds = screen.Bounds;
+
+        _logger.LogInformation("Image renderer set to monitor {Index}: {Bounds} (Device: {Device})",
+            config.MonitorIndex,
+            screen.Bounds,
+            screen.DeviceName);
 
         // Create PictureBox to display image
         _pictureBox = new PictureBox

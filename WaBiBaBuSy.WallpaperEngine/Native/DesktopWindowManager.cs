@@ -128,6 +128,24 @@ public class DesktopWindowManager
             }
 
             _logger.LogInformation("Successfully set wallpaper window parent");
+
+            // CRITICAL: Set the window position to bottom of z-order
+            // This ensures the window stays behind desktop icons
+            var posResult = Win32Interop.SetWindowPos(
+                windowHandle,
+                Win32Interop.HWND_BOTTOM,
+                0, 0, 0, 0,
+                Win32Interop.SWP_NOMOVE | Win32Interop.SWP_NOSIZE | Win32Interop.SWP_NOACTIVATE);
+
+            if (!posResult)
+            {
+                _logger.LogWarning("SetWindowPos returned false, wallpaper may not render correctly behind icons");
+            }
+            else
+            {
+                _logger.LogInformation("Successfully positioned wallpaper window at bottom of z-order");
+            }
+
             return true;
         }
         catch (Exception ex)

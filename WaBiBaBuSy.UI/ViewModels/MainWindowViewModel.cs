@@ -27,7 +27,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly System.Timers.Timer _refreshTimer;
     private readonly ILoggerFactory _loggerFactory;
     private readonly DesktopWindowManager _desktopManager;
-    private IWallpaperRenderer? _localWallpaperRenderer; // For local-only mode
+    // Multi-monitor support: Dictionary<monitorIndex, renderer>
+    private readonly Dictionary<int, IWallpaperRenderer> _localWallpaperRenderers = new();
 
     [ObservableProperty]
     private ObservableCollection<ClientNodeViewModel> _clients = new();
@@ -214,10 +215,10 @@ public partial class MainWindowViewModel : ViewModelBase
         // Check if we're in local-only mode
         var isLocalOnlyMode = !_service.IsServerRunning && !_service.IsClientConnected;
 
-        if (isLocalOnlyMode && SelectedClient.ClientId == "LOCAL_MACHINE")
+        if (isLocalOnlyMode && SelectedClient.ClientId.StartsWith("LOCAL_MACHINE"))
         {
-            Debug.WriteLine("[ApplyWallpaperToSelected] Local-only mode - applying wallpaper locally");
-            await ApplyWallpaperLocally(SelectedWallpaper);
+            Debug.WriteLine("[ApplyWallpaperToSelected] Local-only mode - applying wallpaper locally to monitor");
+            await ApplyWallpaperLocally(SelectedWallpaper, SelectedClient.MonitorIndex);
             return;
         }
 
@@ -272,8 +273,14 @@ public partial class MainWindowViewModel : ViewModelBase
 
         if (isLocalOnlyMode)
         {
-            Debug.WriteLine("[ApplyWallpaperToAll] Local-only mode detected - applying wallpaper locally");
-            await ApplyWallpaperLocally(SelectedWallpaper);
+            Debug.WriteLine("[ApplyWallpaperToAll] Local-only mode detected - applying wallpaper to all local monitors");
+
+            // Apply to all monitors
+            var screens = System.Windows.Forms.Screen.AllScreens;
+            for (int i = 0; i < screens.Length; i++)
+            {
+                await ApplyWallpaperLocally(SelectedWallpaper, i);
+            }
             return;
         }
 
@@ -325,18 +332,30 @@ public partial class MainWindowViewModel : ViewModelBase
     /// Apply wallpaper locally without network (local-only mode)
     /// Uses the same wallpaper rendering engine as networked mode
     /// </summary>
-    private async Task ApplyWallpaperLocally(WallpaperItemViewModel wallpaper)
+    private async Task ApplyWallpaperLocally(WallpaperItemViewModel wallpaper, int monitorIndex = 0)
     {
         try
         {
-            Debug.WriteLine($"[ApplyWallpaperLocally] Applying '{wallpaper.Name}' to local machine");
+            Debug.WriteLine($"[ApplyWallpaperLocally] Applying '{wallpaper.Name}' to local machine monitor {monitorIndex}");
 
-            // Dispose previous renderer if exists
-            _localWallpaperRenderer?.Dispose();
+            // Dispose previous renderer for this monitor if exists
+            if (_localWallpaperRenderers.TryGetValue(monitorIndex, out var existingRenderer))
+            {
+                existingRenderer.Dispose();
+                _localWallpaperRenderers.Remove(monitorIndex);
+            }
+
+            // Validate monitor index
+            var screens = System.Windows.Forms.Screen.AllScreens;
+            if (monitorIndex < 0 || monitorIndex >= screens.Length)
+            {
+                Debug.WriteLine($"[ApplyWallpaperLocally] Invalid monitor index {monitorIndex}. Available monitors: {screens.Length}");
+                return;
+            }
 
             // Create appropriate renderer based on file extension
             var extension = Path.GetExtension(wallpaper.FilePath).ToLowerInvariant();
-            _localWallpaperRenderer = extension switch
+            IWallpaperRenderer? renderer = extension switch
             {
                 ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv"
                     => new VideoWallpaperRenderer(
@@ -353,30 +372,34 @@ public partial class MainWindowViewModel : ViewModelBase
                 _ => null
             };
 
-            if (_localWallpaperRenderer == null)
+            if (renderer == null)
             {
                 Debug.WriteLine($"[ApplyWallpaperLocally] Unsupported file type: {extension}");
                 return;
             }
 
-            // Initialize and play
+            // Initialize and play with specific monitor index
             var config = new WallpaperConfig
             {
                 FilePath = wallpaper.FilePath,
-                Loop = true
+                Loop = true,
+                MonitorIndex = monitorIndex
             };
 
-            await _localWallpaperRenderer.InitializeAsync(config);
-            await _localWallpaperRenderer.StartAsync();
+            await renderer.InitializeAsync(config);
+            await renderer.StartAsync();
 
-            // Update UI
-            var localClient = Clients.FirstOrDefault(c => c.ClientId == "LOCAL_MACHINE");
+            // Store renderer for this monitor
+            _localWallpaperRenderers[monitorIndex] = renderer;
+
+            // Update UI for the specific monitor node
+            var localClient = Clients.FirstOrDefault(c => c.ClientId == $"LOCAL_MACHINE_MONITOR_{monitorIndex}");
             if (localClient != null)
             {
                 localClient.CurrentWallpaper = wallpaper.Name;
             }
 
-            Debug.WriteLine($"[ApplyWallpaperLocally] Successfully applied '{wallpaper.Name}' locally");
+            Debug.WriteLine($"[ApplyWallpaperLocally] Successfully applied '{wallpaper.Name}' to monitor {monitorIndex}");
         }
         catch (Exception ex)
         {
@@ -663,22 +686,58 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Show local machine node in local-only mode (when not connected to server/client)
+    /// Show local machine node(s) in local-only mode (when not connected to server/client)
+    /// Creates one node per monitor for multi-monitor support
     /// </summary>
     private void ShowLocalMachineNode()
     {
-        var localNode = new WaBiBaBuSy.Grpc.ConnectedClient
+        var screens = System.Windows.Forms.Screen.AllScreens;
+        Debug.WriteLine($"[ShowLocalMachineNode] Detected {screens.Length} monitor(s)");
+
+        // Create screen configuration with all monitors
+        var screenConfig = new WaBiBaBuSy.Grpc.ScreenConfiguration
         {
-            ClientId = "LOCAL_MACHINE",
-            Hostname = Environment.MachineName,
-            IpAddress = "Local (No Network)",
-            Status = WaBiBaBuSy.Grpc.ClientStatusEnum.ClientConnected,
-            OrderPosition = 0,
-            PhysicalDistanceCm = 0,
-            ScreenConfig = new WaBiBaBuSy.Grpc.ScreenConfiguration()
+            MonitorCount = screens.Length,
+            TotalWidth = System.Windows.Forms.SystemInformation.VirtualScreen.Width,
+            TotalHeight = System.Windows.Forms.SystemInformation.VirtualScreen.Height
         };
 
-        UpdateClientList(new[] { localNode });
+        // Add monitor info for each screen
+        for (int i = 0; i < screens.Length; i++)
+        {
+            var screen = screens[i];
+            screenConfig.Monitors.Add(new WaBiBaBuSy.Grpc.MonitorInfo
+            {
+                Index = i,
+                Width = screen.Bounds.Width,
+                Height = screen.Bounds.Height,
+                X = screen.Bounds.X,
+                Y = screen.Bounds.Y,
+                IsPrimary = screen.Primary,
+                DeviceName = screen.DeviceName
+            });
+        }
+
+        // Create one node per monitor
+        var nodes = new List<WaBiBaBuSy.Grpc.ConnectedClient>();
+        for (int i = 0; i < screens.Length; i++)
+        {
+            var screen = screens[i];
+            var node = new WaBiBaBuSy.Grpc.ConnectedClient
+            {
+                ClientId = $"LOCAL_MACHINE_MONITOR_{i}",
+                Hostname = $"{Environment.MachineName} - Monitor {i + 1}",
+                IpAddress = screen.Primary ? "Primary Monitor" : $"Monitor {i + 1}",
+                Status = WaBiBaBuSy.Grpc.ClientStatusEnum.ClientConnected,
+                OrderPosition = i,
+                PhysicalDistanceCm = 0,
+                ScreenConfig = screenConfig // Share the same screen config across all nodes
+            };
+            nodes.Add(node);
+            Debug.WriteLine($"[ShowLocalMachineNode] Created node for monitor {i}: {screen.Bounds.Width}x{screen.Bounds.Height} at ({screen.Bounds.X}, {screen.Bounds.Y})");
+        }
+
+        UpdateClientList(nodes);
     }
 
     /// <summary>
@@ -724,6 +783,31 @@ public partial class MainWindowViewModel : ViewModelBase
                     var y = 100;
                     Debug.WriteLine($"[UpdateClientList] Adding new client: {grpcClient.ClientId} ({grpcClient.Hostname}) at X={x}, Y={y}");
 
+                    // Extract monitor info for this specific node
+                    int monitorIndex = -1;
+                    string? monitorName = null;
+                    int monitorWidth = 0;
+                    int monitorHeight = 0;
+                    bool isPrimary = false;
+
+                    // Check if this is a monitor-specific node (LOCAL_MACHINE_MONITOR_X)
+                    if (grpcClient.ClientId.StartsWith("LOCAL_MACHINE_MONITOR_"))
+                    {
+                        var monitorIndexStr = grpcClient.ClientId.Replace("LOCAL_MACHINE_MONITOR_", "");
+                        if (int.TryParse(monitorIndexStr, out monitorIndex))
+                        {
+                            // Find the corresponding monitor info in screen config
+                            if (grpcClient.ScreenConfig != null && grpcClient.ScreenConfig.Monitors.Count > monitorIndex)
+                            {
+                                var monitorInfo = grpcClient.ScreenConfig.Monitors[monitorIndex];
+                                monitorName = monitorInfo.DeviceName;
+                                monitorWidth = monitorInfo.Width;
+                                monitorHeight = monitorInfo.Height;
+                                isPrimary = monitorInfo.IsPrimary;
+                            }
+                        }
+                    }
+
                     var newClient = new ClientNodeViewModel
                     {
                         ClientId = grpcClient.ClientId,
@@ -735,11 +819,18 @@ public partial class MainWindowViewModel : ViewModelBase
                         Order = grpcClient.OrderPosition,
                         PhysicalDistanceCm = grpcClient.PhysicalDistanceCm,
                         X = x,
-                        Y = y
+                        Y = y,
+                        // Monitor-specific properties
+                        MonitorIndex = monitorIndex,
+                        MonitorName = monitorName,
+                        MonitorWidth = monitorWidth,
+                        MonitorHeight = monitorHeight,
+                        IsPrimaryMonitor = isPrimary
                     };
 
                     Debug.WriteLine($"[UpdateClientList] About to add client to Clients collection");
                     Debug.WriteLine($"[UpdateClientList] Client details - ID: {newClient.ClientId}, Hostname: {newClient.Hostname}, DisplayName: {newClient.DisplayName}");
+                    Debug.WriteLine($"[UpdateClientList] Monitor info - Index: {monitorIndex}, Size: {monitorWidth}x{monitorHeight}, Primary: {isPrimary}");
                     Debug.WriteLine($"[UpdateClientList] Position - X: {newClient.X}, Y: {newClient.Y}");
                     Debug.WriteLine($"[UpdateClientList] Status: {newClient.Status}, IsConnected: {newClient.IsConnected}");
 
