@@ -211,7 +211,10 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
                 screen.Bounds,
                 screen.DeviceName);
 
-            // Find WorkerW window and set as parent
+            // CRITICAL: Show the form FIRST to ensure handle is fully initialized
+            _renderForm.Show();
+
+            // Now find WorkerW window and set as parent (after form is shown)
             var workerW = _desktopManager.FindDesktopWorkerWindow();
             if (workerW != IntPtr.Zero)
             {
@@ -221,8 +224,6 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
             {
                 _logger.LogWarning("Could not find WorkerW window, wallpaper may not render behind icons");
             }
-
-            _renderForm.Show();
 
             // Set media player output
             if (_mediaPlayer != null)

@@ -353,7 +353,10 @@ public class GifWallpaperRenderer : IWallpaperRenderer
 
             _renderForm.Controls.Add(_pictureBox);
 
-            // Find WorkerW window and set as parent
+            // CRITICAL: Show the form FIRST to ensure handle is fully initialized
+            _renderForm.Show();
+
+            // Now find WorkerW window and set as parent (after form is shown)
             var workerW = _desktopManager.FindDesktopWorkerWindow();
             if (workerW != IntPtr.Zero)
             {
@@ -363,8 +366,6 @@ public class GifWallpaperRenderer : IWallpaperRenderer
             {
                 _logger.LogWarning("Could not find WorkerW window, wallpaper may not render behind icons");
             }
-
-            _renderForm.Show();
         });
     }
 
