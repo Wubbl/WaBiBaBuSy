@@ -54,10 +54,10 @@ public class DesktopWindowManager
             _logger.LogDebug("Found Progman window: {Progman}", _progman);
 
             // Check if Windows is using the new layered desktop mode (Windows 11 24H2+)
-            _isRaisedDesktopWithLayeredShellView = WindowUtil.HasExtendedStyle(_progman, Win32Interop.WS_EX_NOREDIRECTIONBITMAP);
-            if (_isRaisedDesktopWithLayeredShellView)
+            bool isActuallyLayeredMode = WindowUtil.HasExtendedStyle(_progman, Win32Interop.WS_EX_NOREDIRECTIONBITMAP);
+            if (isActuallyLayeredMode)
             {
-                _logger.LogInformation("Detected raised desktop with layered ShellView (Windows 11 24H2+)");
+                _logger.LogWarning("Detected raised desktop with layered ShellView (Windows 11 24H2+) - FORCING LEGACY MODE FOR TESTING");
             }
 
             // Send 0x052C to Progman. This message directs Progman to spawn a
@@ -103,12 +103,19 @@ public class DesktopWindowManager
                 return true;
             }), IntPtr.Zero);
 
-            // In layered desktop mode, WorkerW is a child of Progman
-            if (_isRaisedDesktopWithLayeredShellView)
+            // In layered desktop mode, WorkerW and DefView are children of Progman
+            if (isActuallyLayeredMode)
             {
+                // Find SHELLDLL_DefView under Progman
+                shellDefView = Win32Interop.FindWindowEx(_progman, IntPtr.Zero, "SHELLDLL_DefView", IntPtr.Zero);
+                // Find WorkerW under Progman
                 workerw = Win32Interop.FindWindowEx(_progman, IntPtr.Zero, "WorkerW", IntPtr.Zero);
-                _logger.LogDebug("Layered mode: Found WorkerW as child of Progman: {WorkerW}", workerw);
+                _logger.LogDebug("Layered mode: Found SHELLDLL_DefView: {DefView}, WorkerW: {WorkerW} under Progman",
+                    shellDefView, workerw);
             }
+
+            // FORCE LEGACY MODE FOR TESTING (after finding WorkerW)
+            _isRaisedDesktopWithLayeredShellView = false;
 
             _workerW = workerw;
             _shellDLL_DefView = shellDefView;
@@ -179,7 +186,12 @@ public class DesktopWindowManager
     /// </summary>
     private bool SetAsWallpaperLegacyMode(IntPtr windowHandle, System.Drawing.Rectangle screenBounds)
     {
-        _logger.LogDebug("Using legacy WorkerW parenting mode");
+        _logger.LogInformation("Using legacy WorkerW parenting mode");
+        _logger.LogInformation("Screen bounds: ({X}, {Y}, {W}x{H})",
+            screenBounds.X, screenBounds.Y, screenBounds.Width, screenBounds.Height);
+
+        // Diagnostic: Check initial window state
+        LogWindowState(windowHandle, "BEFORE Step 1 (Initial state)");
 
         // Step 1: Position window on screen with absolute coordinates
         if (!Win32Interop.SetWindowPos(
@@ -189,32 +201,63 @@ public class DesktopWindowManager
             screenBounds.Y,
             screenBounds.Width,
             screenBounds.Height,
-            (int)Win32Interop.SWP_NOACTIVATE))
+            (uint)(Win32Interop.SWP_NOACTIVATE | Win32Interop.SWP_SHOWWINDOW)))
         {
             _logger.LogWarning("Failed to set initial window position (Step 1)");
         }
+        else
+        {
+            _logger.LogInformation("Step 1: Positioned window at absolute coords ({X}, {Y})", screenBounds.X, screenBounds.Y);
+        }
+
+        LogWindowState(windowHandle, "AFTER Step 1 (Positioned)");
 
         // Step 2: Calculate position relative to WorkerW using MapWindowPoints
-        var prct = new Win32Interop.RECT
-        {
-            Left = 0,
-            Top = 0,
-            Right = 0,
-            Bottom = 0
-        };
+        // Initialize empty RECT - MapWindowPoints will map (0,0) point to WorkerW coordinates
+        var prct = new Win32Interop.RECT();
         Win32Interop.MapWindowPoints(windowHandle, _workerW, ref prct, 2);
-        _logger.LogDebug("Mapped points relative to WorkerW: ({Left}, {Top})", prct.Left, prct.Top);
+        _logger.LogInformation("Step 2: Mapped points - Left: {Left}, Top: {Top}, Right: {Right}, Bottom: {Bottom}",
+            prct.Left, prct.Top, prct.Right, prct.Bottom);
+
+        // Step 2b: CRITICAL - Add WS_CHILD style BEFORE SetParent
+        // Windows Forms windows may need this set explicitly
+        WindowUtil.SetWindowStyle(windowHandle, Win32Interop.WS_CHILD);
+        _logger.LogInformation("Step 2b: Added WS_CHILD style before SetParent");
+        LogWindowState(windowHandle, "AFTER Step 2b (WS_CHILD added)");
 
         // Step 3: Set parent to WorkerW
-        if (!WindowUtil.TrySetParent(windowHandle, _workerW))
+        var oldParent = Win32Interop.SetParent(windowHandle, _workerW);
+        _logger.LogInformation("Step 3: SetParent returned old parent: {OldParent}, new parent should be: {WorkerW}",
+            oldParent, _workerW);
+
+        // Verify parent was actually set
+        var actualParent = Win32Interop.GetParent(windowHandle);
+        if (actualParent != _workerW)
         {
-            _logger.LogError("Failed to set parent to WorkerW");
+            _logger.LogError("Failed to set parent to WorkerW! Expected: {Expected}, Actual: {Actual}",
+                _workerW, actualParent);
             return false;
         }
 
-        _logger.LogDebug("Successfully set parent to WorkerW");
+        _logger.LogInformation("Step 3: Successfully set parent to WorkerW (verified)");
+        LogWindowState(windowHandle, "AFTER Step 3 (SetParent to WorkerW)");
 
-        // Step 4: Reposition with relative coordinates
+        // CRITICAL: Explicitly show the window after parenting
+        Win32Interop.ShowWindow(windowHandle, Win32Interop.SW_SHOW);
+        _logger.LogInformation("Step 3b: Called ShowWindow(SW_SHOW) after SetParent");
+
+        // Step 3c: Remove problematic extended styles that may prevent rendering
+        var exStyle = Win32Interop.GetWindowLongPtr(windowHandle, Win32Interop.GWL_EXSTYLE).ToInt64();
+        var cleanedExStyle = exStyle & ~(long)(Win32Interop.WS_EX_NOACTIVATE | Win32Interop.WS_EX_TOOLWINDOW);
+        if (cleanedExStyle != exStyle)
+        {
+            Win32Interop.SetWindowLongPtr(windowHandle, Win32Interop.GWL_EXSTYLE, (IntPtr)cleanedExStyle);
+            _logger.LogInformation("Step 3c: Removed WS_EX_NOACTIVATE and WS_EX_TOOLWINDOW styles");
+        }
+
+        LogWindowState(windowHandle, "AFTER Step 3b (ShowWindow)");
+
+        // Step 4: Reposition with relative coordinates to WorkerW
         if (!Win32Interop.SetWindowPos(
             windowHandle,
             1,
@@ -222,16 +265,74 @@ public class DesktopWindowManager
             prct.Top,
             screenBounds.Width,
             screenBounds.Height,
-            (int)(Win32Interop.SWP_NOACTIVATE | Win32Interop.SWP_NOZORDER)))
+            (uint)(Win32Interop.SWP_NOACTIVATE | Win32Interop.SWP_NOZORDER | Win32Interop.SWP_SHOWWINDOW)))
         {
             _logger.LogWarning("Failed to set final window position (Step 4)");
         }
+        else
+        {
+            _logger.LogInformation("Step 4: Repositioned window at relative coords ({Left}, {Top})", prct.Left, prct.Top);
+        }
 
-        // Step 5: Refresh desktop to clear any artifacts
-        RefreshDesktop();
+        LogWindowState(windowHandle, "AFTER Step 4 (Final reposition)");
+
+        // Step 5: Force window redraw to ensure it renders
+        Win32Interop.InvalidateRect(windowHandle, IntPtr.Zero, true);
+        Win32Interop.UpdateWindow(windowHandle);
+        Win32Interop.RedrawWindow(windowHandle, IntPtr.Zero, IntPtr.Zero,
+            Win32Interop.RDW_INVALIDATE | Win32Interop.RDW_ERASE | Win32Interop.RDW_ALLCHILDREN | Win32Interop.RDW_FRAME);
+        _logger.LogInformation("Step 5: Forced window redraw (InvalidateRect + UpdateWindow + RedrawWindow)");
+
+        // Step 6: Refresh desktop to clear any artifacts
+        // TESTING: Disabled RefreshDesktop - it may be hiding the wallpaper
+        // RefreshDesktop();
+        _logger.LogInformation("Step 6: Skipped RefreshDesktop for testing");
 
         _logger.LogInformation("Successfully set wallpaper window (Legacy mode)");
         return true;
+    }
+
+    /// <summary>
+    /// Logs the current window state for debugging.
+    /// </summary>
+    private void LogWindowState(IntPtr hwnd, string context)
+    {
+        try
+        {
+            // Get window rectangle
+            if (Win32Interop.GetWindowRect(hwnd, out var rect))
+            {
+                _logger.LogInformation("{Context}: Window rect = ({Left}, {Top}, {Right}, {Bottom}), Size = ({Width}x{Height})",
+                    context, rect.Left, rect.Top, rect.Right, rect.Bottom,
+                    rect.Right - rect.Left, rect.Bottom - rect.Top);
+            }
+            else
+            {
+                _logger.LogWarning("{Context}: GetWindowRect FAILED", context);
+            }
+
+            // Get window style
+            var style = Win32Interop.GetWindowLongPtr(hwnd, Win32Interop.GWL_STYLE).ToInt64();
+            bool hasVisible = (style & Win32Interop.WS_VISIBLE) != 0;
+            bool hasChild = (style & Win32Interop.WS_CHILD) != 0;
+            _logger.LogInformation("{Context}: WS_VISIBLE={Visible}, WS_CHILD={Child}",
+                context, hasVisible, hasChild);
+
+            // Get extended window style
+            var exStyle = Win32Interop.GetWindowLongPtr(hwnd, Win32Interop.GWL_EXSTYLE).ToInt64();
+            bool hasLayered = (exStyle & Win32Interop.WS_EX_LAYERED) != 0;
+            _logger.LogInformation("{Context}: WS_EX_LAYERED={Layered}",
+                context, hasLayered);
+
+            // Get parent
+            var parent = Win32Interop.GetParent(hwnd);
+            _logger.LogInformation("{Context}: Parent = {Parent} (WorkerW = {WorkerW})",
+                context, parent, _workerW);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to log window state for context: {Context}", context);
+        }
     }
 
     /// <summary>
@@ -239,15 +340,18 @@ public class DesktopWindowManager
     /// </summary>
     private bool SetAsWallpaperLayeredMode(IntPtr windowHandle, System.Drawing.Rectangle screenBounds)
     {
-        _logger.LogDebug("Using layered desktop parenting mode (Windows 11 24H2+)");
+        _logger.LogInformation("Using layered desktop parenting mode (Windows 11 24H2+)");
+        _logger.LogInformation("Handles - Window: {Window}, Progman: {Progman}, DefView: {DefView}, WorkerW: {WorkerW}",
+            windowHandle, _progman, _shellDLL_DefView, _workerW);
 
         // Step 1: Add WS_CHILD style
         WindowUtil.SetWindowStyle(windowHandle, Win32Interop.WS_CHILD);
-        _logger.LogDebug("Added WS_CHILD style");
+        _logger.LogInformation("Added WS_CHILD style");
 
         // Step 2: Add WS_EX_LAYERED style with full opacity (alpha = 255)
+        // Note: Godot fails to apply WS_EX_LAYERED if attached after SetParent, so do this first
         WindowUtil.SetWindowTransparency(windowHandle, 255);
-        _logger.LogDebug("Added WS_EX_LAYERED style with alpha=255");
+        _logger.LogInformation("Added WS_EX_LAYERED style with alpha=255");
 
         // Step 3: Set parent to Progman (not WorkerW!)
         if (!WindowUtil.TrySetParent(windowHandle, _progman))
@@ -256,30 +360,57 @@ public class DesktopWindowManager
             return false;
         }
 
-        _logger.LogDebug("Successfully set parent to Progman");
+        _logger.LogInformation("Successfully set parent to Progman: {Progman}", _progman);
 
         // Step 4: Position window and z-order below SHELLDLL_DefView
-        var windowFlags = (uint)(Win32Interop.SWP_NOMOVE | Win32Interop.SWP_NOSIZE | Win32Interop.SWP_NOACTIVATE);
+        // Using SWP_NOMOVE | SWP_NOSIZE would keep current position, so we DON'T use those flags
+        var windowFlags = (uint)(Win32Interop.SWP_NOACTIVATE);
 
         if (_shellDLL_DefView != IntPtr.Zero)
         {
-            Win32Interop.SetWindowPos(
+            _logger.LogInformation("Positioning window at ({X}, {Y}, {W}x{H}) below SHELLDLL_DefView: {DefView}",
+                screenBounds.X, screenBounds.Y, screenBounds.Width, screenBounds.Height, _shellDLL_DefView);
+
+            // Position the window with its actual size and z-order below DefView
+            if (!Win32Interop.SetWindowPos(
                 windowHandle,
                 (int)_shellDLL_DefView, // Insert below DefView
-                0,
-                0,
-                0,
-                0,
-                windowFlags);
+                screenBounds.X,
+                screenBounds.Y,
+                screenBounds.Width,
+                screenBounds.Height,
+                windowFlags))
+            {
+                _logger.LogError("SetWindowPos FAILED");
+            }
+            else
+            {
+                _logger.LogInformation("SetWindowPos SUCCESS - Window positioned at ({X},{Y}) size ({W}x{H})",
+                    screenBounds.X, screenBounds.Y, screenBounds.Width, screenBounds.Height);
+            }
 
-            _logger.LogDebug("Z-ordered window below SHELLDLL_DefView");
+            // CRITICAL: Show the window to make it visible
+            Win32Interop.ShowWindow(windowHandle, Win32Interop.SW_SHOW);
+            _logger.LogInformation("Called ShowWindow to make window visible");
         }
         else
         {
-            _logger.LogWarning("SHELLDLL_DefView not found, z-ordering may be incorrect");
+            _logger.LogError("SHELLDLL_DefView handle is NULL!");
+
+            // Still try to position the window even without DefView
+            Win32Interop.SetWindowPos(
+                windowHandle,
+                1,
+                screenBounds.X,
+                screenBounds.Y,
+                screenBounds.Width,
+                screenBounds.Height,
+                windowFlags);
+
+            Win32Interop.ShowWindow(windowHandle, Win32Interop.SW_SHOW);
         }
 
-        _logger.LogInformation("Successfully set wallpaper window (Layered mode)");
+        _logger.LogInformation("Completed layered mode setup");
         return true;
     }
 

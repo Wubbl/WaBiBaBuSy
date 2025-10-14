@@ -146,3 +146,131 @@ After studying Lively Wallpaper's implementation (https://github.com/rocksdanist
 - [ ] Verify desktop icons visible and clickable
 - [ ] Verify taskbar accessible
 - [ ] Test all wallpaper types (Image, Video, GIF)
+
+---
+
+## Fix v4 Implementation - Session 2025-10-14 (Continued)
+
+**Status:** IN PROGRESS - Debugging window visibility issue
+
+### Implementation Completed:
+
+**Phase 1: Win32Interop.cs Updates** ✅
+- ✅ Added `WS_CHILD` and `WS_VISIBLE` window style constants
+- ✅ Added `WS_EX_NOREDIRECTIONBITMAP` extended style constant
+- ✅ Added `MapWindowPoints()` P/Invoke with RECT parameter
+- ✅ Added `ShowWindow()` and `GetWindowRect()` P/Invoke
+- ✅ Added `GetWindowLongPtr()`/`SetWindowLongPtr()` for 64-bit compatibility
+- ✅ Added `SetLayeredWindowAttributes()` P/Invoke
+- ✅ Added `GetParent()` P/Invoke for diagnostics
+- ✅ Added `RECT` and `POINT` structures
+- Location: `WaBiBaBuSy.WallpaperEngine/Native/Win32Interop.cs`
+
+**Phase 2: WindowUtil Helper Class** ✅
+- ✅ Created new helper class with utility methods
+- ✅ Implemented `HasExtendedStyle()` - Check window extended styles
+- ✅ Implemented `SetWindowStyle()` - Add window styles (like WS_CHILD)
+- ✅ Implemented `SetWindowExStyle()` - Add extended window styles
+- ✅ Implemented `SetWindowTransparency()` - Add WS_EX_LAYERED + alpha channel
+- ✅ Implemented `TrySetParent()` - Safe SetParent with error checking
+- Location: `WaBiBaBuSy.WallpaperEngine/Helpers/WindowUtil.cs`
+
+**Phase 3: DesktopWindowManager.cs Dual-Mode Support** ✅
+- ✅ Detects "Raised Desktop" mode using `WS_EX_NOREDIRECTIONBITMAP` check on Progman
+- ✅ Stores `_shellDLL_DefView` handle for z-ordering in layered mode
+- ✅ Implemented `SetAsWallpaperLegacyMode()` with Lively's 4-step process:
+  - Step 1: Position window with absolute coordinates using SetWindowPos
+  - Step 2: Calculate relative position using MapWindowPoints
+  - Step 3: Set parent to WorkerW using SetParent
+  - Step 4: Reposition with relative coordinates using SetWindowPos
+- ✅ Implemented `SetAsWallpaperLayeredMode()` for Windows 11 24H2+:
+  - Add WS_CHILD style
+  - Add WS_EX_LAYERED with alpha=255
+  - Parent to Progman (not WorkerW)
+  - Z-order below SHELLDLL_DefView
+- ✅ Added `RefreshDesktop()` method (currently disabled for testing)
+- Location: `WaBiBaBuSy.WallpaperEngine/Native/DesktopWindowManager.cs`
+
+**Phase 4: Renderer Updates** ✅
+- ✅ Updated VideoWallpaperRenderer to pass screen bounds Rectangle to SetAsWallpaperWindow
+- ✅ Updated ImageWallpaperRenderer to pass screen bounds Rectangle to SetAsWallpaperWindow
+- ✅ Updated GifWallpaperRenderer to pass screen bounds Rectangle to SetAsWallpaperWindow
+- Locations: All three renderer files in `WaBiBaBuSy.WallpaperEngine/Renderers/`
+
+**Build Status:** ✅ Clean build - 0 errors, 5 warnings (pre-existing)
+
+### Current Problem: Window Invisible After Parenting
+
+**Symptom:**
+- In **Legacy Mode** (forced for testing): All Win32 API calls succeed, but wallpaper window is NOT visible
+- In **Layered Mode**: Taskbar flickers briefly, but wallpaper window never appears
+- Desktop icons and taskbar remain visible (which is good), but the wallpaper is completely invisible
+
+**Diagnostic Logs from Last Test (Legacy Mode):**
+```
+Successfully found WorkerW window: 3604768 (Layered mode: False)
+Step 1: Positioned window at absolute coords (0, 0)
+Step 2: Mapped points - Left: 0, Top: 0, Right: 0, Bottom: 0
+Step 3: Successfully set parent to WorkerW
+Step 4: Repositioned window at relative coords (0, 0)
+Step 5: Skipped RefreshDesktop for testing
+Successfully set wallpaper window (Legacy mode)
+```
+
+**Key Observations:**
+1. WorkerW handle is found successfully (3604768)
+2. MapWindowPoints returns (0,0,0,0) - which should be correct for origin
+3. SetParent succeeds without errors
+4. SetWindowPos calls succeed without errors
+5. BUT: The wallpaper window is completely invisible
+
+**Hypothesis:**
+The Windows Form may be losing its `WS_VISIBLE` style when parented to WorkerW, or the form's rendering pipeline isn't compatible with being a child of WorkerW.
+
+### Latest Debugging Attempt (2025-10-14 Evening):
+
+**Changes Made:**
+1. Added `SWP_SHOWWINDOW` flag to both SetWindowPos calls in legacy mode
+2. Added explicit `ShowWindow(hwnd, SW_SHOW)` call after SetParent to WorkerW
+3. Added comprehensive diagnostic logging via new `LogWindowState()` method that tracks:
+   - Window rectangle (position and size) via GetWindowRect
+   - WS_VISIBLE flag status
+   - WS_CHILD flag status
+   - WS_EX_LAYERED flag status
+   - Parent window handle via GetParent
+4. Added diagnostic logging at 5 key points:
+   - BEFORE Step 1 (Initial state)
+   - AFTER Step 1 (Positioned)
+   - AFTER Step 3 (SetParent to WorkerW)
+   - AFTER Step 3b (ShowWindow call)
+   - AFTER Step 4 (Final reposition)
+
+**Files Modified:**
+- ✏️ `WaBiBaBuSy.WallpaperEngine/Native/DesktopWindowManager.cs:187-306` - Enhanced legacy mode with diagnostics
+- ✏️ `WaBiBaBuSy.WallpaperEngine/Native/Win32Interop.cs:63-64` - Added GetParent P/Invoke
+
+**Next Steps for Testing:**
+1. Run the application and apply a wallpaper
+2. Check console logs to see window state at each step:
+   - Is WS_VISIBLE being lost after SetParent?
+   - Is the window rectangle changing unexpectedly?
+   - Is the parent handle set correctly?
+   - Is WS_CHILD being added automatically by SetParent?
+3. Based on diagnostic output, determine if:
+   - Windows Forms is incompatible with WorkerW parenting
+   - Additional window styles or flags are needed
+   - The window needs to be invalidated/refreshed after parenting
+   - Alternative approach is needed (e.g., raw Win32 window instead of Windows Forms)
+
+**Testing Status:** ⏳ Awaiting test run with enhanced diagnostics
+
+**Alternative Approaches to Consider:**
+1. Try setting WS_CHILD style explicitly before SetParent (like layered mode does)
+2. Try adding WS_EX_LAYERED even in legacy mode (maybe Windows Forms needs it?)
+3. Try invalidating/updating the window after parenting: `InvalidateRect()`, `UpdateWindow()`
+4. Consider using a raw Win32 window instead of Windows Forms (if Forms is incompatible with WorkerW)
+5. Check if Lively uses special handling for different renderer types (Forms vs native windows)
+
+---
+
+**Summary:** Full Lively implementation is complete with dual-mode support and proper coordinate mapping. All Win32 API calls succeed without errors, but the wallpaper window becomes invisible after parenting to WorkerW. Enhanced diagnostic logging has been added to track window visibility state at each step. Next session should run test with diagnostics and analyze the window state to determine root cause of invisibility.
