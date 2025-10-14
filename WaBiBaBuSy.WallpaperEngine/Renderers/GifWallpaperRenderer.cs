@@ -314,59 +314,74 @@ public class GifWallpaperRenderer : IWallpaperRenderer
         }
     }
 
-    private async Task CreateRenderWindowAsync(WallpaperConfig config)
+    private Task CreateRenderWindowAsync(WallpaperConfig config)
     {
-        await Task.Run(() =>
+        // Windows Forms controls must be created on the calling thread
+        // Do NOT wrap in Task.Run - this causes threading issues
+        _renderForm = new Form
         {
-            _renderForm = new Form
-            {
-                FormBorderStyle = FormBorderStyle.None,
-                StartPosition = FormStartPosition.Manual,
-                ShowInTaskbar = false,
-                TopMost = false
-            };
+            FormBorderStyle = FormBorderStyle.None,
+            StartPosition = FormStartPosition.Manual,
+            ShowInTaskbar = false,
+            TopMost = false,
+            ControlBox = false,
+            MaximizeBox = false,
+            MinimizeBox = false
+        };
 
-            // Validate monitor index
-            if (config.MonitorIndex < 0 || config.MonitorIndex >= Screen.AllScreens.Length)
-            {
-                throw new ArgumentOutOfRangeException(
-                    nameof(config.MonitorIndex),
-                    $"Invalid monitor index {config.MonitorIndex}. Must be between 0 and {Screen.AllScreens.Length - 1}. Total monitors: {Screen.AllScreens.Length}");
-            }
+        // Validate monitor index
+        if (config.MonitorIndex < 0 || config.MonitorIndex >= Screen.AllScreens.Length)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(config.MonitorIndex),
+                $"Invalid monitor index {config.MonitorIndex}. Must be between 0 and {Screen.AllScreens.Length - 1}. Total monitors: {Screen.AllScreens.Length}");
+        }
 
-            // Set window bounds for the specific monitor
-            var screen = Screen.AllScreens[config.MonitorIndex];
-            _renderForm.Bounds = screen.Bounds;
+        // Set window bounds for the specific monitor
+        var screen = Screen.AllScreens[config.MonitorIndex];
+        _renderForm.Bounds = screen.Bounds;
 
-            _logger.LogInformation("GIF renderer set to monitor {Index}: {Bounds} (Device: {Device})",
-                config.MonitorIndex,
-                screen.Bounds,
-                screen.DeviceName);
+        _logger.LogInformation("GIF renderer set to monitor {Index}: {Bounds} (Device: {Device})",
+            config.MonitorIndex,
+            screen.Bounds,
+            screen.DeviceName);
 
-            // Create PictureBox to display GIF
-            _pictureBox = new PictureBox
-            {
-                Dock = DockStyle.Fill,
-                SizeMode = PictureBoxSizeMode.StretchImage,
-                BackColor = Color.Black
-            };
+        // Create PictureBox to display GIF
+        _pictureBox = new PictureBox
+        {
+            Dock = DockStyle.Fill,
+            SizeMode = PictureBoxSizeMode.StretchImage,
+            BackColor = Color.Black
+        };
 
-            _renderForm.Controls.Add(_pictureBox);
+        _renderForm.Controls.Add(_pictureBox);
 
-            // CRITICAL: Show the form FIRST to ensure handle is fully initialized
-            _renderForm.Show();
+        // CRITICAL: Show the form FIRST to ensure handle is fully initialized
+        _renderForm.Show();
 
-            // Now find WorkerW window and set as parent (after form is shown)
-            var workerW = _desktopManager.FindDesktopWorkerWindow();
-            if (workerW != IntPtr.Zero)
-            {
-                _desktopManager.SetAsWallpaperWindow(_renderForm.Handle);
-            }
-            else
-            {
-                _logger.LogWarning("Could not find WorkerW window, wallpaper may not render behind icons");
-            }
-        });
+        _logger.LogDebug("Form shown, handle: {Handle}", _renderForm.Handle);
+
+        // Now find WorkerW window and set as parent (after form is shown)
+        var workerW = _desktopManager.FindDesktopWorkerWindow();
+        if (workerW != IntPtr.Zero)
+        {
+            _logger.LogDebug("Found WorkerW: {WorkerW}, parenting form to it", workerW);
+
+            // Convert Screen.Bounds to System.Drawing.Rectangle for DesktopWindowManager
+            var screenBounds = new System.Drawing.Rectangle(
+                screen.Bounds.X,
+                screen.Bounds.Y,
+                screen.Bounds.Width,
+                screen.Bounds.Height);
+
+            _desktopManager.SetAsWallpaperWindow(_renderForm.Handle, screenBounds);
+        }
+        else
+        {
+            _logger.LogWarning("Could not find WorkerW window, wallpaper may not render behind icons");
+        }
+
+        return Task.CompletedTask;
     }
 
     public void Dispose()

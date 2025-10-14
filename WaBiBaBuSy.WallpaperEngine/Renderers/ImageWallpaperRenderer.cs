@@ -168,6 +168,9 @@ public class ImageWallpaperRenderer : IWallpaperRenderer
             StartPosition = FormStartPosition.Manual,
             ShowInTaskbar = false,
             TopMost = false,
+            ControlBox = false,
+            MaximizeBox = false,
+            MinimizeBox = false,
             BackColor = Color.Black
         };
 
@@ -202,11 +205,22 @@ public class ImageWallpaperRenderer : IWallpaperRenderer
         // CRITICAL: Show the form FIRST to ensure handle is fully initialized
         _renderForm.Show();
 
+        _logger.LogDebug("Form shown, handle: {Handle}", _renderForm.Handle);
+
         // Now find WorkerW window and set as parent (after form is shown)
         var workerW = _desktopManager.FindDesktopWorkerWindow();
         if (workerW != IntPtr.Zero)
         {
-            _desktopManager.SetAsWallpaperWindow(_renderForm.Handle);
+            _logger.LogDebug("Found WorkerW: {WorkerW}, parenting form to it", workerW);
+
+            // Convert Screen.Bounds to System.Drawing.Rectangle for DesktopWindowManager
+            var screenBounds = new System.Drawing.Rectangle(
+                screen.Bounds.X,
+                screen.Bounds.Y,
+                screen.Bounds.Width,
+                screen.Bounds.Height);
+
+            _desktopManager.SetAsWallpaperWindow(_renderForm.Handle, screenBounds);
             _logger.LogInformation("Set as wallpaper window behind desktop icons");
         }
         else
