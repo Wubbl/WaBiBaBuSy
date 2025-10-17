@@ -55,9 +55,15 @@ public class DesktopWindowManager
 
             // Check if Windows is using the new layered desktop mode (Windows 11 24H2+)
             bool isActuallyLayeredMode = WindowUtil.HasExtendedStyle(_progman, Win32Interop.WS_EX_NOREDIRECTIONBITMAP);
+            _isRaisedDesktopWithLayeredShellView = isActuallyLayeredMode;
+
             if (isActuallyLayeredMode)
             {
-                _logger.LogWarning("Detected raised desktop with layered ShellView (Windows 11 24H2+) - FORCING LEGACY MODE FOR TESTING");
+                _logger.LogInformation("Detected Windows 11 24H2+ layered desktop mode - will use layered approach");
+            }
+            else
+            {
+                _logger.LogInformation("Detected legacy desktop mode - will use WorkerW approach");
             }
 
             // Send 0x052C to Progman. This message directs Progman to spawn a
@@ -114,8 +120,8 @@ public class DesktopWindowManager
                     shellDefView, workerw);
             }
 
-            // FORCE LEGACY MODE FOR TESTING (after finding WorkerW)
-            _isRaisedDesktopWithLayeredShellView = false;
+            // Use detected mode - don't force legacy mode anymore
+            // Windows 11 24H2+ layered mode might work better with Windows Forms
 
             _workerW = workerw;
             _shellDLL_DefView = shellDefView;
@@ -219,13 +225,9 @@ public class DesktopWindowManager
         _logger.LogInformation("Step 2: Mapped points - Left: {Left}, Top: {Top}, Right: {Right}, Bottom: {Bottom}",
             prct.Left, prct.Top, prct.Right, prct.Bottom);
 
-        // Step 2b: CRITICAL - Add WS_CHILD style BEFORE SetParent
-        // Windows Forms windows may need this set explicitly
-        WindowUtil.SetWindowStyle(windowHandle, Win32Interop.WS_CHILD);
-        _logger.LogInformation("Step 2b: Added WS_CHILD style before SetParent");
-        LogWindowState(windowHandle, "AFTER Step 2b (WS_CHILD added)");
-
         // Step 3: Set parent to WorkerW
+        // NOTE: Do NOT add WS_CHILD before SetParent in legacy mode - Lively doesn't do this
+        // SetParent automatically adds WS_CHILD style when parenting succeeds
         var oldParent = Win32Interop.SetParent(windowHandle, _workerW);
         _logger.LogInformation("Step 3: SetParent returned old parent: {OldParent}, new parent should be: {WorkerW}",
             oldParent, _workerW);

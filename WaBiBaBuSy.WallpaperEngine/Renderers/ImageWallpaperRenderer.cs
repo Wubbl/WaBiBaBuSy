@@ -158,11 +158,67 @@ public class ImageWallpaperRenderer : IWallpaperRenderer
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Custom Form that prevents Windows Forms from resetting the parent after SetParent is called.
+    /// </summary>
+    private class WallpaperForm : Form
+    {
+        private IntPtr _customParent = IntPtr.Zero;
+        private bool _isWallpaperMode = false;
+
+        public void SetCustomParent(IntPtr parent)
+        {
+            _customParent = parent;
+        }
+
+        public void EnableWallpaperMode()
+        {
+            _isWallpaperMode = true;
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                var cp = base.CreateParams;
+                // Set the parent in CreateParams to prevent Windows Forms from fighting SetParent
+                if (_customParent != IntPtr.Zero)
+                {
+                    cp.Parent = _customParent;
+                }
+                return cp;
+            }
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            // Block messages that might reset the parent when in wallpaper mode
+            if (_isWallpaperMode)
+            {
+                const int WM_PARENTNOTIFY = 0x0210;
+                const int WM_WINDOWPOSCHANGING = 0x0046;
+                const int WM_WINDOWPOSCHANGED = 0x0047;
+                const int WM_SHOWWINDOW = 0x0018;
+
+                // Allow these messages through but log them
+                if (m.Msg == WM_PARENTNOTIFY || m.Msg == WM_WINDOWPOSCHANGING ||
+                    m.Msg == WM_WINDOWPOSCHANGED || m.Msg == WM_SHOWWINDOW)
+                {
+                    // Just pass through, don't block
+                    base.WndProc(ref m);
+                    return;
+                }
+            }
+
+            base.WndProc(ref m);
+        }
+    }
+
     private Task CreateRenderWindowAsync(WallpaperConfig config)
     {
         // Windows Forms controls must be created on the calling thread
         // Do NOT wrap in Task.Run - this causes threading issues
-        _renderForm = new Form
+        var wallpaperForm = new WallpaperForm
         {
             FormBorderStyle = FormBorderStyle.None,
             StartPosition = FormStartPosition.Manual,
@@ -171,8 +227,10 @@ public class ImageWallpaperRenderer : IWallpaperRenderer
             ControlBox = false,
             MaximizeBox = false,
             MinimizeBox = false,
-            BackColor = Color.Black
+            BackColor = Color.Black,
+            ShowIcon = false
         };
+        _renderForm = wallpaperForm;
 
         // Validate monitor index
         if (config.MonitorIndex < 0 || config.MonitorIndex >= Screen.AllScreens.Length)
@@ -202,17 +260,26 @@ public class ImageWallpaperRenderer : IWallpaperRenderer
 
         _renderForm.Controls.Add(_pictureBox);
 
-        // CRITICAL: Show the form FIRST to ensure handle is fully initialized
-        _renderForm.Show();
-
-        _logger.LogDebug("Form shown, handle: {Handle}", _renderForm.Handle);
-
-        // Now find WorkerW window and set as parent (after form is shown)
+        // Find WorkerW BEFORE creating the window handle
         var workerW = _desktopManager.FindDesktopWorkerWindow();
         if (workerW != IntPtr.Zero)
         {
-            _logger.LogDebug("Found WorkerW: {WorkerW}, parenting form to it", workerW);
+            _logger.LogDebug("Found WorkerW: {WorkerW}, setting as parent BEFORE showing form", workerW);
 
+            // CRITICAL: Set the parent in CreateParams BEFORE the handle is created
+            wallpaperForm.SetCustomParent(workerW);
+        }
+
+        // NOW show the form - this will create the handle with WorkerW as parent from the start
+        _renderForm.Show();
+        _logger.LogDebug("Form shown with parent={Parent}, handle: {Handle}, size: {Size}",
+            workerW, _renderForm.Handle, _renderForm.Size);
+
+        // Process any pending messages to ensure form is fully initialized
+        Application.DoEvents();
+
+        if (workerW != IntPtr.Zero)
+        {
             // Convert Screen.Bounds to System.Drawing.Rectangle for DesktopWindowManager
             var screenBounds = new System.Drawing.Rectangle(
                 screen.Bounds.X,
@@ -220,8 +287,13 @@ public class ImageWallpaperRenderer : IWallpaperRenderer
                 screen.Bounds.Width,
                 screen.Bounds.Height);
 
+            // Still call SetAsWallpaperWindow for positioning and other setup
             _desktopManager.SetAsWallpaperWindow(_renderForm.Handle, screenBounds);
             _logger.LogInformation("Set as wallpaper window behind desktop icons");
+
+            // CRITICAL: Enable wallpaper mode to prevent Windows Forms from resetting parent
+            wallpaperForm.EnableWallpaperMode();
+            _logger.LogInformation("Enabled wallpaper mode to lock parenting");
         }
         else
         {

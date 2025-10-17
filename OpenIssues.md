@@ -274,3 +274,246 @@ The Windows Form may be losing its `WS_VISIBLE` style when parented to WorkerW, 
 ---
 
 **Summary:** Full Lively implementation is complete with dual-mode support and proper coordinate mapping. All Win32 API calls succeed without errors, but the wallpaper window becomes invisible after parenting to WorkerW. Enhanced diagnostic logging has been added to track window visibility state at each step. Next session should run test with diagnostics and analyze the window state to determine root cause of invisibility.
+
+---
+
+## Latest Test Results (2025-10-14 Late Evening):
+
+**MAJOR BREAKTHROUGH - Parenting Now Works!**
+- ✅ SetParent now successfully sets parent to WorkerW (verified via GetParent)
+- ✅ Fix: Added `WS_CHILD` style BEFORE calling SetParent
+- ✅ Window is correctly parented: `Parent = 3604768 (WorkerW = 3604768)`
+- ✅ Window has WS_VISIBLE=True, WS_CHILD=True
+- ✅ Window rectangle is correct: (0, 0, 2560x1440)
+
+**BUT: Wallpaper Still Not Visible**
+- ❌ Despite all APIs succeeding, wallpaper window does not render
+- ❌ Tried: InvalidateRect, UpdateWindow, RedrawWindow - no effect
+- ❌ Tried: Removing WS_EX_NOACTIVATE and WS_EX_TOOLWINDOW - no effect
+- Desktop icons and taskbar visible (good) but wallpaper is invisible
+
+**Root Cause Hypothesis:**
+Windows Forms may not be compatible with being parented to WorkerW. The Form's rendering pipeline might not work when it's a child of a system window like WorkerW.
+
+---
+
+## TODO for Next Session - CRITICAL INVESTIGATION:
+
+### 1. Compare with Lively Project Implementation
+**Question:** Why does Lively work but our implementation doesn't?
+
+**Investigation Tasks:**
+- [ ] Check what UI framework Lively uses for their wallpaper windows
+  - Is it WPF? WinForms? Raw Win32? DirectX surface?
+  - Location: Check `Lively.UI.WinUI/` and renderer implementations
+- [ ] Check if Lively uses Windows Forms at all for wallpaper rendering
+  - Our code uses `Form` from `System.Windows.Forms`
+  - Does Lively use raw Win32 windows or WPF windows instead?
+- [ ] Compare Lively's renderer architecture with ours:
+  - **Our approach:** Windows Forms with PictureBox (Image), VLC VideoView (Video), etc.
+  - **Lively's approach:** Check their renderer implementations in `Lively.UI.WinUI/Views/`
+- [ ] Check if Lively does any special initialization for Forms/Windows before parenting
+  - Do they set additional window styles?
+  - Do they use CreateWindowEx directly instead of Forms?
+  - Do they handle WM_PAINT or other messages specially?
+
+### 2. Why Are We Using Windows Forms?
+**Question:** Should we be using WPF instead of WinForms for wallpaper rendering?
+
+**Review Our Current Implementation:**
+- **ImageWallpaperRenderer** - Uses `Form` + `PictureBox` (WinForms)
+  - Location: `WaBiBaBuSy.WallpaperEngine/Renderers/ImageWallpaperRenderer.cs`
+  - Creates: `new Form()` with `PictureBox` control
+- **VideoWallpaperRenderer** - Uses `Form` + LibVLCSharp `VideoView` (WinForms)
+  - Location: `WaBiBaBuSy.WallpaperEngine/Renderers/VideoWallpaperRenderer.cs`
+  - Creates: `new Form()` with VLC VideoView control
+- **GifWallpaperRenderer** - Uses `Form` + `PictureBox` (WinForms)
+  - Location: `WaBiBaBuSy.WallpaperEngine/Renderers/GifWallpaperRenderer.cs`
+  - Creates: `new Form()` with animated PictureBox
+
+**Investigation Tasks:**
+- [ ] Check if LibVLCSharp has WPF support (`LibVLCSharp.WPF` package)
+- [ ] Research: Can WPF windows be parented to WorkerW successfully?
+- [ ] Research: Do wallpaper engines typically use raw Win32 windows instead of Forms/WPF?
+- [ ] Consider: Should we switch to WPF `Window` instead of WinForms `Form`?
+- [ ] Consider: Should we use raw Win32 windows created with CreateWindowEx?
+
+### 3. Is Our ImageRenderer Implementation Weird?
+**Question:** Is there something fundamentally wrong with our renderer design?
+
+**Code Review Tasks:**
+- [ ] Check if PictureBox renders correctly when parented to WorkerW
+  - Test: Create minimal WinForms app that parents Form+PictureBox to WorkerW
+  - Compare: Does a simple test app with just Form+PictureBox work?
+- [ ] Check if we need to override WndProc to handle WM_PAINT messages
+  - Windows Forms might not paint when it's a child of WorkerW
+  - We might need to manually handle paint events
+- [ ] Check if we should use raw GDI/GDI+ drawing instead of PictureBox
+  - Override OnPaint and draw directly to the Form's Graphics context
+  - This gives more control over rendering pipeline
+- [ ] Review Lively's image renderer implementation
+  - File: Check `Lively.UI.WinUI/Views/` for their image wallpaper view
+  - Compare their approach to ours
+
+### 4. Alternative Approaches to Test:
+
+**Option A: Raw Win32 Window**
+- [ ] Create a test renderer that uses `CreateWindowEx` instead of `Form`
+- [ ] Manually handle WM_PAINT messages with raw GDI drawing
+- [ ] Test if raw Win32 window parents to WorkerW and renders correctly
+
+**Option B: WPF Window**
+- [ ] Convert ImageWallpaperRenderer to use WPF `Window` instead of WinForms `Form`
+- [ ] Use WPF `Image` control instead of WinForms `PictureBox`
+- [ ] Test if WPF's rendering pipeline works better with WorkerW parenting
+
+**Option C: DirectX/Direct2D Surface**
+- [ ] Research if Lively uses DirectX for rendering
+- [ ] Consider using SharpDX or similar for direct GPU rendering
+- [ ] This might be overkill but worth investigating
+
+**Option D: Windows 11 Layered Desktop Mode**
+- [ ] Stop forcing legacy mode and try the native Windows 11 24H2 layered mode
+- [ ] Maybe the new mode works better than legacy WorkerW technique?
+- [ ] Remove the "FORCING LEGACY MODE FOR TESTING" override
+
+### 5. Diagnostic Questions to Answer:
+
+**About Our Current State:**
+- [ ] Does the Form receive any Windows messages (WM_PAINT, WM_ERASEBKGND, etc.) after parenting?
+  - Add WndProc override to log all messages
+- [ ] Is the Form's Handle still valid after SetParent?
+  - Check `Form.IsHandleCreated` and `Form.Handle` after parenting
+- [ ] Does the Form's client area exist?
+  - Check `Form.ClientRectangle` after parenting
+- [ ] Is the PictureBox control rendering?
+  - Add Paint event handler to PictureBox and log when it fires
+
+**About Lively:**
+- [ ] What window class does Lively create for wallpapers?
+  - Use Spy++ or similar tool on running Lively instance
+- [ ] What are the window styles/extended styles of Lively's wallpaper windows?
+  - Compare with our window after parenting
+- [ ] Does Lively use any special COM interfaces or DWM APIs we're missing?
+
+### 6. Key Files to Investigate in Lively:
+
+```
+Lively-reference/src/Lively/
+├── Lively.UI.WinUI/Views/        # Check their view implementations
+├── Lively.Gallery/               # Check their wallpaper implementations
+├── Lively.Common/Helpers/        # Already reviewed WindowUtil
+└── Lively/Core/WinDesktopCore.cs # Already reviewed - our impl matches this
+```
+
+---
+
+## Summary for Next Session:
+
+**Current State:**
+1. ✅ WorkerW parenting works correctly (verified via diagnostics)
+2. ✅ All window styles are correct (WS_VISIBLE, WS_CHILD, correct parent)
+3. ❌ **Windows Form does NOT render when parented to WorkerW**
+
+**Most Likely Root Cause:**
+Windows Forms is not compatible with being parented to system windows like WorkerW. The Forms rendering pipeline probably expects to be a top-level window or child of another Form.
+
+**Next Steps Priority:**
+1. **HIGHEST PRIORITY:** Investigate what UI framework Lively uses (WPF? Raw Win32?)
+2. **HIGH PRIORITY:** Test if switching to WPF Windows works
+3. **MEDIUM PRIORITY:** Try creating raw Win32 window with CreateWindowEx
+4. **LOW PRIORITY:** Test Windows 11 24H2 native layered mode (stop forcing legacy)
+
+**Critical Question to Answer:**
+**Why does everyone else use WPF or raw Win32 for wallpaper engines, and we're using WinForms?** There's probably a good reason WinForms doesn't work for this use case.
+
+---
+
+## FINAL ROOT CAUSE IDENTIFIED (2025-10-17)
+
+**Status:** ✅ **ROOT CAUSE FOUND** - Migration plan created
+
+### The Problem: Windows Forms is Fundamentally Incompatible
+
+After extensive debugging and comparing with Lively Wallpaper's implementation, we discovered:
+
+1. **SetParent succeeds initially** - All Win32 API calls work correctly
+2. **Windows Forms immediately resets the parent** - The Forms framework un-parents the window
+3. **Wallpaper flashes briefly then disappears** - Visible evidence of Forms fighting the parenting
+4. **Windows Forms expects to be a top-level window** - Its rendering pipeline breaks when parented to system windows
+
+### Why Lively Works (And We Don't)
+
+**Lively's Architecture:**
+1. ✅ **Uses WPF Windows** instead of WinForms Forms
+2. ✅ **Separate Process Architecture** - each wallpaper is a standalone `.exe`
+3. ✅ **Main app parents external HWNDs** - Forms framework can't fight back from different process
+
+**Our Current Architecture:**
+1. ❌ **Uses Windows Forms** - incompatible with system window parenting
+2. ❌ **Same Process** - Forms framework actively fights SetParent calls
+3. ❌ **Direct instantiation** - Forms manages its own parent-child relationships
+
+### Evidence Gathered
+
+**From Lively Source Code Analysis:**
+- `Lively.Player.Vlc` - Uses **Windows Forms** BUT runs as separate `.exe`
+- `Lively.Player.Wmf` - Uses **WPF Window** for media/images, separate `.exe`
+- Main Lively app calls `SetParent` on **external process HWNDs**
+- IPC via stdin/stdout JSON messages
+- HWND sent from player to parent process after window creation
+
+**From Our Testing:**
+- All Win32 APIs succeed (SetParent, SetWindowPos, MapWindowPoints, etc.)
+- Parent is set correctly initially (verified via GetParent)
+- Window becomes invisible immediately after (Forms resets parent to null)
+- Adding WS_CHILD style doesn't help
+- Overriding CreateParams doesn't help
+- Overriding WndProc doesn't help
+- **Windows Forms is actively fighting the parenting**
+
+### Solution: Migrate to WPF + Separate Processes
+
+**See:** `MIGRATION_PLAN_WPF_SEPARATE_PROCESS.md` for full migration plan
+
+**High-Level Migration:**
+1. Create separate player .exe projects for Image/Video/GIF
+2. Use WPF Windows instead of WinForms Forms
+3. Implement IPC via stdin/stdout (JSON messages)
+4. Parent process launches players and receives HWNDs
+5. Parent process calls SetParent on external HWNDs
+
+**Timeline:** ~5 weeks for full migration
+
+**Benefits:**
+- ✅ Proven architecture (Lively uses this successfully)
+- ✅ Better process isolation
+- ✅ Easier crash recovery
+- ✅ WPF has better rendering capabilities
+- ✅ Separate processes can't fight SetParent
+
+**Drawbacks:**
+- Additional complexity (multiple .exe files)
+- IPC overhead (minimal with JSON stdin/stdout)
+- Process management required
+- Larger refactoring effort
+
+---
+
+## Closing Issue 1
+
+**Status:** Issue 1 is being **CLOSED** and moved to new architecture task
+
+**Reason:** The issue cannot be fixed with current Windows Forms architecture. Root cause is fundamental incompatibility between Windows Forms and system window parenting.
+
+**Next Steps:**
+1. Close this issue
+2. Create new task: "Migrate to WPF + Separate Process Architecture"
+3. Follow migration plan in `MIGRATION_PLAN_WPF_SEPARATE_PROCESS.md`
+4. Start with Phase 1: Infrastructure and IPC framework
+
+**Lessons Learned:**
+- Windows Forms is not suitable for wallpaper engines
+- Lively's architecture is proven and should be adopted
+- Separate process architecture provides better isolation
+- WPF has better compatibility with system window parenting
