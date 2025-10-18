@@ -1,23 +1,23 @@
 using System.Drawing;
-using System.Windows.Forms;
 using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Core.Interfaces;
 using WaBiBaBuSy.Models;
 using WaBiBaBuSy.WallpaperEngine.Native;
+using WaBiBaBuSy.Player.Common;
+using WaBiBaBuSy.Player.Common.Messages;
 
 namespace WaBiBaBuSy.WallpaperEngine.Renderers;
 
 /// <summary>
 /// Static image wallpaper renderer for JPG, PNG, BMP formats.
+/// Uses a separate WPF process (WaBiBaBuSy.Player.Image.exe) to avoid Windows Forms parenting issues.
 /// </summary>
 public class ImageWallpaperRenderer : IWallpaperRenderer
 {
     private readonly ILogger<ImageWallpaperRenderer> _logger;
     private readonly DesktopWindowManager _desktopManager;
 
-    private Image? _image;
-    private Form? _renderForm;
-    private PictureBox? _pictureBox;
+    private ProcessCommunicator? _processCommunicator;
     private WallpaperConfig? _config;
     private WallpaperState _state = WallpaperState.Uninitialized;
     private bool _disposed;
@@ -58,13 +58,43 @@ public class ImageWallpaperRenderer : IWallpaperRenderer
             _logger.LogInformation("Initializing Image wallpaper renderer for {FilePath}", config.FilePath);
             _config = config;
 
-            // Load image from file
-            _image = Image.FromFile(config.FilePath);
+            // Verify image file exists
+            if (!File.Exists(config.FilePath))
+            {
+                throw new FileNotFoundException($"Image file not found: {config.FilePath}");
+            }
 
-            _logger.LogInformation("Loaded image: {Width}x{Height}", _image.Width, _image.Height);
+            // Get path to the WPF Image player executable
+            var playerExePath = GetPlayerExecutablePath();
+            if (!File.Exists(playerExePath))
+            {
+                throw new FileNotFoundException($"WaBiBaBuSy.Player.Image.exe not found at: {playerExePath}");
+            }
 
-            // Create render window
-            await CreateRenderWindowAsync(config);
+            _logger.LogInformation("Starting Image player process: {PlayerExePath}", playerExePath);
+
+            // Launch player process and setup IPC
+            _processCommunicator = new ProcessCommunicator(playerExePath);
+            _processCommunicator.MessageReceived += OnPlayerMessageReceived;
+            _processCommunicator.ErrorReceived += OnPlayerErrorReceived;
+
+            // Wait for player to send HWND
+            var gotHwnd = await _processCommunicator.WaitForWindowHandleAsync(TimeSpan.FromSeconds(10));
+            if (!gotHwnd)
+            {
+                throw new TimeoutException("Player process did not send window handle within timeout");
+            }
+
+            _logger.LogInformation("Received HWND from player: 0x{Hwnd:X}", _processCommunicator.WindowHandle);
+
+            // Find desktop window and set player as wallpaper
+            await SetPlayerAsWallpaperAsync(config);
+
+            // Send LOAD command to player
+            await _processCommunicator.SendCommandAsync(new PlayerCommandLoad
+            {
+                FilePath = config.FilePath
+            });
 
             State = WallpaperState.Stopped;
             _logger.LogInformation("Image wallpaper renderer initialized successfully");
@@ -77,22 +107,20 @@ public class ImageWallpaperRenderer : IWallpaperRenderer
         }
     }
 
-    public Task StartAsync()
+    public async Task StartAsync()
     {
         try
         {
-            if (_image == null || _pictureBox == null)
+            if (_processCommunicator == null)
                 throw new InvalidOperationException("Renderer not initialized");
 
             _logger.LogInformation("Starting Image display");
 
-            // For static images, just ensure it's visible
-            // The image is already loaded and displayed in the PictureBox
+            // Send PLAY command to player (for static images, this is mostly a no-op in the player)
+            await _processCommunicator.SendCommandAsync(new PlayerCommandPlay());
 
             State = WallpaperState.Playing;
             _logger.LogInformation("Image display started");
-
-            return Task.CompletedTask;
         }
         catch (Exception ex)
         {
@@ -158,149 +186,77 @@ public class ImageWallpaperRenderer : IWallpaperRenderer
         return Task.CompletedTask;
     }
 
-    /// <summary>
-    /// Custom Form that prevents Windows Forms from resetting the parent after SetParent is called.
-    /// </summary>
-    private class WallpaperForm : Form
+    private string GetPlayerExecutablePath()
     {
-        private IntPtr _customParent = IntPtr.Zero;
-        private bool _isWallpaperMode = false;
-
-        public void SetCustomParent(IntPtr parent)
+        // Look for the player executable in the same directory as the current assembly
+        var assemblyDir = Path.GetDirectoryName(typeof(ImageWallpaperRenderer).Assembly.Location);
+        if (string.IsNullOrEmpty(assemblyDir))
         {
-            _customParent = parent;
+            throw new InvalidOperationException("Could not determine assembly directory");
         }
 
-        public void EnableWallpaperMode()
+        var playerExePath = Path.Combine(assemblyDir, "WaBiBaBuSy.Player.Image.exe");
+        return playerExePath;
+    }
+
+    private Task SetPlayerAsWallpaperAsync(WallpaperConfig config)
+    {
+        if (_processCommunicator == null)
+            throw new InvalidOperationException("Process communicator not initialized");
+
+        var playerHwnd = _processCommunicator.WindowHandle;
+
+        // Find desktop window
+        var desktopWindow = _desktopManager.FindDesktopWorkerWindow();
+        if (desktopWindow == IntPtr.Zero)
         {
-            _isWallpaperMode = true;
+            _logger.LogWarning("Could not find WorkerW window, wallpaper may not render behind icons");
+            return Task.CompletedTask;
         }
 
-        protected override CreateParams CreateParams
+        _logger.LogInformation("Found desktop window: 0x{DesktopWindow:X}", desktopWindow);
+
+        // Get monitor bounds
+        var screen = System.Windows.Forms.Screen.AllScreens[config.MonitorIndex];
+        var screenBounds = new Rectangle(
+            screen.Bounds.X,
+            screen.Bounds.Y,
+            screen.Bounds.Width,
+            screen.Bounds.Height);
+
+        _logger.LogInformation("Setting player window as wallpaper on monitor {Index}: {Bounds}",
+            config.MonitorIndex,
+            screenBounds);
+
+        // Call SetAsWallpaperWindow to parent the player window to the desktop
+        _desktopManager.SetAsWallpaperWindow(playerHwnd, screenBounds);
+
+        _logger.LogInformation("Player window set as wallpaper behind desktop icons");
+
+        return Task.CompletedTask;
+    }
+
+    private void OnPlayerMessageReceived(object? sender, PlayerMessageBase message)
+    {
+        _logger.LogDebug("Received message from player: {MessageType}", message.MessageType);
+
+        if (message is PlayerMessageLoaded loadedMsg)
         {
-            get
+            if (loadedMsg.Success)
             {
-                var cp = base.CreateParams;
-                // Set the parent in CreateParams to prevent Windows Forms from fighting SetParent
-                if (_customParent != IntPtr.Zero)
-                {
-                    cp.Parent = _customParent;
-                }
-                return cp;
+                _logger.LogInformation("Player successfully loaded wallpaper");
             }
-        }
-
-        protected override void WndProc(ref Message m)
-        {
-            // Block messages that might reset the parent when in wallpaper mode
-            if (_isWallpaperMode)
+            else
             {
-                const int WM_PARENTNOTIFY = 0x0210;
-                const int WM_WINDOWPOSCHANGING = 0x0046;
-                const int WM_WINDOWPOSCHANGED = 0x0047;
-                const int WM_SHOWWINDOW = 0x0018;
-
-                // Allow these messages through but log them
-                if (m.Msg == WM_PARENTNOTIFY || m.Msg == WM_WINDOWPOSCHANGING ||
-                    m.Msg == WM_WINDOWPOSCHANGED || m.Msg == WM_SHOWWINDOW)
-                {
-                    // Just pass through, don't block
-                    base.WndProc(ref m);
-                    return;
-                }
+                _logger.LogError("Player failed to load wallpaper: {Error}", loadedMsg.ErrorMessage);
+                State = WallpaperState.Error;
             }
-
-            base.WndProc(ref m);
         }
     }
 
-    private Task CreateRenderWindowAsync(WallpaperConfig config)
+    private void OnPlayerErrorReceived(object? sender, string error)
     {
-        // Windows Forms controls must be created on the calling thread
-        // Do NOT wrap in Task.Run - this causes threading issues
-        var wallpaperForm = new WallpaperForm
-        {
-            FormBorderStyle = FormBorderStyle.None,
-            StartPosition = FormStartPosition.Manual,
-            ShowInTaskbar = false,
-            TopMost = false,
-            ControlBox = false,
-            MaximizeBox = false,
-            MinimizeBox = false,
-            BackColor = Color.Black,
-            ShowIcon = false
-        };
-        _renderForm = wallpaperForm;
-
-        // Validate monitor index
-        if (config.MonitorIndex < 0 || config.MonitorIndex >= Screen.AllScreens.Length)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(config.MonitorIndex),
-                $"Invalid monitor index {config.MonitorIndex}. Must be between 0 and {Screen.AllScreens.Length - 1}. Total monitors: {Screen.AllScreens.Length}");
-        }
-
-        // Set window bounds for the specific monitor
-        var screen = Screen.AllScreens[config.MonitorIndex];
-        _renderForm.Bounds = screen.Bounds;
-
-        _logger.LogInformation("Image renderer set to monitor {Index}: {Bounds} (Device: {Device})",
-            config.MonitorIndex,
-            screen.Bounds,
-            screen.DeviceName);
-
-        // Create PictureBox to display image
-        _pictureBox = new PictureBox
-        {
-            Dock = DockStyle.Fill,
-            SizeMode = PictureBoxSizeMode.Zoom, // Maintain aspect ratio
-            BackColor = Color.Black,
-            Image = _image
-        };
-
-        _renderForm.Controls.Add(_pictureBox);
-
-        // Find WorkerW BEFORE creating the window handle
-        var workerW = _desktopManager.FindDesktopWorkerWindow();
-        if (workerW != IntPtr.Zero)
-        {
-            _logger.LogDebug("Found WorkerW: {WorkerW}, setting as parent BEFORE showing form", workerW);
-
-            // CRITICAL: Set the parent in CreateParams BEFORE the handle is created
-            wallpaperForm.SetCustomParent(workerW);
-        }
-
-        // NOW show the form - this will create the handle with WorkerW as parent from the start
-        _renderForm.Show();
-        _logger.LogDebug("Form shown with parent={Parent}, handle: {Handle}, size: {Size}",
-            workerW, _renderForm.Handle, _renderForm.Size);
-
-        // Process any pending messages to ensure form is fully initialized
-        Application.DoEvents();
-
-        if (workerW != IntPtr.Zero)
-        {
-            // Convert Screen.Bounds to System.Drawing.Rectangle for DesktopWindowManager
-            var screenBounds = new System.Drawing.Rectangle(
-                screen.Bounds.X,
-                screen.Bounds.Y,
-                screen.Bounds.Width,
-                screen.Bounds.Height);
-
-            // Still call SetAsWallpaperWindow for positioning and other setup
-            _desktopManager.SetAsWallpaperWindow(_renderForm.Handle, screenBounds);
-            _logger.LogInformation("Set as wallpaper window behind desktop icons");
-
-            // CRITICAL: Enable wallpaper mode to prevent Windows Forms from resetting parent
-            wallpaperForm.EnableWallpaperMode();
-            _logger.LogInformation("Enabled wallpaper mode to lock parenting");
-        }
-        else
-        {
-            _logger.LogWarning("Could not find WorkerW window, wallpaper may not render behind icons");
-        }
-
-        return Task.CompletedTask;
+        _logger.LogError("Player error: {Error}", error);
     }
 
     public void Dispose()
@@ -309,15 +265,13 @@ public class ImageWallpaperRenderer : IWallpaperRenderer
 
         _logger.LogInformation("Disposing Image wallpaper renderer");
 
-        _pictureBox?.Dispose();
-        _pictureBox = null;
-
-        _image?.Dispose();
-        _image = null;
-
-        _renderForm?.Close();
-        _renderForm?.Dispose();
-        _renderForm = null;
+        if (_processCommunicator != null)
+        {
+            _processCommunicator.MessageReceived -= OnPlayerMessageReceived;
+            _processCommunicator.ErrorReceived -= OnPlayerErrorReceived;
+            _processCommunicator.Dispose();
+            _processCommunicator = null;
+        }
 
         _disposed = true;
         GC.SuppressFinalize(this);

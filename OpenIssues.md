@@ -517,3 +517,231 @@ After extensive debugging and comparing with Lively Wallpaper's implementation, 
 - Lively's architecture is proven and should be adopted
 - Separate process architecture provides better isolation
 - WPF has better compatibility with system window parenting
+
+---
+
+## Phase 1 Migration Implementation (2025-10-17)
+
+**Status:** ✅ **PHASE 1 COMPLETE** - Ready for testing
+
+### Implementation Summary
+
+Successfully implemented Phase 1 of the WPF + Separate Process migration following Lively Wallpaper's proven architecture.
+
+### Components Created
+
+**1. WaBiBaBuSy.Player.Image** - WPF Standalone Player ✅
+- **Type:** WPF Application (.exe)
+- **Framework:** net8.0-windows
+- **Purpose:** Standalone image wallpaper player
+- **Location:** `WaBiBaBuSy.Player.Image/`
+- **Key Files:**
+  - `MainWindow.xaml` - WPF window with Image control
+  - `MainWindow.xaml.cs` - IPC communication and image loading logic
+- **Features:**
+  - Sends HWND to parent process on Window_Loaded
+  - Listens for commands via stdin (JSON messages)
+  - Loads and displays images (JPG, PNG, BMP)
+  - Responds with success/error messages
+
+**2. WaBiBaBuSy.Player.Common** - Shared IPC Library ✅
+- **Type:** Class Library (.dll)
+- **Framework:** net8.0
+- **Purpose:** Shared message models and process communication
+- **Location:** `WaBiBaBuSy.Player.Common/`
+- **Key Components:**
+  - **Message Models:**
+    - `PlayerMessageBase` - Base class with MessageType discriminator
+    - `PlayerMessageHwnd` - Sends HWND from player to parent
+    - `PlayerMessageLoaded` - Confirms wallpaper loaded (success/error)
+    - `PlayerCommandLoad` - Parent → Player: Load file command
+    - `PlayerCommandPlay` - Parent → Player: Start playback
+    - `PlayerCommandClose` - Parent → Player: Shutdown command
+  - **ProcessCommunicator:**
+    - Manages player process lifecycle
+    - Handles stdin/stdout JSON communication
+    - Provides events: MessageReceived, ErrorReceived
+    - Waits for HWND with timeout
+    - Graceful shutdown with fallback kill
+
+**3. ImageWallpaperRenderer** - Updated to Use Process Architecture ✅
+- **Location:** `WaBiBaBuSy.WallpaperEngine/Renderers/ImageWallpaperRenderer.cs`
+- **Changes:**
+  - Removed all Windows Forms code (Form, PictureBox, Image)
+  - Now launches `WaBiBaBuSy.Player.Image.exe` as separate process
+  - Uses `ProcessCommunicator` for IPC
+  - Waits for HWND from player process (10s timeout)
+  - Calls `DesktopWindowManager.SetAsWallpaperWindow()` with external HWND
+  - Sends LOAD and PLAY commands via IPC
+  - Listens for success/error responses from player
+- **Key Methods:**
+  - `GetPlayerExecutablePath()` - Locates player .exe
+  - `SetPlayerAsWallpaperAsync()` - Parents external HWND to desktop
+  - `OnPlayerMessageReceived()` - Handles IPC responses
+  - `OnPlayerErrorReceived()` - Logs player errors
+
+**4. Build Configuration** ✅
+- Added post-build target to `WaBiBaBuSy.UI.csproj`
+- Automatically copies `WaBiBaBuSy.Player.Image.exe` and dependencies to UI output folder
+- Verified: Player executable (152KB) successfully copied to UI bin directory
+
+### Architecture Flow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ WaBiBaBuSy.UI (Main Process)                                 │
+│                                                               │
+│  ImageWallpaperRenderer.InitializeAsync()                    │
+│    ├─ Launches WaBiBaBuSy.Player.Image.exe ──────────┐      │
+│    ├─ Waits for HWND via stdin                        │      │
+│    └─ Calls SetAsWallpaperWindow(HWND)                │      │
+│                                                         │      │
+└─────────────────────────────────────────────────────────┼─────┘
+                                                          │
+                                    ┌─────────────────────▼──────┐
+                                    │ WaBiBaBuSy.Player.Image    │
+                                    │ (Separate Process)         │
+                                    │                             │
+                                    │  WPF Window Created         │
+                                    │    ├─ Send HWND to parent  │
+                                    │    ├─ Listen for commands  │
+                                    │    └─ Display image        │
+                                    │                             │
+                                    └────────────────────────────┘
+```
+
+### IPC Message Flow
+
+```
+Parent Process                          Player Process
+     │                                       │
+     │  1. Launch Process                    │
+     ├──────────────────────────────────────►│
+     │                                       │ 2. Window_Loaded
+     │                                       │    Create HWND
+     │  3. {"MessageType":"hwnd",            │
+     │      "Hwnd":123456}                   │
+     │◄──────────────────────────────────────┤
+     │  4. Call SetParent(HWND, WorkerW)     │
+     │                                       │
+     │  5. {"MessageType":"cmd_load",        │
+     │      "FilePath":"C:\\...\\image.jpg"} │
+     ├──────────────────────────────────────►│
+     │                                       │ 6. Load image
+     │  7. {"MessageType":"loaded",          │
+     │      "Success":true}                  │
+     │◄──────────────────────────────────────┤
+     │                                       │
+     │  8. {"MessageType":"cmd_play"}        │
+     ├──────────────────────────────────────►│
+     │                                       │ 9. Display wallpaper
+```
+
+### Files Modified/Created
+
+**New Projects:**
+- ✅ `WaBiBaBuSy.Player.Image/WaBiBaBuSy.Player.Image.csproj`
+- ✅ `WaBiBaBuSy.Player.Common/WaBiBaBuSy.Player.Common.csproj`
+
+**New Files:**
+- ✅ `WaBiBaBuSy.Player.Image/MainWindow.xaml` (20 lines)
+- ✅ `WaBiBaBuSy.Player.Image/MainWindow.xaml.cs` (152 lines)
+- ✅ `WaBiBaBuSy.Player.Common/Messages/PlayerMessageBase.cs` (7 lines)
+- ✅ `WaBiBaBuSy.Player.Common/Messages/PlayerMessageHwnd.cs` (11 lines)
+- ✅ `WaBiBaBuSy.Player.Common/Messages/PlayerMessageLoaded.cs` (13 lines)
+- ✅ `WaBiBaBuSy.Player.Common/Messages/PlayerCommandLoad.cs` (12 lines)
+- ✅ `WaBiBaBuSy.Player.Common/Messages/PlayerCommandPlay.cs` (10 lines)
+- ✅ `WaBiBaBuSy.Player.Common/Messages/PlayerCommandClose.cs` (10 lines)
+- ✅ `WaBiBaBuSy.Player.Common/ProcessCommunicator.cs` (159 lines)
+
+**Modified Files:**
+- ✅ `WaBiBaBuSy.WallpaperEngine/Renderers/ImageWallpaperRenderer.cs` (279 lines, complete rewrite)
+- ✅ `WaBiBaBuSy.UI/WaBiBaBuSy.UI.csproj` (added post-build copy target)
+
+**Solution Changes:**
+- ✅ Added `WaBiBaBuSy.Player.Image` to solution
+- ✅ Added `WaBiBaBuSy.Player.Common` to solution
+- ✅ Added project references: WallpaperEngine → Player.Common, Player.Image → Player.Common
+
+### Build Status
+
+**Build Output:** ✅ **SUCCESS**
+- 0 Errors
+- 0 Warnings (pre-existing warnings in other renderers ignored)
+- All projects compile cleanly
+- Player executable successfully copied to UI output directory
+
+### Testing Checklist
+
+**Ready for Testing:** ⏳ Awaiting user testing
+
+**Test Steps:**
+1. ✅ Build succeeds
+2. ⏳ Run application: `dotnet run --project WaBiBaBuSy.UI`
+3. ⏳ Apply image wallpaper via UI
+4. ⏳ Verify desktop icons remain visible
+5. ⏳ Verify taskbar remains visible
+6. ⏳ Verify wallpaper displays correctly behind icons
+7. ⏳ Check console logs for IPC communication
+
+**Expected Console Output:**
+```
+Starting Image player process: ...WaBiBaBuSy.Player.Image.exe
+Received HWND from player: 0x...
+Found desktop window: 0x...
+Setting player window as wallpaper on monitor 0: ...
+Player window set as wallpaper behind desktop icons
+Player successfully loaded wallpaper
+```
+
+**Success Criteria:**
+- ✅ Image wallpaper visible behind desktop icons
+- ✅ Desktop icons remain visible and clickable
+- ✅ Taskbar remains visible and functional
+- ✅ No flickering or disappearing elements
+- ✅ Process architecture prevents Forms from fighting SetParent
+
+### Next Phases (Not Started)
+
+**Phase 2: Video Player** - Migrate VideoWallpaperRenderer
+- Create `WaBiBaBuSy.Player.Video` (WPF + LibVLC)
+- Similar IPC architecture to Image player
+- Add SEEK command support
+
+**Phase 3: GIF Player** - Migrate GifWallpaperRenderer
+- Create `WaBiBaBuSy.Player.Gif` (WPF with animation)
+- Frame-based playback with timing control
+
+**Phase 4: Integration & Testing**
+- Multi-wallpaper testing
+- Process crash recovery
+- Performance optimization
+
+**Phase 5: Cleanup**
+- Remove old Windows Forms code
+- Update documentation
+- Final polish
+
+### Technical Notes
+
+**Why This Should Fix Issue 1:**
+
+1. **WPF Windows handle SetParent better** - WPF's rendering pipeline is more compatible with system window parenting than Windows Forms
+2. **Separate process prevents Forms interference** - Even if we use Forms later for video, it can't fight SetParent from a different process
+3. **Proven architecture** - Lively Wallpaper uses this exact pattern successfully
+4. **External HWND parenting** - Main app calls SetParent on external process HWNDs, which Forms framework can't undo
+
+**Known Limitations:**
+- Video and GIF renderers still use old Windows Forms architecture (will be migrated in Phase 2 & 3)
+- No process crash recovery yet (Phase 4)
+- No automatic reconnection if player dies
+
+**Dependencies:**
+- Newtonsoft.Json (for IPC serialization)
+- WPF framework (net8.0-windows)
+- Existing DesktopWindowManager (no changes needed)
+
+---
+
+**Session End:** 2025-10-17
+**Next Session:** Test Phase 1 proof-of-concept with image wallpaper

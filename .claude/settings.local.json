@@ -4,7 +4,10 @@
       "Bash(dir:*)",
       "Bash(dotnet new:*)",
       "Bash(dotnet build:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(dotnet sln add:*)",
+      "Bash(dotnet add:*)",
+      "Bash(Select-String -Pattern \"(error|warning|Build succeeded|Build FAILED)\" -Context 0,2)"
     ],
     "deny": [],
     "ask": []
