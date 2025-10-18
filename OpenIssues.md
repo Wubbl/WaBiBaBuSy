@@ -745,3 +745,138 @@ Player successfully loaded wallpaper
 
 **Session End:** 2025-10-17
 **Next Session:** Test Phase 1 proof-of-concept with image wallpaper
+
+---
+
+## Phase 1 Testing & Debugging (2025-10-17 Continued)
+
+**Status:** 🔧 **DEBUGGING IN PROGRESS** - JSON serialization issue found and fixed
+
+### Testing Results
+
+**Test 1: Initial proof-of-concept test**
+- ✅ WPF player process launches successfully
+- ✅ Player window appears on desktop
+- ❌ **Window appears IN FRONT of icons** (should be behind)
+- ❌ **Window is black** (image not loading)
+- ❌ JSON serialization error - self-referencing loop
+
+**Issues Found:**
+
+1. **JSON Self-Referencing Loop** ✅ FIXED
+   - Error: `Self referencing loop detected with type 'WaBiBaBuSy.Player.Common.Messages.PlayerMessageHwnd'`
+   - Fix: Added `ReferenceLoopHandling.Ignore` to JsonSerializerSettings
+   - Files: `ProcessCommunicator.cs`, `MainWindow.xaml.cs`
+
+2. **Player Processes Not Closing on App Exit** ✅ FIXED
+   - Problem: Player.Image.exe processes remained running after app closed
+   - Fix: Added `Cleanup()` method to MainWindowViewModel, called from TrayViewModel.Exit()
+   - Files: `MainWindowViewModel.cs:898-923`, `TrayViewModel.cs:192-196`
+
+3. **Empty JSON Serialization** ✅ FIXED (needs testing)
+   - **Root Cause**: `[JsonConverter(typeof(PlayerMessageConverter))]` attribute on `PlayerMessageBase` was causing serialization to produce empty strings
+   - **Evidence**: Console showed `[Player.Image] Serialized JSON: ` (empty!)
+   - **Fixes Applied**:
+     - Removed `[JsonConverter]` attribute from `PlayerMessageBase`
+     - Created `MessageTypeWrapper` helper class for deserializing just the MessageType field
+     - Updated `ProcessCommunicator.ListenToStdOut()` to manually deserialize based on MessageType
+     - Updated serialization calls to use `message.GetType()` explicitly
+   - **Files Modified**:
+     - `WaBiBaBuSy.Player.Common/Messages/PlayerMessageBase.cs` - Removed JsonConverter attribute
+     - `WaBiBaBuSy.Player.Common/Messages/MessageTypeWrapper.cs` - NEW helper class
+     - `WaBiBaBuSy.Player.Common/ProcessCommunicator.cs` - Manual type discrimination
+     - `WaBiBaBuSy.Player.Image/MainWindow.xaml.cs` - Serialize concrete types
+   - **Status**: Build succeeded, awaiting test to confirm JSON now serializes correctly
+
+4. **Window In Front of Icons / No Image Display** ⏳ PENDING
+   - **Likely Cause**: HWND never received by parent due to empty JSON serialization (Issue #3)
+   - **Expected Behavior**: After JSON fix, parent should receive HWND and call SetAsWallpaperWindow()
+   - **Next Steps**:
+     - Test with JSON serialization fix
+     - Verify parent receives HWND message
+     - Verify SetAsWallpaperWindow() is called with correct HWND
+     - Verify WorkerW parenting works with WPF window
+
+### Debugging Session Workflow
+
+**Iterations:**
+1. Added detailed IPC logging to ProcessCommunicator and Player
+2. Discovered player stderr was captured but stdout messages not reaching parent
+3. Found "Serialized JSON: " (empty) in console output - critical discovery!
+4. Traced to JsonConverter attribute interfering with serialization
+5. Removed JsonConverter, implemented manual type discrimination
+6. Build successful, awaiting test
+
+**Debug Logging Added:**
+- `[ProcessCommunicator] Started listening to player stdout`
+- `[ProcessCommunicator] Received from player: {json}`
+- `[ProcessCommunicator] MessageType: {type}`
+- `[ProcessCommunicator] Received HWND: 0x{hwnd}`
+- `[Player.Image] Window_Loaded event fired`
+- `[Player.Image] Got HWND: 0x{hwnd}`
+- `[Player.Image] SendMessage called for {type}`
+- `[Player.Image] Serialized JSON: {json}`
+- `[Player.Image] JSON written to stdout and flushed`
+
+**Disabled Recurring Messages:**
+- `UpdateClientList called with X clients` - commented out
+- `RefreshTopology Called - IsServerRunning: X` - commented out
+
+### Expected Next Test Results
+
+**With JSON serialization fixed, we should see:**
+```
+[Player.Image] Serialized JSON: {"MessageType":"hwnd","Hwnd":123456}  ← Should have JSON now!
+[ProcessCommunicator] Received from player: {"MessageType":"hwnd","Hwnd":123456}
+[ProcessCommunicator] MessageType: hwnd
+[ProcessCommunicator] Deserialized to: PlayerMessageHwnd
+[ProcessCommunicator] Received HWND: 0x1E240 (123456)
+WaBiBaBuSy.WallpaperEngine.Renderers.ImageWallpaperRenderer: Information: Received HWND from player: 0x1E240
+WaBiBaBuSy.WallpaperEngine.Renderers.ImageWallpaperRenderer: Information: Found desktop window: 0x...
+WaBiBaBuSy.WallpaperEngine.Renderers.ImageWallpaperRenderer: Information: Setting player window as wallpaper on monitor 0
+```
+
+**Then we should see:**
+- Image loads in player window
+- Window moves behind desktop icons
+- Desktop icons remain visible
+- Wallpaper visible behind icons
+
+### Files Modified This Session
+
+**JSON Serialization Fixes:**
+- `WaBiBaBuSy.Player.Common/Messages/PlayerMessageBase.cs` - Removed JsonConverter attribute
+- `WaBiBaBuSy.Player.Common/Messages/MessageTypeWrapper.cs` - NEW (8 lines)
+- `WaBiBaBuSy.Player.Common/ProcessCommunicator.cs` - Manual deserialization with MessageTypeWrapper
+- `WaBiBaBuSy.Player.Image/MainWindow.xaml.cs` - Serialize concrete type with GetType()
+
+**Process Cleanup:**
+- `WaBiBaBuSy.UI/ViewModels/MainWindowViewModel.cs` - Added Cleanup() method (lines 898-923)
+- `WaBiBaBuSy.UI/ViewModels/TrayViewModel.cs` - Call Cleanup() on Exit (lines 192-196)
+
+**Debug Logging:**
+- `WaBiBaBuSy.Player.Common/ProcessCommunicator.cs` - Added Debug.WriteLine statements
+- `WaBiBaBuSy.Player.Image/MainWindow.xaml.cs` - Added Console.Error.WriteLine statements
+- `WaBiBaBuSy.WallpaperEngine/Renderers/ImageWallpaperRenderer.cs` - Added logging in InitializeAsync
+
+**Disabled Noise:**
+- `WaBiBaBuSy.UI/ViewModels/MainWindowViewModel.cs:748` - Commented UpdateClientList debug
+- `WaBiBaBuSy.UI/ViewModels/MainWindowViewModel.cs:619` - Commented RefreshTopology debug
+
+### Build Status
+
+**Latest Build:** ✅ **SUCCESS**
+- 0 Errors
+- 4 Warnings (pre-existing, unrelated to changes)
+- All projects compile cleanly
+- Player executable updated with JSON fix
+
+---
+
+**Session End:** 2025-10-17 (Evening)
+**Status:** Awaiting test of JSON serialization fix
+**Next Session:**
+1. Test with JSON fix - verify HWND is transmitted correctly
+2. Debug why window appears in front of icons (if JSON fix doesn't resolve it)
+3. Debug why image is not loading in player window
+4. Test process cleanup on app exit

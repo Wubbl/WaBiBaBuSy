@@ -616,7 +616,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            Debug.WriteLine($"[RefreshTopology] Called - IsServerRunning: {_service.IsServerRunning}, IsClientConnected: {_service.IsClientConnected}");
+            // Debug.WriteLine($"[RefreshTopology] Called - IsServerRunning: {_service.IsServerRunning}, IsClientConnected: {_service.IsClientConnected}");
 
             // Always show at least the local machine
             if (_service.IsServerRunning)
@@ -745,7 +745,7 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void UpdateClientList(IEnumerable<WaBiBaBuSy.Grpc.ConnectedClient> connectedClients)
     {
-        Debug.WriteLine($"UpdateClientList called with {connectedClients.Count()} clients");
+        // Debug.WriteLine($"UpdateClientList called with {connectedClients.Count()} clients");
 
         // Ensure UI updates happen on the UI thread
         Dispatcher.UIThread.Post(() =>
@@ -893,5 +893,31 @@ public partial class MainWindowViewModel : ViewModelBase
             // Also refresh topology when status is updated
             RefreshTopology();
         });
+    }
+
+    /// <summary>
+    /// Cleanup method called when application is closing.
+    /// Disposes all wallpaper renderers and their associated player processes.
+    /// </summary>
+    public void Cleanup()
+    {
+        Debug.WriteLine("[Cleanup] Disposing all wallpaper renderers");
+
+        // Dispose all local wallpaper renderers (which will kill player processes)
+        foreach (var kvp in _localWallpaperRenderers.ToList())
+        {
+            try
+            {
+                Debug.WriteLine($"[Cleanup] Disposing renderer for monitor {kvp.Key}");
+                kvp.Value.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Cleanup] Error disposing renderer for monitor {kvp.Key}: {ex.Message}");
+            }
+        }
+
+        _localWallpaperRenderers.Clear();
+        Debug.WriteLine("[Cleanup] All renderers disposed");
     }
 }

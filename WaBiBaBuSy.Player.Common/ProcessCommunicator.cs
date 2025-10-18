@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using Newtonsoft.Json;
 using WaBiBaBuSy.Player.Common.Messages;
+using Debug = System.Diagnostics.Debug;
 
 namespace WaBiBaBuSy.Player.Common;
 
@@ -57,45 +58,66 @@ public class ProcessCommunicator : IDisposable
     {
         try
         {
+            Debug.WriteLine("[ProcessCommunicator] Started listening to player stdout");
             while (!cancellationToken.IsCancellationRequested && !_process.HasExited)
             {
                 var line = await _process.StandardOutput.ReadLineAsync();
                 if (string.IsNullOrWhiteSpace(line))
                     continue;
 
+                Debug.WriteLine($"[ProcessCommunicator] Received from player: {line}");
+
                 try
                 {
-                    var baseMessage = JsonConvert.DeserializeObject<PlayerMessageBase>(line);
-                    if (baseMessage == null)
+                    // First, peek at the MessageType to determine which concrete type to deserialize
+                    var wrapper = JsonConvert.DeserializeObject<MessageTypeWrapper>(line);
+                    if (wrapper == null || string.IsNullOrEmpty(wrapper.MessageType))
+                    {
+                        Debug.WriteLine("[ProcessCommunicator] Could not determine message type");
                         continue;
+                    }
 
-                    // Deserialize specific message type
-                    PlayerMessageBase? typedMessage = baseMessage.MessageType switch
+                    Debug.WriteLine($"[ProcessCommunicator] MessageType: {wrapper.MessageType}");
+
+                    // Deserialize to the correct concrete type based on MessageType
+                    PlayerMessageBase? message = wrapper.MessageType switch
                     {
                         "hwnd" => JsonConvert.DeserializeObject<PlayerMessageHwnd>(line),
                         "loaded" => JsonConvert.DeserializeObject<PlayerMessageLoaded>(line),
-                        _ => baseMessage
+                        "cmd_load" => JsonConvert.DeserializeObject<PlayerCommandLoad>(line),
+                        "cmd_play" => JsonConvert.DeserializeObject<PlayerCommandPlay>(line),
+                        "cmd_close" => JsonConvert.DeserializeObject<PlayerCommandClose>(line),
+                        _ => null
                     };
 
-                    if (typedMessage != null)
+                    if (message == null)
                     {
-                        // Special handling for HWND message
-                        if (typedMessage is PlayerMessageHwnd hwndMsg)
-                        {
-                            WindowHandle = new IntPtr(hwndMsg.Hwnd);
-                        }
-
-                        MessageReceived?.Invoke(this, typedMessage);
+                        Debug.WriteLine($"[ProcessCommunicator] Unknown message type: {wrapper.MessageType}");
+                        continue;
                     }
+
+                    Debug.WriteLine($"[ProcessCommunicator] Deserialized to: {message.GetType().Name}");
+
+                    // Special handling for HWND message
+                    if (message is PlayerMessageHwnd hwndMsg)
+                    {
+                        WindowHandle = new IntPtr(hwndMsg.Hwnd);
+                        Debug.WriteLine($"[ProcessCommunicator] Received HWND: 0x{hwndMsg.Hwnd:X} ({hwndMsg.Hwnd})");
+                    }
+
+                    MessageReceived?.Invoke(this, message);
                 }
                 catch (JsonException ex)
                 {
+                    Debug.WriteLine($"[ProcessCommunicator] JSON error: {ex.Message}");
                     ErrorReceived?.Invoke(this, $"JSON deserialization error: {ex.Message}");
                 }
             }
+            Debug.WriteLine("[ProcessCommunicator] Stopped listening to player stdout");
         }
         catch (Exception ex)
         {
+            Debug.WriteLine($"[ProcessCommunicator] StdOut listener error: {ex.Message}");
             ErrorReceived?.Invoke(this, $"StdOut listener error: {ex.Message}");
         }
     }
@@ -110,7 +132,13 @@ public class ProcessCommunicator : IDisposable
 
         try
         {
-            var json = JsonConvert.SerializeObject(command);
+            // Serialize the concrete type to avoid JsonConverter issues
+            var json = JsonConvert.SerializeObject(command, command.GetType(), new JsonSerializerSettings
+            {
+                ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
+                NullValueHandling = NullValueHandling.Ignore,
+                TypeNameHandling = TypeNameHandling.None
+            });
             await _process.StandardInput.WriteLineAsync(json);
             await _process.StandardInput.FlushAsync();
         }

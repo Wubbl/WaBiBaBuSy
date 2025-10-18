@@ -75,13 +75,20 @@ public class ImageWallpaperRenderer : IWallpaperRenderer
 
             // Launch player process and setup IPC
             _processCommunicator = new ProcessCommunicator(playerExePath);
+            _logger.LogInformation("ProcessCommunicator created, process running: {IsRunning}", _processCommunicator.IsRunning);
+
             _processCommunicator.MessageReceived += OnPlayerMessageReceived;
             _processCommunicator.ErrorReceived += OnPlayerErrorReceived;
+            _logger.LogInformation("Event handlers attached");
 
             // Wait for player to send HWND
+            _logger.LogInformation("Waiting for HWND from player (10s timeout)...");
             var gotHwnd = await _processCommunicator.WaitForWindowHandleAsync(TimeSpan.FromSeconds(10));
             if (!gotHwnd)
             {
+                _logger.LogError("Timeout waiting for HWND. Process running: {IsRunning}, HWND: {Hwnd}",
+                    _processCommunicator.IsRunning,
+                    _processCommunicator.WindowHandle);
                 throw new TimeoutException("Player process did not send window handle within timeout");
             }
 

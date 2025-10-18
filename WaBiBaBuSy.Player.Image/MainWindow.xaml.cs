@@ -24,13 +24,19 @@ public partial class MainWindow : Window
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        Console.Error.WriteLine("[Player.Image] Window_Loaded event fired");
+
         // Send HWND to parent process
         var hwnd = new WindowInteropHelper(this).Handle;
+        Console.Error.WriteLine($"[Player.Image] Got HWND: 0x{hwnd:X} ({hwnd.ToInt32()})");
+
         SendMessage(new PlayerMessageHwnd { Hwnd = hwnd.ToInt32() });
+        Console.Error.WriteLine("[Player.Image] Sent HWND message to parent");
 
         // Start listening for commands from stdin
         _cancellationTokenSource = new CancellationTokenSource();
         _stdinListenerTask = Task.Run(() => ListenToStdIn(_cancellationTokenSource.Token));
+        Console.Error.WriteLine("[Player.Image] Started stdin listener");
     }
 
     private async Task ListenToStdIn(CancellationToken cancellationToken)
@@ -69,19 +75,18 @@ public partial class MainWindow : Window
 
     private void HandleCommand(PlayerMessageBase message)
     {
-        switch (message.MessageType)
+        // The JsonConverter already deserialized to the correct concrete type
+        switch (message)
         {
-            case "cmd_load":
-                var loadCmd = JsonConvert.DeserializeObject<PlayerCommandLoad>(JsonConvert.SerializeObject(message));
-                if (loadCmd != null)
-                    LoadImage(loadCmd.FilePath);
+            case PlayerCommandLoad loadCmd:
+                LoadImage(loadCmd.FilePath);
                 break;
 
-            case "cmd_play":
+            case PlayerCommandPlay:
                 // For static images, "play" is a no-op (already visible)
                 break;
 
-            case "cmd_close":
+            case PlayerCommandClose:
                 Close();
                 break;
 
@@ -130,13 +135,26 @@ public partial class MainWindow : Window
     {
         try
         {
-            var json = JsonConvert.SerializeObject(message);
-            Console.WriteLine(json);
+            Console.Error.WriteLine($"[Player.Image] SendMessage called for {message.MessageType}");
+
+            // Serialize the concrete type directly, not the base class
+            // This avoids issues with the JsonConverter on PlayerMessageBase
+            var json = JsonConvert.SerializeObject(message, message.GetType(), new JsonSerializerSettings
+            {
+                ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
+                NullValueHandling = NullValueHandling.Ignore,
+                TypeNameHandling = TypeNameHandling.None
+            });
+
+            Console.Error.WriteLine($"[Player.Image] Serialized JSON: {json}");
+            Console.WriteLine(json);  // This goes to stdout for parent to read
             Console.Out.Flush();
+            Console.Error.WriteLine("[Player.Image] JSON written to stdout and flushed");
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Failed to send message: {ex.Message}");
+            Console.Error.WriteLine($"[Player.Image] Failed to send message: {ex.Message}");
+            Console.Error.WriteLine($"[Player.Image] Exception: {ex}");
         }
     }
 

@@ -189,6 +189,12 @@ public partial class TrayViewModel : ObservableObject
     [RelayCommand]
     private async Task Exit()
     {
+        // Cleanup wallpaper renderers (kill player processes)
+        if (_mainWindow?.DataContext is MainWindowViewModel mainViewModel)
+        {
+            mainViewModel.Cleanup();
+        }
+
         // Cleanup: Stop server/client if running
         await _service.StopServerAsync();
         await _service.DisconnectFromServerAsync();
