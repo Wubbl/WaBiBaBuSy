@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(dotnet build \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.UI\\WaBiBaBuSy.UI.csproj\" --no-restore)"
+      "Bash(dotnet build \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.UI\\WaBiBaBuSy.UI.csproj\" --no-restore)",
+      "Bash(if exist \"WaBiBaBuSy.Player.Common\\Messages\\PlayerCommandRefresh.cs\" del /F \"WaBiBaBuSy.Player.Common\\Messages\\PlayerCommandRefresh.cs\")"
     ],
     "deny": [],
     "ask": []

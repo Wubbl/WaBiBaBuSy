@@ -70,10 +70,10 @@ WaBiBaBuSy/
 │
 ├── WaBiBaBuSy.WallpaperEngine/   # Wallpaper rendering implementations
 │   └── Renderers/
-│       ├── VideoWallpaperRenderer.cs    # LibVLC-based video player
-│       ├── ImageWallpaperRenderer.cs    # Static image renderer (JPG/PNG/BMP)
-│       ├── GifWallpaperRenderer.cs      # GIF animator with frame caching
-│       └── DesktopWindowManager.cs      # WorkerW desktop integration
+│       ├── VideoWallpaperRenderer.cs         # LibVLC-based video player
+│       ├── ImageWallpaperRendererLibVLC.cs   # LibVLC-based static image renderer (JPG/PNG/BMP)
+│       ├── GifWallpaperRenderer.cs           # GIF animator with frame caching
+│       └── DesktopWindowManager.cs           # WorkerW desktop integration
 │
 ├── WaBiBaBuSy.UI/                # Avalonia User Interface
 │   ├── Views/                    # XAML view files
@@ -340,6 +340,45 @@ dotnet run --project WaBiBaBuSy.UI
 ---
 
 ## Recent Updates & Bug Fixes
+
+### 2025-10-19 - LibVLC Image Renderer & WPF Cleanup
+
+**Major Achievement: Image Wallpaper Now Working** ✅
+
+After extensive debugging of WPF separate process architecture, we discovered that **LibVLC's native rendering works perfectly for all media types** including static images.
+
+**What Changed:**
+1. ✅ Created `ImageWallpaperRendererLibVLC.cs` - Uses LibVLC with `--image-duration=-1` for static image display
+2. ✅ LibVLC bypasses WPF compositor issues - Native DirectX/OpenGL rendering directly to HWND
+3. ✅ Same proven approach as VideoWallpaperRenderer - Windows Forms + LibVLC is compatible with WorkerW parenting
+4. ✅ Complete WPF cleanup - Removed all obsolete WPF Player.Image project files
+5. ✅ Cleaned DesktopWindowManager.cs - Removed test code (ResetWindowStyles method)
+
+**Files Changed:**
+- ✅ Created: `WaBiBaBuSy.WallpaperEngine/Renderers/ImageWallpaperRendererLibVLC.cs` (267 lines)
+- ✅ Modified: `MainWindowViewModel.cs:369` - Factory now uses LibVLC renderer for images
+- ✅ Modified: `TrayViewModel.cs:88` - Factory now uses LibVLC renderer for images
+- ✅ Removed: Entire `WaBiBaBuSy.Player.Image` WPF project directory
+- ✅ Removed: Old `WaBiBaBuSy.WallpaperEngine/Renderers/ImageWallpaperRenderer.cs` (WPF-based)
+- ✅ Removed: `WaBiBaBuSy.Player.Common/Messages/PlayerCommandRefresh.cs` (no longer needed)
+- ✅ Cleaned: `DesktopWindowManager.cs` - Removed ResetWindowStyles test method
+- ✅ Updated: Solution file - Removed Player.Image project references
+
+**Why This Works:**
+- LibVLC uses native media rendering that works seamlessly with desktop window parenting
+- WPF's compositor has fundamental incompatibilities with SetParent to system windows
+- LibVLC handles JPG, PNG, BMP images perfectly with the `--image-duration=-1` parameter
+- Same battle-tested approach used for video wallpapers
+
+**Build Status:** ✅ Clean build - 0 errors, 6 warnings (pre-existing, unrelated)
+
+**Testing Result:** ✅ User confirmed: "Wuhu it works"
+
+**Documentation Updated:**
+- OpenIssues.md - Marked desktop parenting issue as RESOLVED
+- Solution reflects current architecture (WPF project removed)
+
+---
 
 ### 2025-10-10 - UI Fixes & Local-Only Mode
 

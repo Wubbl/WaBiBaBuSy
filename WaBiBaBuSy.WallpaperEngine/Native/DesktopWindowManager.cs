@@ -431,27 +431,6 @@ public class DesktopWindowManager
     }
 
     /// <summary>
-    /// Resets window to initial state by removing WS_CHILD and re-parenting to desktop.
-    /// </summary>
-    private void ResetWindowStyles(IntPtr windowHandle)
-    {
-        // Unparent (set parent to desktop)
-        Win32Interop.SetParent(windowHandle, IntPtr.Zero);
-
-        // Remove WS_CHILD
-        var currentStyle = Win32Interop.GetWindowLongPtr(windowHandle, Win32Interop.GWL_STYLE).ToInt64();
-        var newStyle = currentStyle & ~Win32Interop.WS_CHILD;
-        Win32Interop.SetWindowLongPtr(windowHandle, Win32Interop.GWL_STYLE, (IntPtr)newStyle);
-
-        // Remove WS_EX_LAYERED
-        var currentExStyle = Win32Interop.GetWindowLongPtr(windowHandle, Win32Interop.GWL_EXSTYLE).ToInt64();
-        var newExStyle = currentExStyle & ~Win32Interop.WS_EX_LAYERED;
-        Win32Interop.SetWindowLongPtr(windowHandle, Win32Interop.GWL_EXSTYLE, (IntPtr)newExStyle);
-
-        _logger.LogDebug("Reset window to initial state (unparented, no WS_CHILD, no WS_EX_LAYERED)");
-    }
-
-    /// <summary>
     /// Ensures WorkerW window is at the bottom of the Z-order in layered mode.
     /// From Lively WinDesktopCore.cs lines 1053-1073
     /// </summary>

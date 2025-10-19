@@ -1,10 +1,57 @@
-**Priority:** CRITICAL (Blocking)
-**Status:** FIX IN PROGRESS (v4 - Lively Implementation)
+# WaBiBaBuSy - Open Issues
 
-**Issue 1: Desktop Icons and Taskbar Not Visible**
+**Last Updated:** 2025-10-19
+**Active Issues:** 0
+
+---
+
+## ✅ RESOLVED: Desktop Icons and Taskbar Visibility Issue
+
+**Priority:** RESOLVED ✅
+**Status:** Fixed with LibVLC renderer (2025-10-19)
+
+### Final Solution
+
+After extensive testing of WPF separate process architecture, we discovered that **LibVLC's native rendering works perfectly** for all media types including static images.
+
+**What We Did:**
+1. Attempted WPF separate process architecture (WaBiBaBuSy.Player.Image.exe)
+2. Discovered WPF windows become invisible after SetParent even in separate processes
+3. **Switched to LibVLC for image rendering** (ImageWallpaperRendererLibVLC.cs)
+4. LibVLC works flawlessly with Windows Forms + WorkerW parenting
+
+**Why It Works:**
+- LibVLC uses native DirectX/OpenGL rendering directly to HWND
+- Bypasses WPF's compositor which conflicts with desktop parenting
+- Same proven approach as VideoWallpaperRenderer
+- Windows Forms + LibVLC is compatible with WorkerW technique
+
+**Implementation:**
+- Created `ImageWallpaperRendererLibVLC.cs` based on VideoWallpaperRenderer pattern
+- Uses Windows Forms + LibVLC with `--image-duration=-1` parameter
+- Updated MainWindowViewModel.cs and TrayViewModel.cs to use new renderer
+- Removed obsolete WPF Player.Image project and WPF-based ImageWallpaperRenderer
+
+**Files:**
+- ✅ Created: `WaBiBaBuSy.WallpaperEngine/Renderers/ImageWallpaperRendererLibVLC.cs`
+- ✅ Modified: `MainWindowViewModel.cs:369` (factory uses LibVLC renderer)
+- ✅ Modified: `TrayViewModel.cs:88` (factory uses LibVLC renderer)
+- ✅ Removed: Entire `WaBiBaBuSy.Player.Image` project
+- ✅ Removed: Old `ImageWallpaperRenderer.cs` (WPF-based)
+- ✅ Removed: `PlayerCommandRefresh.cs` (no longer needed)
+- ✅ Cleaned: DesktopWindowManager.cs (removed test code)
+
+**Testing Result:** ✅ "Wuhu it works" - User confirmed working
+
+---
+
+## Issue History (For Reference)
+
+### Issue 1: Desktop Icons and Taskbar Not Visible
 - Problem: After wallpaper is set, desktop icons and taskbar disappear completely
-- Root Cause: Missing MapWindowPoints, WS_CHILD style, and Windows 11 24H2 layered desktop support
-- Solution: Implement Lively Wallpaper's proven 3-step parenting process with dual-mode support
+- Root Cause: WPF rendering pipeline incompatible with desktop parenting
+- Original Approach: Implement Lively Wallpaper's WPF separate process architecture
+- Final Solution: Use LibVLC for all rendering (video, images, GIFs)
 - Reference: https://github.com/rocksdanister/lively (Lively Wallpaper - proven working implementation)
 
 **Fix Applied (2025-10-14 v3):**
