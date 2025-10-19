@@ -364,10 +364,13 @@ public class DesktopWindowManager
 
     /// <summary>
     /// Layered mode: Parent to Progman and z-order below ShellDLL_DefView (Windows 11 24H2+).
+    /// Uses EXACT Lively sequence + WPF composition refresh.
     /// </summary>
     private bool SetAsWallpaperLayeredMode(IntPtr windowHandle, System.Drawing.Rectangle screenBounds)
     {
-        _logger.LogInformation("Using layered desktop parenting mode (Windows 11 24H2+) - EXACT Lively sequence");
+        _logger.LogInformation("========================================");
+        _logger.LogInformation("LAYERED MODE - Lively sequence + WPF refresh");
+        _logger.LogInformation("========================================");
         _logger.LogInformation("Handles - Window: {Window}, Progman: {Progman}, DefView: {DefView}, WorkerW: {WorkerW}",
             windowHandle, _progman, _shellDLL_DefView, _workerW);
 
@@ -376,35 +379,31 @@ public class DesktopWindowManager
         _logger.LogInformation("Added WS_CHILD style");
 
         // LIVELY STEP 2: Add WS_EX_LAYERED with full opacity (Lively WinDesktopCore.cs line 1026)
-        // Note from Lively: "Godot fails to apply WS_EX_LAYERED if attached after SetParent"
-        // This MUST be done before SetParent!
         WindowUtil.SetWindowTransparency(windowHandle, 255);
         _logger.LogInformation("Added WS_EX_LAYERED with alpha=255 (full opacity)");
 
-        // LIVELY STEP 3: Position window BEFORE parenting (Lively positions before SetParent)
+        // LIVELY STEP 3: Position window BEFORE parenting
         _logger.LogInformation("Positioning window at ({X}, {Y}, {W}x{H})",
             screenBounds.X, screenBounds.Y, screenBounds.Width, screenBounds.Height);
 
         Win32Interop.SetWindowPos(
             windowHandle,
-            IntPtr.Zero, // Don't change Z-order yet
+            IntPtr.Zero,
             screenBounds.X,
             screenBounds.Y,
             screenBounds.Width,
             screenBounds.Height,
             (uint)(Win32Interop.SWP_NOZORDER | Win32Interop.SWP_NOACTIVATE));
 
-        // LIVELY STEP 4: Set parent to Progman (Lively WinDesktopCore.cs line 1028)
+        // LIVELY STEP 4: Set parent to Progman
         if (!WindowUtil.TrySetParent(windowHandle, _progman))
         {
             _logger.LogError("Failed to set parent to Progman");
             return false;
         }
-
         _logger.LogInformation("Successfully set parent to Progman: {Progman}", _progman);
 
-        // LIVELY STEP 5: Set Z-order below SHELLDLL_DefView (Lively WinDesktopCore.cs lines 1031-1041)
-        // Use SWP_NOMOVE | SWP_NOSIZE to ONLY change Z-order, don't move/resize
+        // LIVELY STEP 5: Set Z-order below SHELLDLL_DefView
         var windowFlags = (uint)(Win32Interop.SWP_NOMOVE | Win32Interop.SWP_NOSIZE | Win32Interop.SWP_NOACTIVATE);
 
         if (_shellDLL_DefView != IntPtr.Zero)
@@ -413,11 +412,8 @@ public class DesktopWindowManager
 
             Win32Interop.SetWindowPos(
                 windowHandle,
-                _shellDLL_DefView, // Insert below DefView (this positions us correctly)
-                0,
-                0,
-                0,
-                0,
+                _shellDLL_DefView,
+                0, 0, 0, 0,
                 windowFlags);
 
             _logger.LogInformation("SetWindowPos SUCCESS - Z-order set below DefView");
@@ -427,11 +423,32 @@ public class DesktopWindowManager
             _logger.LogError("SHELLDLL_DefView handle is NULL! Cannot set Z-order correctly");
         }
 
-        // LIVELY STEP 6: Ensure WorkerW is at bottom of Z-order (Lively WinDesktopCore.cs line 1042)
+        // LIVELY STEP 6: Ensure WorkerW is at bottom of Z-order
         EnsureWorkerWZOrder();
 
         _logger.LogInformation("Successfully set wallpaper window (Layered mode - EXACT Lively flow)");
         return true;
+    }
+
+    /// <summary>
+    /// Resets window to initial state by removing WS_CHILD and re-parenting to desktop.
+    /// </summary>
+    private void ResetWindowStyles(IntPtr windowHandle)
+    {
+        // Unparent (set parent to desktop)
+        Win32Interop.SetParent(windowHandle, IntPtr.Zero);
+
+        // Remove WS_CHILD
+        var currentStyle = Win32Interop.GetWindowLongPtr(windowHandle, Win32Interop.GWL_STYLE).ToInt64();
+        var newStyle = currentStyle & ~Win32Interop.WS_CHILD;
+        Win32Interop.SetWindowLongPtr(windowHandle, Win32Interop.GWL_STYLE, (IntPtr)newStyle);
+
+        // Remove WS_EX_LAYERED
+        var currentExStyle = Win32Interop.GetWindowLongPtr(windowHandle, Win32Interop.GWL_EXSTYLE).ToInt64();
+        var newExStyle = currentExStyle & ~Win32Interop.WS_EX_LAYERED;
+        Win32Interop.SetWindowLongPtr(windowHandle, Win32Interop.GWL_EXSTYLE, (IntPtr)newExStyle);
+
+        _logger.LogDebug("Reset window to initial state (unparented, no WS_CHILD, no WS_EX_LAYERED)");
     }
 
     /// <summary>

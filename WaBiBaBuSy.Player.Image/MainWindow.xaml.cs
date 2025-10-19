@@ -2,6 +2,7 @@
 using System.Text;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Newtonsoft.Json;
 using WaBiBaBuSy.Player.Common.Messages;
@@ -16,6 +17,7 @@ public partial class MainWindow : Window
 {
     private CancellationTokenSource? _cancellationTokenSource;
     private Task? _stdinListenerTask;
+    private HwndSource? _hwndSource;
 
     public MainWindow()
     {
@@ -26,9 +28,11 @@ public partial class MainWindow : Window
     {
         Console.Error.WriteLine("[Player.Image] Window_Loaded event fired");
 
-        // Get HWND
+        // Get HWND and HwndSource
         var hwnd = new WindowInteropHelper(this).Handle;
+        _hwndSource = HwndSource.FromHwnd(hwnd);
         Console.Error.WriteLine($"[Player.Image] Got HWND: 0x{hwnd:X} ({hwnd.ToInt32()})");
+        Console.Error.WriteLine($"[Player.Image] Got HwndSource: {_hwndSource != null}");
 
         // Fix for Windows 10 Taskview crash (from Lively Wallpaper)
         // ShowInTaskbar = false causes issue with Windows 10 Taskview
@@ -45,6 +49,54 @@ public partial class MainWindow : Window
         _cancellationTokenSource = new CancellationTokenSource();
         _stdinListenerTask = Task.Run(() => ListenToStdIn(_cancellationTokenSource.Token));
         Console.Error.WriteLine("[Player.Image] Started stdin listener");
+    }
+
+    /// <summary>
+    /// Called AFTER parent process has completed SetParent.
+    /// Forces WPF to refresh its composition rendering.
+    /// </summary>
+    public void OnParentChanged()
+    {
+        Console.Error.WriteLine("[Player.Image] OnParentChanged called - forcing WPF composition refresh");
+
+        try
+        {
+            // Force WPF to re-render the composition
+            if (_hwndSource != null)
+            {
+                // Invalidate the visual tree
+                InvalidateVisual();
+
+                // Force composition update
+                CompositionTarget.Rendering += OnCompositionTargetRendering;
+
+                Console.Error.WriteLine("[Player.Image] Attached to CompositionTarget.Rendering");
+            }
+
+            // Force layout update
+            UpdateLayout();
+            Console.Error.WriteLine("[Player.Image] UpdateLayout called");
+
+            // Force redraw of image
+            if (WallpaperImage.Source != null)
+            {
+                var source = WallpaperImage.Source;
+                WallpaperImage.Source = null;
+                WallpaperImage.Source = source;
+                Console.Error.WriteLine("[Player.Image] Forced image source refresh");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[Player.Image] OnParentChanged error: {ex.Message}");
+        }
+    }
+
+    private void OnCompositionTargetRendering(object? sender, EventArgs e)
+    {
+        // One-time handler to force initial render
+        CompositionTarget.Rendering -= OnCompositionTargetRendering;
+        Console.Error.WriteLine("[Player.Image] CompositionTarget.Rendering fired - WPF should be rendering now");
     }
 
     private async Task ListenToStdIn(CancellationToken cancellationToken)
@@ -87,6 +139,7 @@ public partial class MainWindow : Window
                         "cmd_load" => JsonConvert.DeserializeObject<PlayerCommandLoad>(line),
                         "cmd_play" => JsonConvert.DeserializeObject<PlayerCommandPlay>(line),
                         "cmd_close" => JsonConvert.DeserializeObject<PlayerCommandClose>(line),
+                        "cmd_refresh" => JsonConvert.DeserializeObject<PlayerCommandRefresh>(line),
                         _ => null
                     };
 
@@ -125,6 +178,11 @@ public partial class MainWindow : Window
 
             case PlayerCommandPlay:
                 // For static images, "play" is a no-op (already visible)
+                break;
+
+            case PlayerCommandRefresh:
+                // Called after SetParent to force WPF composition refresh
+                OnParentChanged();
                 break;
 
             case PlayerCommandClose:

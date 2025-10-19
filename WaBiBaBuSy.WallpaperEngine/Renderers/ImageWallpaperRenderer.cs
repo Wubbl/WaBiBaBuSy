@@ -130,6 +130,14 @@ public class ImageWallpaperRenderer : IWallpaperRenderer
 
             _logger.LogInformation("Starting Image display");
 
+            // Send REFRESH command to force WPF composition refresh after SetParent
+            _logger.LogInformation("Sending REFRESH command to force WPF composition update...");
+            await _processCommunicator.SendCommandAsync(new PlayerCommandRefresh());
+            _logger.LogInformation("REFRESH command sent");
+
+            // Small delay to let WPF process the refresh
+            await Task.Delay(100);
+
             // Send PLAY command to player (for static images, this is mostly a no-op in the player)
             await _processCommunicator.SendCommandAsync(new PlayerCommandPlay());
 
