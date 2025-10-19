@@ -168,6 +168,12 @@ public class DesktopWindowManager
                 _isRaisedDesktopWithLayeredShellView ? "Layered" : "Legacy",
                 _workerW);
 
+            // TEMPORARY: Force legacy mode for WPF windows
+            // Layered mode seems to make WPF windows invisible
+            _logger.LogWarning("FORCING LEGACY MODE for testing - WPF windows don't work with layered mode");
+            return SetAsWallpaperLegacyMode(windowHandle, screenBounds);
+
+            /*
             if (_isRaisedDesktopWithLayeredShellView)
             {
                 // Windows 11 24H2+ Layered Desktop Mode
@@ -178,6 +184,7 @@ public class DesktopWindowManager
                 // Legacy Mode (Windows 10 / Windows 11 pre-24H2)
                 return SetAsWallpaperLegacyMode(windowHandle, screenBounds);
             }
+            */
         }
         catch (Exception ex)
         {
@@ -187,110 +194,91 @@ public class DesktopWindowManager
     }
 
     /// <summary>
-    /// Legacy mode: Parent to WorkerW window (Windows 10 / Windows 11 pre-24H2).
-    /// Uses Lively's 3-step process: Position -> MapPoints -> SetParent -> Reposition.
+    /// Legacy mode: Parent to WorkerW window - EXACT copy of Lively's TrySetWallpaperPerScreen flow.
     /// </summary>
     private bool SetAsWallpaperLegacyMode(IntPtr windowHandle, System.Drawing.Rectangle screenBounds)
     {
-        _logger.LogInformation("Using legacy WorkerW parenting mode");
+        _logger.LogInformation("Using legacy WorkerW parenting mode (EXACT Lively flow)");
         _logger.LogInformation("Screen bounds: ({X}, {Y}, {W}x{H})",
             screenBounds.X, screenBounds.Y, screenBounds.Width, screenBounds.Height);
 
-        // Diagnostic: Check initial window state
-        LogWindowState(windowHandle, "BEFORE Step 1 (Initial state)");
-
-        // Step 1: Position window on screen with absolute coordinates
+        // Step 1: SetWindowPos BEFORE SetParent - position window at screen location (Lively line 498)
         if (!Win32Interop.SetWindowPos(
             windowHandle,
-            1,
+            1,  // HWND_TOP
             screenBounds.X,
             screenBounds.Y,
             screenBounds.Width,
             screenBounds.Height,
-            (uint)(Win32Interop.SWP_NOACTIVATE | Win32Interop.SWP_SHOWWINDOW)))
+            (uint)Win32Interop.SWP_NOACTIVATE))
         {
-            _logger.LogWarning("Failed to set initial window position (Step 1)");
+            _logger.LogWarning("SetWindowPos (before SetParent) failed");
         }
         else
         {
-            _logger.LogInformation("Step 1: Positioned window at absolute coords ({X}, {Y})", screenBounds.X, screenBounds.Y);
+            _logger.LogInformation("Step 1: Positioned window at screen coords ({X},{Y})", screenBounds.X, screenBounds.Y);
         }
 
-        LogWindowState(windowHandle, "AFTER Step 1 (Positioned)");
-
-        // Step 2: Calculate position relative to WorkerW using MapWindowPoints
-        // Initialize empty RECT - MapWindowPoints will map (0,0) point to WorkerW coordinates
+        // Step 2: MapWindowPoints to calculate position relative to WorkerW (Lively line 510)
         var prct = new Win32Interop.RECT();
         Win32Interop.MapWindowPoints(windowHandle, _workerW, ref prct, 2);
-        _logger.LogInformation("Step 2: Mapped points - Left: {Left}, Top: {Top}, Right: {Right}, Bottom: {Bottom}",
-            prct.Left, prct.Top, prct.Right, prct.Bottom);
+        _logger.LogInformation("Step 2: Mapped points relative to WorkerW - ({Left}, {Top})", prct.Left, prct.Top);
 
-        // Step 3: Set parent to WorkerW
-        // NOTE: Do NOT add WS_CHILD before SetParent in legacy mode - Lively doesn't do this
-        // SetParent automatically adds WS_CHILD style when parenting succeeds
+        // Step 3: SetParent to WorkerW (Lively's TryAttachToDesktop, line 511)
+        _logger.LogInformation("BEFORE SetParent - checking window state...");
+        LogWindowState(windowHandle, "BEFORE SetParent");
+
         var oldParent = Win32Interop.SetParent(windowHandle, _workerW);
-        _logger.LogInformation("Step 3: SetParent returned old parent: {OldParent}, new parent should be: {WorkerW}",
+        _logger.LogInformation("Step 3: SetParent returned old parent: {OldParent}, new parent should be WorkerW: {WorkerW}",
             oldParent, _workerW);
 
-        // Verify parent was actually set
+        // IMMEDIATELY check if it worked
         var actualParent = Win32Interop.GetParent(windowHandle);
+        _logger.LogInformation("IMMEDIATELY after SetParent: GetParent returned: {ActualParent}", actualParent);
+
         if (actualParent != _workerW)
         {
-            _logger.LogError("Failed to set parent to WorkerW! Expected: {Expected}, Actual: {Actual}",
+            _logger.LogError("SetParent FAILED or was RESET! Expected: {Expected}, Actual: {Actual}",
                 _workerW, actualParent);
-            return false;
+
+            // Try one more time with a delay
+            _logger.LogWarning("Trying SetParent again after 100ms delay...");
+            System.Threading.Thread.Sleep(100);
+            Win32Interop.SetParent(windowHandle, _workerW);
+            actualParent = Win32Interop.GetParent(windowHandle);
+            _logger.LogInformation("After retry: GetParent returned: {ActualParent}", actualParent);
+
+            if (actualParent != _workerW)
+            {
+                LogWindowState(windowHandle, "AFTER SetParent FAILED");
+                return false;
+            }
         }
 
-        _logger.LogInformation("Step 3: Successfully set parent to WorkerW (verified)");
-        LogWindowState(windowHandle, "AFTER Step 3 (SetParent to WorkerW)");
+        _logger.LogInformation("Successfully parented to WorkerW");
+        LogWindowState(windowHandle, "AFTER SetParent SUCCESS");
 
-        // CRITICAL: Explicitly show the window after parenting
-        Win32Interop.ShowWindow(windowHandle, Win32Interop.SW_SHOW);
-        _logger.LogInformation("Step 3b: Called ShowWindow(SW_SHOW) after SetParent");
-
-        // Step 3c: Remove problematic extended styles that may prevent rendering
-        var exStyle = Win32Interop.GetWindowLongPtr(windowHandle, Win32Interop.GWL_EXSTYLE).ToInt64();
-        var cleanedExStyle = exStyle & ~(long)(Win32Interop.WS_EX_NOACTIVATE | Win32Interop.WS_EX_TOOLWINDOW);
-        if (cleanedExStyle != exStyle)
-        {
-            Win32Interop.SetWindowLongPtr(windowHandle, Win32Interop.GWL_EXSTYLE, (IntPtr)cleanedExStyle);
-            _logger.LogInformation("Step 3c: Removed WS_EX_NOACTIVATE and WS_EX_TOOLWINDOW styles");
-        }
-
-        LogWindowState(windowHandle, "AFTER Step 3b (ShowWindow)");
-
-        // Step 4: Reposition with relative coordinates to WorkerW
+        // Step 4: SetWindowPos AFTER SetParent with relative coordinates (Lively line 514)
         if (!Win32Interop.SetWindowPos(
             windowHandle,
-            1,
+            1,  // HWND_TOP
             prct.Left,
             prct.Top,
             screenBounds.Width,
             screenBounds.Height,
-            (uint)(Win32Interop.SWP_NOACTIVATE | Win32Interop.SWP_NOZORDER | Win32Interop.SWP_SHOWWINDOW)))
+            (uint)(Win32Interop.SWP_NOACTIVATE | Win32Interop.SWP_NOZORDER)))
         {
-            _logger.LogWarning("Failed to set final window position (Step 4)");
-        }
-        else
-        {
-            _logger.LogInformation("Step 4: Repositioned window at relative coords ({Left}, {Top})", prct.Left, prct.Top);
+            _logger.LogError("SetWindowPos (after SetParent) FAILED");
+            return false;
         }
 
-        LogWindowState(windowHandle, "AFTER Step 4 (Final reposition)");
+        _logger.LogInformation("Step 4: Repositioned at relative coords ({Left},{Top})", prct.Left, prct.Top);
 
-        // Step 5: Force window redraw to ensure it renders
-        Win32Interop.InvalidateRect(windowHandle, IntPtr.Zero, true);
-        Win32Interop.UpdateWindow(windowHandle);
-        Win32Interop.RedrawWindow(windowHandle, IntPtr.Zero, IntPtr.Zero,
-            Win32Interop.RDW_INVALIDATE | Win32Interop.RDW_ERASE | Win32Interop.RDW_ALLCHILDREN | Win32Interop.RDW_FRAME);
-        _logger.LogInformation("Step 5: Forced window redraw (InvalidateRect + UpdateWindow + RedrawWindow)");
+        // Step 5: Refresh desktop (Lively line 524)
+        RefreshDesktop();
+        _logger.LogInformation("Step 5: Called RefreshDesktop");
 
-        // Step 6: Refresh desktop to clear any artifacts
-        // TESTING: Disabled RefreshDesktop - it may be hiding the wallpaper
-        // RefreshDesktop();
-        _logger.LogInformation("Step 6: Skipped RefreshDesktop for testing");
-
-        _logger.LogInformation("Successfully set wallpaper window (Legacy mode)");
+        _logger.LogInformation("Successfully set wallpaper window (Legacy mode - EXACT Lively flow)");
         return true;
     }
 
@@ -351,9 +339,12 @@ public class DesktopWindowManager
         _logger.LogInformation("Added WS_CHILD style");
 
         // Step 2: Add WS_EX_LAYERED style with full opacity (alpha = 255)
-        // Note: Godot fails to apply WS_EX_LAYERED if attached after SetParent, so do this first
-        WindowUtil.SetWindowTransparency(windowHandle, 255);
-        _logger.LogInformation("Added WS_EX_LAYERED style with alpha=255");
+        // NOTE: WPF windows manage their own composition and break if we add WS_EX_LAYERED manually
+        // Skip this step for WPF windows (they already handle layering internally)
+        // TODO: Detect WPF window class and skip SetWindowTransparency
+        // For now, try without it since WPF windows have AllowsTransparency property
+        // WindowUtil.SetWindowTransparency(windowHandle, 255);
+        _logger.LogInformation("Skipping WS_EX_LAYERED for WPF window (WPF manages its own composition)");
 
         // Step 3: Set parent to Progman (not WorkerW!)
         if (!WindowUtil.TrySetParent(windowHandle, _progman))

@@ -26,10 +26,18 @@ public partial class MainWindow : Window
     {
         Console.Error.WriteLine("[Player.Image] Window_Loaded event fired");
 
-        // Send HWND to parent process
+        // Get HWND
         var hwnd = new WindowInteropHelper(this).Handle;
         Console.Error.WriteLine($"[Player.Image] Got HWND: 0x{hwnd:X} ({hwnd.ToInt32()})");
 
+        // Fix for Windows 10 Taskview crash (from Lively Wallpaper)
+        // ShowInTaskbar = false causes issue with Windows 10 Taskview
+        // This hides window from taskbar and fixes crash when taskview is launched
+        ShowInTaskbar = false;
+        ShowInTaskbar = true;
+
+        // IMPORTANT: Just send HWND - parent will handle SetParent
+        // We do NOT parent ourselves here
         SendMessage(new PlayerMessageHwnd { Hwnd = hwnd.ToInt32() });
         Console.Error.WriteLine("[Player.Image] Sent HWND message to parent");
 
@@ -47,15 +55,48 @@ public partial class MainWindow : Window
 
             while (!cancellationToken.IsCancellationRequested)
             {
-                var line = await reader.ReadLineAsync();
+                var line = await reader.ReadLineAsync(cancellationToken);
+
+                // If ReadLineAsync returns null, stdin has been closed - exit loop
+                if (line == null)
+                {
+                    Console.Error.WriteLine("[Player.Image] Stdin closed, exiting listener");
+                    break;
+                }
+
                 if (string.IsNullOrWhiteSpace(line))
                     continue;
 
                 try
                 {
-                    var message = JsonConvert.DeserializeObject<PlayerMessageBase>(line);
-                    if (message == null)
+                    Console.Error.WriteLine($"[Player.Image] Received command: {line}");
+
+                    // First, peek at the MessageType to determine which concrete type to deserialize
+                    var wrapper = JsonConvert.DeserializeObject<MessageTypeWrapper>(line);
+                    if (wrapper == null || string.IsNullOrEmpty(wrapper.MessageType))
+                    {
+                        Console.Error.WriteLine("[Player.Image] Could not determine message type");
                         continue;
+                    }
+
+                    Console.Error.WriteLine($"[Player.Image] MessageType: {wrapper.MessageType}");
+
+                    // Deserialize to the correct concrete type based on MessageType
+                    PlayerMessageBase? message = wrapper.MessageType switch
+                    {
+                        "cmd_load" => JsonConvert.DeserializeObject<PlayerCommandLoad>(line),
+                        "cmd_play" => JsonConvert.DeserializeObject<PlayerCommandPlay>(line),
+                        "cmd_close" => JsonConvert.DeserializeObject<PlayerCommandClose>(line),
+                        _ => null
+                    };
+
+                    if (message == null)
+                    {
+                        Console.Error.WriteLine($"[Player.Image] Unknown message type: {wrapper.MessageType}");
+                        continue;
+                    }
+
+                    Console.Error.WriteLine($"[Player.Image] Deserialized to: {message.GetType().Name}");
 
                     // Dispatch to UI thread
                     await Dispatcher.InvokeAsync(() => HandleCommand(message));
@@ -63,13 +104,13 @@ public partial class MainWindow : Window
                 catch (JsonException ex)
                 {
                     // Invalid JSON - log or ignore
-                    Console.Error.WriteLine($"JSON deserialization error: {ex.Message}");
+                    Console.Error.WriteLine($"[Player.Image] JSON deserialization error: {ex.Message}");
                 }
             }
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"StdIn listener error: {ex.Message}");
+            Console.Error.WriteLine($"[Player.Image] StdIn listener error: {ex.Message}");
         }
     }
 

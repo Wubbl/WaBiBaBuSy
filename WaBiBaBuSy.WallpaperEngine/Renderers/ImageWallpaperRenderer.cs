@@ -94,14 +94,21 @@ public class ImageWallpaperRenderer : IWallpaperRenderer
 
             _logger.LogInformation("Received HWND from player: 0x{Hwnd:X}", _processCommunicator.WindowHandle);
 
-            // Find desktop window and set player as wallpaper
-            await SetPlayerAsWallpaperAsync(config);
-
-            // Send LOAD command to player
+            // CRITICAL: Load the image BEFORE parenting to desktop
+            // This ensures content is ready before the window becomes a child of Progman
+            _logger.LogInformation("Sending LOAD command to player before parenting");
             await _processCommunicator.SendCommandAsync(new PlayerCommandLoad
             {
                 FilePath = config.FilePath
             });
+
+            // Wait for the "loaded" message to confirm image is ready
+            _logger.LogInformation("Waiting for image to load and RENDER before parenting...");
+            await Task.Delay(2000); // Give WPF time to decode, layout, and RENDER the image
+
+            // NOW parent the window to desktop after content is loaded AND RENDERED
+            _logger.LogInformation("Image should be visible now, calling SetParent...");
+            await SetPlayerAsWallpaperAsync(config);
 
             State = WallpaperState.Stopped;
             _logger.LogInformation("Image wallpaper renderer initialized successfully");
