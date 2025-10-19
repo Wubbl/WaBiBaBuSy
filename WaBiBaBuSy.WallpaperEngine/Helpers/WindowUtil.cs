@@ -71,6 +71,23 @@ public static class WindowUtil
     }
 
     /// <summary>
+    /// Gets the last child window in Z-order (bottom-most child).
+    /// From Lively WindowUtil.cs lines 199-210
+    /// </summary>
+    public static IntPtr GetLastChildWindow(IntPtr parent)
+    {
+        IntPtr lastChild = IntPtr.Zero;
+
+        Win32Interop.EnumChildWindows(parent, (hWnd, lParam) =>
+        {
+            lastChild = hWnd;
+            return true; // Continue enumeration
+        }, IntPtr.Zero);
+
+        return lastChild;
+    }
+
+    /// <summary>
     /// Gets the extended window style flags.
     /// </summary>
     private static long GetExtendedWindowStyle(IntPtr hWnd)

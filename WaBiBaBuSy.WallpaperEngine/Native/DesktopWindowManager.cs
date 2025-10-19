@@ -168,23 +168,19 @@ public class DesktopWindowManager
                 _isRaisedDesktopWithLayeredShellView ? "Layered" : "Legacy",
                 _workerW);
 
-            // TEMPORARY: Force legacy mode for WPF windows
-            // Layered mode seems to make WPF windows invisible
-            _logger.LogWarning("FORCING LEGACY MODE for testing - WPF windows don't work with layered mode");
-            return SetAsWallpaperLegacyMode(windowHandle, screenBounds);
-
-            /*
+            // Use the appropriate mode based on Windows version
             if (_isRaisedDesktopWithLayeredShellView)
             {
-                // Windows 11 24H2+ Layered Desktop Mode
+                // Windows 11 24H2+ Layered Desktop Mode - parent to Progman with WS_EX_LAYERED
+                _logger.LogInformation("Using LAYERED mode (Windows 11 24H2+)");
                 return SetAsWallpaperLayeredMode(windowHandle, screenBounds);
             }
             else
             {
-                // Legacy Mode (Windows 10 / Windows 11 pre-24H2)
+                // Legacy Mode (Windows 10 / Windows 11 pre-24H2) - parent to WorkerW
+                _logger.LogInformation("Using LEGACY mode (Windows 10 / pre-24H2)");
                 return SetAsWallpaperLegacyMode(windowHandle, screenBounds);
             }
-            */
         }
         catch (Exception ex)
         {
@@ -294,6 +290,31 @@ public class DesktopWindowManager
         RefreshDesktop();
         _logger.LogInformation("Step 5: Called RefreshDesktop");
 
+        // DIAGNOSTIC: Check window state after all operations
+        System.Threading.Thread.Sleep(100);
+        LogWindowState(windowHandle, "FINAL STATE (100ms after RefreshDesktop)");
+
+        // Verify window is still visible
+        if (Win32Interop.IsWindowVisible(windowHandle))
+        {
+            _logger.LogInformation("SUCCESS: Window is VISIBLE after all operations");
+        }
+        else
+        {
+            _logger.LogError("PROBLEM: Window is NOT VISIBLE after all operations!");
+        }
+
+        // Force window to redraw its content after parenting
+        _logger.LogInformation("Forcing window to show and redraw...");
+        Win32Interop.ShowWindow(windowHandle, Win32Interop.SW_SHOW);
+        Win32Interop.InvalidateRect(windowHandle, IntPtr.Zero, true);
+        Win32Interop.UpdateWindow(windowHandle);
+
+        // Try setting it to bottom of Z-order explicitly
+        _logger.LogInformation("Setting window to bottom of Z-order...");
+        Win32Interop.SetWindowPos(windowHandle, Win32Interop.HWND_BOTTOM, 0, 0, 0, 0,
+            (uint)(Win32Interop.SWP_NOMOVE | Win32Interop.SWP_NOSIZE | Win32Interop.SWP_NOACTIVATE));
+
         _logger.LogInformation("Successfully set wallpaper window (Legacy mode - EXACT Lively flow)");
         return true;
     }
@@ -346,23 +367,34 @@ public class DesktopWindowManager
     /// </summary>
     private bool SetAsWallpaperLayeredMode(IntPtr windowHandle, System.Drawing.Rectangle screenBounds)
     {
-        _logger.LogInformation("Using layered desktop parenting mode (Windows 11 24H2+)");
+        _logger.LogInformation("Using layered desktop parenting mode (Windows 11 24H2+) - EXACT Lively sequence");
         _logger.LogInformation("Handles - Window: {Window}, Progman: {Progman}, DefView: {DefView}, WorkerW: {WorkerW}",
             windowHandle, _progman, _shellDLL_DefView, _workerW);
 
-        // Step 1: Add WS_CHILD style
+        // LIVELY STEP 1: Add WS_CHILD style (Lively WinDesktopCore.cs line 1023)
         WindowUtil.SetWindowStyle(windowHandle, Win32Interop.WS_CHILD);
         _logger.LogInformation("Added WS_CHILD style");
 
-        // Step 2: Add WS_EX_LAYERED style with full opacity (alpha = 255)
-        // NOTE: WPF windows manage their own composition and break if we add WS_EX_LAYERED manually
-        // Skip this step for WPF windows (they already handle layering internally)
-        // TODO: Detect WPF window class and skip SetWindowTransparency
-        // For now, try without it since WPF windows have AllowsTransparency property
-        // WindowUtil.SetWindowTransparency(windowHandle, 255);
-        _logger.LogInformation("Skipping WS_EX_LAYERED for WPF window (WPF manages its own composition)");
+        // LIVELY STEP 2: Add WS_EX_LAYERED with full opacity (Lively WinDesktopCore.cs line 1026)
+        // Note from Lively: "Godot fails to apply WS_EX_LAYERED if attached after SetParent"
+        // This MUST be done before SetParent!
+        WindowUtil.SetWindowTransparency(windowHandle, 255);
+        _logger.LogInformation("Added WS_EX_LAYERED with alpha=255 (full opacity)");
 
-        // Step 3: Set parent to Progman (not WorkerW!)
+        // LIVELY STEP 3: Position window BEFORE parenting (Lively positions before SetParent)
+        _logger.LogInformation("Positioning window at ({X}, {Y}, {W}x{H})",
+            screenBounds.X, screenBounds.Y, screenBounds.Width, screenBounds.Height);
+
+        Win32Interop.SetWindowPos(
+            windowHandle,
+            IntPtr.Zero, // Don't change Z-order yet
+            screenBounds.X,
+            screenBounds.Y,
+            screenBounds.Width,
+            screenBounds.Height,
+            (uint)(Win32Interop.SWP_NOZORDER | Win32Interop.SWP_NOACTIVATE));
+
+        // LIVELY STEP 4: Set parent to Progman (Lively WinDesktopCore.cs line 1028)
         if (!WindowUtil.TrySetParent(windowHandle, _progman))
         {
             _logger.LogError("Failed to set parent to Progman");
@@ -371,56 +403,71 @@ public class DesktopWindowManager
 
         _logger.LogInformation("Successfully set parent to Progman: {Progman}", _progman);
 
-        // Step 4: Position window and z-order below SHELLDLL_DefView
-        // Using SWP_NOMOVE | SWP_NOSIZE would keep current position, so we DON'T use those flags
-        var windowFlags = (uint)(Win32Interop.SWP_NOACTIVATE);
+        // LIVELY STEP 5: Set Z-order below SHELLDLL_DefView (Lively WinDesktopCore.cs lines 1031-1041)
+        // Use SWP_NOMOVE | SWP_NOSIZE to ONLY change Z-order, don't move/resize
+        var windowFlags = (uint)(Win32Interop.SWP_NOMOVE | Win32Interop.SWP_NOSIZE | Win32Interop.SWP_NOACTIVATE);
 
         if (_shellDLL_DefView != IntPtr.Zero)
         {
-            _logger.LogInformation("Positioning window at ({X}, {Y}, {W}x{H}) below SHELLDLL_DefView: {DefView}",
-                screenBounds.X, screenBounds.Y, screenBounds.Width, screenBounds.Height, _shellDLL_DefView);
+            _logger.LogInformation("Setting Z-order below SHELLDLL_DefView: {DefView}", _shellDLL_DefView);
 
-            // Position the window with its actual size and z-order below DefView
-            if (!Win32Interop.SetWindowPos(
+            Win32Interop.SetWindowPos(
                 windowHandle,
-                (int)_shellDLL_DefView, // Insert below DefView
-                screenBounds.X,
-                screenBounds.Y,
-                screenBounds.Width,
-                screenBounds.Height,
-                windowFlags))
-            {
-                _logger.LogError("SetWindowPos FAILED");
-            }
-            else
-            {
-                _logger.LogInformation("SetWindowPos SUCCESS - Window positioned at ({X},{Y}) size ({W}x{H})",
-                    screenBounds.X, screenBounds.Y, screenBounds.Width, screenBounds.Height);
-            }
+                _shellDLL_DefView, // Insert below DefView (this positions us correctly)
+                0,
+                0,
+                0,
+                0,
+                windowFlags);
 
-            // CRITICAL: Show the window to make it visible
-            Win32Interop.ShowWindow(windowHandle, Win32Interop.SW_SHOW);
-            _logger.LogInformation("Called ShowWindow to make window visible");
+            _logger.LogInformation("SetWindowPos SUCCESS - Z-order set below DefView");
         }
         else
         {
-            _logger.LogError("SHELLDLL_DefView handle is NULL!");
-
-            // Still try to position the window even without DefView
-            Win32Interop.SetWindowPos(
-                windowHandle,
-                1,
-                screenBounds.X,
-                screenBounds.Y,
-                screenBounds.Width,
-                screenBounds.Height,
-                windowFlags);
-
-            Win32Interop.ShowWindow(windowHandle, Win32Interop.SW_SHOW);
+            _logger.LogError("SHELLDLL_DefView handle is NULL! Cannot set Z-order correctly");
         }
 
-        _logger.LogInformation("Completed layered mode setup");
+        // LIVELY STEP 6: Ensure WorkerW is at bottom of Z-order (Lively WinDesktopCore.cs line 1042)
+        EnsureWorkerWZOrder();
+
+        _logger.LogInformation("Successfully set wallpaper window (Layered mode - EXACT Lively flow)");
         return true;
+    }
+
+    /// <summary>
+    /// Ensures WorkerW window is at the bottom of the Z-order in layered mode.
+    /// From Lively WinDesktopCore.cs lines 1053-1073
+    /// </summary>
+    private void EnsureWorkerWZOrder()
+    {
+        if (!_isRaisedDesktopWithLayeredShellView)
+            return;
+
+        // Check if WorkerW is the last child of Progman (bottom of Z-order)
+        var lastChild = WindowUtil.GetLastChildWindow(_progman);
+        if (lastChild != _workerW)
+        {
+            _logger.LogWarning("Unexpected WorkerW Z-order. Last child: {LastChild}, WorkerW: {WorkerW}",
+                lastChild, _workerW);
+
+            // Move WorkerW to bottom of Z-order
+            var windowFlags = (uint)(Win32Interop.SWP_NOMOVE | Win32Interop.SWP_NOSIZE | Win32Interop.SWP_NOACTIVATE);
+
+            Win32Interop.SetWindowPos(
+                _workerW,
+                Win32Interop.HWND_BOTTOM,
+                0,
+                0,
+                0,
+                0,
+                windowFlags);
+
+            _logger.LogInformation("Moved WorkerW to bottom of Z-order");
+        }
+        else
+        {
+            _logger.LogInformation("WorkerW Z-order is correct (already at bottom)");
+        }
     }
 
     /// <summary>

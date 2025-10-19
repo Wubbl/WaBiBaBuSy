@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(find \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\Lively-reference\\src\" -name \"*.cs\" -type f -exec grep -l \"new VideoWmfProcess\" {})"
+      "Bash(dotnet build \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.UI\\WaBiBaBuSy.UI.csproj\" --no-restore)"
     ],
     "deny": [],
     "ask": []
