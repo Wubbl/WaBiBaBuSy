@@ -366,8 +366,8 @@ public partial class MainWindowViewModel : ViewModelBase
                         _loggerFactory.CreateLogger<GifWallpaperRenderer>(),
                         _desktopManager),
                 ".jpg" or ".jpeg" or ".png" or ".bmp"
-                    => new ImageWallpaperRenderer(
-                        _loggerFactory.CreateLogger<ImageWallpaperRenderer>(),
+                    => new ImageWallpaperRendererLibVLC(
+                        _loggerFactory.CreateLogger<ImageWallpaperRendererLibVLC>(),
                         _desktopManager),
                 _ => null
             };

@@ -85,8 +85,8 @@ public partial class TrayViewModel : ObservableObject
                         desktopManager),
 
                 ".jpg" or ".jpeg" or ".png" or ".bmp" =>
-                    new ImageWallpaperRenderer(
-                        loggerFactory.CreateLogger<ImageWallpaperRenderer>(),
+                    new ImageWallpaperRendererLibVLC(
+                        loggerFactory.CreateLogger<ImageWallpaperRendererLibVLC>(),
                         desktopManager),
 
                 _ => null

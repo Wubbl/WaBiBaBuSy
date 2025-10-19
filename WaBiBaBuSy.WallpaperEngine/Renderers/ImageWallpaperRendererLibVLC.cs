@@ -1,0 +1,266 @@
+using System.Windows.Forms;
+using LibVLCSharp.Shared;
+using Microsoft.Extensions.Logging;
+using WaBiBaBuSy.Core.Interfaces;
+using WaBiBaBuSy.Models;
+using WaBiBaBuSy.WallpaperEngine.Native;
+
+namespace WaBiBaBuSy.WallpaperEngine.Renderers;
+
+/// <summary>
+/// LibVLC-based static image wallpaper renderer for JPG, PNG, BMP formats.
+/// Uses LibVLC's image rendering which works reliably with desktop parenting.
+/// </summary>
+public class ImageWallpaperRendererLibVLC : IWallpaperRenderer
+{
+    private readonly ILogger<ImageWallpaperRendererLibVLC> _logger;
+    private readonly DesktopWindowManager _desktopManager;
+
+    private LibVLC? _libVLC;
+    private MediaPlayer? _mediaPlayer;
+    private Form? _renderForm;
+    private WallpaperConfig? _config;
+    private WallpaperState _state = WallpaperState.Uninitialized;
+    private bool _disposed;
+
+    public event EventHandler<FrameRenderedEventArgs>? FrameRendered;
+    public event EventHandler<WallpaperState>? StateChanged;
+
+    public ImageWallpaperRendererLibVLC(
+        ILogger<ImageWallpaperRendererLibVLC> logger,
+        DesktopWindowManager desktopManager)
+    {
+        _logger = logger;
+        _desktopManager = desktopManager;
+    }
+
+    public WallpaperState State
+    {
+        get => _state;
+        private set
+        {
+            if (_state != value)
+            {
+                _state = value;
+                StateChanged?.Invoke(this, _state);
+            }
+        }
+    }
+
+    /// <summary>
+    /// For static images, position is always 0
+    /// </summary>
+    public long PositionMs => 0;
+
+    public async Task InitializeAsync(WallpaperConfig config)
+    {
+        try
+        {
+            _logger.LogInformation("Initializing LibVLC image wallpaper renderer for {FilePath}", config.FilePath);
+            _config = config;
+
+            // Verify image file exists
+            if (!File.Exists(config.FilePath))
+            {
+                throw new FileNotFoundException($"Image file not found: {config.FilePath}");
+            }
+
+            // Initialize LibVLC
+            LibVLCSharp.Shared.Core.Initialize();
+            _libVLC = new LibVLC(enableDebugLogs: false,
+                "--no-video-title-show",  // Don't show video title
+                "--no-audio",             // No audio
+                "--image-duration=-1");   // Show image indefinitely
+
+            // Create media player
+            _mediaPlayer = new MediaPlayer(_libVLC);
+
+            // Create render window
+            await CreateRenderWindowAsync(config);
+
+            // Load the image
+            var media = new Media(_libVLC, config.FilePath, FromType.FromPath);
+            _mediaPlayer.Media = media;
+
+            State = WallpaperState.Stopped;
+            _logger.LogInformation("LibVLC image wallpaper renderer initialized successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to initialize LibVLC image wallpaper renderer");
+            State = WallpaperState.Error;
+            throw;
+        }
+    }
+
+    public async Task StartAsync()
+    {
+        try
+        {
+            if (_mediaPlayer == null || _config == null)
+                throw new InvalidOperationException("Renderer not initialized");
+
+            _logger.LogInformation("Starting image display (LibVLC)");
+
+            // Play the image (LibVLC will display it)
+            _mediaPlayer.Play();
+
+            // Wait for playback to start
+            await Task.Delay(100);
+
+            State = WallpaperState.Playing;
+            _logger.LogInformation("Image display started (LibVLC)");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to start image display");
+            State = WallpaperState.Error;
+            throw;
+        }
+    }
+
+    public Task PauseAsync()
+    {
+        try
+        {
+            // Static images don't have playback, but we'll track the state
+            _mediaPlayer?.SetPause(true);
+            State = WallpaperState.Paused;
+            _logger.LogInformation("Image display paused");
+            return Task.CompletedTask;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to pause image display");
+            State = WallpaperState.Error;
+            throw;
+        }
+    }
+
+    public Task ResumeAsync()
+    {
+        try
+        {
+            _mediaPlayer?.SetPause(false);
+            State = WallpaperState.Playing;
+            _logger.LogInformation("Image display resumed");
+            return Task.CompletedTask;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to resume image display");
+            State = WallpaperState.Error;
+            throw;
+        }
+    }
+
+    public Task StopAsync()
+    {
+        try
+        {
+            _mediaPlayer?.Stop();
+            State = WallpaperState.Stopped;
+            _logger.LogInformation("Image display stopped");
+            return Task.CompletedTask;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to stop image display");
+            State = WallpaperState.Error;
+            throw;
+        }
+    }
+
+    public Task SeekAsync(TimeSpan position)
+    {
+        // Static images have no timeline, seeking is a no-op
+        _logger.LogDebug("Seek called on static image (no-op)");
+        return Task.CompletedTask;
+    }
+
+    private Task CreateRenderWindowAsync(WallpaperConfig config)
+    {
+        // Windows Forms must be created on the calling thread
+        _renderForm = new Form
+        {
+            FormBorderStyle = FormBorderStyle.None,
+            StartPosition = FormStartPosition.Manual,
+            ShowInTaskbar = false,
+            TopMost = false,
+            ControlBox = false,
+            MaximizeBox = false,
+            MinimizeBox = false
+        };
+
+        // Validate monitor index
+        if (config.MonitorIndex < 0 || config.MonitorIndex >= Screen.AllScreens.Length)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(config.MonitorIndex),
+                $"Invalid monitor index {config.MonitorIndex}. Must be between 0 and {Screen.AllScreens.Length - 1}. Total monitors: {Screen.AllScreens.Length}");
+        }
+
+        // Set window bounds for the specific monitor
+        var screen = Screen.AllScreens[config.MonitorIndex];
+        _renderForm.Bounds = screen.Bounds;
+
+        _logger.LogInformation("Image renderer set to monitor {Index}: {Bounds} (Device: {Device})",
+            config.MonitorIndex,
+            screen.Bounds,
+            screen.DeviceName);
+
+        // CRITICAL: Show the form FIRST to ensure handle is fully initialized
+        _renderForm.Show();
+
+        _logger.LogDebug("Form shown, handle: {Handle}", _renderForm.Handle);
+
+        // Set LibVLC to render to this window
+        _mediaPlayer!.Hwnd = _renderForm.Handle;
+        _logger.LogInformation("LibVLC Hwnd set to form handle");
+
+        // Now find WorkerW window and set as parent (after form is shown)
+        var workerW = _desktopManager.FindDesktopWorkerWindow();
+        if (workerW != IntPtr.Zero)
+        {
+            _logger.LogDebug("Found WorkerW: {WorkerW}, parenting form to it", workerW);
+
+            // Convert Screen.Bounds to System.Drawing.Rectangle for DesktopWindowManager
+            var screenBounds = new System.Drawing.Rectangle(
+                screen.Bounds.X,
+                screen.Bounds.Y,
+                screen.Bounds.Width,
+                screen.Bounds.Height);
+
+            _desktopManager.SetAsWallpaperWindow(_renderForm.Handle, screenBounds);
+
+            _logger.LogInformation("Form parented to desktop (WorkerW) successfully");
+        }
+        else
+        {
+            _logger.LogWarning("WorkerW not found, wallpaper may not render behind desktop icons");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+
+        _logger.LogInformation("Disposing LibVLC image wallpaper renderer");
+
+        _mediaPlayer?.Stop();
+        _mediaPlayer?.Dispose();
+        _mediaPlayer = null;
+
+        _renderForm?.Close();
+        _renderForm?.Dispose();
+        _renderForm = null;
+
+        _libVLC?.Dispose();
+        _libVLC = null;
+
+        _disposed = true;
+        GC.SuppressFinalize(this);
+    }
+}
