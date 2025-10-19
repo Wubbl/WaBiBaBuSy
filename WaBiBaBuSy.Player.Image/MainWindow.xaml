@@ -6,15 +6,12 @@
         xmlns:local="clr-namespace:WaBiBaBuSy.Player.Image"
         mc:Ignorable="d"
         Title="WaBiBaBuSy Image Player"
-        WindowStyle="None"
-        ResizeMode="NoResize"
         Background="Black"
-        Left="0"
-        Top="0"
-        Width="1920"
-        Height="1080"
+        Left="-9999"
+        ResizeMode="NoResize"
         ShowActivated="False"
         WindowStartupLocation="Manual"
+        WindowStyle="None"
         Loaded="Window_Loaded">
     <Grid>
         <Image x:Name="WallpaperImage"

@@ -224,6 +224,22 @@ public class DesktopWindowManager
         Win32Interop.MapWindowPoints(windowHandle, _workerW, ref prct, 2);
         _logger.LogInformation("Step 2: Mapped points relative to WorkerW - ({Left}, {Top})", prct.Left, prct.Top);
 
+        // LIVELY CRITICAL SEQUENCE: Apply window styles BEFORE SetParent (Lively WinDesktopCore.cs lines 168-169)
+        _logger.LogInformation("Applying Lively's window style modifications BEFORE SetParent...");
+        BorderlessWinStyle(windowHandle);
+        RemoveWindowFromTaskbar(windowHandle);
+
+        // CRITICAL: Manually set WS_CHILD style BEFORE SetParent (Lively WinDesktopCore.cs line 1023)
+        // This is what Lively does in layered mode - let's try it in legacy mode too
+        _logger.LogInformation("Manually setting WS_CHILD style BEFORE SetParent...");
+        var currentStyle = Win32Interop.GetWindowLong(windowHandle, Win32Interop.GWL_STYLE);
+        var newStyle = currentStyle | Win32Interop.WS_CHILD;
+        Win32Interop.SetWindowLong(windowHandle, Win32Interop.GWL_STYLE, newStyle);
+        _logger.LogInformation("WS_CHILD style set manually (was: 0x{OldStyle:X}, now: 0x{NewStyle:X})",
+            currentStyle, newStyle);
+
+        _logger.LogInformation("Window styles applied, ready for SetParent");
+
         // Step 3: SetParent to WorkerW (Lively's TryAttachToDesktop, line 511)
         _logger.LogInformation("BEFORE SetParent - checking window state...");
         LogWindowState(windowHandle, "BEFORE SetParent");
@@ -405,6 +421,71 @@ public class DesktopWindowManager
 
         _logger.LogInformation("Completed layered mode setup");
         return true;
+    }
+
+    /// <summary>
+    /// Removes window border and some menu items. Based on Lively Wallpaper implementation.
+    /// Ref: https://github.com/Codeusa/Borderless-Gaming
+    /// </summary>
+    /// <param name="handle">Window handle</param>
+    private void BorderlessWinStyle(IntPtr handle)
+    {
+        _logger.LogInformation("Applying borderless window style (Lively method)");
+
+        // Get current window styles
+        var styleCurrentWindowStandard = Win32Interop.GetWindowLong(handle, Win32Interop.GWL_STYLE);
+        var styleCurrentWindowExtended = Win32Interop.GetWindowLong(handle, Win32Interop.GWL_EXSTYLE);
+
+        _logger.LogInformation("Current styles - Standard: 0x{Standard:X}, Extended: 0x{Extended:X}",
+            styleCurrentWindowStandard, styleCurrentWindowExtended);
+
+        // Compute new standard style - remove caption, thick frame, system menu, min/max boxes
+        var styleNewWindowStandard = styleCurrentWindowStandard
+            & ~(Win32Interop.WS_CAPTION
+              | Win32Interop.WS_THICKFRAME
+              | Win32Interop.WS_SYSMENU
+              | Win32Interop.WS_MAXIMIZEBOX
+              | Win32Interop.WS_MINIMIZEBOX);
+
+        // Compute new extended style - remove various window edge styles, layered, toolwindow, appwindow
+        var styleNewWindowExtended = styleCurrentWindowExtended
+            & ~(Win32Interop.WS_EX_DLGMODALFRAME
+              | Win32Interop.WS_EX_COMPOSITED
+              | Win32Interop.WS_EX_WINDOWEDGE
+              | Win32Interop.WS_EX_CLIENTEDGE
+              | Win32Interop.WS_EX_LAYERED
+              | Win32Interop.WS_EX_STATICEDGE
+              | Win32Interop.WS_EX_TOOLWINDOW
+              | Win32Interop.WS_EX_APPWINDOW);
+
+        // Update window styles
+        Win32Interop.SetWindowLong(handle, Win32Interop.GWL_STYLE, styleNewWindowStandard);
+        Win32Interop.SetWindowLong(handle, Win32Interop.GWL_EXSTYLE, styleNewWindowExtended);
+
+        _logger.LogInformation("New styles applied - Standard: 0x{Standard:X}, Extended: 0x{Extended:X}",
+            styleNewWindowStandard, styleNewWindowExtended);
+    }
+
+    /// <summary>
+    /// Makes window toolwindow and force remove from taskbar. Based on Lively Wallpaper implementation.
+    /// </summary>
+    /// <param name="handle">Window handle</param>
+    private void RemoveWindowFromTaskbar(IntPtr handle)
+    {
+        _logger.LogInformation("Removing window from taskbar (Lively method)");
+
+        var styleCurrentWindowExtended = Win32Interop.GetWindowLong(handle, Win32Interop.GWL_EXSTYLE);
+
+        var styleNewWindowExtended = styleCurrentWindowExtended
+            | Win32Interop.WS_EX_NOACTIVATE
+            | Win32Interop.WS_EX_TOOLWINDOW;
+
+        // Update window styles - hide then show to apply changes
+        Win32Interop.ShowWindow(handle, Win32Interop.SW_HIDE);
+        Win32Interop.SetWindowLong(handle, Win32Interop.GWL_EXSTYLE, styleNewWindowExtended);
+        Win32Interop.ShowWindow(handle, Win32Interop.SW_SHOW);
+
+        _logger.LogInformation("Window removed from taskbar");
     }
 
     /// <summary>

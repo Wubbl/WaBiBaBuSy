@@ -1,14 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(dir:*)",
-      "Bash(dotnet new:*)",
-      "Bash(dotnet build:*)",
-      "Bash(findstr:*)",
-      "Bash(dotnet sln add:*)",
-      "Bash(dotnet add:*)",
-      "Bash(Select-String -Pattern \"(error|warning|Build succeeded|Build FAILED)\" -Context 0,2)",
-      "Bash(powershell -Command \"$asm = [System.Reflection.Assembly]::LoadFile(''C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.UI\\bin\\Debug\\net8.0-windows\\WaBiBaBuSy.Player.Common.dll''); $asm.GetReferencedAssemblies() | Select-Object Name, Version | Format-Table\")"
+      "Bash(find \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\Lively-reference\\src\" -name \"*.cs\" -type f -exec grep -l \"new VideoWmfProcess\" {})"
     ],
     "deny": [],
     "ask": []
