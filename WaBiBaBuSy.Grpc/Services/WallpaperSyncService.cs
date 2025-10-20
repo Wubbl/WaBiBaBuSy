@@ -473,4 +473,131 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         var hashBytes = await sha256.ComputeHashAsync(fileStream);
         return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
     }
+
+    #region Cross-Screen Frame Streaming
+
+    // Dictionary to hold cross-screen frame streams per client
+    private readonly Dictionary<string, IServerStreamWriter<CrossScreenFrame>> _crossScreenStreams = new();
+    private readonly SemaphoreSlim _streamLock = new(1, 1);
+
+    /// <summary>
+    /// Stream cross-screen frames (bidirectional streaming RPC)
+    /// </summary>
+    public override async Task StreamCrossScreenFrames(
+        IAsyncStreamReader<CrossScreenFrame> requestStream,
+        IServerStreamWriter<FrameAcknowledgment> responseStream,
+        ServerCallContext context)
+    {
+        var clientId = context.GetHttpContext().Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        _logger.LogInformation("Cross-screen frame streaming started for client {ClientId}", clientId);
+
+        try
+        {
+            // This RPC is primarily server-to-client (server sends frames, client acknowledges)
+            // The client can send acknowledgments through the request stream
+            var acknowledgmentTask = Task.Run(async () =>
+            {
+                await foreach (var frame in requestStream.ReadAllAsync(context.CancellationToken))
+                {
+                    _logger.LogTrace("Received frame {FrameNum} acknowledgment from client {ClientId}",
+                        frame.FrameNumber, frame.ClientId);
+                }
+            });
+
+            // Keep connection alive until cancelled
+            await acknowledgmentTask;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in cross-screen frame streaming for client {ClientId}", clientId);
+        }
+        finally
+        {
+            _logger.LogInformation("Cross-screen frame streaming ended for client {ClientId}", clientId);
+        }
+    }
+
+    /// <summary>
+    /// Send a cross-screen frame to a specific client (called by coordinator)
+    /// </summary>
+    public async Task SendCrossScreenFrameAsync(CrossScreenFrame frame)
+    {
+        var clientId = frame.ClientId;
+
+        await _streamLock.WaitAsync();
+        try
+        {
+            // Check if client has a cross-screen frame stream
+            if (_crossScreenStreams.TryGetValue(clientId, out var frameStream))
+            {
+                await frameStream.WriteAsync(frame);
+                _logger.LogTrace("Sent frame {FrameNum} to client {ClientId}, size: {Size} KB",
+                    frame.FrameNumber, clientId, frame.FrameData.Length / 1024);
+            }
+            else
+            {
+                // Fallback: Send via sync command stream
+                if (_clientCommandStreams.TryGetValue(clientId, out var syncStream))
+                {
+                    var command = new SyncCommand
+                    {
+                        Type = CommandType.CrossscreenStart, // Signal cross-screen mode
+                        TimestampUtc = frame.TimestampUtc,
+                        SequenceNumber = frame.FrameNumber,
+                        ContentId = $"frame_{frame.FrameNumber}",
+                        Params = new SyncParameters()
+                    };
+
+                    await syncStream.WriteAsync(command);
+                    _logger.LogDebug("Sent cross-screen signal to client {ClientId} (no dedicated stream)", clientId);
+                }
+                else
+                {
+                    _logger.LogWarning("No active stream for client {ClientId}, cannot send frame", clientId);
+                }
+            }
+        }
+        finally
+        {
+            _streamLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Register a cross-screen frame stream for a client
+    /// </summary>
+    public void RegisterCrossScreenStream(string clientId, IServerStreamWriter<CrossScreenFrame> stream)
+    {
+        _streamLock.Wait();
+        try
+        {
+            _crossScreenStreams[clientId] = stream;
+            _logger.LogInformation("Registered cross-screen stream for client {ClientId}", clientId);
+        }
+        finally
+        {
+            _streamLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Unregister a cross-screen frame stream for a client
+    /// </summary>
+    public void UnregisterCrossScreenStream(string clientId)
+    {
+        _streamLock.Wait();
+        try
+        {
+            if (_crossScreenStreams.Remove(clientId))
+            {
+                _logger.LogInformation("Unregistered cross-screen stream for client {ClientId}", clientId);
+            }
+        }
+        finally
+        {
+            _streamLock.Release();
+        }
+    }
+
+    #endregion
 }

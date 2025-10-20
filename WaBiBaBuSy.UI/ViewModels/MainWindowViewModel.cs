@@ -51,6 +51,15 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private string _serverStatus = "Stopped";
 
+    [ObservableProperty]
+    private bool _isCrossScreenMode;
+
+    [ObservableProperty]
+    private bool _isCrossScreenRunning;
+
+    private UI.Services.CrossScreenWallpaperCoordinator? _crossScreenCoordinator;
+    private CrossScreenConfig? _crossScreenConfig;
+
     // Storage provider for file picker dialogs
     private IStorageProvider? _storageProvider;
 
@@ -920,4 +929,173 @@ public partial class MainWindowViewModel : ViewModelBase
         _localWallpaperRenderers.Clear();
         Debug.WriteLine("[Cleanup] All renderers disposed");
     }
+
+    #region Cross-Screen Commands
+
+    [RelayCommand]
+    private async Task ConfigureCrossScreen()
+    {
+        try
+        {
+            var dialog = new Views.CrossScreenConfigDialog();
+            var viewModel = new CrossScreenConfigViewModel();
+
+            // Set storage provider
+            if (_storageProvider != null)
+            {
+                viewModel.SetStorageProvider(_storageProvider);
+            }
+
+            // Load existing configuration or create default
+            if (_crossScreenConfig != null)
+            {
+                viewModel.LoadFromConfig(_crossScreenConfig);
+            }
+            else
+            {
+                // Create default configuration
+                _crossScreenConfig = new CrossScreenConfig
+                {
+                    Background = new BackgroundLayerConfig
+                    {
+                        Mode = BackgroundMode.SolidColor,
+                        ColorHex = "#000000"
+                    },
+                    Animation = new AnimationLayerConfig
+                    {
+                        AnimationPath = string.Empty,
+                        TargetHeight = 720,
+                        Loop = true,
+                        VerticalAlign = VerticalAlignment.Center
+                    },
+                    AnimationSpeedPxPerSecond = 500
+                };
+                viewModel.LoadFromConfig(_crossScreenConfig);
+            }
+
+            dialog.DataContext = viewModel;
+
+            // Show dialog
+            var window = App.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop
+                ? desktop.MainWindow
+                : null;
+
+            if (window != null)
+            {
+                await dialog.ShowDialog(window);
+
+                if (viewModel.DialogResult)
+                {
+                    _crossScreenConfig = viewModel.BuildConfig();
+                    Debug.WriteLine("[CrossScreen] Configuration saved");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[CrossScreen] Error configuring: {ex.Message}");
+        }
+    }
+
+    [RelayCommand]
+    private async Task StartCrossScreen()
+    {
+        if (IsCrossScreenRunning)
+        {
+            Debug.WriteLine("[CrossScreen] Already running");
+            return;
+        }
+
+        if (_crossScreenConfig == null || string.IsNullOrEmpty(_crossScreenConfig.Animation.AnimationPath))
+        {
+            Debug.WriteLine("[CrossScreen] No configuration. Opening config dialog...");
+            await ConfigureCrossScreen();
+
+            if (_crossScreenConfig == null || string.IsNullOrEmpty(_crossScreenConfig.Animation.AnimationPath))
+            {
+                Debug.WriteLine("[CrossScreen] Configuration cancelled or incomplete");
+                return;
+            }
+        }
+
+        try
+        {
+            Debug.WriteLine("[CrossScreen] Starting cross-screen animation...");
+
+            // Create coordinator if needed
+            if (_crossScreenCoordinator == null)
+            {
+                _crossScreenCoordinator = new UI.Services.CrossScreenWallpaperCoordinator(
+                    _loggerFactory.CreateLogger<UI.Services.CrossScreenWallpaperCoordinator>(),
+                    _loggerFactory,
+                    _service.SyncCoordinator);
+
+                _crossScreenCoordinator.StatusChanged += OnCrossScreenStatusChanged;
+            }
+
+            // Convert clients to screen configurations
+            var screenConfigs = Clients.Select(c => new WallpaperEngine.Composition.ScreenConfiguration
+            {
+                ClientId = c.ClientId,
+                Width = c.MonitorWidth > 0 ? c.MonitorWidth : 1920,  // Default if not set
+                Height = c.MonitorHeight > 0 ? c.MonitorHeight : 1080,
+                Order = c.Order,
+                PhysicalDistanceCm = c.PhysicalDistanceCm,
+                Hostname = c.Hostname,
+                MonitorIndex = c.MonitorIndex
+            }).ToList();
+
+            if (screenConfigs.Count == 0)
+            {
+                Debug.WriteLine("[CrossScreen] No clients connected");
+                return;
+            }
+
+            // Initialize and start
+            await _crossScreenCoordinator.InitializeAsync(screenConfigs, _crossScreenConfig);
+            await _crossScreenCoordinator.StartAsync();
+
+            IsCrossScreenRunning = true;
+            Debug.WriteLine("[CrossScreen] Animation started successfully");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[CrossScreen] Error starting: {ex.Message}");
+            IsCrossScreenRunning = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task StopCrossScreen()
+    {
+        if (!IsCrossScreenRunning || _crossScreenCoordinator == null)
+        {
+            Debug.WriteLine("[CrossScreen] Not running");
+            return;
+        }
+
+        try
+        {
+            Debug.WriteLine("[CrossScreen] Stopping cross-screen animation...");
+            await _crossScreenCoordinator.StopAsync();
+            IsCrossScreenRunning = false;
+            Debug.WriteLine("[CrossScreen] Animation stopped");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[CrossScreen] Error stopping: {ex.Message}");
+        }
+    }
+
+    private void OnCrossScreenStatusChanged(object? sender, UI.Services.CrossScreenStatusEventArgs e)
+    {
+        Debug.WriteLine($"[CrossScreen] Status changed: {e.Status} - {e.Message}");
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            IsCrossScreenRunning = e.Status == UI.Services.CrossScreenStatus.Running;
+        });
+    }
+
+    #endregion
 }

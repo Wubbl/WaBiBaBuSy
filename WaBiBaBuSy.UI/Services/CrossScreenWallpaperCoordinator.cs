@@ -206,15 +206,32 @@ public class CrossScreenWallpaperCoordinator : IDisposable
             // Distribute frames to clients
             foreach (var (clientId, frameBitmap) in frames)
             {
-                // TODO: Send frame to client via gRPC
-                // For now, we just have the frame bitmap ready
-                // This will be integrated with WallpaperSyncCoordinator
+                try
+                {
+                    // Encode frame to JPEG for network transmission
+                    var frameData = _compositor.EncodeBitmapToJpeg(frameBitmap, quality: 90);
 
-                _logger.LogTrace("Frame composed for client {ClientId}: {Width}x{Height}",
-                    clientId, frameBitmap.Width, frameBitmap.Height);
+                    // Send frame via sync coordinator
+                    _ = _syncCoordinator.SendCrossScreenFrameAsync(
+                        clientId,
+                        _frameCount,
+                        currentTimestamp,
+                        frameData,
+                        frameBitmap.Width,
+                        frameBitmap.Height);
 
-                // Dispose frame after sending (or cache if needed)
-                frameBitmap.Dispose();
+                    _logger.LogTrace("Frame {FrameNum} sent to client {ClientId}: {Width}x{Height}, {Size} KB",
+                        _frameCount, clientId, frameBitmap.Width, frameBitmap.Height, frameData.Length / 1024);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error sending frame to client {ClientId}", clientId);
+                }
+                finally
+                {
+                    // Always dispose frame bitmap
+                    frameBitmap.Dispose();
+                }
             }
 
             _frameCount++;

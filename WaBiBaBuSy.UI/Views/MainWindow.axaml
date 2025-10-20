@@ -28,9 +28,37 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10">
-                    <Button Content="Add Wallpaper" Command="{Binding AddWallpaperCommand}"/>
-                    <Button Content="Apply to Selected" Command="{Binding ApplyWallpaperToSelectedCommand}"/>
-                    <Button Content="Apply to All Clients" Command="{Binding ApplyWallpaperToAllCommand}"/>
+                    <!-- Cross-Screen Mode Toggle -->
+                    <Border Background="#252526" CornerRadius="5" Padding="10,5" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="Cross-Screen:" Foreground="#CCCCCC" VerticalAlignment="Center" FontSize="12"/>
+                            <ToggleButton IsChecked="{Binding IsCrossScreenMode}" MinWidth="60"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Cross-Screen Controls (visible when enabled) -->
+                    <Button Content="Configure..."
+                            Command="{Binding ConfigureCrossScreenCommand}"
+                            IsVisible="{Binding IsCrossScreenMode}"/>
+                    <Button Content="Start Animation"
+                            Command="{Binding StartCrossScreenCommand}"
+                            IsVisible="{Binding IsCrossScreenMode}"
+                            IsEnabled="{Binding !IsCrossScreenRunning}"/>
+                    <Button Content="Stop Animation"
+                            Command="{Binding StopCrossScreenCommand}"
+                            IsVisible="{Binding IsCrossScreenMode}"
+                            IsEnabled="{Binding IsCrossScreenRunning}"/>
+
+                    <!-- Standard Wallpaper Controls (visible when cross-screen disabled) -->
+                    <Button Content="Add Wallpaper"
+                            Command="{Binding AddWallpaperCommand}"
+                            IsVisible="{Binding !IsCrossScreenMode}"/>
+                    <Button Content="Apply to Selected"
+                            Command="{Binding ApplyWallpaperToSelectedCommand}"
+                            IsVisible="{Binding !IsCrossScreenMode}"/>
+                    <Button Content="Apply to All Clients"
+                            Command="{Binding ApplyWallpaperToAllCommand}"
+                            IsVisible="{Binding !IsCrossScreenMode}"/>
                 </StackPanel>
             </Grid>
         </Border>

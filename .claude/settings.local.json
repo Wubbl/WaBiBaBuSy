@@ -7,7 +7,8 @@
       "Bash(dotnet build \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.WallpaperEngine\\WaBiBaBuSy.WallpaperEngine.csproj\" --no-restore)",
       "Bash(dotnet build \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.sln\" --no-restore)",
       "Bash(dotnet build \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.sln\")",
-      "Bash(if exist \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Core\\Services\\CrossScreenWallpaperCoordinator.cs\" del /F \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Core\\Services\\CrossScreenWallpaperCoordinator.cs\")"
+      "Bash(if exist \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Core\\Services\\CrossScreenWallpaperCoordinator.cs\" del /F \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Core\\Services\\CrossScreenWallpaperCoordinator.cs\")",
+      "Bash(dotnet build \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Grpc\\WaBiBaBuSy.Grpc.csproj\")"
     ],
     "deny": [],
     "ask": []

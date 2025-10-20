@@ -29,6 +29,7 @@ public class WallpaperSyncClient : IDisposable
 
     public event EventHandler<ConnectionStatusChangedEventArgs>? ConnectionStatusChanged;
     public event EventHandler<SyncCommandReceivedEventArgs>? SyncCommandReceived;
+    public event EventHandler<CrossScreenFrameReceivedEventArgs>? CrossScreenFrameReceived;
 
     public WallpaperSyncClient(
         ILogger<WallpaperSyncClient> logger,
@@ -441,6 +442,18 @@ public class WallpaperSyncClient : IDisposable
                     _logger.LogInformation("Received {CommandType} command for content {ContentId}, sequence {SequenceNumber}",
                         command.Type, command.ContentId, command.SequenceNumber);
 
+                    // Handle cross-screen start/stop commands
+                    if (command.Type == CommandType.CrossscreenStart)
+                    {
+                        _logger.LogInformation("Cross-screen mode started");
+                        // Note: Actual frames would come through a dedicated stream
+                        // For now, we just acknowledge
+                    }
+                    else if (command.Type == CommandType.CrossscreenStop)
+                    {
+                        _logger.LogInformation("Cross-screen mode stopped");
+                    }
+
                     // Raise event for command processing
                     SyncCommandReceived?.Invoke(this, new SyncCommandReceivedEventArgs(command));
 
@@ -589,5 +602,15 @@ public class SyncCommandReceivedEventArgs : EventArgs
     public SyncCommandReceivedEventArgs(SyncCommand command)
     {
         Command = command;
+    }
+}
+
+public class CrossScreenFrameReceivedEventArgs : EventArgs
+{
+    public CrossScreenFrame Frame { get; }
+
+    public CrossScreenFrameReceivedEventArgs(CrossScreenFrame frame)
+    {
+        Frame = frame;
     }
 }
