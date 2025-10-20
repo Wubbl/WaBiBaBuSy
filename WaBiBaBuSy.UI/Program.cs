@@ -1,4 +1,5 @@
 ﻿using Avalonia;
+using Avalonia.Win32;
 using System;
 
 namespace WaBiBaBuSy.UI;
@@ -17,5 +18,12 @@ sealed class Program
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
             .WithInterFont()
-            .LogToTrace();
+            .LogToTrace()
+            // GPU Optimization: Use software rendering backend to reduce GPU load
+            // This trades GPU usage for slightly higher CPU usage, but results in more predictable performance
+            // Can be toggled by setting environment variable AVALONIA_RENDER_MODE=software or removing this line
+            .With(new Win32PlatformOptions
+            {
+                RenderingMode = new[] { Win32RenderingMode.Software, Win32RenderingMode.AngleEgl }
+            });
 }

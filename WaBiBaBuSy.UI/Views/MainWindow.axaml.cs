@@ -87,6 +87,37 @@ public partial class MainWindow : Window
             DataContext = client
         };
 
+        // Update styling based on selection state
+        void UpdateSelectionState()
+        {
+            if (client.IsSelected)
+            {
+                // Selected state: bright blue border and lighter background
+                border.BorderBrush = new SolidColorBrush(Color.Parse("#0078D4"));
+                border.BorderThickness = new Thickness(3);
+                border.Background = new SolidColorBrush(Color.Parse("#4E5A6E"));
+            }
+            else
+            {
+                // Normal state
+                border.BorderBrush = new SolidColorBrush(Color.Parse("#666666"));
+                border.BorderThickness = new Thickness(2);
+                border.Background = new SolidColorBrush(Color.Parse("#3E3E42"));
+            }
+        }
+
+        // Subscribe to property changes on the client
+        client.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(client.IsSelected))
+            {
+                UpdateSelectionState();
+            }
+        };
+
+        // Set initial state
+        UpdateSelectionState();
+
         var stackPanel = new StackPanel { Spacing = 5 };
 
         // Display Name
@@ -144,15 +175,21 @@ public partial class MainWindow : Window
             viewModel.SelectClientCommand.Execute(client);
         };
 
-        // Add hover effect
+        // Add hover effect (but respect selection state)
         border.PointerEntered += (s, e) =>
         {
-            border.Background = new SolidColorBrush(Color.Parse("#4E4E52"));
+            if (!client.IsSelected)
+            {
+                border.Background = new SolidColorBrush(Color.Parse("#4E4E52"));
+            }
         };
 
         border.PointerExited += (s, e) =>
         {
-            border.Background = new SolidColorBrush(Color.Parse("#3E3E42"));
+            if (!client.IsSelected)
+            {
+                border.Background = new SolidColorBrush(Color.Parse("#3E3E42"));
+            }
         };
 
         return border;

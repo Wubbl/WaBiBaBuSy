@@ -53,7 +53,9 @@
                     <Border Grid.Row="1" Background="#252526" CornerRadius="5" Padding="10">
                         <ScrollViewer HorizontalScrollBarVisibility="Auto"
                                       VerticalScrollBarVisibility="Auto">
-                            <Canvas Width="800" Height="400" Background="#1A1A1A" Name="TopologyCanvas">
+                            <!-- GPU Optimization: ClipToBounds reduces overdraw, RenderOptions improves caching -->
+                            <Canvas Width="800" Height="400" Background="#1A1A1A" Name="TopologyCanvas"
+                                    ClipToBounds="True">
                                 <!-- Client nodes will be added programmatically in code-behind -->
                             </Canvas>
                         </ScrollViewer>
