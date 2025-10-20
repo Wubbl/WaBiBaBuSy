@@ -4,7 +4,10 @@
       "Bash(dotnet build \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.UI\\WaBiBaBuSy.UI.csproj\" --no-restore)",
       "Bash(if exist \"WaBiBaBuSy.Player.Common\\Messages\\PlayerCommandRefresh.cs\" del /F \"WaBiBaBuSy.Player.Common\\Messages\\PlayerCommandRefresh.cs\")",
       "WebSearch",
-      "Bash(dotnet build \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.WallpaperEngine\\WaBiBaBuSy.WallpaperEngine.csproj\" --no-restore)"
+      "Bash(dotnet build \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.WallpaperEngine\\WaBiBaBuSy.WallpaperEngine.csproj\" --no-restore)",
+      "Bash(dotnet build \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.sln\" --no-restore)",
+      "Bash(dotnet build \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.sln\")",
+      "Bash(if exist \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Core\\Services\\CrossScreenWallpaperCoordinator.cs\" del /F \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Core\\Services\\CrossScreenWallpaperCoordinator.cs\")"
     ],
     "deny": [],
     "ask": []

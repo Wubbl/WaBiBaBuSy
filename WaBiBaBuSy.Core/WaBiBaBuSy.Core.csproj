@@ -21,7 +21,6 @@
     <ProjectReference Include="..\WaBiBaBuSy.Models\WaBiBaBuSy.Models.csproj" />
     <ProjectReference Include="..\WaBiBaBuSy.Grpc\WaBiBaBuSy.Grpc.csproj" />
   </ItemGroup>
-
   <ItemGroup>
     <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
   </ItemGroup>
