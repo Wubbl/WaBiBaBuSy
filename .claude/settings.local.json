@@ -10,7 +10,8 @@
       "Bash(if exist \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Core\\Services\\CrossScreenWallpaperCoordinator.cs\" del /F \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Core\\Services\\CrossScreenWallpaperCoordinator.cs\")",
       "Bash(dotnet build \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Grpc\\WaBiBaBuSy.Grpc.csproj\")",
       "Bash(powershell -Command:*)",
-      "Bash(dotnet build:*)"
+      "Bash(dotnet build:*)",
+      "Bash(dotnet publish:*)"
     ],
     "deny": [],
     "ask": []
