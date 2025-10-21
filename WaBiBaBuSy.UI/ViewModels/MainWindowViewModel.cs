@@ -18,6 +18,7 @@ using WaBiBaBuSy.Models.Configuration;
 using WaBiBaBuSy.Models.Wallpaper;
 using WaBiBaBuSy.WallpaperEngine.Native;
 using WaBiBaBuSy.WallpaperEngine.Renderers;
+using WaBiBaBuSy.UI.Services;
 
 namespace WaBiBaBuSy.UI.ViewModels;
 
@@ -27,6 +28,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly System.Timers.Timer _refreshTimer;
     private readonly ILoggerFactory _loggerFactory;
     private readonly DesktopWindowManager _desktopManager;
+    private readonly VideoThumbnailGenerator _thumbnailGenerator;
     // Multi-monitor support: Dictionary<monitorIndex, renderer>
     private readonly Dictionary<int, IWallpaperRenderer> _localWallpaperRenderers = new();
 
@@ -70,6 +72,7 @@ public partial class MainWindowViewModel : ViewModelBase
         // Initialize logger factory and desktop manager for local wallpaper rendering
         _loggerFactory = LoggerFactory.Create(builder => builder.AddConsole().AddDebug());
         _desktopManager = new DesktopWindowManager(_loggerFactory.CreateLogger<DesktopWindowManager>());
+        _thumbnailGenerator = new VideoThumbnailGenerator(_loggerFactory.CreateLogger<VideoThumbnailGenerator>());
 
         // Subscribe to service events
         _service.ServerStatusChanged += OnServerStatusChanged;
@@ -321,8 +324,8 @@ public partial class MainWindowViewModel : ViewModelBase
             Debug.WriteLine($"[ApplyWallpaperToAll] Sending LOAD command...");
             await _service.SyncCoordinator.BroadcastLoadWallpaperAsync(contentId, filePath);
 
-            // Wait a moment for LOAD to complete
-            await Task.Delay(500);
+            // Wait a moment for LOAD to complete (reduced from 500ms to 200ms for faster response)
+            await Task.Delay(200);
 
             // Send PLAY command to all clients
             Debug.WriteLine($"[ApplyWallpaperToAll] Sending PLAY command...");
@@ -560,6 +563,52 @@ public partial class MainWindowViewModel : ViewModelBase
                 {
                     // Ignore resolution detection errors
                 }
+            }
+            // For videos, generate thumbnail in background
+            else if (type == WallpaperType.Video)
+            {
+                // Generate thumbnail asynchronously to avoid blocking UI
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        Debug.WriteLine($"Starting thumbnail generation for: {filePath}");
+                        var thumb = await _thumbnailGenerator.GenerateThumbnail(filePath);
+
+                        if (!string.IsNullOrEmpty(thumb))
+                        {
+                            Debug.WriteLine($"Thumbnail path received: {thumb}");
+
+                            Dispatcher.UIThread.Post(() =>
+                            {
+                                var wallpaperItem = Wallpapers.FirstOrDefault(w => w.FilePath == filePath);
+                                if (wallpaperItem != null)
+                                {
+                                    Debug.WriteLine($"Updating wallpaper item with thumbnail");
+                                    wallpaperItem.ThumbnailPath = thumb;
+                                    wallpaperItem.LoadThumbnail();
+                                    Debug.WriteLine($"Thumbnail loaded for: {fileName}");
+                                }
+                                else
+                                {
+                                    Debug.WriteLine($"WARNING: Could not find wallpaper item for path: {filePath}");
+                                }
+                            });
+                        }
+                        else
+                        {
+                            Debug.WriteLine($"WARNING: Thumbnail generation returned null for: {filePath}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"ERROR in thumbnail generation: {ex.Message}");
+                        Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+                    }
+                });
+
+                // Video resolution will be detected later if needed
+                resolution = "Video";
             }
 
             // Create wallpaper view model

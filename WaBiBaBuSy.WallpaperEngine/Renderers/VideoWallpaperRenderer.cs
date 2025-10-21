@@ -55,11 +55,14 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
             _logger.LogInformation("Initializing video wallpaper renderer for {FilePath}", config.FilePath);
             _config = config;
 
-            // Initialize LibVLC
+            // Initialize LibVLC with optimized options for faster loading
             LibVLCSharp.Shared.Core.Initialize();
             _libVLC = new LibVLC(enableDebugLogs: false,
                 "--no-video-title-show",  // Don't show video title on video
-                "--no-audio");             // No audio for wallpaper
+                "--no-audio",              // No audio for wallpaper
+                "--file-caching=300",      // Reduce file caching (default 1000ms) for faster start
+                "--network-caching=300",   // Reduce network caching for faster start
+                "--avcodec-hw=any");       // Enable hardware decoding for better performance
 
             // Create media player
             _mediaPlayer = new MediaPlayer(_libVLC);
