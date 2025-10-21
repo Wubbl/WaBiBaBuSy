@@ -482,10 +482,11 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
 
     /// <summary>
     /// Stream cross-screen frames (bidirectional streaming RPC)
+    /// Server sends frames, client sends acknowledgments
     /// </summary>
     public override async Task StreamCrossScreenFrames(
-        IAsyncStreamReader<CrossScreenFrame> requestStream,
-        IServerStreamWriter<FrameAcknowledgment> responseStream,
+        IAsyncStreamReader<FrameAcknowledgment> requestStream,
+        IServerStreamWriter<CrossScreenFrame> responseStream,
         ServerCallContext context)
     {
         var clientId = context.GetHttpContext().Connection.RemoteIpAddress?.ToString() ?? "unknown";
@@ -493,19 +494,15 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
 
         try
         {
-            // This RPC is primarily server-to-client (server sends frames, client acknowledges)
-            // The client can send acknowledgments through the request stream
-            var acknowledgmentTask = Task.Run(async () =>
-            {
-                await foreach (var frame in requestStream.ReadAllAsync(context.CancellationToken))
-                {
-                    _logger.LogTrace("Received frame {FrameNum} acknowledgment from client {ClientId}",
-                        frame.FrameNumber, frame.ClientId);
-                }
-            });
+            // Register the stream for sending frames
+            RegisterCrossScreenStream(clientId, responseStream);
 
-            // Keep connection alive until cancelled
-            await acknowledgmentTask;
+            // Listen for acknowledgments from client
+            await foreach (var ack in requestStream.ReadAllAsync(context.CancellationToken))
+            {
+                _logger.LogTrace("Received acknowledgment for frame {FrameNum} from client {ClientId}: success={Success}",
+                    ack.FrameNumber, ack.ClientId, ack.Success);
+            }
         }
         catch (Exception ex)
         {
@@ -513,6 +510,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         }
         finally
         {
+            UnregisterCrossScreenStream(clientId);
             _logger.LogInformation("Cross-screen frame streaming ended for client {ClientId}", clientId);
         }
     }

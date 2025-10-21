@@ -25,7 +25,7 @@ service WallpaperSync {
   rpc UpdateClientDistance(ClientDistanceUpdate) returns (DistanceUpdateResponse);
 
   // Cross-screen frame streaming (server-to-client)
-  rpc StreamCrossScreenFrames(stream CrossScreenFrame) returns (stream FrameAcknowledgment);
+  rpc StreamCrossScreenFrames(stream FrameAcknowledgment) returns (stream CrossScreenFrame);
 }
 
 // Client information message

@@ -38,6 +38,11 @@ public class WaBiBaBuSyService : IDisposable
     /// </summary>
     public WallpaperPlaybackService? PlaybackService => _playbackService;
 
+    /// <summary>
+    /// Get the wallpaper sync client (only available in client mode)
+    /// </summary>
+    public WallpaperSyncClient? Client => _client;
+
     // Events for UI updates
     public event EventHandler<ServerStatusChangedEventArgs>? ServerStatusChanged;
     public event EventHandler<ConnectionStatusChangedEventArgs>? ClientConnectionStatusChanged;
