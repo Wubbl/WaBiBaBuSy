@@ -29,8 +29,27 @@ public class VideoThumbnailGenerator : IDisposable
         Directory.CreateDirectory(_thumbnailCacheDir);
         _logger.LogInformation("Thumbnail cache directory: {CacheDir}", _thumbnailCacheDir);
 
-        // FFMpegCore will automatically download FFmpeg binaries if not found
-        _logger.LogInformation("FFMpegCore initialized - FFmpeg binaries will be auto-downloaded if needed");
+        // Configure FFMpegCore to look for binaries in application directory
+        var appDir = AppContext.BaseDirectory;
+        var ffmpegPath = Path.Combine(appDir, "ffmpeg.exe");
+        var ffprobePath = Path.Combine(appDir, "ffprobe.exe");
+
+        if (File.Exists(ffmpegPath) && File.Exists(ffprobePath))
+        {
+            GlobalFFOptions.Configure(options =>
+            {
+                options.BinaryFolder = appDir;
+                options.TemporaryFilesFolder = Path.GetTempPath();
+            });
+            _logger.LogInformation("FFmpeg binaries found in application directory: {Path}", appDir);
+        }
+        else
+        {
+            _logger.LogWarning("FFmpeg binaries not found in application directory.");
+            _logger.LogWarning("Please download FFmpeg from https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip");
+            _logger.LogWarning("Extract and place ffmpeg.exe and ffprobe.exe in: {AppDir}", appDir);
+            _logger.LogWarning("Video thumbnails will not be available until FFmpeg is installed.");
+        }
     }
 
     /// <summary>

@@ -41,4 +41,12 @@
     </ItemGroup>
     <Copy SourceFiles="@(PlayerImageFiles)" DestinationFolder="$(OutputPath)\%(RecursiveDir)" SkipUnchangedFiles="true" />
   </Target>
+
+  <!-- Copy FFmpeg binaries if they exist -->
+  <Target Name="CopyFFmpegBinaries" AfterTargets="Build">
+    <ItemGroup>
+      <FFmpegFiles Include="ffmpeg\*.exe" />
+    </ItemGroup>
+    <Copy SourceFiles="@(FFmpegFiles)" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" Condition="Exists('ffmpeg\ffmpeg.exe')" />
+  </Target>
 </Project>

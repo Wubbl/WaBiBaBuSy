@@ -14,7 +14,9 @@
       "Bash(dotnet publish:*)",
       "Bash(dotnet clean:*)",
       "Bash(dotnet restore:*)",
-      "Bash(dotnet add:*)"
+      "Bash(dotnet add:*)",
+      "Bash(dotnet remove:*)",
+      "Bash(powershell -ExecutionPolicy Bypass -File \"Download-FFmpeg.ps1\")"
     ],
     "deny": [],
     "ask": []
