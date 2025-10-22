@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using FFMpegCore;
 using FFMpegCore.Enums;
@@ -68,17 +70,17 @@ public class VideoThumbnailGenerator : IDisposable
 
         try
         {
-            // Generate thumbnail filename based on video file
-            var videoFileName = Path.GetFileNameWithoutExtension(videoPath);
-            // Sanitize filename to remove invalid characters
-            var safeFileName = string.Join("_", videoFileName.Split(Path.GetInvalidFileNameChars()));
-            var thumbnailFileName = $"{safeFileName}_{thumbnailWidth}.jpg";
+            // Generate unique cache key based on full path and last modified time
+            var fileInfo = new FileInfo(videoPath);
+            var cacheKey = $"{videoPath}|{fileInfo.LastWriteTimeUtc.Ticks}|{thumbnailWidth}";
+            var hash = ComputeHash(cacheKey);
+            var thumbnailFileName = $"{hash}.jpg";
             var thumbnailPath = Path.Combine(_thumbnailCacheDir, thumbnailFileName);
 
             // If thumbnail already exists, return it
             if (File.Exists(thumbnailPath))
             {
-                _logger.LogDebug("Using cached thumbnail: {ThumbnailPath}", thumbnailPath);
+                _logger.LogDebug("Using cached thumbnail: {ThumbnailPath} for {VideoPath}", thumbnailPath, videoPath);
                 return thumbnailPath;
             }
 
@@ -133,6 +135,16 @@ public class VideoThumbnailGenerator : IDisposable
         {
             _logger.LogError(ex, "Error clearing thumbnail cache");
         }
+    }
+
+    /// <summary>
+    /// Compute SHA256 hash of a string to use as cache key
+    /// </summary>
+    private static string ComputeHash(string input)
+    {
+        var bytes = Encoding.UTF8.GetBytes(input);
+        var hash = SHA256.HashData(bytes);
+        return Convert.ToHexString(hash);
     }
 
     public void Dispose()

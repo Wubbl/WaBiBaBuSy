@@ -4,6 +4,8 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using System.Timers;
 using Avalonia.Platform.Storage;
@@ -123,6 +125,48 @@ public partial class MainWindowViewModel : ViewModelBase
                 if (viewModel.Type == WallpaperType.Image || viewModel.Type == WallpaperType.Gif)
                 {
                     viewModel.ThumbnailPath = item.FilePath;
+                }
+                // For videos, check if cached thumbnail exists
+                else if (viewModel.Type == WallpaperType.Video)
+                {
+                    // Generate the same cache key that would be used for this video
+                    var fileInfo = new FileInfo(item.FilePath);
+                    var cacheKey = $"{item.FilePath}|{fileInfo.LastWriteTimeUtc.Ticks}|320";
+                    var hash = ComputeThumbnailHash(cacheKey);
+                    var thumbnailCacheDir = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "WaBiBaBuSy",
+                        "Thumbnails");
+                    var cachedThumbnailPath = Path.Combine(thumbnailCacheDir, $"{hash}.jpg");
+
+                    if (File.Exists(cachedThumbnailPath))
+                    {
+                        viewModel.ThumbnailPath = cachedThumbnailPath;
+                        Debug.WriteLine($"Found cached thumbnail for video: {item.Name}");
+                    }
+                    else
+                    {
+                        // Generate thumbnail asynchronously
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var thumb = await _thumbnailGenerator.GenerateThumbnail(item.FilePath);
+                                if (!string.IsNullOrEmpty(thumb))
+                                {
+                                    await Dispatcher.UIThread.InvokeAsync(() =>
+                                    {
+                                        viewModel.ThumbnailPath = thumb;
+                                        viewModel.LoadThumbnail();
+                                    });
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Debug.WriteLine($"Error generating thumbnail on load: {ex.Message}");
+                            }
+                        });
+                    }
                 }
 
                 // Load thumbnail
@@ -1137,6 +1181,20 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             IsCrossScreenRunning = e.Status == UI.Services.CrossScreenStatus.Running;
         });
+    }
+
+    #endregion
+
+    #region Helper Methods
+
+    /// <summary>
+    /// Compute SHA256 hash for thumbnail cache key (matches VideoThumbnailGenerator)
+    /// </summary>
+    private static string ComputeThumbnailHash(string input)
+    {
+        var bytes = Encoding.UTF8.GetBytes(input);
+        var hash = SHA256.HashData(bytes);
+        return Convert.ToHexString(hash);
     }
 
     #endregion
