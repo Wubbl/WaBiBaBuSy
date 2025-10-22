@@ -4,8 +4,10 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using WaBiBaBuSy.UI.ViewModels;
+using WaBiBaBuSy.WallpaperEngine.Services;
 using System.Collections.Specialized;
 using System.Diagnostics;
+using Microsoft.Extensions.Logging;
 
 namespace WaBiBaBuSy.UI.Views;
 
@@ -14,6 +16,12 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        // Pre-initialize LibVLC in background to eliminate ~9s delay on first wallpaper
+        // This runs asynchronously and won't block the UI
+        var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole().AddDebug());
+        var logger = loggerFactory.CreateLogger<MainWindow>();
+        _ = LibVLCPreloader.PreloadAsync(logger);
 
         // Set storage provider on the view model when the window is opened
         Opened += OnWindowOpened;
