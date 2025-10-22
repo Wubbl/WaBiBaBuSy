@@ -1,9 +1,46 @@
 # WaBiBaBuSy - Missing Features
 
-**Last Updated:** 2025-10-11
-**Project Status:** ~95% MVP Complete (reduced due to multi-monitor rendering issues)
+**Last Updated:** 2025-10-22
+**Project Status:** ~99% MVP Complete
 
 This document tracks features from the design document that are not yet implemented.
+
+---
+
+## Recently Completed Features (2025-10-22)
+
+### ✅ Wallpaper Loading Performance Optimization
+- Reduced LOAD→PLAY delay from 500ms to 200ms
+- Added LibVLC optimization flags:
+  - `--file-caching=300` (70% reduction from default 1000ms)
+  - `--network-caching=300`
+  - `--avcodec-hw=any` (hardware decoding)
+- Expected improvement: ~60% faster initial wallpaper load time
+
+---
+
+## UI/UX Enhancements (Non-Critical)
+
+### Video Thumbnail Generation in Gallery
+**Priority:** Low (Nice-to-have)
+**Status:** Deferred to Post-MVP
+
+**Issue:**
+LibVLC's snapshot functionality doesn't work reliably in headless/background thread scenarios. Attempted approaches:
+1. `TakeSnapshot()` with Windows Forms window - requires STA thread and message pump
+2. `TakeSnapshot()` in headless mode - snapshot files never created
+3. Video frame callbacks - complex API with memory management issues
+
+**Impact:**
+- Videos appear in gallery without thumbnail previews
+- Functionality not affected - videos still play correctly
+- Users can identify videos by filename and "Video" type label
+
+**Future Solutions:**
+- Use FFmpeg.NET or FFmpeg CLI to extract frames
+- Pre-generate thumbnails when adding videos (not on-demand)
+- Use placeholder "video" icon for all videos
+- Implement in dedicated background service with proper thread management
 
 ---
 

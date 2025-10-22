@@ -11,7 +11,10 @@
       "Bash(dotnet build \"C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Grpc\\WaBiBaBuSy.Grpc.csproj\")",
       "Bash(powershell -Command:*)",
       "Bash(dotnet build:*)",
-      "Bash(dotnet publish:*)"
+      "Bash(dotnet publish:*)",
+      "Bash(dotnet clean:*)",
+      "Bash(dotnet restore:*)",
+      "Bash(dotnet add:*)"
     ],
     "deny": [],
     "ask": []

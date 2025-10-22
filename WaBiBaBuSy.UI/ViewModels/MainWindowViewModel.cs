@@ -564,7 +564,7 @@ public partial class MainWindowViewModel : ViewModelBase
                     // Ignore resolution detection errors
                 }
             }
-            // For videos, generate thumbnail in background
+            // For videos, generate thumbnail using FFmpeg in background
             else if (type == WallpaperType.Video)
             {
                 // Generate thumbnail asynchronously to avoid blocking UI
@@ -572,42 +572,35 @@ public partial class MainWindowViewModel : ViewModelBase
                 {
                     try
                     {
-                        Debug.WriteLine($"Starting thumbnail generation for: {filePath}");
+                        Debug.WriteLine($"Starting FFmpeg thumbnail generation for: {filePath}");
                         var thumb = await _thumbnailGenerator.GenerateThumbnail(filePath);
 
                         if (!string.IsNullOrEmpty(thumb))
                         {
-                            Debug.WriteLine($"Thumbnail path received: {thumb}");
+                            Debug.WriteLine($"Thumbnail generated: {thumb}");
 
-                            Dispatcher.UIThread.Post(() =>
+                            await Dispatcher.UIThread.InvokeAsync(() =>
                             {
                                 var wallpaperItem = Wallpapers.FirstOrDefault(w => w.FilePath == filePath);
                                 if (wallpaperItem != null)
                                 {
-                                    Debug.WriteLine($"Updating wallpaper item with thumbnail");
                                     wallpaperItem.ThumbnailPath = thumb;
                                     wallpaperItem.LoadThumbnail();
                                     Debug.WriteLine($"Thumbnail loaded for: {fileName}");
-                                }
-                                else
-                                {
-                                    Debug.WriteLine($"WARNING: Could not find wallpaper item for path: {filePath}");
                                 }
                             });
                         }
                         else
                         {
-                            Debug.WriteLine($"WARNING: Thumbnail generation returned null for: {filePath}");
+                            Debug.WriteLine($"Thumbnail generation failed for: {filePath}");
                         }
                     }
                     catch (Exception ex)
                     {
                         Debug.WriteLine($"ERROR in thumbnail generation: {ex.Message}");
-                        Debug.WriteLine($"Stack trace: {ex.StackTrace}");
                     }
                 });
 
-                // Video resolution will be detected later if needed
                 resolution = "Video";
             }
 
