@@ -876,3 +876,4 @@ var config = new CrossScreenConfig
 
 **Last Updated**: 2025-10-20
 **Current Status**: ~99% MVP Complete - Cross-screen system implemented, ready for end-to-end testing
+- libVLC dlls missing again. please remember to have them in the bin folder.
