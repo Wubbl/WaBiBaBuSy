@@ -1021,8 +1021,10 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async Task ConfigureCrossScreen()
     {
+        Debug.WriteLine("[ConfigureCrossScreen] Button clicked - opening dialog");
         try
         {
+            Debug.WriteLine("[ConfigureCrossScreen] Creating dialog and viewmodel");
             var dialog = new Views.CrossScreenConfigDialog();
             var viewModel = new CrossScreenConfigViewModel();
 
@@ -1071,18 +1073,29 @@ public partial class MainWindowViewModel : ViewModelBase
 
             if (window != null)
             {
+                Debug.WriteLine("[ConfigureCrossScreen] Showing dialog");
                 await dialog.ShowDialog(window);
+                Debug.WriteLine("[ConfigureCrossScreen] Dialog closed");
 
                 if (viewModel.DialogResult)
                 {
                     _crossScreenConfig = viewModel.BuildConfig();
                     Debug.WriteLine("[CrossScreen] Configuration saved");
                 }
+                else
+                {
+                    Debug.WriteLine("[CrossScreen] Configuration cancelled");
+                }
+            }
+            else
+            {
+                Debug.WriteLine("[ConfigureCrossScreen] ERROR: Could not get main window reference");
             }
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[CrossScreen] Error configuring: {ex.Message}");
+            Debug.WriteLine($"[ConfigureCrossScreen] ERROR: {ex.Message}");
+            Debug.WriteLine($"[ConfigureCrossScreen] Stack trace: {ex.StackTrace}");
         }
     }
 
