@@ -9,6 +9,75 @@ This document tracks features from the design document that are not yet implemen
 
 ## Recently Completed Features (2025-10-22)
 
+### ✅ LibVLC Pre-Initialization (Startup Performance)
+**Priority:** High
+**Status:** ✅ **COMPLETED** (2025-10-22)
+
+**Problem:**
+LibVLC initialization took ~9 seconds on first wallpaper application, creating unacceptable delay.
+
+**Solution:**
+- Created `LibVLCPreloader` static service that pre-initializes LibVLC in background at app startup
+- Thread-safe implementation with locking to prevent double initialization
+- Called from `MainWindow` constructor, runs asynchronously without blocking UI
+- First wallpaper now applies instantly (no 9-second wait)
+
+**Files Created:**
+- `WaBiBaBuSy.WallpaperEngine/Services/LibVLCPreloader.cs` (54 lines)
+
+**Files Modified:**
+- `WaBiBaBuSy.UI/Views/MainWindow.axaml.cs:20-24` - Calls `LibVLCPreloader.PreloadAsync(logger)`
+
+**Performance Impact:**
+- Before: 9-second delay on first wallpaper
+- After: Instant wallpaper application (LibVLC preloaded during idle startup time)
+
+---
+
+### ✅ Video Thumbnail Generation and Caching
+**Priority:** High
+**Status:** ✅ **COMPLETED** (2025-10-22)
+
+**Problem:**
+Video wallpapers had no thumbnail previews in gallery, and thumbnails didn't persist across restarts.
+
+**Solution:**
+- Implemented FFMpegCore-based thumbnail generator with bundled FFmpeg binaries
+- Persistent cache using SHA256 hash of (full path + last modified time + width)
+- Thumbnails cached in `%LOCALAPPDATA%\WaBiBaBuSy\Thumbnails\`
+- Fixed startup loading to check for cached thumbnails before regenerating
+- Extracts frame at 10% of video duration (or max 5 seconds)
+- 320px wide thumbnails with aspect ratio preservation
+
+**Files Created:**
+- `WaBiBaBuSy.UI/Services/VideoThumbnailGenerator.cs` (155 lines)
+- `WaBiBaBuSy.UI/ffmpeg/Download-FFmpeg.ps1` (29 lines) - Automated FFmpeg download script
+
+**Files Modified:**
+- `WaBiBaBuSy.UI/ViewModels/MainWindowViewModel.cs:1-8` - Added using statements for SHA256
+- `WaBiBaBuSy.UI/ViewModels/MainWindowViewModel.cs:31,75` - Added `_thumbnailGenerator` field and initialization
+- `WaBiBaBuSy.UI/ViewModels/MainWindowViewModel.cs:128-168` - Added cached thumbnail lookup on startup
+- `WaBiBaBuSy.UI/ViewModels/MainWindowViewModel.cs:568-602` - Async thumbnail generation when adding videos
+- `WaBiBaBuSy.UI/ViewModels/MainWindowViewModel.cs:1188-1200` - Added `ComputeThumbnailHash()` helper
+- `WaBiBaBuSy.UI/WaBiBaBuSy.UI.csproj:27` - Added FFMpegCore package
+- `WaBiBaBuSy.UI/WaBiBaBuSy.UI.csproj:45-51` - MSBuild target to copy FFmpeg binaries
+
+**Cache Strategy:**
+```
+CacheKey = "{FullPath}|{LastModifiedTicks}|{ThumbnailWidth}"
+Hash = SHA256(CacheKey)
+Filename = "{Hash}.jpg"
+```
+
+**Benefits:**
+- ✅ Instant thumbnail loading on startup (uses cached files)
+- ✅ Persistent across app restarts
+- ✅ Auto-regeneration when video file is modified
+- ✅ Unique thumbnails for videos with same name in different folders
+- ✅ No external FFmpeg installation required (bundled)
+
+---
+
 ### ✅ Wallpaper Loading Performance Optimization
 - Reduced LOAD→PLAY delay from 500ms to 200ms
 - Added LibVLC optimization flags:
@@ -16,31 +85,6 @@ This document tracks features from the design document that are not yet implemen
   - `--network-caching=300`
   - `--avcodec-hw=any` (hardware decoding)
 - Expected improvement: ~60% faster initial wallpaper load time
-
----
-
-## UI/UX Enhancements (Non-Critical)
-
-### Video Thumbnail Generation in Gallery
-**Priority:** Low (Nice-to-have)
-**Status:** Deferred to Post-MVP
-
-**Issue:**
-LibVLC's snapshot functionality doesn't work reliably in headless/background thread scenarios. Attempted approaches:
-1. `TakeSnapshot()` with Windows Forms window - requires STA thread and message pump
-2. `TakeSnapshot()` in headless mode - snapshot files never created
-3. Video frame callbacks - complex API with memory management issues
-
-**Impact:**
-- Videos appear in gallery without thumbnail previews
-- Functionality not affected - videos still play correctly
-- Users can identify videos by filename and "Video" type label
-
-**Future Solutions:**
-- Use FFmpeg.NET or FFmpeg CLI to extract frames
-- Pre-generate thumbnails when adding videos (not on-demand)
-- Use placeholder "video" icon for all videos
-- Implement in dedicated background service with proper thread management
 
 ---
 

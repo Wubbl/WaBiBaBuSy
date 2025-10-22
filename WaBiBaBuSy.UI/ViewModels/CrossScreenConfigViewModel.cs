@@ -11,6 +11,7 @@ namespace WaBiBaBuSy.UI.ViewModels;
 public partial class CrossScreenConfigViewModel : ViewModelBase
 {
     private IStorageProvider? _storageProvider;
+    private Action? _closeAction;
 
     [ObservableProperty]
     private int _backgroundModeIndex = 0;
@@ -54,6 +55,11 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     public void SetStorageProvider(IStorageProvider storageProvider)
     {
         _storageProvider = storageProvider;
+    }
+
+    public void SetCloseAction(Action closeAction)
+    {
+        _closeAction = closeAction;
     }
 
     public void LoadFromConfig(CrossScreenConfig config)
@@ -191,13 +197,13 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         }
 
         DialogResult = true;
-        // Close dialog - will be handled by MainWindowViewModel
+        _closeAction?.Invoke();
     }
 
     [RelayCommand]
     private void Cancel()
     {
         DialogResult = false;
-        // Close dialog - will be handled by MainWindowViewModel
+        _closeAction?.Invoke();
     }
 }

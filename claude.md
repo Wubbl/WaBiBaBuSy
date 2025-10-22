@@ -874,6 +874,41 @@ var config = new CrossScreenConfig
 
 ---
 
-**Last Updated**: 2025-10-20
-**Current Status**: ~99% MVP Complete - Cross-screen system implemented, ready for end-to-end testing
-- libVLC dlls missing again. please remember to have them in the bin folder.
+## Recent Updates & Bug Fixes
+
+### 2025-10-22 - Performance Optimization & Video Thumbnails
+
+**Major Achievements:**
+
+**1. LibVLC Pre-Initialization** ✅
+- Problem: LibVLC Core.Initialize() took ~9 seconds on first wallpaper application
+- Solution: Created `LibVLCPreloader` service that pre-initializes LibVLC in background at app startup
+- Implementation: Called from MainWindow constructor, runs asynchronously via Task.Run()
+- Result: First wallpaper now applies instantly (no 9-second wait)
+- Files: `WaBiBaBuSy.WallpaperEngine/Services/LibVLCPreloader.cs`, `MainWindow.axaml.cs:20-24`
+
+**2. Video Thumbnail Generation & Persistent Caching** ✅
+- Problem: Videos had no thumbnails, and they didn't persist across restarts
+- Solution: FFMpegCore-based thumbnail generator with SHA256 cache keys
+- Cache Strategy: `SHA256(fullPath|lastModified|width).jpg` in `%LOCALAPPDATA%\WaBiBaBuSy\Thumbnails`
+- Implementation:
+  - Extracts frame at 10% of video duration (max 5 seconds)
+  - 320px wide thumbnails with aspect ratio preservation
+  - Cached thumbnails loaded on startup (lines 128-168 in MainWindowViewModel.cs)
+  - Async generation when adding new videos (lines 568-602)
+  - Bundled FFmpeg binaries (downloaded via PowerShell script, copied by MSBuild)
+- Files: `VideoThumbnailGenerator.cs` (155 lines), `Download-FFmpeg.ps1`, `WaBiBaBuSy.UI.csproj:45-51`
+
+**3. Wallpaper Loading Performance** ✅
+- Reduced LOAD→PLAY delay: 500ms → 200ms (60% improvement)
+- Added LibVLC optimization flags:
+  - `--file-caching=300` (70% reduction from default 1000ms)
+  - `--network-caching=300`
+  - `--avcodec-hw=any` (hardware decoding)
+
+**Build Status:** ✅ Clean build - 0 errors, 6 warnings (all pre-existing)
+
+---
+
+**Last Updated**: 2025-10-22
+**Current Status**: ~99% MVP Complete - Cross-screen system implemented, performance optimized, ready for configuration UI

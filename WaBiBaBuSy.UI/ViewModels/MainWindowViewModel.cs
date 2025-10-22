@@ -1061,6 +1061,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
             dialog.DataContext = viewModel;
 
+            // Set close action so ViewModel can close the dialog
+            viewModel.SetCloseAction(() => dialog.Close());
+
             // Show dialog
             var window = App.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop
                 ? desktop.MainWindow
