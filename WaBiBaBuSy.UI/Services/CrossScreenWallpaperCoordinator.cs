@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Threading;
 using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Core.Services;
 using WaBiBaBuSy.Models.Wallpaper;
 using WaBiBaBuSy.WallpaperEngine.Composition;
-using Timer = System.Threading.Timer;
 
 namespace WaBiBaBuSy.UI.Services;
 
@@ -24,12 +24,16 @@ public class CrossScreenWallpaperCoordinator : IDisposable
     private VirtualCanvasManager? _canvasManager;
     private CompositionRenderer? _compositor;
     private CrossScreenConfig? _config;
-    private Timer? _renderTimer;
+    private DispatcherTimer? _renderTimer;
 
     private bool _isRunning;
     private long _startTimestamp;
     private int _frameCount;
     private bool _disposed;
+
+    // For local-only mode rendering
+    public delegate Task LocalFrameHandler(Dictionary<string, Bitmap> frames, long timestamp);
+    public event LocalFrameHandler? LocalFrameRendered;
 
     // Performance metrics
     private readonly System.Diagnostics.Stopwatch _performanceTimer = new();
@@ -110,9 +114,16 @@ public class CrossScreenWallpaperCoordinator : IDisposable
         _startTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         _frameCount = 0;
 
-        // Start render loop at 30 FPS (33ms per frame)
+        // Start render loop at 30 FPS (33ms per frame) using DispatcherTimer (UI thread)
         var frameIntervalMs = 1000 / 30;
-        _renderTimer = new Timer(OnRenderFrame, null, 0, frameIntervalMs);
+        _renderTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(frameIntervalMs)
+        };
+        _renderTimer.Tick += (s, e) => OnRenderFrame(null);
+        _renderTimer.Start();
+
+        _logger.LogInformation("DispatcherTimer started with interval {IntervalMs}ms", frameIntervalMs);
 
         StatusChanged?.Invoke(this, new CrossScreenStatusEventArgs
         {
@@ -139,7 +150,11 @@ public class CrossScreenWallpaperCoordinator : IDisposable
         _logger.LogInformation("Stopping cross-screen wallpaper animation");
 
         _isRunning = false;
-        _renderTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        if (_renderTimer != null)
+        {
+            _renderTimer.Stop();
+            _logger.LogInformation("DispatcherTimer stopped");
+        }
 
         StatusChanged?.Invoke(this, new CrossScreenStatusEventArgs
         {
@@ -161,7 +176,7 @@ public class CrossScreenWallpaperCoordinator : IDisposable
         if (!_isRunning)
             return Task.CompletedTask;
 
-        _renderTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        _renderTimer?.Stop();
         _isRunning = false;
 
         StatusChanged?.Invoke(this, new CrossScreenStatusEventArgs
@@ -189,39 +204,102 @@ public class CrossScreenWallpaperCoordinator : IDisposable
 
     private void OnRenderFrame(object? state)
     {
-        if (!_isRunning || _compositor == null || _canvasManager == null || _config == null)
-            return;
-
         try
         {
+            _logger.LogDebug("OnRenderFrame called - isRunning={IsRunning}", _isRunning);
+
+            if (!_isRunning || _compositor == null || _canvasManager == null || _config == null)
+            {
+                _logger.LogWarning("OnRenderFrame: Early exit - isRunning={IsRunning}, compositor={Compositor}, canvasManager={Canvas}, config={Config}",
+                    _isRunning, _compositor != null, _canvasManager != null, _config != null);
+                return;
+            }
+
+            // For local-only mode, we just render frames but don't send them over network
+            // A full local rendering implementation would apply frames directly to wallpaper
+            // For now, we just log that we're rendering
+            var isLocalOnlyMode = _syncCoordinator == null;
+
             _performanceTimer.Restart();
 
             var currentTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+            _logger.LogDebug("Composing frames - timestamp={Timestamp}, speed={Speed}",
+                currentTimestamp, _config.AnimationSpeedPxPerSecond);
 
             // Compose frames for all screens
             var frames = _compositor.ComposeForAllScreens(
                 currentTimestamp,
                 _config.AnimationSpeedPxPerSecond);
 
-            // Distribute frames to clients
+            _logger.LogDebug("Composition complete - frames generated: {Count}", frames?.Count ?? 0);
+
+            if (frames == null || frames.Count == 0)
+            {
+                _logger.LogWarning("No frames generated from composition");
+                return;
+            }
+
+            // If in local-only mode, raise event for UI layer to handle
+            if (isLocalOnlyMode)
+            {
+                try
+                {
+                    _logger.LogTrace("Frame {FrameNum} composed for {Count} local screens", _frameCount, frames.Count);
+
+                    // Raise event so UI layer can apply frames to wallpaper
+                    LocalFrameRendered?.Invoke(frames, currentTimestamp);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error raising LocalFrameRendered event");
+                }
+                finally
+                {
+                    // Dispose all frames
+                    foreach (var (_, frameBitmap) in frames)
+                    {
+                        frameBitmap?.Dispose();
+                    }
+                }
+                _frameCount++;
+                return;
+            }
+
+            // Distribute frames to clients over network
             foreach (var (clientId, frameBitmap) in frames)
             {
                 try
                 {
-                    // Encode frame to JPEG for network transmission
-                    var frameData = _compositor.EncodeBitmapToJpeg(frameBitmap, quality: 90);
+                    if (frameBitmap == null)
+                    {
+                        _logger.LogWarning("Null frame bitmap for client {ClientId}", clientId);
+                        continue;
+                    }
 
-                    // Send frame via sync coordinator
-                    _ = _syncCoordinator.SendCrossScreenFrameAsync(
-                        clientId,
-                        _frameCount,
-                        currentTimestamp,
-                        frameData,
-                        frameBitmap.Width,
-                        frameBitmap.Height);
+                    if (_syncCoordinator != null)
+                    {
+                        // Encode frame to JPEG for network transmission
+                        var frameData = _compositor.EncodeBitmapToJpeg(frameBitmap, quality: 90);
 
-                    _logger.LogTrace("Frame {FrameNum} sent to client {ClientId}: {Width}x{Height}, {Size} KB",
-                        _frameCount, clientId, frameBitmap.Width, frameBitmap.Height, frameData.Length / 1024);
+                        if (frameData == null || frameData.Length == 0)
+                        {
+                            _logger.LogWarning("Failed to encode frame for client {ClientId}", clientId);
+                            continue;
+                        }
+
+                        // Send frame via sync coordinator
+                        _ = _syncCoordinator.SendCrossScreenFrameAsync(
+                            clientId,
+                            _frameCount,
+                            currentTimestamp,
+                            frameData,
+                            frameBitmap.Width,
+                            frameBitmap.Height);
+
+                        _logger.LogTrace("Frame {FrameNum} sent to client {ClientId}: {Width}x{Height}, {Size} KB",
+                            _frameCount, clientId, frameBitmap.Width, frameBitmap.Height, frameData.Length / 1024);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -230,7 +308,7 @@ public class CrossScreenWallpaperCoordinator : IDisposable
                 finally
                 {
                     // Always dispose frame bitmap
-                    frameBitmap.Dispose();
+                    frameBitmap?.Dispose();
                 }
             }
 
@@ -283,7 +361,7 @@ public class CrossScreenWallpaperCoordinator : IDisposable
 
         StopAsync().Wait();
 
-        _renderTimer?.Dispose();
+        _renderTimer?.Stop();
         _renderTimer = null;
 
         _compositor?.Dispose();

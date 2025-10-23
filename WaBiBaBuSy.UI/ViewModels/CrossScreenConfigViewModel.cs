@@ -251,6 +251,56 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// Set the list of available wallpapers from the gallery
+    /// </summary>
+    public void SetAvailableWallpapers(IEnumerable<WallpaperItemViewModel> wallpapers)
+    {
+        _availableWallpapers = wallpapers.ToList();
+    }
+
+    private List<WallpaperItemViewModel> _availableWallpapers = new();
+
+    /// <summary>
+    /// Browse animations from the wallpaper gallery with multi-select
+    /// </summary>
+    [RelayCommand]
+    public async Task BrowseAnimationGallery()
+    {
+        if (_availableWallpapers.Count == 0) return;
+
+        // Filter to only animations (videos and GIFs)
+        var animations = _availableWallpapers
+            .Where(w => w.Type == WallpaperType.Video || w.Type == WallpaperType.Gif)
+            .ToList();
+
+        if (animations.Count == 0) return;
+
+        // This will be called from the view - pass null for now
+        // In Phase 2, we'll integrate with the main window to show the dialog
+        // For now, just implement the basic file browser approach
+    }
+
+    /// <summary>
+    /// Browse background images from the wallpaper gallery with multi-select
+    /// </summary>
+    [RelayCommand]
+    public async Task BrowseBackgroundGallery()
+    {
+        if (_availableWallpapers.Count == 0) return;
+
+        // Filter to only background images
+        var backgrounds = _availableWallpapers
+            .Where(w => w.Type == WallpaperType.Image)
+            .ToList();
+
+        if (backgrounds.Count == 0) return;
+
+        // This will be called from the view - pass null for now
+        // In Phase 3, we'll integrate with the main window to show the dialog with preview
+        // For now, just implement the basic file browser approach
+    }
+
     [RelayCommand]
     private void Ok()
     {

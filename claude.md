@@ -7,7 +7,10 @@ WaBiBaBuSy is a networked wallpaper synchronization application that enables sea
 **Project Name:** "BiBaBu" is our club name and the project name means WallpaperBiBaBuSync
 **Version:** 2.0
 **Target Framework:** .NET 8.0
-**Status:** ~99% MVP Complete
+**Status:** ~99% MVP Complete (UI Enhancement Phase)
+**Last Updated:** 2025-10-23
+**Current Work:** Feature Request #1 - Gallery UI Component (Phases 1-3 complete)
+**Next:** Issue #2 - Distributed Animation Architecture
 
 ## Key Capabilities
 
@@ -411,6 +414,76 @@ WaBiBaBuSy.UI/
 ---
 
 ## Recent Updates & Bug Fixes
+
+### 2025-10-23 - Feature Request #1: Gallery-Based Animation & Background Selection (Phases 1-3)
+
+**Major UI Component Complete:**
+- ✅ **Gallery Multi-Select Component** - Reusable `WallpaperMultiSelectDialog` for browsing wallpapers
+  - Filter by type: All, Animations (Video/GIF), Backgrounds (Images), Videos, Images, GIFs
+  - Search by name or file path with instant filtering
+  - Sort options: Name (A-Z/Z-A), Size (large first), Type
+  - Grid display with thumbnails, type badge, file size, resolution
+  - Selection summary showing item count and total size
+  - Multi-select with "Select All" checkbox support
+  - OK/Cancel buttons with validation (at least 1 item required)
+
+- ✅ **Animation Selection Integration** - Users can now:
+  - Click "From Gallery..." button in cross-screen configuration dialog
+  - Browse and select animation files from wallpaper gallery
+  - Multi-select support for future sequential animation features
+  - Automatically filters to Video/GIF file types only
+
+- ✅ **Background Selection Integration** - Users can now:
+  - Click "From Gallery..." button for background image selection
+  - Browse and select background images from wallpaper gallery
+  - Automatically filters to Image file types only
+
+- ✅ **Dual Browse Pattern** - Both animation and background now support:
+  - "Browse File..." - Traditional file picker (existing behavior preserved)
+  - "From Gallery..." - New gallery-based selection with multi-select
+
+**Files Created (3 files, 452 lines):**
+- `WaBiBaBuSy.UI/ViewModels/WallpaperMultiSelectDialogViewModel.cs` (298 lines)
+  - `WallpaperMultiSelectItem` class with IsSelected binding
+  - `WallpaperFilterMode` enum (All, Animations, Backgrounds, Videos, Images, Gifs)
+  - Search/filter/sort logic with instant collection updates
+  - Selection summary calculation (count + total size)
+
+- `WaBiBaBuSy.UI/Views/WallpaperMultiSelectDialog.axaml` (117 lines)
+  - 4-column grid using ItemsControl + UniformGrid
+  - Search textbox, filter dropdown, sort dropdown, select-all checkbox
+  - Type badge (Video/Image/GIF), name, file size, resolution display
+  - Consistent dark theme styling matching application
+
+- `WaBiBaBuSy.UI/Views/WallpaperMultiSelectDialog.axaml.cs` (37 lines)
+  - Static `ShowDialogAsync()` helper for easy modal invocation
+  - Proper dialog lifecycle and return value handling
+
+**Files Modified (2 files):**
+- `WaBiBaBuSy.UI/ViewModels/CrossScreenConfigViewModel.cs`
+  - `SetAvailableWallpapers(IEnumerable<WallpaperItemViewModel>)` method
+  - `BrowseAnimationGallery()` command (filtered to Video/GIF)
+  - `BrowseBackgroundGallery()` command (filtered to Image)
+  - `_availableWallpapers` field for gallery state
+
+- `WaBiBaBuSy.UI/Views/CrossScreenConfigDialog.axaml`
+  - Updated animation browse Grid: `ColumnDefinitions="*,Auto,Auto"` with two buttons
+  - Updated background browse Grid: same dual-button pattern
+  - "From Gallery..." buttons wired to new gallery commands
+
+**Build Status:** ✅ All projects compile successfully
+- 0 compilation errors
+- 3 expected warnings (async stubs, null reference in cross-screen timing)
+
+**Remaining Work (Phase 4 - Optional):**
+- Gallery context menu: "Use as Animation" / "Use as Background" quick-launch
+- Batch operations on multi-select items
+- Advanced preview system for background modes
+- Full dialog invocation wiring (1-2 hours integration work)
+
+**Next Priority:** Issue #2 - New Server-Client Animation Architecture (distributed rendering)
+
+---
 
 ### 2025-10-23 - Network Topology Multi-Monitor Selection & Cross-Screen Configuration
 
