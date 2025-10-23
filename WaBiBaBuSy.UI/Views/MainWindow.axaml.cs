@@ -1,18 +1,26 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using WaBiBaBuSy.UI.ViewModels;
 using WaBiBaBuSy.WallpaperEngine.Services;
+using System;
 using System.Collections.Specialized;
 using System.Diagnostics;
+using System.Linq;
 using Microsoft.Extensions.Logging;
 
 namespace WaBiBaBuSy.UI.Views;
 
 public partial class MainWindow : Window
 {
+    private Canvas? _topologyCanvas;
+    private Point _dragStartPoint;
+    private bool _isDragging = false;
+    private Rectangle? _selectionRectangle;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -39,6 +47,15 @@ public partial class MainWindow : Window
             viewModel.Clients.CollectionChanged += OnClientsCollectionChanged;
             // Render initial clients
             RenderClientNodes();
+
+            // Set up canvas for selection
+            _topologyCanvas = this.FindControl<Canvas>("TopologyCanvas");
+            if (_topologyCanvas != null)
+            {
+                _topologyCanvas.PointerPressed += OnCanvasPointerPressed;
+                _topologyCanvas.PointerMoved += OnCanvasPointerMoved;
+                _topologyCanvas.PointerReleased += OnCanvasPointerReleased;
+            }
         }
     }
 
@@ -176,11 +193,26 @@ public partial class MainWindow : Window
 
         border.Child = stackPanel;
 
-        // Add click handler
+        // Add click handler with Ctrl+Click support for multi-select
         border.PointerPressed += (s, e) =>
         {
             Debug.WriteLine($"[MainWindow] Client node clicked: {client.DisplayName}");
-            viewModel.SelectClientCommand.Execute(client);
+            var properties = e.GetCurrentPoint(border).Properties;
+
+            // Check if Ctrl key is pressed
+            var ctrlPressed = (e.KeyModifiers & KeyModifiers.Control) == KeyModifiers.Control;
+
+            if (ctrlPressed)
+            {
+                // Toggle selection without clearing other selections
+                Debug.WriteLine($"[MainWindow] Ctrl+Click: toggling selection for {client.DisplayName}");
+                client.IsSelected = !client.IsSelected;
+            }
+            else
+            {
+                // Normal click: select only this client (deselect others)
+                viewModel.SelectClientCommand.Execute(client);
+            }
         };
 
         // Add hover effect (but respect selection state)
@@ -201,6 +233,128 @@ public partial class MainWindow : Window
         };
 
         return border;
+    }
+
+    /// <summary>
+    /// Handle canvas mouse down - start rectangle selection drag
+    /// </summary>
+    private void OnCanvasPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (_topologyCanvas == null)
+            return;
+
+        var point = e.GetCurrentPoint(_topologyCanvas);
+
+        // Only start drag selection on empty canvas area (not on client nodes)
+        if (point.Properties.IsLeftButtonPressed && e.Source == _topologyCanvas)
+        {
+            _dragStartPoint = point.Position;
+            _isDragging = true;
+
+            // Check if Ctrl is pressed
+            var ctrlPressed = (e.KeyModifiers & KeyModifiers.Control) == KeyModifiers.Control;
+            if (!ctrlPressed)
+            {
+                // Deselect all clients when starting new selection without Ctrl
+                if (DataContext is MainWindowViewModel viewModel)
+                {
+                    foreach (var client in viewModel.Clients)
+                    {
+                        client.IsSelected = false;
+                    }
+                }
+            }
+
+            // Create selection rectangle
+            _selectionRectangle = new Rectangle
+            {
+                Fill = new SolidColorBrush(Color.Parse("#0078D433")),  // Semi-transparent blue
+                Stroke = new SolidColorBrush(Color.Parse("#0078D4")),
+                StrokeThickness = 2
+            };
+
+            Canvas.SetLeft(_selectionRectangle, _dragStartPoint.X);
+            Canvas.SetTop(_selectionRectangle, _dragStartPoint.Y);
+            _topologyCanvas.Children.Add(_selectionRectangle);
+
+            Debug.WriteLine($"[MainWindow] Started rectangle selection at ({_dragStartPoint.X}, {_dragStartPoint.Y})");
+        }
+    }
+
+    /// <summary>
+    /// Handle canvas mouse move - update rectangle selection
+    /// </summary>
+    private void OnCanvasPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (!_isDragging || _topologyCanvas == null || _selectionRectangle == null)
+            return;
+
+        var point = e.GetCurrentPoint(_topologyCanvas);
+        var currentPoint = point.Position;
+
+        // Calculate rectangle bounds
+        var left = Math.Min(_dragStartPoint.X, currentPoint.X);
+        var top = Math.Min(_dragStartPoint.Y, currentPoint.Y);
+        var width = Math.Abs(currentPoint.X - _dragStartPoint.X);
+        var height = Math.Abs(currentPoint.Y - _dragStartPoint.Y);
+
+        Canvas.SetLeft(_selectionRectangle, left);
+        Canvas.SetTop(_selectionRectangle, top);
+        _selectionRectangle.Width = width;
+        _selectionRectangle.Height = height;
+
+        // Update client selections based on rectangle
+        if (DataContext is MainWindowViewModel viewModel)
+        {
+            var selectionBounds = new Rect(left, top, width, height);
+
+            foreach (var client in viewModel.Clients)
+            {
+                // Find the border for this client
+                var clientBorder = _topologyCanvas.Children
+                    .OfType<Border>()
+                    .FirstOrDefault(b => b.DataContext == client);
+
+                if (clientBorder != null)
+                {
+                    var clientX = Canvas.GetLeft(clientBorder);
+                    var clientY = Canvas.GetTop(clientBorder);
+                    var clientRect = new Rect(clientX, clientY, clientBorder.Width, clientBorder.Height);
+
+                    // Check if client node intersects with selection rectangle
+                    if (selectionBounds.Intersects(clientRect))
+                    {
+                        client.IsSelected = true;
+                    }
+                    else
+                    {
+                        // Only deselect if Ctrl is not pressed (to preserve existing selections)
+                        var ctrlPressed = (e.KeyModifiers & KeyModifiers.Control) == KeyModifiers.Control;
+                        if (!ctrlPressed)
+                        {
+                            client.IsSelected = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Handle canvas mouse up - finish rectangle selection
+    /// </summary>
+    private void OnCanvasPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (!_isDragging || _topologyCanvas == null || _selectionRectangle == null)
+            return;
+
+        _isDragging = false;
+
+        // Remove selection rectangle
+        _topologyCanvas.Children.Remove(_selectionRectangle);
+        _selectionRectangle = null;
+
+        Debug.WriteLine("[MainWindow] Finished rectangle selection");
     }
 
     private void OnWindowOpened(object? sender, System.EventArgs e)

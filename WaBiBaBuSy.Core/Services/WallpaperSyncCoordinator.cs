@@ -235,6 +235,86 @@ public class WallpaperSyncCoordinator
     }
 
     /// <summary>
+    /// Load wallpaper on a specific client (not broadcast)
+    /// </summary>
+    public async Task LoadWallpaperOnClientAsync(
+        string clientId,
+        string contentId,
+        string filePath,
+        int? customAnimationSpeed = null)
+    {
+        if (_syncService == null)
+        {
+            _logger.LogWarning("Cannot load wallpaper: sync service not initialized");
+            return;
+        }
+
+        var animationSpeed = customAnimationSpeed ?? DefaultAnimationSpeedCmPerSec;
+
+        var command = new SyncCommand
+        {
+            Type = CommandType.Load,
+            TimestampUtc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            SequenceNumber = System.Threading.Interlocked.Increment(ref _sequenceNumber),
+            ContentId = contentId,
+            Params = new SyncParameters
+            {
+                AnimationSpeedCmPerSec = animationSpeed,
+                CalculatedDelayMs = 0,  // No delay for targeted single client
+                Loop = true
+            }
+        };
+
+        _logger.LogInformation("Loading wallpaper {ContentId} on client {ClientId}", contentId, clientId);
+
+        try
+        {
+            await _syncService.SendCommandToClientAsync(clientId, command);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading wallpaper on client {ClientId}", clientId);
+        }
+    }
+
+    /// <summary>
+    /// Play wallpaper on a specific client (not broadcast)
+    /// </summary>
+    public async Task PlayOnClientAsync(string clientId, string contentId)
+    {
+        if (_syncService == null)
+        {
+            _logger.LogWarning("Cannot play wallpaper: sync service not initialized");
+            return;
+        }
+
+        var command = new SyncCommand
+        {
+            Type = CommandType.Play,
+            TimestampUtc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            SequenceNumber = System.Threading.Interlocked.Increment(ref _sequenceNumber),
+            ContentId = contentId,
+            Params = new SyncParameters
+            {
+                AnimationSpeedCmPerSec = DefaultAnimationSpeedCmPerSec,
+                CalculatedDelayMs = 0,
+                Loop = true
+            }
+        };
+
+        _logger.LogInformation("Playing wallpaper {ContentId} on client {ClientId}", contentId, clientId);
+
+        try
+        {
+            await _syncService.SendCommandToClientAsync(clientId, command);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error playing wallpaper on client {ClientId}", clientId);
+        }
+    }
+
+    /// <summary>
     /// Send a cross-screen frame to a specific client
     /// </summary>
     public async Task SendCrossScreenFrameAsync(

@@ -412,6 +412,86 @@ WaBiBaBuSy.UI/
 
 ## Recent Updates & Bug Fixes
 
+### 2025-10-23 - Network Topology Multi-Monitor Selection & Cross-Screen Configuration
+
+**Major Features Complete:**
+- ✅ **Multi-Monitor Selection in Configuration Dialog** - Users can now select specific monitors/clients for animation in CrossScreenConfigDialog
+- ✅ **Rectangle Drag Selection in Topology** - Click and drag to draw selection rectangle around monitor nodes
+- ✅ **Ctrl+Click Multi-Select** - Hold Ctrl and click to toggle individual monitors on/off without affecting others
+- ✅ **Dynamic Monitor List UI** - Configuration dialog shows all connected monitors with hostname, resolution, and IP address
+
+**Architecture:**
+- Rectangle selection uses pointer events (PointerPressed, PointerMoved, PointerReleased)
+- Selection rectangle drawn in semi-transparent blue (#0078D433) with blue stroke
+- Live intersection detection: monitors highlighted as rectangle moves over them
+- Ctrl key modifier preserves existing selections (additive mode)
+- Non-Ctrl drag clears previous selections (replace mode)
+
+**Files Created:**
+- None (purely behavioral enhancement)
+
+**Files Modified (5 files):**
+- `WaBiBaBuSy.Models/Wallpaper/CrossScreenConfig.cs` - Added SelectedMonitorIds and UseDistributedRendering properties
+- `WaBiBaBuSy.UI/ViewModels/CrossScreenConfigViewModel.cs` - Created MonitorSelectionItem class, added SetAvailableMonitors(), updated BuildConfig()
+- `WaBiBaBuSy.UI/Views/CrossScreenConfigDialog.axaml` - Added monitor selection UI with checkboxes
+- `WaBiBaBuSy.UI/ViewModels/MainWindowViewModel.cs` - Updated ConfigureCrossScreen() to pass available monitors
+- `WaBiBaBuSy.UI/Views/MainWindow.axaml.cs` - Added rectangle selection handlers with live preview
+
+**User Interactions:**
+
+1. **Single Client Selection:**
+   - Click on client node to select (deselects others)
+
+2. **Multi-Select with Ctrl+Click:**
+   - Hold Ctrl and click to add/remove clients from selection
+   - Example: Ctrl+Click client A, then Ctrl+Click client B → both selected
+   - Ctrl+Click again to deselect
+
+3. **Rectangle Drag Selection:**
+   - Click on empty canvas area and drag to draw selection rectangle
+   - All intersecting client nodes are selected
+   - Releases selection rectangle on mouse up
+   - Works with Ctrl to preserve existing selections
+
+4. **Configuration Dialog:**
+   - Opens when clicking "Configure..." button in cross-screen mode
+   - Shows all connected monitors with:
+     - Checkbox for selection (all selected by default)
+     - Hostname and IP address
+     - Resolution (e.g., 1920x1080)
+   - Section only visible if 2+ monitors connected
+   - Configuration saves selected monitor list
+
+5. **Animation Application:**
+   - When starting animation, only selected monitors receive animation
+   - If no monitors selected in config, defaults to all monitors
+   - Selection list stored in CrossScreenConfig.SelectedMonitorIds
+
+**Visual Feedback:**
+- Selected nodes: Bright blue border (#0078D4), lighter background (#4E5A6E)
+- Unselected nodes: Gray border (#666666), dark background (#3E3E42)
+- Hover effect on unselected: Slightly lighter background (#4E4E52)
+- Selection rectangle: Semi-transparent blue fill with blue outline
+- All transitions smooth and responsive
+
+**Performance Impact:**
+- Negligible - selection is O(n) where n = number of monitors
+- Typical systems have 3-5 monitors, canvas intersection is fast
+- No network impact, purely local UI operation
+
+**Testing Checklist:**
+- [ ] Click single monitor - only that one selected
+- [ ] Ctrl+Click another monitor - both selected
+- [ ] Click empty area - deselects all
+- [ ] Rectangle drag selects monitors inside rectangle
+- [ ] Rectangle drag with Ctrl preserves selections outside rectangle
+- [ ] Open config dialog - shows all monitors selected by default
+- [ ] Deselect monitors in dialog, click OK - animation only on selected monitors
+- [ ] Start animation with multiple selected monitors - all get animation
+- [ ] Close app and reopen - selected monitor list persists in config
+
+---
+
 ### 2025-10-23 - Auto-Update System Implementation
 **Major Feature Complete:**
 - ✅ **Complete auto-update infrastructure** with version detection, chunked file transfer, and standalone updater

@@ -274,45 +274,67 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async Task ApplyWallpaperToSelected()
     {
-        if (SelectedClient == null || SelectedWallpaper == null)
+        if (SelectedWallpaper == null)
         {
-            Debug.WriteLine("[ApplyWallpaperToSelected] No client or wallpaper selected");
+            Debug.WriteLine("[ApplyWallpaperToSelected] No wallpaper selected");
             return;
         }
 
-        // Check if we're in local-only mode
-        var isLocalOnlyMode = !_service.IsServerRunning && !_service.IsClientConnected;
+        // Get all selected clients (multi-select support)
+        var selectedClients = Clients.Where(c => c.IsSelected).ToList();
 
-        if (isLocalOnlyMode && SelectedClient.ClientId.StartsWith("LOCAL_MACHINE"))
+        if (selectedClients.Count == 0)
         {
-            Debug.WriteLine("[ApplyWallpaperToSelected] Local-only mode - applying wallpaper locally to monitor");
-            await ApplyWallpaperLocally(SelectedWallpaper, SelectedClient.MonitorIndex);
+            Debug.WriteLine("[ApplyWallpaperToSelected] No clients selected");
             return;
         }
 
-        if (!_service.IsServerRunning || _service.SyncCoordinator == null)
+        Debug.WriteLine($"[ApplyWallpaperToSelected] Applying wallpaper '{SelectedWallpaper.Name}' to {selectedClients.Count} selected client(s)");
+
+        // Apply wallpaper to each selected client
+        foreach (var client in selectedClients)
         {
-            Debug.WriteLine("[ApplyWallpaperToSelected] Server not running or sync coordinator not available");
-            return;
-        }
+            try
+            {
+                Debug.WriteLine($"[ApplyWallpaperToSelected] Sending wallpaper to '{client.Hostname}'");
 
-        try
-        {
-            Debug.WriteLine($"[ApplyWallpaperToSelected] Applying wallpaper '{SelectedWallpaper.Name}' to client '{SelectedClient.Hostname}'");
+                // Check if this is a local client (LOCAL_MACHINE)
+                if (client.ClientId.StartsWith("LOCAL_MACHINE"))
+                {
+                    // Apply locally
+                    await ApplyWallpaperLocally(SelectedWallpaper, client.MonitorIndex);
+                }
+                else if (_service.IsServerRunning && _service.SyncCoordinator != null)
+                {
+                    // Apply via network to remote client
+                    // Load wallpaper on client (targeted, not broadcast)
+                    await _service.SyncCoordinator.LoadWallpaperOnClientAsync(
+                        client.ClientId,
+                        SelectedWallpaper.WallpaperId,
+                        SelectedWallpaper.FilePath
+                    );
 
-            // Use wallpaper ID as content ID
-            var contentId = SelectedWallpaper.WallpaperId;
+                    // Play wallpaper on client (targeted, not broadcast)
+                    await _service.SyncCoordinator.PlayOnClientAsync(
+                        client.ClientId,
+                        SelectedWallpaper.WallpaperId
+                    );
+                }
+                else
+                {
+                    Debug.WriteLine($"[ApplyWallpaperToSelected] Skipping remote client '{client.Hostname}' - server not running");
+                    continue;
+                }
 
-            // For single client, we need to implement a targeted send
-            // For now, we'll just update the UI and log a warning
-            Debug.WriteLine($"WARNING: Single client wallpaper application not yet implemented in coordinator. Use 'Apply to All Clients' instead.");
+                // Update UI
+                client.CurrentWallpaper = SelectedWallpaper.Name;
 
-            // Update UI optimistically
-            SelectedClient.CurrentWallpaper = SelectedWallpaper.Name;
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[ApplyWallpaperToSelected] Error: {ex.Message}");
+                Debug.WriteLine($"[ApplyWallpaperToSelected] Successfully applied wallpaper to '{client.Hostname}'");
+            }
+            catch (Exception clientEx)
+            {
+                Debug.WriteLine($"[ApplyWallpaperToSelected] Error applying to '{client.Hostname}': {clientEx.Message}");
+            }
         }
     }
 
