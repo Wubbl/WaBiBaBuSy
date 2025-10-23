@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace WaBiBaBuSy.Models.Wallpaper;
 
 /// <summary>
@@ -19,6 +21,20 @@ public class CrossScreenConfig
     /// Animation movement speed in pixels per second
     /// </summary>
     public int AnimationSpeedPxPerSecond { get; set; } = 500;
+
+    /// <summary>
+    /// List of client/monitor IDs selected for animation.
+    /// If empty, animation applies to all connected clients.
+    /// </summary>
+    public List<string> SelectedMonitorIds { get; set; } = new();
+
+    /// <summary>
+    /// Whether to use distributed rendering (client-side) instead of centralized server rendering.
+    /// When true, server sends animation file once and clients render locally.
+    /// When false, server renders frames and sends to all clients (high CPU usage).
+    /// Default: false (use existing centralized rendering for now).
+    /// </summary>
+    public bool UseDistributedRendering { get; set; } = false;
 }
 
 /// <summary>

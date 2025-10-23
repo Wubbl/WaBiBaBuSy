@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using System.Timers;
+using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -66,6 +67,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
     // Storage provider for file picker dialogs
     private IStorageProvider? _storageProvider;
+
+    // Window reference for dialogs
+    private Window? _mainWindow;
 
     public MainWindowViewModel(WaBiBaBuSyService service)
     {
@@ -218,6 +222,14 @@ public partial class MainWindowViewModel : ViewModelBase
     public void SetStorageProvider(IStorageProvider storageProvider)
     {
         _storageProvider = storageProvider;
+    }
+
+    /// <summary>
+    /// Set the main window reference for dialog parenting (called from View)
+    /// </summary>
+    public void SetMainWindow(Window mainWindow)
+    {
+        _mainWindow = mainWindow;
     }
 
     /// <summary>
@@ -1034,6 +1046,9 @@ public partial class MainWindowViewModel : ViewModelBase
                 viewModel.SetStorageProvider(_storageProvider);
             }
 
+            // Set available monitors/clients for selection
+            viewModel.SetAvailableMonitors(Clients);
+
             // Load existing configuration or create default
             if (_crossScreenConfig != null)
             {
@@ -1066,15 +1081,11 @@ public partial class MainWindowViewModel : ViewModelBase
             // Set close action so ViewModel can close the dialog
             viewModel.SetCloseAction(() => dialog.Close());
 
-            // Show dialog
-            var window = App.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop
-                ? desktop.MainWindow
-                : null;
-
-            if (window != null)
+            // Show dialog using stored window reference
+            if (_mainWindow != null)
             {
                 Debug.WriteLine("[ConfigureCrossScreen] Showing dialog");
-                await dialog.ShowDialog(window);
+                await dialog.ShowDialog(_mainWindow);
                 Debug.WriteLine("[ConfigureCrossScreen] Dialog closed");
 
                 if (viewModel.DialogResult)
@@ -1089,7 +1100,7 @@ public partial class MainWindowViewModel : ViewModelBase
             }
             else
             {
-                Debug.WriteLine("[ConfigureCrossScreen] ERROR: Could not get main window reference");
+                Debug.WriteLine("[ConfigureCrossScreen] ERROR: Could not get main window reference. _mainWindow is null");
             }
         }
         catch (Exception ex)
@@ -1135,8 +1146,13 @@ public partial class MainWindowViewModel : ViewModelBase
                 _crossScreenCoordinator.StatusChanged += OnCrossScreenStatusChanged;
             }
 
-            // Convert clients to screen configurations
-            var screenConfigs = Clients.Select(c => new WallpaperEngine.Composition.ScreenConfiguration
+            // Convert clients to screen configurations, filtering by selected monitors if configured
+            var selectedMonitorIds = new HashSet<string>(_crossScreenConfig.SelectedMonitorIds);
+            var clientsToUse = selectedMonitorIds.Count > 0
+                ? Clients.Where(c => selectedMonitorIds.Contains(c.ClientId))
+                : Clients;
+
+            var screenConfigs = clientsToUse.Select(c => new WallpaperEngine.Composition.ScreenConfiguration
             {
                 ClientId = c.ClientId,
                 Width = c.MonitorWidth > 0 ? c.MonitorWidth : 1920,  // Default if not set
@@ -1149,9 +1165,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
             if (screenConfigs.Count == 0)
             {
-                Debug.WriteLine("[CrossScreen] No clients connected");
+                Debug.WriteLine("[CrossScreen] No clients connected or selected");
                 return;
             }
+
+            Debug.WriteLine($"[CrossScreen] Starting animation on {screenConfigs.Count} selected monitor(s)");
 
             // Initialize and start
             await _crossScreenCoordinator.InitializeAsync(screenConfigs, _crossScreenConfig);

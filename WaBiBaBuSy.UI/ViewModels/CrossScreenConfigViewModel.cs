@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -7,6 +10,27 @@ using CommunityToolkit.Mvvm.Input;
 using WaBiBaBuSy.Models.Wallpaper;
 
 namespace WaBiBaBuSy.UI.ViewModels;
+
+/// <summary>
+/// Represents a selectable monitor/client for animation
+/// </summary>
+public partial class MonitorSelectionItem : ViewModelBase
+{
+    [ObservableProperty]
+    private string _clientId = string.Empty;
+
+    [ObservableProperty]
+    private string _hostname = string.Empty;
+
+    [ObservableProperty]
+    private string _resolution = string.Empty;
+
+    [ObservableProperty]
+    private string _ipAddress = string.Empty;
+
+    [ObservableProperty]
+    private bool _isSelected = true;
+}
 
 public partial class CrossScreenConfigViewModel : ViewModelBase
 {
@@ -37,6 +61,12 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     [ObservableProperty]
     private int _animationSpeed = 500;
 
+    [ObservableProperty]
+    private ObservableCollection<MonitorSelectionItem> _availableMonitors = new();
+
+    [ObservableProperty]
+    private bool _hasMultipleMonitors = false;
+
     public bool IsSolidColorMode => BackgroundModeIndex == 0;
     public bool IsImageMode => BackgroundModeIndex == 1 || BackgroundModeIndex == 2;
 
@@ -60,6 +90,39 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     public void SetCloseAction(Action closeAction)
     {
         _closeAction = closeAction;
+    }
+
+    /// <summary>
+    /// Set the list of available monitors/clients for selection
+    /// </summary>
+    public void SetAvailableMonitors(IEnumerable<ClientNodeViewModel> clients)
+    {
+        AvailableMonitors.Clear();
+
+        var monitors = clients
+            .Where(c => c.IsConnected)
+            .OrderBy(c => c.Order)
+            .ToList();
+
+        HasMultipleMonitors = monitors.Count > 1;
+
+        foreach (var client in monitors)
+        {
+            var resolution = $"{client.MonitorWidth}x{client.MonitorHeight}";
+            if (resolution == "0x0")
+                resolution = "Unknown";
+
+            var monitorItem = new MonitorSelectionItem
+            {
+                ClientId = client.ClientId,
+                Hostname = client.Hostname,
+                Resolution = resolution,
+                IpAddress = client.IpAddress,
+                IsSelected = true  // Select all by default
+            };
+
+            AvailableMonitors.Add(monitorItem);
+        }
     }
 
     public void LoadFromConfig(CrossScreenConfig config)
@@ -86,6 +149,13 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             VerticalAlignment.Bottom => 2,
             _ => 1
         };
+
+        // Restore monitor selection from config
+        var selectedIds = new HashSet<string>(config.SelectedMonitorIds);
+        foreach (var monitor in AvailableMonitors)
+        {
+            monitor.IsSelected = selectedIds.Contains(monitor.ClientId) || config.SelectedMonitorIds.Count == 0;
+        }
     }
 
     public CrossScreenConfig BuildConfig()
@@ -106,6 +176,12 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             _ => VerticalAlignment.Center
         };
 
+        // Collect selected monitor IDs
+        var selectedMonitorIds = AvailableMonitors
+            .Where(m => m.IsSelected)
+            .Select(m => m.ClientId)
+            .ToList();
+
         return new CrossScreenConfig
         {
             Background = new BackgroundLayerConfig
@@ -121,7 +197,8 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                 Loop = AnimationLoop,
                 VerticalAlign = verticalAlign
             },
-            AnimationSpeedPxPerSecond = AnimationSpeed
+            AnimationSpeedPxPerSecond = AnimationSpeed,
+            SelectedMonitorIds = selectedMonitorIds
         };
     }
 

@@ -205,10 +205,11 @@ public partial class MainWindow : Window
 
     private void OnWindowOpened(object? sender, System.EventArgs e)
     {
-        // Provide the storage provider to the view model for file picker dialogs
+        // Provide the storage provider and window reference to the view model for dialogs
         if (DataContext is MainWindowViewModel viewModel)
         {
             viewModel.SetStorageProvider(StorageProvider);
+            viewModel.SetMainWindow(this);
             // Update server status to reflect current state when window is reopened
             viewModel.UpdateServerStatus();
             // Start the refresh timer when window is visible

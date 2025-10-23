@@ -1,7 +1,388 @@
 # WaBiBaBuSy - Open Issues
 
-**Last Updated:** 2025-10-19
-**Active Issues:** 0
+**Last Updated:** 2025-10-23
+**Active Issues:** 3
+
+---
+
+## Issue #1: Cross-Screen Animation - Multi-Monitor Selection Required
+
+**Priority:** High
+**Status:** OPEN - Awaiting Implementation
+**Date Reported:** 2025-10-23
+
+### Problem
+The cross-screen animation configuration only supports selecting a single animation file, but the user needs to:
+1. Select **multiple target monitors** (not just the first one)
+2. Apply **normal wallpapers** with multi-monitor selection as well
+
+Currently, the UI only allows:
+- Selecting one animation file for all connected monitors
+- Configuring background layer (solid color/image/tiled)
+
+### Expected Behavior
+- **Multi-Monitor Selection Dialog** - User should be able to select which monitors/clients to animate
+- **Flexible Targeting** - Can target a subset of monitors, not always all of them
+- **Extended to Wallpapers** - Regular wallpaper application should also support multi-monitor selection (not just apply to all or one)
+
+### User Requirements
+> "For the cross screen animation i need to select multiple target monitors. Or just the first one in order? But i would like to have multi selection for setting normal wallpapers as well."
+
+### Implementation Approach
+**Phase 1: Multi-Monitor Selection UI Component**
+- Create reusable monitor selection control (checkboxes or multi-select list)
+- Display each connected monitor/client with:
+  - Hostname
+  - Screen resolution
+  - IP address
+  - Order position
+  - Primary/secondary indicator
+
+**Phase 2: Cross-Screen Animation Configuration**
+- Add monitor selection to CrossScreenConfigDialog
+- Store selected monitor list in CrossScreenConfig model
+- Filter clients during animation initialization (only send to selected monitors)
+
+**Phase 3: Regular Wallpaper Selection**
+- Add monitor selection dialog when clicking "Apply Wallpaper"
+- Show dialog with checkboxes for monitor selection
+- Apply wallpaper only to selected monitors (instead of all)
+- Single-monitor selection mode vs. multi-monitor batch mode
+
+### Files to Modify
+- `WaBiBaBuSy.Models/Wallpaper/CrossScreenConfig.cs` - Add `SelectedMonitorIds: List<string>` property
+- `WaBiBaBuSy.UI/Views/CrossScreenConfigDialog.axaml` - Add monitor selection UI
+- `WaBiBaBuSy.UI/ViewModels/CrossScreenConfigViewModel.cs` - Handle monitor selection
+- `WaBiBaBuSy.UI/ViewModels/MainWindowViewModel.cs` - Multi-monitor wallpaper selection in ApplyWallpaperToAll()
+- `WaBiBaBuSy.UI/Services/CrossScreenWallpaperCoordinator.cs` - Filter monitors during initialization
+
+### Testing Scenarios
+- [ ] Select single monitor for animation
+- [ ] Select multiple monitors for animation
+- [ ] Select all monitors for animation
+- [ ] Apply wallpaper to single monitor
+- [ ] Apply wallpaper to multiple monitors (subset)
+- [ ] Apply wallpaper to all monitors
+
+---
+
+## Issue #2: Cross-Screen Animation - Runtime Exception and High CPU Usage
+
+**Priority:** Critical
+**Status:** OPEN - Root Cause Analysis Needed
+**Date Reported:** 2025-10-23
+
+### Problem
+When starting cross-screen animation, an exception occurs and CPU usage spikes to very high levels. The animation does not start.
+
+### Symptoms
+1. User clicked "Start Animation" button
+2. Exception was thrown (user did not provide exception details)
+3. CPU usage became "quite high" - possibly due to repeated exception loop
+4. Animation did not display
+
+### Likely Causes
+1. **Null Reference Exception** - Accessing null properties in CrossScreenCoordinator or related services
+2. **Render Loop Exception** - OnRenderFrame timer callback throwing unhandled exception causing high CPU
+3. **Frame Distribution Failure** - SendCrossScreenFrameAsync failing repeatedly without catch
+4. **Resource Exhaustion** - Frame generation/encoding consuming all CPU without backpressure
+5. **JPEG Encoding Issue** - EncodeBitmapToJpeg throwing exception in tight loop
+
+### Debug Information Needed
+To diagnose this issue, we need:
+1. **Full exception message and stack trace** from the error
+2. **Application logs** showing the exact error
+3. **CPU usage pattern** - Is it constant high CPU or spikes?
+4. **Memory usage** - Is memory growing unbounded?
+5. **Which step fails?** - Dialog closes? Animation starts then fails? Server-side issue?
+
+### Architecture Context
+The render loop in CrossScreenWallpaperCoordinator:
+```csharp
+_renderTimer = new Timer(OnRenderFrame, null, 0, frameIntervalMs);  // 33ms interval for 30 FPS
+
+private void OnRenderFrame(object? state)
+{
+    // 1. Compose frames for all screens
+    var frames = _compositor.ComposeForAllScreens(currentTimestamp, animationSpeed);
+
+    // 2. Send to each client (async without await - fire and forget)
+    foreach (var (clientId, frameBitmap) in frames)
+    {
+        _ = _syncCoordinator.SendCrossScreenFrameAsync(...);  // Fire-and-forget
+    }
+}
+```
+
+**Potential Issues:**
+- Exception in ComposeForAllScreens crashes timer callback
+- Exception in SendCrossScreenFrameAsync is swallowed (fire-and-forget)
+- Bitmap disposal might fail
+- Sync coordinator might be null
+
+### Next Steps
+1. **Investigate the exact exception** - Need full error details
+2. **Add exception handling** to OnRenderFrame with logging
+3. **Add try-catch** to SendCrossScreenFrameAsync calls
+4. **Verify sync coordinator initialization** - Check if not null
+5. **Add CPU/memory telemetry** - Log performance metrics
+
+### Proposed Fix (Temporary)
+Add defensive exception handling to prevent high CPU loop:
+```csharp
+private void OnRenderFrame(object? state)
+{
+    if (!_isRunning || _compositor == null || _canvasManager == null)
+        return;
+
+    try
+    {
+        // existing render logic...
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "Error in render frame - stopping animation");
+        _ = StopAsync();  // Stop animation on exception
+        IsCrossScreenRunning = false;  // Notify UI
+    }
+}
+```
+
+### Files to Investigate
+- `WaBiBaBuSy.UI/Services/CrossScreenWallpaperCoordinator.cs` - OnRenderFrame exception handling
+- `WaBiBaBuSy.Core/Services/WallpaperSyncCoordinator.cs` - SendCrossScreenFrameAsync implementation
+- `WaBiBaBuSy.WallpaperEngine/Composition/CompositionRenderer.cs` - Frame composition and encoding
+- `WaBiBaBuSy.UI/ViewModels/MainWindowViewModel.cs` - StartCrossScreen initialization
+
+### Related Issues
+- Issue #3: Client-side animation control would solve high CPU (distribute rendering load)
+
+---
+
+## Issue #3: Architecture Proposal - Client-Side Animation Control with Server Timing Coordination
+
+**Priority:** Medium
+**Status:** OPEN - Design Phase
+**Date Reported:** 2025-10-23
+**Proposed Solution to:** Issue #2 (High CPU usage)
+
+### Problem Statement
+Current architecture: **Server renders all frames and sends to all clients**
+- Server CPU: Very high (compositing + JPEG encoding every 33ms for each monitor)
+- Network: Significant bandwidth (~50-150KB per frame × 30 FPS × N clients)
+- Performance bottleneck: Server becomes single point of failure for rendering
+
+### Proposed Solution: **Distributed Rendering with Centralized Timing**
+
+**Architecture:**
+```
+Server (Timing Coordinator)
+├─ Stores animation configuration (file, speed, duration)
+├─ Calculates timing schedule for each monitor
+├─ Sends animation metadata to clients
+└─ Sends timing sync messages (start time, speed)
+
+Client 1                     Client 2                     Client N
+├─ Receives animation file   ├─ Receives animation file  ├─ Receives animation file
+├─ Receives timing info      ├─ Receives timing info     ├─ Receives timing info
+├─ Renders locally at 30FPS  ├─ Renders locally at 30FPS ├─ Renders locally at 30FPS
+├─ Composition pipeline:     ├─ Composition pipeline:    ├─ Composition pipeline:
+│  ├─ Background layer       │  ├─ Background layer      │  ├─ Background layer
+│  ├─ Animation layer        │  ├─ Animation layer       │  ├─ Animation layer
+│  └─ Merge                  │  └─ Merge                 │  └─ Merge
+└─ After animation ends      └─ After animation ends     └─ After animation ends
+   Send next client's        Send to next client          Idle
+   animation to next
+   machine
+```
+
+### Benefits
+1. **Server CPU: 95% reduction** - No rendering on server, just orchestration
+2. **Network: 95% reduction** - Only metadata and sync messages, not frames
+3. **Scalability: Linear** - Can add clients without impacting server performance
+4. **Client CPU: Minimal increase** - Rendering already done locally anyway
+
+### Implementation Strategy
+
+**Phase 1: Animation Distribution (Send file once)**
+```
+Server sends to Client1:
+1. "AnimationStart" message with:
+   - Animation file (MP4/GIF)
+   - Target height: 720px
+   - Speed: 500px/sec
+   - Duration: 10 seconds
+   - Start timestamp: 2025-10-23 14:30:45.123 UTC
+   - Loop: true/false
+
+Client 1:
+- Loads animation locally
+- Starts at specified timestamp
+- Renders background + animation at 30 FPS locally
+- After X seconds, sends "AnimationComplete" to server
+```
+
+**Phase 2: Sequential Handoff (Animation moves between clients)**
+```
+Server scheduling:
+┌─────────────────────────────────────────────┐
+│ Monitor 1  │ Monitor 2  │ Monitor 3  │ Loop │
+│ 0-5 sec    │ 5-10 sec   │ 10-15 sec  │      │
+└─────────────────────────────────────────────┘
+
+Flow:
+1. Send animation to Monitor 1, start at T+0
+2. At T+5, Monitor 1 completes, receives "AnimationStop"
+3. Server immediately sends animation to Monitor 2, start at T+5
+4. At T+10, Monitor 2 completes, receives "AnimationStop"
+5. Server immediately sends animation to Monitor 3, start at T+10
+6. At T+15, Monitor 3 completes
+7. Server decides: loop or stop
+   - If loop: send animation back to Monitor 1, start at T+15
+```
+
+**Phase 3: Timing Synchronization (Distributed clock)**
+```
+Server broadcasts timing sync every 1 second:
+{
+  "MessageType": "sync_animation_timing",
+  "ServerTimestamp": "2025-10-23T14:30:45.123Z",
+  "ClientTimestamp": "2025-10-23T14:30:45.050Z",
+  "ClockOffset": 73  // ms - server is 73ms ahead
+}
+
+Client adjusts internal clock:
+- If offset > 50ms: micro-seek animation to correct position
+- If offset < 50ms: ignore (within tolerance)
+```
+
+### Message Protocol (gRPC Extensions)
+
+**New Messages:**
+```protobuf
+message AnimationFrame {
+  string content_id = 1;           // Animation file ID
+  int32 target_height_px = 2;      // 720
+  int32 animation_speed_px_sec = 3; // 500
+  int64 duration_ms = 4;            // 10000
+  int64 start_timestamp_unix_ms = 5; // When to start
+  BackgroundLayerConfig background = 6;
+  bool loop = 7;
+}
+
+message AnimationTimingSync {
+  int64 server_timestamp_ms = 1;
+  int64 client_measured_time_ms = 2;  // What client thinks time is
+  int32 clock_offset_ms = 3;           // Adjustment needed
+}
+
+service WallpaperSync {
+  // Existing RPCs...
+
+  // New RPCs for distributed animation:
+  rpc SendAnimationFrame(AnimationFrame) returns (AnimationAck);
+  rpc ReportAnimationComplete(AnimationComplete) returns (AnimationAck);
+  rpc BroadcastAnimationSync(AnimationTimingSync) returns (Empty);
+}
+```
+
+### File Distribution Strategy
+```
+Current (Centralized Frames):
+┌─────────────────┐
+│ Server          │
+│ 30 FPS sending  │
+│ to each client  │
+└────┬────┬────┬──┘
+     │    │    │
+   100KB 100KB 100KB (per frame!)
+     │    │    │
+   Client1, Client2, Client3
+
+Total: 100 * 30 * 3 = 9000 KB/sec (9 MB/sec!)
+
+Proposed (Distributed):
+┌──────────────────────┐
+│ Server               │
+│ Sends animation once │
+│ 10 MB file / 10 sec  │
+│ = 1 MB/sec           │
+└──────────┬───────────┘
+           │
+         1 MB (once)
+           │
+       ┌───┴────┬────────┬──────────┐
+       │ Timer  │ Timer  │ Timer    │
+    Client1 → Client2 → Client3 → Client1 (loop)
+    (render) (render) (render) (render)
+    locally  locally  locally  locally
+
+Total: 1 MB per animation file, not per frame!
+```
+
+### Configuration Model Update
+```csharp
+public class CrossScreenConfig
+{
+    public BackgroundLayerConfig Background { get; set; }
+    public AnimationLayerConfig Animation { get; set; }
+    public int AnimationSpeedPxPerSecond { get; set; }
+
+    // NEW - Distributed rendering options:
+    public bool UseDistributedRendering { get; set; } = true;  // Default: enabled
+    public int FramesPerSecond { get; set; } = 30;
+    public List<string> TargetMonitorIds { get; set; } = new();
+    public bool LoopAnimation { get; set; } = true;
+    public int MaxConcurrentClients { get; set; } = 4;  // Prevent too many simultaneous
+}
+```
+
+### Implementation Timeline
+**Phase 1: Animation Distribution** (6-8 hours)
+- [ ] Extend gRPC messages for animation metadata
+- [ ] Modify CompositionRenderer to generate animation setup messages
+- [ ] Create client-side animation renderer (reuse existing VirtualCanvasManager)
+- [ ] Implement sequential file send from server
+
+**Phase 2: Timing Synchronization** (4-5 hours)
+- [ ] Implement server timing broadcast
+- [ ] Implement client clock sync and drift correction
+- [ ] Add timing sync messages to gRPC protocol
+
+**Phase 3: Sequential Handoff** (6-8 hours)
+- [ ] Implement AnimationComplete reporting
+- [ ] Implement server scheduling logic (sequential animation on monitors)
+- [ ] Add looping logic and transition between clients
+
+**Phase 4: UI & Integration** (3-4 hours)
+- [ ] Add toggle for distributed vs. centralized rendering (testing)
+- [ ] Add distributed rendering section to CrossScreenConfigDialog
+- [ ] Update performance metrics display
+
+**Estimated Total:** 19-25 hours of implementation
+
+### Backwards Compatibility
+- Keep current centralized rendering as fallback option
+- Add UI toggle: "Use Distributed Rendering" (default: enabled)
+- Old clients can still work with centralized rendering
+- No breaking changes to existing architecture
+
+### Risks & Mitigations
+
+| Risk | Mitigation |
+|------|-----------|
+| Client rendering quality varies | Server can send reference frames for verification |
+| Network delays cause visual sync issues | Timing sync messages correct drift |
+| Some clients fail to apply animation | Server detects incomplete ("AnimationComplete" timeout) and retries |
+| Memory explosion on clients with large animations | Implement animation file cleanup after handoff |
+| Increased network latency causes visible delays | Increase sync message frequency if detected |
+
+### Success Metrics
+- [ ] Server CPU drops from 80%+ to <10% during animation
+- [ ] Network bandwidth drops from 9 MB/sec to <1 MB/sec
+- [ ] Animation stays in sync across all clients (±50ms tolerance maintained)
+- [ ] Can support 10+ clients without performance degradation
+- [ ] Animation transitions smoothly between monitors
 
 ---
 
