@@ -44,4 +44,19 @@ public class ClientInfo
     /// Last heartbeat timestamp (Unix milliseconds).
     /// </summary>
     public long LastHeartbeat { get; set; }
+
+    /// <summary>
+    /// Application version (e.g., "2.1.0").
+    /// </summary>
+    public string AppVersion { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Incremental build number.
+    /// </summary>
+    public int BuildNumber { get; set; }
+
+    /// <summary>
+    /// Target framework version (e.g., "net8.0").
+    /// </summary>
+    public string FrameworkVersion { get; set; } = string.Empty;
 }

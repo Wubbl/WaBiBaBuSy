@@ -26,6 +26,11 @@ service WallpaperSync {
 
   // Cross-screen frame streaming (server-to-client)
   rpc StreamCrossScreenFrames(stream FrameAcknowledgment) returns (stream CrossScreenFrame);
+
+  // Update distribution
+  rpc CheckForUpdates(UpdateCheckRequest) returns (UpdateCheckResponse);
+  rpc DownloadUpdate(UpdateDownloadRequest) returns (stream UpdateChunk);
+  rpc ReportUpdateStatus(UpdateStatusReport) returns (UpdateStatusResponse);
 }
 
 // Client information message
@@ -35,6 +40,9 @@ message ClientInfo {
   string ip_address = 3;
   ScreenConfiguration screen_config = 4;
   int64 registration_timestamp = 5;
+  string app_version = 6;           // e.g., "2.1.0"
+  int32 build_number = 7;           // Incremental build number
+  string framework_version = 8;     // e.g., "net8.0"
 }
 
 // Screen configuration
@@ -62,6 +70,11 @@ message RegistrationResponse {
   string message = 2;
   string assigned_client_id = 3;
   int32 order_position = 4;
+  bool update_available = 5;
+  string required_version = 6;      // Server's current version
+  int32 required_build_number = 7;
+  int64 update_package_size = 8;    // Bytes
+  string update_description = 9;    // Release notes/changes
 }
 
 // Heartbeat request
@@ -234,4 +247,71 @@ message FrameAcknowledgment {
   string error_message = 4;          // Error details if success=false
   int64 receive_timestamp = 5;       // When frame was received (UTC ms)
   int64 render_timestamp = 6;        // When frame was rendered (UTC ms)
+}
+
+// ============================================================================
+// Update Distribution Messages
+// ============================================================================
+
+// Update check request
+message UpdateCheckRequest {
+  string client_id = 1;
+  string current_version = 2;
+  int32 current_build = 3;
+}
+
+// Update check response
+message UpdateCheckResponse {
+  bool update_available = 1;
+  string new_version = 2;
+  int32 new_build = 3;
+  int64 package_size = 4;
+  string package_hash = 5;           // SHA-256 of complete update package
+  string release_notes = 6;
+  bool is_mandatory = 7;             // Blocks connection if not updated
+  repeated string package_files = 8; // List of files in update
+}
+
+// Update download request
+message UpdateDownloadRequest {
+  string client_id = 1;
+  string requested_version = 2;
+}
+
+// Update chunk (similar to ContentChunk)
+message UpdateChunk {
+  string update_id = 1;              // Version identifier
+  string filename = 2;               // Relative path in update package
+  int64 total_size = 3;
+  int32 chunk_index = 4;
+  int32 total_chunks = 5;
+  bytes data = 6;
+  string file_hash = 7;              // SHA-256 of individual file
+  string package_hash = 8;           // SHA-256 of complete package
+}
+
+// Update status report
+message UpdateStatusReport {
+  string client_id = 1;
+  string update_id = 2;
+  UpdateStatus status = 3;
+  int32 progress_percent = 4;
+  string error_message = 5;
+}
+
+// Update status enum
+enum UpdateStatus {
+  UPDATE_CHECKING = 0;
+  UPDATE_DOWNLOADING = 1;
+  UPDATE_DOWNLOADED = 2;
+  UPDATE_VERIFYING = 3;
+  UPDATE_APPLYING = 4;
+  UPDATE_APPLIED = 5;
+  UPDATE_FAILED = 6;
+  UPDATE_CANCELLED = 7;
+}
+
+// Update status response
+message UpdateStatusResponse {
+  bool acknowledged = 1;
 }

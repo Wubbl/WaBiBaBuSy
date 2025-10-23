@@ -59,12 +59,17 @@ WaBiBaBuSy/
 │       │   ├── WallpaperSyncClient.cs  # Client-side gRPC logic
 │       │   ├── WallpaperSyncServer.cs  # Server-side gRPC logic
 │       │   └── ServerDiscoveryService.cs # mDNS auto-discovery
-│       └── Synchronization/             # Timing & coordination
-│           └── PhysicalDistanceSyncService.cs
+│       ├── Synchronization/             # Timing & coordination
+│       │   └── PhysicalDistanceSyncService.cs
+│       └── Update/                      # Auto-update system
+│           ├── UpdateManager.cs         # Update lifecycle orchestration
+│           ├── UpdateDownloader.cs      # gRPC download with progress
+│           ├── UpdateVerifier.cs        # SHA-256 verification
+│           └── UpdateApplicator.cs      # Launch standalone updater
 │
 ├── WaBiBaBuSy.Grpc/              # gRPC contracts & services
 │   ├── Protos/                   # Protocol Buffer definitions
-│   │   └── wabibabusy.proto     # All gRPC service contracts
+│   │   └── wabibabusy.proto     # All gRPC service contracts (incl. updates)
 │   └── Services/                 # gRPC service implementations
 │       └── WallpaperSyncServiceImpl.cs
 │
@@ -90,18 +95,29 @@ WaBiBaBuSy/
 │   └── Assets/                   # Images, icons, resources
 │
 ├── WaBiBaBuSy.Common/            # Shared utilities
-│   └── Helpers/                  # Helper classes & extensions
+│   ├── Helpers/                  # Helper classes & extensions
+│   └── Version/                  # Version management
+│       └── VersionInfo.cs        # Semantic version comparison
 │
-└── WaBiBaBuSy.Models/            # Shared data models
-    ├── Network/                  # Network communication models
-    │   ├── ClientInfo.cs
-    │   ├── SyncCommand.cs
-    │   └── TopologyNode.cs
-    ├── Wallpaper/                # Wallpaper configuration models
-    │   ├── WallpaperConfig.cs
-    │   └── WallpaperState.cs
-    └── Configuration/            # Application configuration
-        └── AppConfig.cs
+├── WaBiBaBuSy.Models/            # Shared data models
+│   ├── Network/                  # Network communication models
+│   │   ├── ClientInfo.cs
+│   │   ├── SyncCommand.cs
+│   │   └── TopologyNode.cs
+│   ├── Wallpaper/                # Wallpaper configuration models
+│   │   ├── WallpaperConfig.cs
+│   │   └── WallpaperState.cs
+│   ├── Update/                   # Update system models
+│   │   ├── UpdateInfo.cs         # Available update metadata
+│   │   ├── UpdateStatus.cs       # Update operation status
+│   │   └── UpdateManifest.cs     # Package manifest with checksums
+│   └── Configuration/            # Application configuration
+│       └── AppConfig.cs
+│
+└── WaBiBaBuSy.Updater/           # Standalone updater application
+    ├── Program.cs                # Main updater logic (CLI)
+    ├── ProcessMonitor.cs         # Process lifecycle management
+    └── FileReplacer.cs           # Safe file replacement with rollback
 ```
 
 ## Technology Stack
@@ -131,13 +147,24 @@ WaBiBaBuSy/
 ### Networking Layer ✅
 - **gRPC Protocol**: Full bidirectional streaming implementation
 - **Services Implemented**:
-  - RegisterClient - Client registration on startup
+  - RegisterClient - Client registration on startup with version detection
   - Heartbeat - Periodic connection health checks (5s interval)
   - SyncStream - Real-time wallpaper control commands (LOAD, PLAY, PAUSE, SEEK, STOP)
   - TransferContent - Chunked file transfer with SHA-256 verification
   - GetTopology/UpdateClientOrder - Network topology management
+  - CheckForUpdates/DownloadUpdate - Auto-update system with version checking
 - **mDNS Auto-Discovery**: Automatic server detection on local network
 - **Content Distribution**: Server streams content chunks, clients cache locally
+
+### Auto-Update System ✅
+- **Version Detection**: Semantic versioning (Major.Minor.Patch + build number) sent during client registration
+- **Automatic Updates**: Server detects outdated clients and notifies of available updates
+- **Chunked Transfer**: Reuses TransferContent pattern for update package distribution
+- **Standalone Updater**: External process (`WaBiBaBuSy.Updater.exe`) replaces binaries while main app is closed
+- **SHA-256 Verification**: Package and file integrity checking before application
+- **Automatic Rollback**: Falls back to previous version on update failures
+- **Update Policies**: Supports mandatory and optional updates with configurable thresholds
+- **Event-Driven**: UpdateAvailable event propagates from client → service → UI
 
 ### Synchronization Service ✅
 - **Timestamp-Based Sync**: Server schedules playback with precise UTC timestamps
@@ -244,13 +271,29 @@ WaBiBaBuSy/
     "Port": 50051,
     "MaxClients": 10,
     "ContentDirectory": "C:\\WaBiBaBuSy\\Content",
-    "EnableAutoDiscovery": true
+    "EnableAutoDiscovery": true,
+    "UpdateManagement": {
+      "EnableUpdates": true,
+      "CurrentVersion": "2.0.0",
+      "CurrentBuildNumber": 100,
+      "MinimumCompatibleVersion": "2.0.0",
+      "UpdatesDirectory": "C:\\WaBiBaBuSy\\Content\\Updates",
+      "EnforceMandatoryUpdates": true
+    }
   },
   "Client": {
     "ServerAddress": "192.168.1.100",
     "ServerPort": 50051,
     "AutoConnect": false,
-    "CacheDirectory": "%LOCALAPPDATA%\\WaBiBaBuSy\\Cache"
+    "CacheDirectory": "%LOCALAPPDATA%\\WaBiBaBuSy\\Cache",
+    "UpdateSettings": {
+      "EnableAutoUpdates": true,
+      "PromptBeforeUpdate": true,
+      "AutoApplyUpdates": false,
+      "DownloadDirectory": "%LOCALAPPDATA%\\WaBiBaBuSy\\Updates\\Pending",
+      "BackupDirectory": "%LOCALAPPDATA%\\WaBiBaBuSy\\Updates\\Backup",
+      "MaxBackupsToKeep": 2
+    }
   },
   "Wallpaper": {
     "HardwareAcceleration": true,
@@ -369,6 +412,41 @@ WaBiBaBuSy.UI/
 
 ## Recent Updates & Bug Fixes
 
+### 2025-10-23 - Auto-Update System Implementation
+**Major Feature Complete:**
+- ✅ **Complete auto-update infrastructure** with version detection, chunked file transfer, and standalone updater
+- ✅ **Version Detection**: Semantic versioning (Major.Minor.Patch + build number) sent during client registration
+- ✅ **Update Notification**: Server detects outdated clients and returns update availability in RegistrationResponse
+- ✅ **Download Infrastructure**: UpdateManager orchestrates download → verify → backup → apply lifecycle
+- ✅ **Standalone Updater**: WaBiBaBuSy.Updater.exe replaces files while main app is closed, includes rollback on failure
+- ✅ **Event-Driven**: UpdateAvailable event propagates from WallpaperSyncClient → WaBiBaBuSyService → UI layer
+- ✅ **Configuration**: Server and client update settings with mandatory/optional update policies
+
+**Files Created (11 files):**
+- `WaBiBaBuSy.Common/Version/VersionInfo.cs` (120 lines) - Version detection and comparison
+- `WaBiBaBuSy.Models/Update/` - UpdateInfo, UpdateStatus, UpdateManifest models
+- `WaBiBaBuSy.Core/Services/Update/` - UpdateManager, UpdateDownloader, UpdateVerifier, UpdateApplicator
+- `WaBiBaBuSy.Updater/` - Complete standalone updater project (Program, ProcessMonitor, FileReplacer)
+
+**Files Modified (7 files):**
+- `wabibabusy.proto` - Extended with CheckForUpdates, DownloadUpdate, ReportUpdateStatus RPCs
+- `WallpaperSyncClient.cs` - Sends version, raises UpdateAvailable event
+- `WallpaperSyncService.cs` - Checks versions during registration
+- `ServerConfiguration.cs` / `ClientConfiguration.cs` - Added update management settings
+
+**Update Flow:**
+1. Client connects and sends version (AppVersion, BuildNumber, FrameworkVersion)
+2. Server compares with CurrentVersion and MinimumCompatibleVersion
+3. Returns update_available flag in RegistrationResponse
+4. Client raises UpdateAvailable event with update details
+5. (Future) User prompted or auto-downloads based on settings
+6. UpdateDownloader streams package chunks over gRPC
+7. UpdateVerifier validates SHA-256 checksums
+8. UpdateApplicator launches standalone updater and exits main app
+9. Updater waits for process exit → replaces files → launches new version
+
+**Testing Status:** ⏳ Core functionality complete, requires manual testing with real update packages
+
 ### 2025-10-22 - Performance Optimization & Video Thumbnails
 **Key Achievements:**
 - ✅ **LibVLC Pre-Initialization**: Eliminated 9-second first wallpaper delay with background initialization (`LibVLCPreloader.cs`)
@@ -399,5 +477,5 @@ WaBiBaBuSy.UI/
 
 ---
 
-**Last Updated**: 2025-10-22
-**Current Status**: ~99% MVP Complete - Cross-screen system implemented, performance optimized, ready for configuration UI
+**Last Updated**: 2025-10-23
+**Current Status**: ~99% MVP Complete - Auto-update system implemented, cross-screen system complete, performance optimized

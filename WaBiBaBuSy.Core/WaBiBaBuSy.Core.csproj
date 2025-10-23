@@ -18,6 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\WaBiBaBuSy.Common\WaBiBaBuSy.Common.csproj" />
     <ProjectReference Include="..\WaBiBaBuSy.Models\WaBiBaBuSy.Models.csproj" />
     <ProjectReference Include="..\WaBiBaBuSy.Grpc\WaBiBaBuSy.Grpc.csproj" />
   </ItemGroup>

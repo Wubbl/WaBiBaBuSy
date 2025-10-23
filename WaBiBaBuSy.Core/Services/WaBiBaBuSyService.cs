@@ -3,6 +3,7 @@ using WaBiBaBuSy.Core.Interfaces;
 using WaBiBaBuSy.Core.Services.Networking;
 using WaBiBaBuSy.Grpc;
 using WaBiBaBuSy.Models.Configuration;
+using UpdateAvailableEventArgs = WaBiBaBuSy.Core.Services.Networking.UpdateAvailableEventArgs;
 
 namespace WaBiBaBuSy.Core.Services;
 
@@ -48,6 +49,7 @@ public class WaBiBaBuSyService : IDisposable
     public event EventHandler<ConnectionStatusChangedEventArgs>? ClientConnectionStatusChanged;
     public event EventHandler<ServerDiscoveredEventArgs>? ServerDiscovered;
     public event EventHandler<ClientListChangedEventArgs>? ClientListChanged;
+    public event EventHandler<UpdateAvailableEventArgs>? UpdateAvailable;
 
     public WaBiBaBuSyService(
         ILogger<WaBiBaBuSyService> logger,
@@ -163,6 +165,7 @@ public class WaBiBaBuSyService : IDisposable
                 .CreateLogger<WallpaperSyncClient>();
             _client = new WallpaperSyncClient(clientLogger, _clientConfig);
             _client.ConnectionStatusChanged += OnClientConnectionStatusChanged;
+            _client.UpdateAvailable += OnUpdateAvailable;
 
             // Connect
             var connected = await _client.ConnectAsync(serverAddress, serverPort);
@@ -354,6 +357,11 @@ public class WaBiBaBuSyService : IDisposable
     private void OnServerDiscovered(object? sender, ServerDiscoveredEventArgs e)
     {
         ServerDiscovered?.Invoke(this, e);
+    }
+
+    private void OnUpdateAvailable(object? sender, UpdateAvailableEventArgs e)
+    {
+        UpdateAvailable?.Invoke(this, e);
     }
 
     public void Dispose()

@@ -36,4 +36,57 @@ public class ServerConfiguration
     /// Service type for mDNS (_wabibabusy._tcp.local)
     /// </summary>
     public string ServiceType { get; set; } = "_wabibabusy._tcp";
+
+    /// <summary>
+    /// Update management configuration
+    /// </summary>
+    public UpdateManagementConfiguration UpdateManagement { get; set; } = new();
+}
+
+/// <summary>
+/// Configuration for update management on the server
+/// </summary>
+public class UpdateManagementConfiguration
+{
+    /// <summary>
+    /// Enable automatic update distribution
+    /// </summary>
+    public bool EnableUpdates { get; set; } = true;
+
+    /// <summary>
+    /// Directory containing update packages
+    /// </summary>
+    public string UpdatesDirectory { get; set; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+        "WaBiBaBuSy", "Updates");
+
+    /// <summary>
+    /// Current server version
+    /// </summary>
+    public string CurrentVersion { get; set; } = "2.0.0";
+
+    /// <summary>
+    /// Current server build number
+    /// </summary>
+    public int CurrentBuildNumber { get; set; } = 1;
+
+    /// <summary>
+    /// Minimum compatible client version that can connect
+    /// </summary>
+    public string MinimumCompatibleVersion { get; set; } = "2.0.0";
+
+    /// <summary>
+    /// Enforce mandatory updates (disconnect old clients)
+    /// </summary>
+    public bool EnforceMandatoryUpdates { get; set; } = false;
+
+    /// <summary>
+    /// Allow clients to defer updates
+    /// </summary>
+    public bool AllowDeferredUpdates { get; set; } = true;
+
+    /// <summary>
+    /// Maximum days an update can be deferred (for mandatory updates)
+    /// </summary>
+    public int MaxDeferralDays { get; set; } = 7;
 }

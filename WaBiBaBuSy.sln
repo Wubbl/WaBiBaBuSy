@@ -17,6 +17,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WaBiBaBuSy.UI", "WaBiBaBuSy
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WaBiBaBuSy.Player.Common", "WaBiBaBuSy.Player.Common\WaBiBaBuSy.Player.Common.csproj", "{A04D057C-D0C3-4E1C-AE88-81BDDA209C25}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WaBiBaBuSy.Updater", "WaBiBaBuSy.Updater\WaBiBaBuSy.Updater.csproj", "{FFCF7AC7-7F10-4609-8FDF-61A61F072724}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -111,6 +113,18 @@ Global
 		{A04D057C-D0C3-4E1C-AE88-81BDDA209C25}.Release|x64.Build.0 = Release|Any CPU
 		{A04D057C-D0C3-4E1C-AE88-81BDDA209C25}.Release|x86.ActiveCfg = Release|Any CPU
 		{A04D057C-D0C3-4E1C-AE88-81BDDA209C25}.Release|x86.Build.0 = Release|Any CPU
+		{FFCF7AC7-7F10-4609-8FDF-61A61F072724}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FFCF7AC7-7F10-4609-8FDF-61A61F072724}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FFCF7AC7-7F10-4609-8FDF-61A61F072724}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{FFCF7AC7-7F10-4609-8FDF-61A61F072724}.Debug|x64.Build.0 = Debug|Any CPU
+		{FFCF7AC7-7F10-4609-8FDF-61A61F072724}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{FFCF7AC7-7F10-4609-8FDF-61A61F072724}.Debug|x86.Build.0 = Debug|Any CPU
+		{FFCF7AC7-7F10-4609-8FDF-61A61F072724}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FFCF7AC7-7F10-4609-8FDF-61A61F072724}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FFCF7AC7-7F10-4609-8FDF-61A61F072724}.Release|x64.ActiveCfg = Release|Any CPU
+		{FFCF7AC7-7F10-4609-8FDF-61A61F072724}.Release|x64.Build.0 = Release|Any CPU
+		{FFCF7AC7-7F10-4609-8FDF-61A61F072724}.Release|x86.ActiveCfg = Release|Any CPU
+		{FFCF7AC7-7F10-4609-8FDF-61A61F072724}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -41,4 +41,59 @@ public class ClientConfiguration
     /// Heartbeat interval in seconds
     /// </summary>
     public int HeartbeatIntervalSeconds { get; set; } = 5;
+
+    /// <summary>
+    /// Update settings configuration
+    /// </summary>
+    public UpdateSettingsConfiguration UpdateSettings { get; set; } = new();
+}
+
+/// <summary>
+/// Configuration for client-side update behavior
+/// </summary>
+public class UpdateSettingsConfiguration
+{
+    /// <summary>
+    /// Enable automatic updates from server
+    /// </summary>
+    public bool EnableAutoUpdates { get; set; } = true;
+
+    /// <summary>
+    /// Prompt user before downloading updates
+    /// </summary>
+    public bool PromptBeforeUpdate { get; set; } = true;
+
+    /// <summary>
+    /// Check for updates on application startup
+    /// </summary>
+    public bool UpdateCheckOnStartup { get; set; } = true;
+
+    /// <summary>
+    /// Check for updates periodically (minutes, 0 = disabled)
+    /// </summary>
+    public int UpdateCheckIntervalMinutes { get; set; } = 0;
+
+    /// <summary>
+    /// Directory for downloading updates
+    /// </summary>
+    public string DownloadDirectory { get; set; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "WaBiBaBuSy", "Updates", "Pending");
+
+    /// <summary>
+    /// Directory for backup files before update
+    /// </summary>
+    public string BackupDirectory { get; set; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "WaBiBaBuSy", "Updates", "Backup");
+
+    /// <summary>
+    /// Maximum number of backups to keep
+    /// </summary>
+    public int MaxBackupsToKeep { get; set; } = 2;
+
+    /// <summary>
+    /// Automatically apply updates without user confirmation
+    /// </summary>
+    public bool AutoApplyUpdates { get; set; } = false;
 }

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using WaBiBaBuSy.Models.Configuration;
+using WaBiBaBuSy.Common.Version;
 
 namespace WaBiBaBuSy.Grpc.Services;
 
@@ -37,8 +38,8 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         ClientInfo request,
         ServerCallContext context)
     {
-        _logger.LogInformation("Client registration request from {Hostname} ({IpAddress})",
-            request.Hostname, request.IpAddress);
+        _logger.LogInformation("Client registration request from {Hostname} ({IpAddress}) - Version: {Version} Build: {Build}",
+            request.Hostname, request.IpAddress, request.AppVersion, request.BuildNumber);
 
         try
         {
@@ -46,6 +47,59 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
             var clientId = string.IsNullOrEmpty(request.ClientId)
                 ? Guid.NewGuid().ToString()
                 : request.ClientId;
+
+            // Check for version compatibility and updates
+            bool updateAvailable = false;
+            string updateDescription = string.Empty;
+            long updatePackageSize = 0;
+
+            if (_serverConfig.UpdateManagement.EnableUpdates)
+            {
+                // Check if client version is older than server version
+                updateAvailable = WaBiBaBuSy.Common.Version.VersionInfo.IsNewerVersion(
+                    request.AppVersion, request.BuildNumber,
+                    _serverConfig.UpdateManagement.CurrentVersion,
+                    _serverConfig.UpdateManagement.CurrentBuildNumber);
+
+                if (updateAvailable)
+                {
+                    _logger.LogInformation("Update available for client {ClientId}. Client: {ClientVer} build {ClientBuild}, Server: {ServerVer} build {ServerBuild}",
+                        clientId, request.AppVersion, request.BuildNumber,
+                        _serverConfig.UpdateManagement.CurrentVersion, _serverConfig.UpdateManagement.CurrentBuildNumber);
+
+                    updateDescription = $"Update to {_serverConfig.UpdateManagement.CurrentVersion}";
+
+                    // Try to get package size from Updates directory
+                    var updatePackagePath = Path.Combine(_serverConfig.UpdateManagement.UpdatesDirectory,
+                        $"UpdatePackage_{_serverConfig.UpdateManagement.CurrentVersion}.zip");
+                    if (File.Exists(updatePackagePath))
+                    {
+                        updatePackageSize = new FileInfo(updatePackagePath).Length;
+                    }
+                }
+
+                // Check if client version is below minimum compatible version
+                bool isClientTooOld = WaBiBaBuSy.Common.Version.VersionInfo.IsUpdateRequired(
+                    request.AppVersion,
+                    _serverConfig.UpdateManagement.MinimumCompatibleVersion);
+
+                if (isClientTooOld && _serverConfig.UpdateManagement.EnforceMandatoryUpdates)
+                {
+                    _logger.LogWarning("Client {ClientId} version {Version} is below minimum {MinVersion}. Rejecting connection.",
+                        clientId, request.AppVersion, _serverConfig.UpdateManagement.MinimumCompatibleVersion);
+
+                    return Task.FromResult(new RegistrationResponse
+                    {
+                        Success = false,
+                        Message = $"Client version {request.AppVersion} is too old. Minimum version required: {_serverConfig.UpdateManagement.MinimumCompatibleVersion}. Please update.",
+                        UpdateAvailable = true,
+                        RequiredVersion = _serverConfig.UpdateManagement.CurrentVersion,
+                        RequiredBuildNumber = _serverConfig.UpdateManagement.CurrentBuildNumber,
+                        UpdatePackageSize = updatePackageSize,
+                        UpdateDescription = "Mandatory update required"
+                    });
+                }
+            }
 
             // Create connected client record
             var connectedClient = new ConnectedClient
@@ -71,7 +125,12 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                 Success = true,
                 Message = "Registration successful",
                 AssignedClientId = clientId,
-                OrderPosition = connectedClient.OrderPosition
+                OrderPosition = connectedClient.OrderPosition,
+                UpdateAvailable = updateAvailable,
+                RequiredVersion = _serverConfig.UpdateManagement.CurrentVersion,
+                RequiredBuildNumber = _serverConfig.UpdateManagement.CurrentBuildNumber,
+                UpdatePackageSize = updatePackageSize,
+                UpdateDescription = updateDescription
             });
         }
         catch (Exception ex)

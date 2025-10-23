@@ -5,6 +5,7 @@ using WaBiBaBuSy.Grpc;
 using WaBiBaBuSy.Models.Configuration;
 using System.Security.Cryptography;
 using Google.Protobuf;
+using AppVersionInfo = WaBiBaBuSy.Common.Version.VersionInfo;
 
 namespace WaBiBaBuSy.Core.Services.Networking;
 
@@ -34,6 +35,7 @@ public class WallpaperSyncClient : IDisposable
     public event EventHandler<ConnectionStatusChangedEventArgs>? ConnectionStatusChanged;
     public event EventHandler<SyncCommandReceivedEventArgs>? SyncCommandReceived;
     public event EventHandler<CrossScreenFrameReceivedEventArgs>? CrossScreenFrameReceived;
+    public event EventHandler<UpdateAvailableEventArgs>? UpdateAvailable;
 
     public WallpaperSyncClient(
         ILogger<WallpaperSyncClient> logger,
@@ -146,8 +148,14 @@ public class WallpaperSyncClient : IDisposable
                 Hostname = Environment.MachineName,
                 IpAddress = GetLocalIpAddress(),
                 RegistrationTimestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                ScreenConfig = GetScreenConfiguration()
+                ScreenConfig = GetScreenConfiguration(),
+                AppVersion = AppVersionInfo.AppVersion,
+                BuildNumber = AppVersionInfo.BuildNumber,
+                FrameworkVersion = AppVersionInfo.FrameworkVersion
             };
+
+            _logger.LogInformation("Registering with server. Version: {Version}, Build: {Build}",
+                AppVersionInfo.AppVersion, AppVersionInfo.BuildNumber);
 
             var response = await _client.RegisterClientAsync(clientInfo);
 
@@ -156,6 +164,25 @@ public class WallpaperSyncClient : IDisposable
                 _clientId = response.AssignedClientId;
                 _logger.LogInformation("Registered with server. Client ID: {ClientId}, Order: {Order}",
                     _clientId, response.OrderPosition);
+
+                // Check if update is available
+                if (response.UpdateAvailable)
+                {
+                    _logger.LogWarning("Update available! Server version: {Version} build {Build}",
+                        response.RequiredVersion, response.RequiredBuildNumber);
+                    _logger.LogInformation("Update size: {Size:N0} bytes - {Description}",
+                        response.UpdatePackageSize, response.UpdateDescription);
+
+                    // Raise event to notify UI about available update
+                    UpdateAvailable?.Invoke(this, new UpdateAvailableEventArgs
+                    {
+                        ServerVersion = response.RequiredVersion,
+                        ServerBuildNumber = response.RequiredBuildNumber,
+                        PackageSize = response.UpdatePackageSize,
+                        Description = response.UpdateDescription
+                    });
+                }
+
                 return true;
             }
             else
@@ -734,4 +761,12 @@ public class CrossScreenFrameReceivedEventArgs : EventArgs
     {
         Frame = frame;
     }
+}
+
+public class UpdateAvailableEventArgs : EventArgs
+{
+    public string ServerVersion { get; set; } = string.Empty;
+    public int ServerBuildNumber { get; set; }
+    public long PackageSize { get; set; }
+    public string Description { get; set; } = string.Empty;
 }
