@@ -535,9 +535,9 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
 
     #region Cross-Screen Frame Streaming
 
-    // Dictionary to hold cross-screen frame streams per client
-    private readonly Dictionary<string, IServerStreamWriter<CrossScreenFrame>> _crossScreenStreams = new();
-    private readonly SemaphoreSlim _streamLock = new(1, 1);
+    // ConcurrentDictionary to hold cross-screen frame streams per client (thread-safe)
+    private readonly ConcurrentDictionary<string, IServerStreamWriter<CrossScreenFrame>> _crossScreenStreams =
+        new();
 
     /// <summary>
     /// Stream cross-screen frames (bidirectional streaming RPC)
@@ -581,42 +581,50 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     {
         var clientId = frame.ClientId;
 
-        await _streamLock.WaitAsync();
-        try
+        // Check if client has a cross-screen frame stream
+        if (_crossScreenStreams.TryGetValue(clientId, out var frameStream))
         {
-            // Check if client has a cross-screen frame stream
-            if (_crossScreenStreams.TryGetValue(clientId, out var frameStream))
+            try
             {
                 await frameStream.WriteAsync(frame);
                 _logger.LogTrace("Sent frame {FrameNum} to client {ClientId}, size: {Size} KB",
                     frame.FrameNumber, clientId, frame.FrameData.Length / 1024);
             }
-            else
+            catch (Exception ex)
             {
-                // Fallback: Send via sync command stream
-                if (_clientCommandStreams.TryGetValue(clientId, out var syncStream))
+                _logger.LogError(ex, "Failed to send cross-screen frame to client {ClientId}", clientId);
+                // Remove the stream if it's broken
+                _crossScreenStreams.TryRemove(clientId, out _);
+            }
+        }
+        else
+        {
+            // Fallback: Send via sync command stream
+            if (_clientCommandStreams.TryGetValue(clientId, out var syncStream))
+            {
+                var command = new SyncCommand
                 {
-                    var command = new SyncCommand
-                    {
-                        Type = CommandType.CrossscreenStart, // Signal cross-screen mode
-                        TimestampUtc = frame.TimestampUtc,
-                        SequenceNumber = frame.FrameNumber,
-                        ContentId = $"frame_{frame.FrameNumber}",
-                        Params = new SyncParameters()
-                    };
+                    Type = CommandType.CrossscreenStart, // Signal cross-screen mode
+                    TimestampUtc = frame.TimestampUtc,
+                    SequenceNumber = frame.FrameNumber,
+                    ContentId = $"frame_{frame.FrameNumber}",
+                    Params = new SyncParameters()
+                };
 
+                try
+                {
                     await syncStream.WriteAsync(command);
                     _logger.LogDebug("Sent cross-screen signal to client {ClientId} (no dedicated stream)", clientId);
                 }
-                else
+                catch (Exception ex)
                 {
-                    _logger.LogWarning("No active stream for client {ClientId}, cannot send frame", clientId);
+                    _logger.LogError(ex, "Failed to send cross-screen signal to client {ClientId}", clientId);
                 }
             }
-        }
-        finally
-        {
-            _streamLock.Release();
+            else
+            {
+                _logger.LogWarning("No active stream for client {ClientId}, cannot send frame", clientId);
+            }
         }
     }
 
@@ -625,16 +633,8 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     /// </summary>
     public void RegisterCrossScreenStream(string clientId, IServerStreamWriter<CrossScreenFrame> stream)
     {
-        _streamLock.Wait();
-        try
-        {
-            _crossScreenStreams[clientId] = stream;
-            _logger.LogInformation("Registered cross-screen stream for client {ClientId}", clientId);
-        }
-        finally
-        {
-            _streamLock.Release();
-        }
+        _crossScreenStreams.AddOrUpdate(clientId, stream, (key, existing) => stream);
+        _logger.LogInformation("Registered cross-screen stream for client {ClientId}", clientId);
     }
 
     /// <summary>
@@ -642,17 +642,9 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     /// </summary>
     public void UnregisterCrossScreenStream(string clientId)
     {
-        _streamLock.Wait();
-        try
+        if (_crossScreenStreams.TryRemove(clientId, out _))
         {
-            if (_crossScreenStreams.Remove(clientId))
-            {
-                _logger.LogInformation("Unregistered cross-screen stream for client {ClientId}", clientId);
-            }
-        }
-        finally
-        {
-            _streamLock.Release();
+            _logger.LogInformation("Unregistered cross-screen stream for client {ClientId}", clientId);
         }
     }
 

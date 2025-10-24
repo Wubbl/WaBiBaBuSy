@@ -18,7 +18,10 @@
       "Bash(dotnet remove:*)",
       "Bash(powershell -ExecutionPolicy Bypass -File \"Download-FFmpeg.ps1\")",
       "Bash(dotnet new:*)",
-      "Bash(dotnet sln:*)"
+      "Bash(dotnet sln:*)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(timeout 120 bash:*)"
     ],
     "deny": [],
     "ask": []
