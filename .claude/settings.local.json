@@ -21,7 +21,11 @@
       "Bash(dotnet sln:*)",
       "Bash(dir:*)",
       "Bash(findstr:*)",
-      "Bash(timeout 120 bash:*)"
+      "Bash(timeout 120 bash:*)",
+      "Bash(netstat:*)",
+      "Bash(Write-Host 'Config file not found')",
+      "Bash(timeout 15 dotnet run:*)",
+      "Read(//c/Users/Patrick/AppData/Roaming/WaBiBaBuSy/**)"
     ],
     "deny": [],
     "ask": []

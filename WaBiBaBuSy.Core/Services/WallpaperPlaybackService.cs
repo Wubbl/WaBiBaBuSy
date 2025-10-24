@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using System.Collections.Concurrent;
 using WaBiBaBuSy.Core.Interfaces;
 using WaBiBaBuSy.Core.Services.Networking;
 using WaBiBaBuSy.Grpc;
@@ -16,9 +17,9 @@ public class WallpaperPlaybackService : IDisposable
 
     private readonly ILogger<WallpaperPlaybackService> _logger;
     private readonly WallpaperSyncClient _syncClient;
-    // Multi-monitor support: Dictionary<contentId, Dictionary<monitorIndex, renderer>>
-    private readonly Dictionary<string, Dictionary<int, IWallpaperRenderer>> _renderers;
-    private readonly Dictionary<string, string> _contentCache; // contentId -> local file path
+    // Multi-monitor support: ConcurrentDictionary<contentId, ConcurrentDictionary<monitorIndex, renderer>>
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<int, IWallpaperRenderer>> _renderers;
+    private readonly ConcurrentDictionary<string, string> _contentCache; // contentId -> local file path (thread-safe)
     private readonly Func<string, int, IWallpaperRenderer?>? _rendererFactory; // Updated to take monitorIndex
 
     // Drift detection state
@@ -36,8 +37,8 @@ public class WallpaperPlaybackService : IDisposable
         _logger = logger;
         _syncClient = syncClient;
         _rendererFactory = rendererFactory;
-        _renderers = new Dictionary<string, Dictionary<int, IWallpaperRenderer>>();
-        _contentCache = new Dictionary<string, string>();
+        _renderers = new ConcurrentDictionary<string, ConcurrentDictionary<int, IWallpaperRenderer>>();
+        _contentCache = new ConcurrentDictionary<string, string>();
 
         // Subscribe to sync commands
         _syncClient.SyncCommandReceived += OnSyncCommandReceived;
@@ -166,10 +167,8 @@ public class WallpaperPlaybackService : IDisposable
                 monitorIndices.Add(0); // Default to primary monitor for now
             }
 
-            if (!_renderers.ContainsKey(command.ContentId))
-            {
-                _renderers[command.ContentId] = new Dictionary<int, IWallpaperRenderer>();
-            }
+            // Thread-safe: GetOrAdd ensures only one thread creates the nested dictionary
+            _renderers.GetOrAdd(command.ContentId, new ConcurrentDictionary<int, IWallpaperRenderer>());
 
             // Create renderers for each specified monitor
             foreach (var monitorIndex in monitorIndices)
