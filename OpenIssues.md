@@ -403,14 +403,14 @@ Multiple clients attempting to connect to the server resulted in immediate disco
 
 ### Root Cause
 
-**TWO separate thread-safety bugs were found:**
+**THREE separate thread-safety bugs were found:**
 
 **Bug #1: Cross-Screen Frame Streaming** (WallpaperSyncService.cs:539)
 - Used non-thread-safe `Dictionary<string, IServerStreamWriter<CrossScreenFrame>>`
 - Multiple gRPC streams tried to register/unregister/access simultaneously
 - KeyNotFoundException on concurrent dictionary access
 
-**Bug #2: Wallpaper Playback Renderers** (WallpaperPlaybackService.cs:20-21) - **PRIMARY CAUSE**
+**Bug #2: Wallpaper Playback Renderers** (WallpaperPlaybackService.cs:20-21)
 - Used non-thread-safe `Dictionary<string, Dictionary<int, IWallpaperRenderer>>`
 - Used non-thread-safe `Dictionary<string, string>` for content cache
 - Classic race condition: "check if key exists, then create nested dictionary"
@@ -419,7 +419,17 @@ Multiple clients attempting to connect to the server resulted in immediate disco
   - Thread A: Creates `_renderers[contentId] = new Dictionary(...)`
   - Thread B: Overwrites Thread A's dictionary
   - Thread A: Tries to access old dictionary → **KeyNotFoundException**
-- This triggered when clients connected and executed LOAD commands concurrently
+- Triggered when clients connected and executed LOAD commands concurrently
+
+**Bug #3: Local Wallpaper Renderers** (MainWindowViewModel.cs:36) - **THIRD CAUSE**
+- Used non-thread-safe `Dictionary<int, IWallpaperRenderer>` for monitor-specific renderers
+- gRPC callbacks and UI events accessed this dictionary concurrently
+- Race condition pattern: TryGetValue + Remove (non-atomic)
+  - Thread A: `TryGetValue(monitorIndex=27)` → true
+  - Thread B: `TryGetValue(monitorIndex=27)` → true
+  - Thread A: `Remove(27)` succeeds
+  - Thread B: `Remove(27)` fails → **KeyNotFoundException: 'The given key '27' was not present...'**
+- This triggered KeyException with numeric key (monitor index) rather than string key
 
 ### Solution Applied
 
@@ -434,7 +444,7 @@ Multiple clients attempting to connect to the server resulted in immediate disco
 4. Simplified UnregisterCrossScreenStream using `TryRemove()`
 5. Added exception handling in SendCrossScreenFrameAsync to auto-remove broken streams
 
-**File 2: WallpaperPlaybackService.cs (Wallpaper Playback - PRIMARY FIX)**
+**File 2: WallpaperPlaybackService.cs (Wallpaper Playback)**
 1. Added `using System.Collections.Concurrent;` import
 2. Changed outer dictionary to `ConcurrentDictionary<string, ConcurrentDictionary<int, IWallpaperRenderer>>`
 3. Changed content cache to `ConcurrentDictionary<string, string>`
@@ -449,6 +459,23 @@ Multiple clients attempting to connect to the server resulted in immediate disco
    // After (SAFE):
    _renderers.GetOrAdd(command.ContentId, new ConcurrentDictionary<int, IWallpaperRenderer>());
    ```
+
+**File 3: MainWindowViewModel.cs (Local Wallpaper Renderers - FINAL FIX)**
+1. Changed `Dictionary<int, IWallpaperRenderer>` to `ConcurrentDictionary<int, IWallpaperRenderer>` (line 36)
+2. Replaced TryGetValue + Remove with atomic `TryRemove()` operation (lines 432-435)
+   ```csharp
+   // Before (UNSAFE - race condition):
+   if (_localWallpaperRenderers.TryGetValue(monitorIndex, out var existingRenderer)) {
+       existingRenderer.Dispose();
+       _localWallpaperRenderers.Remove(monitorIndex);  // Can fail if key removed by another thread!
+   }
+
+   // After (SAFE - atomic):
+   if (_localWallpaperRenderers.TryRemove(monitorIndex, out var existingRenderer)) {
+       existingRenderer.Dispose();
+   }
+   ```
+3. Other dictionary operations (ToList(), Clear()) are already thread-safe with ConcurrentDictionary
 
 ### Impact
 
@@ -469,6 +496,7 @@ Multiple clients attempting to connect to the server resulted in immediate disco
 
 - `WaBiBaBuSy.Grpc/Services/WallpaperSyncService.cs` (3 methods, ~50 lines)
 - `WaBiBaBuSy.Core/Services/WallpaperPlaybackService.cs` (4 changes, ~15 lines)
+- `WaBiBaBuSy.UI/ViewModels/MainWindowViewModel.cs` (dictionary conversion + atomic operation, ~10 lines)
 
 ### Build Status
 
@@ -476,7 +504,8 @@ Multiple clients attempting to connect to the server resulted in immediate disco
 - 0 Errors
 - 8 Warnings (pre-existing, unrelated to this fix)
 - All projects compile cleanly
-- Both files modified without compilation issues
+- All three files modified without compilation issues
+- ConcurrentDictionary implementations verified
 
 ### Testing Checklist
 
@@ -486,10 +515,12 @@ Multiple clients attempting to connect to the server resulted in immediate disco
 1. [ ] Start server and verify NO KeyNotFoundException exceptions in logs
 2. [ ] Connect 2+ clients simultaneously to verify concurrent access handling
 3. [ ] Verify all clients maintain connection without drops
-4. [ ] Verify LOAD commands work without race conditions
-5. [ ] Enable cross-screen animation and send frames
-6. [ ] Disconnect and reconnect clients rapidly
-7. [ ] Check server logs - should be clean of KeyNotFoundException
+4. [ ] Verify LOAD commands work without race conditions (test Bug #2 fix)
+5. [ ] Enable cross-screen animation and send frames (test Bug #1 fix)
+6. [ ] Apply local wallpaper to multiple monitors rapidly (test Bug #3 fix)
+7. [ ] Disconnect and reconnect clients rapidly
+8. [ ] Check server logs - should be clean of KeyNotFoundException
+9. [ ] Monitor for numeric key exceptions like "key '27' was not present" (Bug #3 indicator)
 
 **Expected Results:**
 - Server starts without immediate KeyNotFoundException spam ✅

@@ -32,8 +32,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly ILoggerFactory _loggerFactory;
     private readonly DesktopWindowManager _desktopManager;
     private readonly VideoThumbnailGenerator _thumbnailGenerator;
-    // Multi-monitor support: Dictionary<monitorIndex, renderer>
-    private readonly Dictionary<int, IWallpaperRenderer> _localWallpaperRenderers = new();
+    // Multi-monitor support: ConcurrentDictionary<monitorIndex, renderer> (thread-safe for gRPC callbacks)
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, IWallpaperRenderer> _localWallpaperRenderers = new();
 
     [ObservableProperty]
     private ObservableCollection<ClientNodeViewModel> _clients = new();
@@ -428,11 +428,10 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             Debug.WriteLine($"[ApplyWallpaperLocally] Applying '{wallpaper.Name}' to local machine monitor {monitorIndex}");
 
-            // Dispose previous renderer for this monitor if exists
-            if (_localWallpaperRenderers.TryGetValue(monitorIndex, out var existingRenderer))
+            // Dispose previous renderer for this monitor if exists (atomic operation)
+            if (_localWallpaperRenderers.TryRemove(monitorIndex, out var existingRenderer))
             {
                 existingRenderer.Dispose();
-                _localWallpaperRenderers.Remove(monitorIndex);
             }
 
             // Validate monitor index

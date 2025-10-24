@@ -25,7 +25,8 @@
       "Bash(netstat:*)",
       "Bash(Write-Host 'Config file not found')",
       "Bash(timeout 15 dotnet run:*)",
-      "Read(//c/Users/Patrick/AppData/Roaming/WaBiBaBuSy/**)"
+      "Read(//c/Users/Patrick/AppData/Roaming/WaBiBaBuSy/**)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []
