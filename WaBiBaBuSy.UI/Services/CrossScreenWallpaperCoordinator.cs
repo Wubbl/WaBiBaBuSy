@@ -206,23 +206,31 @@ public class CrossScreenWallpaperCoordinator : IDisposable
     {
         try
         {
-            _logger.LogDebug("OnRenderFrame called - isRunning={IsRunning}", _isRunning);
-
             if (!_isRunning || _compositor == null || _canvasManager == null || _config == null)
             {
-                _logger.LogWarning("OnRenderFrame: Early exit - isRunning={IsRunning}, compositor={Compositor}, canvasManager={Canvas}, config={Config}",
-                    _isRunning, _compositor != null, _canvasManager != null, _config != null);
+                if (_isRunning && (_compositor == null || _canvasManager == null || _config == null))
+                {
+                    _logger.LogError("CRITICAL: Uninitialized components - compositor={Compositor}, canvasManager={Canvas}, config={Config}",
+                        _compositor != null ? "OK" : "NULL",
+                        _canvasManager != null ? "OK" : "NULL",
+                        _config != null ? "OK" : "NULL");
+                }
                 return;
             }
 
             // For local-only mode, we just render frames but don't send them over network
-            // A full local rendering implementation would apply frames directly to wallpaper
-            // For now, we just log that we're rendering
             var isLocalOnlyMode = _syncCoordinator == null;
 
             _performanceTimer.Restart();
 
             var currentTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+            // Log every 30 frames (roughly 1 second at 30 FPS)
+            if (_frameCount % 30 == 0)
+            {
+                _logger.LogInformation("[OnRenderFrame] Frame {FrameNum}, LocalMode={LocalMode}, Timestamp={Timestamp}",
+                    _frameCount, isLocalOnlyMode, currentTimestamp);
+            }
 
             _logger.LogDebug("Composing frames - timestamp={Timestamp}, speed={Speed}",
                 currentTimestamp, _config.AnimationSpeedPxPerSecond);
@@ -248,7 +256,15 @@ public class CrossScreenWallpaperCoordinator : IDisposable
                     _logger.LogTrace("Frame {FrameNum} composed for {Count} local screens", _frameCount, frames.Count);
 
                     // Raise event so UI layer can apply frames to wallpaper
-                    LocalFrameRendered?.Invoke(frames, currentTimestamp);
+                    if (LocalFrameRendered != null)
+                    {
+                        _logger.LogDebug("Invoking LocalFrameRendered for {Count} frames", frames.Count);
+                        LocalFrameRendered.Invoke(frames, currentTimestamp);
+                    }
+                    else
+                    {
+                        _logger.LogError("CRITICAL: LocalFrameRendered event has NO SUBSCRIBERS! Frames are being composed but not applied to wallpaper");
+                    }
                 }
                 catch (Exception ex)
                 {

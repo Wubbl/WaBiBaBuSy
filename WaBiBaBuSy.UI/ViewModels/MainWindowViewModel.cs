@@ -1165,6 +1165,8 @@ public partial class MainWindowViewModel : ViewModelBase
                     _service.SyncCoordinator);
 
                 _crossScreenCoordinator.StatusChanged += OnCrossScreenStatusChanged;
+                // Subscribe to frame rendering for local wallpaper application
+                _crossScreenCoordinator.LocalFrameRendered += OnLocalFrameRendered;
             }
 
             // Convert clients to screen configurations, filtering by selected monitors if configured
@@ -1236,6 +1238,86 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             IsCrossScreenRunning = e.Status == UI.Services.CrossScreenStatus.Running;
         });
+    }
+
+    /// <summary>
+    /// Handle frame rendering for local wallpaper display (cross-screen mode).
+    /// Receives composed frames and applies them to the wallpaper windows.
+    /// </summary>
+    private async Task OnLocalFrameRendered(Dictionary<string, System.Drawing.Bitmap> frames, long timestamp)
+    {
+        try
+        {
+            if (frames == null || frames.Count == 0)
+            {
+                return;
+            }
+
+            // For each frame, find the corresponding monitor and apply it
+            foreach (var (clientId, frameBitmap) in frames)
+            {
+                if (frameBitmap == null)
+                    continue;
+
+                // Find the client/monitor for this frame
+                var client = Clients.FirstOrDefault(c => c.ClientId == clientId);
+                if (client == null)
+                {
+                    _loggerFactory.CreateLogger<MainWindowViewModel>()
+                        .LogDebug("Client {ClientId} not found for frame application", clientId);
+                    continue;
+                }
+
+                // For local monitors, apply the frame directly
+                if (clientId.StartsWith("LOCAL_MACHINE_MONITOR_"))
+                {
+                    if (int.TryParse(clientId.Replace("LOCAL_MACHINE_MONITOR_", ""), out var monitorIndex))
+                    {
+                        // Create a temporary form to display the bitmap
+                        // This is a workaround for displaying composed frames
+                        // In production, we'd want a more elegant solution
+                        var screenInfo = System.Windows.Forms.Screen.AllScreens.FirstOrDefault(s =>
+                            Array.IndexOf(System.Windows.Forms.Screen.AllScreens, s) == monitorIndex);
+
+                        if (screenInfo != null)
+                        {
+                            // Create a form that displays the bitmap
+                            var form = new System.Windows.Forms.Form
+                            {
+                                FormBorderStyle = System.Windows.Forms.FormBorderStyle.None,
+                                ShowInTaskbar = false,
+                                TopMost = false,
+                                Bounds = screenInfo.Bounds,
+                                BackgroundImage = frameBitmap,
+                                BackgroundImageLayout = System.Windows.Forms.ImageLayout.Stretch
+                            };
+
+                            // Parent to WorkerW for desktop integration
+                            var logger = _loggerFactory.CreateLogger<MainWindowViewModel>();
+                            try
+                            {
+                                _desktopManager.SetAsWallpaperWindow(form.Handle, screenInfo.Bounds);
+                                form.Show();
+                                form.BringToFront();
+
+                                logger.LogDebug("Applied composed frame to monitor {MonitorIndex}: {Width}x{Height}",
+                                    monitorIndex, frameBitmap.Width, frameBitmap.Height);
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.LogError(ex, "Failed to apply frame to monitor {MonitorIndex}", monitorIndex);
+                                form.Dispose();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _loggerFactory.CreateLogger<MainWindowViewModel>()
+                .LogError(ex, "Error in OnLocalFrameRendered");
+        }
     }
 
     #endregion

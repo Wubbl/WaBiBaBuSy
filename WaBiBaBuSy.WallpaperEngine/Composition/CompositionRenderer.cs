@@ -110,6 +110,19 @@ public class CompositionRenderer : IDisposable
         if (_canvasManager == null)
             throw new InvalidOperationException("Renderer not initialized");
 
+        // DEFENSIVE CHECK: Verify renderers are initialized
+        if (_backgroundRenderer == null)
+        {
+            _logger.LogError("CRITICAL: BackgroundRenderer is NULL - composition cannot proceed");
+            throw new InvalidOperationException("BackgroundRenderer not initialized. Call InitializeAsync first.");
+        }
+
+        if (_animationRenderer == null)
+        {
+            _logger.LogError("CRITICAL: AnimationRenderer is NULL - composition cannot proceed");
+            throw new InvalidOperationException("AnimationRenderer not initialized. Call InitializeAsync first.");
+        }
+
         // Update animation position
         UpdateAnimationPosition(timestampMs, pixelsPerSecond);
 
