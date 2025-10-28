@@ -3,9 +3,9 @@
 
 #define MyAppName "WaBiBaBuSy"
 #define MyAppVersion "2.0.0"
-#define MyAppPublisher "BiBaBu Club"
-#define MyAppURL "https://github.com/yourusername/WaBiBaBuSy"
-#define MyAppExeName "WaBiBaBuSy.UI.exe"
+#define MyAppPublisher "BiBaBu"
+#define MyAppURL "https://github.com/pfnetsch/WaBiBaBuSy"
+#define MyAppExeName "WaBiBaBuSy.exe"
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
