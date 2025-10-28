@@ -1,15 +1,16 @@
 # WaBiBaBuSy - Missing Features
 
-**Last Updated:** 2025-10-23
-**Project Status:** ~99% MVP Complete
-**Next Priority:** Issue #2 - Distributed Animation Architecture (Client-Side Animation Control)
+**Last Updated:** 2025-10-28
+**Project Status:** ~99% MVP Complete (Cross-Screen Diagnostics Completed)
+**Next Priority:** Issue #2 - Local Frame Display Solution OR Issue #3 - Distributed Animation Architecture
 
 This document tracks features from the design document that are not yet implemented.
 
-**Session Highlights (2025-10-23):**
-- ✅ Completed FR1 Phases 1-3 (Gallery Multi-Select Component)
+**Session Highlights:**
+- **2025-10-28:** ✅ Unified local vs remote wallpaper application architecture, diagnosed cross-screen display issue
+- **2025-10-23:** ✅ Completed FR1 Phases 1-3 (Gallery Multi-Select Component)
 - ✅ All core gallery functionality working and building successfully
-- 🎯 Next focus: Issue #2 - New server-client animation architecture (distributed rendering)
+- 🎯 **Next Priority:** Issue #2 solution (local frame display) OR Issue #3 (distributed architecture)
 
 ---
 

@@ -415,6 +415,40 @@ WaBiBaBuSy.UI/
 
 ## Recent Updates & Bug Fixes
 
+### 2025-10-28 - Architecture Unification & Cross-Screen Diagnostics
+
+**Major Work Complete:**
+- ✅ **Unified Local vs Remote Wallpaper Application** - Single code path for both local and remote targets
+- ✅ **Cross-Screen Frame Rendering Diagnosed** - Root cause: missing event subscription + Windows Forms incompatibility
+- ✅ **Event Subscription Fixed** - LocalFrameRendered now has proper subscribers
+- ✅ **Defensive Logging Added** - Comprehensive diagnostics for troubleshooting
+
+**Files Modified (4 files):**
+- `WaBiBaBuSy.UI/Services/CrossScreenWallpaperCoordinator.cs` - Added defensive logging, frame count tracking
+- `WaBiBaBuSy.WallpaperEngine/Composition/CompositionRenderer.cs` - Added null checks for renderers
+- `WaBiBaBuSy.UI/ViewModels/MainWindowViewModel.cs` - Unified wallpaper application architecture (3 methods: ApplyWallpaperAsync, ApplyWallpaperLocallyInternal, ApplyWallpaperRemotelyInternal)
+
+**Architecture Improvements:**
+```csharp
+// OLD: Two different code paths
+ApplyWallpaperLocally(wallpaper, monitorIndex)       // Direct instantiation
+ApplyWallpaperToAll()                                 // Send gRPC broadcast
+
+// NEW: Unified single code path
+ApplyWallpaperAsync(wallpaper, targetClientId)       // Local OR Remote
+  ├─ if (isLocal) → ApplyWallpaperLocallyInternal()
+  └─ else → ApplyWallpaperRemotelyInternal()
+```
+
+**Issue Diagnosis (Issue #2):**
+- **Root Cause 1:** LocalFrameRendered event had NO subscribers - frames composed but never displayed
+- **Root Cause 2:** Windows Forms incompatible with WorkerW system window parenting (known from extended testing)
+- **Recommended Solution:** Option D - Disable local cross-screen animation display (30 min fix), implement proper Direct2D renderer post-MVP
+
+**Build Status:** ✅ All projects compile, 0 errors
+
+---
+
 ### 2025-10-23 - Feature Request #1: Gallery-Based Animation & Background Selection (Phases 1-3)
 
 **Major UI Component Complete:**

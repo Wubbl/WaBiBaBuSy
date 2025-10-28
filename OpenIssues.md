@@ -66,96 +66,164 @@ Currently, the UI only allows:
 
 ---
 
-## Issue #2: Cross-Screen Animation - Runtime Exception and High CPU Usage
+## Issue #2: Cross-Screen Animation - Local Frame Display Issue
 
 **Priority:** Critical
-**Status:** OPEN - Root Cause Analysis Needed
+**Status:** DIAGNOSED (2025-10-28) - Root Cause Identified
 **Date Reported:** 2025-10-23
+**Date Diagnosed:** 2025-10-28
 
-### Problem
-When starting cross-screen animation, an exception occurs and CPU usage spikes to very high levels. The animation does not start.
+### Problem Summary
+Cross-screen animation frames compose correctly (verified in logs at 30 FPS), but frames are **NOT displayed on wallpaper windows**. The root cause is a **missing event subscription** + **Windows Forms incompatibility with WorkerW parenting**.
 
-### Symptoms
-1. User clicked "Start Animation" button
-2. Exception was thrown (user did not provide exception details)
-3. CPU usage became "quite high" - possibly due to repeated exception loop
-4. Animation did not display
+### Root Causes Identified
 
-### Likely Causes
-1. **Null Reference Exception** - Accessing null properties in CrossScreenCoordinator or related services
-2. **Render Loop Exception** - OnRenderFrame timer callback throwing unhandled exception causing high CPU
-3. **Frame Distribution Failure** - SendCrossScreenFrameAsync failing repeatedly without catch
-4. **Resource Exhaustion** - Frame generation/encoding consuming all CPU without backpressure
-5. **JPEG Encoding Issue** - EncodeBitmapToJpeg throwing exception in tight loop
+#### 1. **Missing Event Subscription** ✅ FIXED (2025-10-28)
 
-### Debug Information Needed
-To diagnose this issue, we need:
-1. **Full exception message and stack trace** from the error
-2. **Application logs** showing the exact error
-3. **CPU usage pattern** - Is it constant high CPU or spikes?
-4. **Memory usage** - Is memory growing unbounded?
-5. **Which step fails?** - Dialog closes? Animation starts then fails? Server-side issue?
+The `LocalFrameRendered` event had **NO SUBSCRIBERS**. Frames were being composed and the event fired, but nobody was listening.
 
-### Architecture Context
-The render loop in CrossScreenWallpaperCoordinator:
+**Before Fix:**
 ```csharp
-_renderTimer = new Timer(OnRenderFrame, null, 0, frameIntervalMs);  // 33ms interval for 30 FPS
+// In CrossScreenWallpaperCoordinator.cs
+public delegate Task LocalFrameHandler(Dictionary<string, Bitmap> frames, long timestamp);
+public event LocalFrameHandler? LocalFrameRendered;  // ← Event defined but never subscribed!
 
-private void OnRenderFrame(object? state)
-{
-    // 1. Compose frames for all screens
-    var frames = _compositor.ComposeForAllScreens(currentTimestamp, animationSpeed);
-
-    // 2. Send to each client (async without await - fire and forget)
-    foreach (var (clientId, frameBitmap) in frames)
-    {
-        _ = _syncCoordinator.SendCrossScreenFrameAsync(...);  // Fire-and-forget
-    }
-}
+// In OnRenderFrame()
+LocalFrameRendered?.Invoke(frames, currentTimestamp);  // ← Fires but nobody listening
 ```
 
-**Potential Issues:**
-- Exception in ComposeForAllScreens crashes timer callback
-- Exception in SendCrossScreenFrameAsync is swallowed (fire-and-forget)
-- Bitmap disposal might fail
-- Sync coordinator might be null
-
-### Next Steps
-1. **Investigate the exact exception** - Need full error details
-2. **Add exception handling** to OnRenderFrame with logging
-3. **Add try-catch** to SendCrossScreenFrameAsync calls
-4. **Verify sync coordinator initialization** - Check if not null
-5. **Add CPU/memory telemetry** - Log performance metrics
-
-### Proposed Fix (Temporary)
-Add defensive exception handling to prevent high CPU loop:
+**After Fix:**
 ```csharp
-private void OnRenderFrame(object? state)
-{
-    if (!_isRunning || _compositor == null || _canvasManager == null)
-        return;
-
-    try
-    {
-        // existing render logic...
-    }
-    catch (Exception ex)
-    {
-        _logger.LogError(ex, "Error in render frame - stopping animation");
-        _ = StopAsync();  // Stop animation on exception
-        IsCrossScreenRunning = false;  // Notify UI
-    }
-}
+// In MainWindowViewModel.cs:1169
+_crossScreenCoordinator.LocalFrameRendered += OnLocalFrameRendered;  // ← NOW SUBSCRIBED!
 ```
 
-### Files to Investigate
-- `WaBiBaBuSy.UI/Services/CrossScreenWallpaperCoordinator.cs` - OnRenderFrame exception handling
-- `WaBiBaBuSy.Core/Services/WallpaperSyncCoordinator.cs` - SendCrossScreenFrameAsync implementation
-- `WaBiBaBuSy.WallpaperEngine/Composition/CompositionRenderer.cs` - Frame composition and encoding
-- `WaBiBaBuSy.UI/ViewModels/MainWindowViewModel.cs` - StartCrossScreen initialization
+**Impact:** Frames now reach the handler, but display issue remains (see below).
+
+#### 2. **Windows Forms Incompatibility with WorkerW** ⚠️ ARCHITECTURAL LIMITATION
+
+When OnLocalFrameRendered tries to display frames on WorkerW wallpaper windows:
+```
+"WorkerW window not found, cannot set wallpaper window"
+Exception thrown: 'System.ArgumentException' in System.Drawing.Common.dll
+Parameter is not valid.
+```
+
+**Root Cause:**
+- DesktopWindowManager.FindDesktopWorkerWindow() is never called before SetAsWallpaperWindow()
+- Even if called, Windows Forms is **fundamentally incompatible** with system window parenting
+- Form resets its parent when parented to WorkerW, making it invisible
+- This is a known limitation from our extensive testing (see closed Issue 1 in OpenIssues.md for details)
+
+**Why It Fails:**
+1. WorkerW discovery fails or not initialized
+2. SetAsWallpaperWindow() fails without proper WorkerW handle
+3. Windows Forms fighting SetParent from main process
+
+### Current Status
+
+**What's Working:**
+- ✅ Frames compose perfectly at 30 FPS (verified in logs)
+- ✅ LocalFrameRendered event now has subscribers
+- ✅ Event fires every frame
+- ✅ Handler receives frames correctly
+
+**What's Broken:**
+- ❌ Frames don't display (WorkerW parenting fails)
+- ❌ WorkerW discovery not initialized before use
+- ❌ Windows Forms incompatible with system window parenting
+
+### Proposed Solutions
+
+**Option A: Initialize WorkerW Discovery (Quick Fix)**
+```csharp
+// Add to MainWindowViewModel initialization
+if (!_service.IsClientConnected && !_service.IsServerRunning) {
+    _desktopManager.FindDesktopWorkerWindow();  // Pre-initialize
+}
+```
+**Status:** Partial solution - fixes one issue, but Windows Forms will still be incompatible
+**Effort:** 15 minutes
+**Expected Result:** May get past "WorkerW window not found" error, but window still won't display
+
+**Option B: Temp File + Existing Renderer (Medium Workaround)**
+```csharp
+// Save frames to temp PNG files
+// Reload with ImageWallpaperRendererLibVLC (proven working renderer)
+```
+**Status:** Works but disk I/O intensive (saving 30 frames/sec to disk)
+**Effort:** 2-3 hours
+**Expected Result:** Wallpaper displays correctly using proven LibVLC renderer
+
+**Option C: Native Direct2D Renderer (Proper Solution)**
+- Create `ComposedFrameWallpaperRenderer` using Direct2D or DXGI
+- Native rendering bypasses Windows Forms limitations
+- Proper support for WorkerW parenting
+**Status:** Correct but complex solution
+**Effort:** 6-8 hours
+**Expected Result:** Proper frame display with minimal overhead
+
+**Option D: Disable Local Cross-Screen (Safest for MVP)**
+```csharp
+// Log message when starting animation in local-only mode
+if (isLocalOnlyMode) {
+    _logger.LogWarning("Cross-screen animation requires remote clients. Local display not supported in current implementation.");
+    return;
+}
+```
+**Status:** MVP-safe, documented limitation
+**Effort:** 30 minutes
+**Expected Result:** Clear user message, no crashes, remote clients still work
+
+### Files Modified (2025-10-28)
+
+**CrossScreenWallpaperCoordinator.cs:**
+- Added defensive logging to detect uninitialized components (line 213-216)
+- Added logging for frame rendering every 30 frames (~1 second interval)
+- Added check for LocalFrameRendered subscribers with error logging (line 259-267)
+
+**CompositionRenderer.cs:**
+- Added null checks for _backgroundRenderer and _animationRenderer (line 114-124)
+- Throws clear exception if renderers not initialized
+
+**MainWindowViewModel.cs:**
+- Added subscription to LocalFrameRendered event (line 1169)
+- Implemented OnLocalFrameRendered handler (lines 1243-1284)
+- Updated ApplyWallpaperAsync with unified architecture (lines 384-416)
+- Created ApplyWallpaperLocallyInternal and ApplyWallpaperRemotelyInternal (lines 421-527)
+
+### Build Status
+
+**Build Successful:** ✅ All projects compile, 0 errors
+
+### Logs Showing Issue
+
+```
+[CrossScreen] Animation started successfully
+[OnRenderFrame] Frame 0, LocalMode=True, Timestamp=1761683111523
+WaBiBaBuSy.WallpaperEngine.Native.DesktopWindowManager: Error: WorkerW window not found, cannot set wallpaper window
+[OnLocalFrameRendered] LocalFrameRendered: 2 frames at 1761683111523ms
+Exception thrown: 'System.ArgumentException' in System.Drawing.Common.dll - Parameter is not valid.
+```
+
+### Recommendation for MVP
+
+**Use Option D (Disable Local Display):**
+1. Document as known limitation
+2. Requires remote clients for cross-screen animation
+3. 30 minutes to implement safeguard
+4. Prevents crashes and confusing errors
+5. Post-MVP: Implement Option B or C
+
+Rationale:
+- Cross-screen animation primary use case is **multiple machines** anyway
+- Local-only display is secondary feature
+- Avoids Windows Forms + WorkerW incompatibility for now
+- Can be improved post-MVP with Direct2D solution
 
 ### Related Issues
-- Issue #3: Client-side animation control would solve high CPU (distribute rendering load)
+- Issue #1 (Closed): Detailed Windows Forms + WorkerW incompatibility analysis in OpenIssues.md
+- Issue #3: Client-side animation control (distributed architecture) - would solve this by not needing local display
 
 ---
 
