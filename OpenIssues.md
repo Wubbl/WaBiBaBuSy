@@ -1,7 +1,23 @@
 # WaBiBaBuSy - Open Issues
 
-**Last Updated:** 2025-10-24
-**Active Issues:** 2
+**Last Updated:** 2025-10-30
+**Active Issues:** 2 (plus 1 planning complete)
+
+---
+
+## 📋 MAJOR UPDATE (2025-10-30)
+
+**Issue #3 Architecture Plan Complete:** See `DistributedCompositionArchitecturePlan.md`
+
+A comprehensive distributed composition architecture has been designed that:
+- ✅ Solves Issue #2 (local frame display) by making it unnecessary
+- ✅ Supersedes CrossScreenFrameDisplayPlan.md options
+- ✅ Reduces server CPU from 80% to <5%
+- ✅ Reduces network bandwidth from 9 MB/s to <1 MB/s
+- ✅ Scales from 2-3 clients to 50+ clients
+- ✅ Ready for implementation (18-24 hour effort, 4 phases)
+
+**Recommendation:** Implement distributed composition instead of pursuing CrossScreenFrameDisplayPlan.md solutions.
 
 ---
 
@@ -229,10 +245,18 @@ Rationale:
 
 ## Issue #3: Architecture Proposal - Client-Side Animation Control with Server Timing Coordination
 
-**Priority:** Medium
-**Status:** OPEN - Design Phase
+**Priority:** HIGH
+**Status:** PLANNING COMPLETE - Ready for Implementation
 **Date Reported:** 2025-10-23
-**Proposed Solution to:** Issue #2 (High CPU usage)
+**Plan Created:** 2025-10-30
+**Proposed Solution to:** Issue #2 (High CPU usage) and supersedes CrossScreenFrameDisplayPlan.md
+
+**⭐ IMPORTANT: See `DistributedCompositionArchitecturePlan.md` for comprehensive architecture design**
+
+This plan replaces the need for CrossScreenFrameDisplayPlan.md options (A-D). With distributed composition:
+- Server no longer composes frames → no need for local frame display mechanism
+- Each client handles its own composition and display
+- Cleaner, more scalable architecture overall
 
 ### Problem Statement
 Current architecture: **Server renders all frames and sends to all clients**
