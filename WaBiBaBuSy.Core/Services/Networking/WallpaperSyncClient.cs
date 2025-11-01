@@ -37,6 +37,10 @@ public class WallpaperSyncClient : IDisposable
     public event EventHandler<CrossScreenFrameReceivedEventArgs>? CrossScreenFrameReceived;
     public event EventHandler<UpdateAvailableEventArgs>? UpdateAvailable;
 
+    // Animation composition events (Phase 3)
+    public event EventHandler<AnimationPrepareReceivedEventArgs>? AnimationPrepareReceived;
+    public event EventHandler<AnimationStartReceivedEventArgs>? AnimationStartReceived;
+
     public WallpaperSyncClient(
         ILogger<WallpaperSyncClient> logger,
         ClientConfiguration configuration)
@@ -723,6 +727,100 @@ public class WallpaperSyncClient : IDisposable
         }
     }
 
+    #region Animation Composition Methods (Phase 3)
+
+    /// <summary>
+    /// Send animation ready confirmation to server
+    /// </summary>
+    public async Task<bool> ReportAnimationReadyAsync(string animationId)
+    {
+        if (_client == null || string.IsNullOrEmpty(_clientId))
+        {
+            _logger.LogWarning("Not connected to server, cannot report animation ready");
+            return false;
+        }
+
+        try
+        {
+            var ready = new AnimationReady
+            {
+                AnimationId = animationId,
+                ClientId = _clientId,
+                ReadyTimestampUtc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            };
+
+            var response = await _client.ReportAnimationReadyAsync(ready);
+            _logger.LogInformation("Animation ready reported: {AnimationId}, Success={Success}",
+                animationId, response.Success);
+
+            return response.Success;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error reporting animation ready: {AnimationId}", animationId);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Send animation completion report to server
+    /// </summary>
+    public async Task<bool> ReportAnimationCompleteAsync(
+        string animationId,
+        long startedTimestampUtc,
+        long completedTimestampUtc,
+        long actualDurationMs)
+    {
+        if (_client == null || string.IsNullOrEmpty(_clientId))
+        {
+            _logger.LogWarning("Not connected to server, cannot report animation completion");
+            return false;
+        }
+
+        try
+        {
+            var report = new AnimationCompleteReport
+            {
+                ClientId = _clientId,
+                AnimationId = animationId,
+                StartedTimestampUtc = startedTimestampUtc,
+                CompletedTimestampUtc = completedTimestampUtc,
+                ActualDurationMs = actualDurationMs,
+                Successful = true
+            };
+
+            var response = await _client.ReportAnimationCompleteAsync(report);
+            _logger.LogInformation(
+                "Animation completion reported: {AnimationId}, Duration={Duration}ms, Success={Success}",
+                animationId, actualDurationMs, response.Success);
+
+            return response.Success;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error reporting animation completion: {AnimationId}", animationId);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Fire animation prepare received event
+    /// </summary>
+    internal void OnAnimationPrepareReceived(AnimationPrepare prepare)
+    {
+        AnimationPrepareReceived?.Invoke(this, new AnimationPrepareReceivedEventArgs(prepare));
+    }
+
+    /// <summary>
+    /// Fire animation start received event
+    /// </summary>
+    internal void OnAnimationStartReceived(AnimationMetadata metadata)
+    {
+        AnimationStartReceived?.Invoke(this, new AnimationStartReceivedEventArgs(metadata));
+    }
+
+    #endregion
+
     public void Dispose()
     {
         DisconnectAsync().Wait();
@@ -769,4 +867,24 @@ public class UpdateAvailableEventArgs : EventArgs
     public int ServerBuildNumber { get; set; }
     public long PackageSize { get; set; }
     public string Description { get; set; } = string.Empty;
+}
+
+public class AnimationPrepareReceivedEventArgs : EventArgs
+{
+    public AnimationPrepare Prepare { get; }
+
+    public AnimationPrepareReceivedEventArgs(AnimationPrepare prepare)
+    {
+        Prepare = prepare;
+    }
+}
+
+public class AnimationStartReceivedEventArgs : EventArgs
+{
+    public AnimationMetadata Metadata { get; }
+
+    public AnimationStartReceivedEventArgs(AnimationMetadata metadata)
+    {
+        Metadata = metadata;
+    }
 }

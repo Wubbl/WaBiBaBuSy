@@ -533,6 +533,227 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
     }
 
+    #region Distributed Animation Composition (Phase 3)
+
+    /// <summary>
+    /// Delegate to handle animation preparation requests
+    /// </summary>
+    public delegate Task<AnimationAck> OnPrepareAnimationDelegate(string clientId, AnimationPrepare prepare);
+    public event OnPrepareAnimationDelegate? OnPrepareAnimation;
+
+    /// <summary>
+    /// Delegate to handle animation ready confirmations
+    /// </summary>
+    public delegate Task<AnimationAck> OnAnimationReadyDelegate(AnimationReady ready);
+    public event OnAnimationReadyDelegate? OnAnimationReady;
+
+    /// <summary>
+    /// Delegate to handle animation completion reports
+    /// </summary>
+    public delegate Task<AnimationAck> OnAnimationCompleteDelegate(AnimationCompleteReport report);
+    public event OnAnimationCompleteDelegate? OnAnimationComplete;
+
+    /// <summary>
+    /// Server sends animation preparation to client (warm-up phase)
+    /// </summary>
+    public override async Task<AnimationAck> PrepareAnimation(
+        AnimationPrepare request,
+        ServerCallContext context)
+    {
+        var clientId = context.GetHttpContext().Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        _logger.LogInformation(
+            "Received AnimationPrepare request: AnimationId={AnimationId}, ClientId={ClientId}",
+            request.AnimationId, clientId);
+
+        try
+        {
+            // Fire event for orchestrator/coordinator to handle
+            if (OnPrepareAnimation != null)
+            {
+                return await OnPrepareAnimation.Invoke(clientId, request);
+            }
+
+            return new AnimationAck
+            {
+                Success = true,
+                Message = "Animation prepared successfully"
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error preparing animation: {AnimationId}", request.AnimationId);
+            return new AnimationAck
+            {
+                Success = false,
+                Message = $"Error: {ex.Message}"
+            };
+        }
+    }
+
+    /// <summary>
+    /// Client confirms animation renderer is ready
+    /// </summary>
+    public override async Task<AnimationAck> ReportAnimationReady(
+        AnimationReady request,
+        ServerCallContext context)
+    {
+        _logger.LogInformation(
+            "Received AnimationReady confirmation: AnimationId={AnimationId}, ClientId={ClientId}, ReadyAt={ReadyAt}",
+            request.AnimationId, request.ClientId, request.ReadyTimestampUtc);
+
+        try
+        {
+            // Fire event for orchestrator to handle
+            if (OnAnimationReady != null)
+            {
+                return await OnAnimationReady.Invoke(request);
+            }
+
+            return new AnimationAck
+            {
+                Success = true,
+                Message = "Animation ready confirmation received"
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error handling animation ready: {AnimationId}", request.AnimationId);
+            return new AnimationAck
+            {
+                Success = false,
+                Message = $"Error: {ex.Message}"
+            };
+        }
+    }
+
+    /// <summary>
+    /// Server sends animation start signal to client
+    /// </summary>
+    public override Task<AnimationAck> SendAnimationStart(
+        AnimationMetadata request,
+        ServerCallContext context)
+    {
+        var clientId = context.GetHttpContext().Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        _logger.LogInformation(
+            "Sending animation start: AnimationId={AnimationId}, ClientId={ClientId}, StartTime={StartTime}ms",
+            request.AnimationId, clientId, request.StartTimestampUtc);
+
+        // Note: This is the basic server handler
+        // The actual RPC dispatch will be handled by WallpaperSyncClient on client side
+        return Task.FromResult(new AnimationAck
+        {
+            Success = true,
+            Message = "Animation start received"
+        });
+    }
+
+    /// <summary>
+    /// Client reports animation completion
+    /// </summary>
+    public override async Task<AnimationAck> ReportAnimationComplete(
+        AnimationCompleteReport request,
+        ServerCallContext context)
+    {
+        _logger.LogInformation(
+            "Received animation completion: AnimationId={AnimationId}, ClientId={ClientId}, " +
+            "Started={StartedAt}, Completed={CompletedAt}, Duration={Duration}ms",
+            request.AnimationId, request.ClientId, request.StartedTimestampUtc,
+            request.CompletedTimestampUtc, request.ActualDurationMs);
+
+        try
+        {
+            // Fire event for orchestrator to handle handoff to next client
+            if (OnAnimationComplete != null)
+            {
+                return await OnAnimationComplete.Invoke(request);
+            }
+
+            return new AnimationAck
+            {
+                Success = true,
+                Message = "Animation completion received"
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error handling animation completion: {AnimationId}", request.AnimationId);
+            return new AnimationAck
+            {
+                Success = false,
+                Message = $"Error: {ex.Message}"
+            };
+        }
+    }
+
+    /// <summary>
+    /// Server broadcasts timing sync to all animating clients
+    /// </summary>
+    public override async Task<Empty> BroadcastAnimationTimingSync(
+        AnimationTimingSync request,
+        ServerCallContext context)
+    {
+        _logger.LogDebug(
+            "Broadcasting timing sync: AnimationId={AnimationId}, ExpectedPos={ExpectedPos}ms",
+            request.AnimationId, request.ExpectedPositionMs);
+
+        // Broadcast to all clients via sync streams
+        await BroadcastCommandAsync(new SyncCommand
+        {
+            Type = CommandType.SyncFrame,
+            TimestampUtc = request.ServerTimestampUtc,
+            SequenceNumber = request.ExpectedPositionMs,
+            ContentId = request.AnimationId,
+            Params = new SyncParameters
+            {
+                TargetPositionMs = request.ExpectedPositionMs
+            }
+        });
+
+        return new Empty();
+    }
+
+    /// <summary>
+    /// Server stops animation on a client
+    /// </summary>
+    public override Task<AnimationAck> StopAnimation(
+        AnimationStopRequest request,
+        ServerCallContext context)
+    {
+        var clientId = context.GetHttpContext().Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        _logger.LogInformation(
+            "Stopping animation: AnimationId={AnimationId}, ClientId={ClientId}",
+            request.AnimationId, clientId);
+
+        return Task.FromResult(new AnimationAck
+        {
+            Success = true,
+            Message = "Animation stop command received"
+        });
+    }
+
+    /// <summary>
+    /// Get current status of animation on client
+    /// </summary>
+    public override Task<AnimationStatusResponse> GetAnimationStatus(
+        AnimationStatusRequest request,
+        ServerCallContext context)
+    {
+        _logger.LogDebug("Getting animation status: AnimationId={AnimationId}", request.AnimationId);
+
+        // Placeholder implementation
+        return Task.FromResult(new AnimationStatusResponse
+        {
+            AnimationId = request.AnimationId,
+            Status = AnimationStatusResponse.Types.AnimationStatus.Idle,
+            CurrentPositionMs = 0
+        });
+    }
+
+    #endregion
+
     #region Cross-Screen Frame Streaming
 
     // ConcurrentDictionary to hold cross-screen frame streams per client (thread-safe)

@@ -35,10 +35,18 @@ service WallpaperSync {
   // ========================================================================
   // Distributed Animation Composition (Issue #3)
   // ========================================================================
-  // Server sends animation metadata to client
+  // Phase 3: Warm-up & Completion-Triggered Handoff
+
+  // Server sends animation preparation (initialize but don't display)
+  rpc PrepareAnimation(AnimationPrepare) returns (AnimationAck);
+
+  // Client confirms animation renderer is ready
+  rpc ReportAnimationReady(AnimationReady) returns (AnimationAck);
+
+  // Server sends animation start signal (display begins)
   rpc SendAnimationStart(AnimationMetadata) returns (AnimationAck);
 
-  // Client reports animation completion
+  // Client reports animation completion with actual timings
   rpc ReportAnimationComplete(AnimationCompleteReport) returns (AnimationAck);
 
   // Server broadcasts timing sync to all animating clients
@@ -271,6 +279,27 @@ message FrameAcknowledgment {
 // Distributed Animation Composition Messages (Issue #3)
 // ============================================================================
 
+// Animation preparation message (server → client)
+// Tells client to initialize renderer but don't display yet
+message AnimationPrepare {
+  string animation_id = 1;              // Unique animation ID (UUID)
+  string content_path = 2;              // Server-side path to animation file
+  int32 target_height_px = 3;           // Target height for animation (e.g., 720)
+  int32 animation_speed_px_sec = 4;     // Horizontal speed (pixels per second)
+  int64 duration_ms = 5;                // Animation duration in milliseconds
+  BackgroundLayerConfig background = 6; // Background layer configuration
+  bool loop = 7;                        // Whether to loop animation
+  int32 target_monitor_index = 8;       // Physical monitor index
+}
+
+// Animation ready message (client → server)
+// Client confirms renderer is initialized and ready to display
+message AnimationReady {
+  string animation_id = 1;              // Which animation is ready
+  string client_id = 2;                 // Which client
+  int64 ready_timestamp_utc = 3;        // When client became ready (UTC ms)
+}
+
 // Animation metadata sent from server to client for distributed rendering
 message AnimationMetadata {
   string animation_id = 1;              // Unique animation ID (UUID or file hash)
@@ -278,7 +307,7 @@ message AnimationMetadata {
   int32 target_height_px = 3;           // Target height for animation (e.g., 720)
   int32 animation_speed_px_sec = 4;     // Horizontal speed (pixels per second)
   int64 duration_ms = 5;                // Animation duration in milliseconds
-  int64 start_timestamp_utc = 6;        // UTC timestamp when client should start
+  int64 start_timestamp_utc = 6;        // UTC timestamp when client should start DISPLAYING
   BackgroundLayerConfig background = 7; // Background layer configuration
   bool loop = 8;                        // Whether to loop animation
   int32 target_monitor_index = 9;       // Physical monitor index
@@ -304,12 +333,15 @@ message AnimationTimingSync {
 }
 
 // Animation completion report (client → server)
+// Includes actual timing measurements for precise handoff
 message AnimationCompleteReport {
   string client_id = 1;
   string animation_id = 2;
-  int64 completion_timestamp_utc = 3;   // When animation completed
-  bool successful = 4;
-  string error_message = 5;             // If not successful
+  int64 started_timestamp_utc = 3;      // When client ACTUALLY started displaying (UTC ms)
+  int64 completed_timestamp_utc = 4;    // When animation completed (UTC ms)
+  int64 actual_duration_ms = 5;         // Actual elapsed time from start to complete
+  bool successful = 6;
+  string error_message = 7;             // If not successful
 }
 
 // Stop animation request (server → client)

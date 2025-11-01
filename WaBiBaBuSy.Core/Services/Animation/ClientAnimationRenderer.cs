@@ -30,6 +30,12 @@ public class ClientAnimationRenderer
     public event AnimationCompleteDelegate? OnAnimationComplete;
 
     /// <summary>
+    /// Callback when animation is ready after preparation
+    /// </summary>
+    public delegate Task AnimationReadyDelegate(string animationId);
+    public event AnimationReadyDelegate? OnAnimationReady;
+
+    /// <summary>
     /// Callback when drift is detected and correction is needed
     /// </summary>
     public delegate Task AnimationDriftDelegate(string animationId, int driftMs);
@@ -41,7 +47,56 @@ public class ClientAnimationRenderer
     }
 
     /// <summary>
+    /// Receive animation preparation request from server
+    /// Initialize renderer but don't display yet
+    /// </summary>
+    public async Task OnReceiveAnimationPrepare(WaBiBaBuSy.Grpc.AnimationPrepare prepare)
+    {
+        var animationId = prepare.AnimationId;
+
+        try
+        {
+            _logger.LogInformation("Preparing animation: ID={AnimationId}", animationId);
+
+            var state = new LocalAnimationState
+            {
+                AnimationId = animationId,
+                AnimationPrepare = prepare,
+                State = AnimationRenderState.Preparing,
+                ReceivedAt = DateTimeOffset.UtcNow,
+            };
+
+            _localAnimations[animationId] = state;
+
+            // Initialize renderer (warm-up phase)
+            // This may take 100-300ms depending on file and system
+            state.RendererInitStartTime = DateTimeOffset.UtcNow;
+
+            // Simulate or perform actual renderer initialization
+            // In real implementation, would instantiate actual renderer here
+            await Task.Delay(100); // Placeholder for actual renderer init
+
+            state.RendererInitEndTime = DateTimeOffset.UtcNow;
+            state.State = AnimationRenderState.Ready;
+
+            _logger.LogInformation(
+                "Animation prepared and ready: ID={AnimationId}, InitTime={InitMs}ms",
+                animationId,
+                (state.RendererInitEndTime!.Value - state.RendererInitStartTime!.Value).TotalMilliseconds);
+
+            // Report to server that we're ready
+            await OnAnimationReady?.Invoke(animationId)!;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error preparing animation: {AnimationId}", animationId);
+            await ReportAnimationFailed(animationId, $"Prepare failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Receive animation metadata from server and start local rendering
+    /// Should only be called after animation has been prepared
     /// </summary>
     public async Task OnReceiveAnimationStart(AnimationMetadata metadata)
     {
@@ -97,27 +152,35 @@ public class ClientAnimationRenderer
             }
 
             // 2. Check if still valid
-            if (state.State != AnimationRenderState.Waiting)
+            if (state.State != AnimationRenderState.Waiting && state.State != AnimationRenderState.Ready)
             {
                 _logger.LogWarning("Animation cancelled during wait: {AnimationId}", metadata.AnimationId);
                 return;
             }
 
-            // 3. Signal to render
+            // 3. Signal to render and record ACTUAL start time
             state.State = AnimationRenderState.Rendering;
-            state.StartedRenderingAt = DateTimeOffset.UtcNow;
-            _logger.LogInformation("Starting animation render: {AnimationId}", metadata.AnimationId);
+            state.StartedRenderingAt = DateTimeOffset.UtcNow;  // ACTUAL rendering start
+            _logger.LogInformation("Starting animation render: {AnimationId}, ActualStart={StartTime}",
+                metadata.AnimationId, state.StartedRenderingAt);
 
             OnAnimationRender?.Invoke(metadata);
 
             // 4. Wait for animation to complete
             await Task.Delay((int)metadata.DurationMs);
 
-            // 5. Report completion
+            // 5. Report completion with actual timings
             state.State = AnimationRenderState.Completed;
             state.CompletedAt = DateTimeOffset.UtcNow;
 
-            _logger.LogInformation("Animation completed: {AnimationId}", metadata.AnimationId);
+            // Calculate actual duration based on when we actually started
+            var actualDurationMs = (long)(state.CompletedAt - state.StartedRenderingAt).Value.TotalMilliseconds;
+
+            _logger.LogInformation(
+                "Animation completed: {AnimationId}, ActualDuration={ActualMs}ms (scheduled={ScheduledMs}ms)",
+                metadata.AnimationId, actualDurationMs, metadata.DurationMs);
+
+            // Pass actual timings to completion handler
             await OnAnimationComplete?.Invoke(metadata.AnimationId, true, null)!;
 
             // 6. Clean up
@@ -247,20 +310,26 @@ public class ClientAnimationRenderer
 /// </summary>
 public enum AnimationRenderState
 {
+    /// <summary>Initializing renderer (warm-up phase)</summary>
+    Preparing = 0,
+
+    /// <summary>Renderer ready, waiting for start time</summary>
+    Ready = 1,
+
     /// <summary>Waiting for start time</summary>
-    Waiting = 0,
+    Waiting = 2,
 
     /// <summary>Currently rendering</summary>
-    Rendering = 1,
+    Rendering = 3,
 
     /// <summary>Completed successfully</summary>
-    Completed = 2,
+    Completed = 4,
 
     /// <summary>Failed with error</summary>
-    Failed = 3,
+    Failed = 5,
 
     /// <summary>Stopped by server</summary>
-    Stopped = 4,
+    Stopped = 6,
 }
 
 /// <summary>
@@ -271,14 +340,23 @@ public class LocalAnimationState
     /// <summary>Animation ID</summary>
     public string AnimationId { get; set; } = string.Empty;
 
+    /// <summary>Animation prepare data (warm-up phase)</summary>
+    public WaBiBaBuSy.Grpc.AnimationPrepare? AnimationPrepare { get; set; }
+
     /// <summary>Animation metadata</summary>
     public AnimationMetadata? AnimationMetadata { get; set; }
 
     /// <summary>Current rendering state</summary>
-    public AnimationRenderState State { get; set; } = AnimationRenderState.Waiting;
+    public AnimationRenderState State { get; set; } = AnimationRenderState.Preparing;
 
     /// <summary>When animation metadata was received</summary>
     public DateTimeOffset ReceivedAt { get; set; }
+
+    /// <summary>When renderer initialization started</summary>
+    public DateTimeOffset? RendererInitStartTime { get; set; }
+
+    /// <summary>When renderer initialization completed</summary>
+    public DateTimeOffset? RendererInitEndTime { get; set; }
 
     /// <summary>When animation started rendering</summary>
     public DateTimeOffset? StartedRenderingAt { get; set; }
@@ -301,15 +379,24 @@ public class LocalAnimationState
     /// <summary>Check if animation is currently active</summary>
     public bool IsActive()
     {
-        return State == AnimationRenderState.Waiting || State == AnimationRenderState.Rendering;
+        return State == AnimationRenderState.Waiting || State == AnimationRenderState.Rendering || State == AnimationRenderState.Ready;
     }
 
-    /// <summary>Get elapsed time since start</summary>
+    /// <summary>Get elapsed time since actual rendering start</summary>
     public long GetElapsedMs()
     {
         if (StartedRenderingAt == null)
             return 0;
 
         return (long)(DateTimeOffset.UtcNow - StartedRenderingAt.Value).TotalMilliseconds;
+    }
+
+    /// <summary>Get renderer initialization time (ms)</summary>
+    public long GetInitializationTimeMs()
+    {
+        if (RendererInitStartTime == null || RendererInitEndTime == null)
+            return 0;
+
+        return (long)(RendererInitEndTime.Value - RendererInitStartTime.Value).TotalMilliseconds;
     }
 }

@@ -20,10 +20,28 @@ public class AnimationOrchestrator
     private readonly ConcurrentDictionary<string, AnimationSchedule> _schedules = new();
 
     /// <summary>
+    /// Track which client is currently animating in a schedule
+    /// Maps: scheduleId -> clientId
+    /// </summary>
+    private readonly ConcurrentDictionary<string, string> _currentAnimatingClient = new();
+
+    /// <summary>
+    /// Track actual completion times for handoff scheduling
+    /// Maps: animationId -> actual completion timestamp
+    /// </summary>
+    private readonly ConcurrentDictionary<string, long> _animationCompletionTimes = new();
+
+    /// <summary>
     /// Callback to send animation to client
     /// </summary>
     public delegate Task SendAnimationDelegate(string clientId, AnimationMetadata metadata);
     public event SendAnimationDelegate? OnSendAnimation;
+
+    /// <summary>
+    /// Callback to prepare animation (warm-up phase)
+    /// </summary>
+    public delegate Task PrepareAnimationDelegate(string clientId, WaBiBaBuSy.Grpc.AnimationPrepare prepare);
+    public event PrepareAnimationDelegate? OnPrepareAnimation;
 
     /// <summary>
     /// Callback when animation schedule completes
@@ -122,68 +140,61 @@ public class AnimationOrchestrator
 
     /// <summary>
     /// Orchestrate sequential animation: each client in order
+    ///
+    /// Process:
+    /// 1. Pre-warm all clients (initialize renderers)
+    /// 2. Send first client animation with immediate start time
+    /// 3. Listen for completion reports and hand off to next client
     /// </summary>
     private async Task OrchestratSequentialAnimationAsync(AnimationSchedule schedule)
     {
         try
         {
+            schedule.State = ScheduleState.Running;
+            schedule.StartedAt = DateTimeOffset.UtcNow;
+
+            _logger.LogInformation(
+                "Starting sequential animation orchestration: Schedule={ScheduleId}, Clients={Count}",
+                schedule.ScheduleId, schedule.SelectedClientIds.Count);
+
+            // PHASE 1: Pre-warm all renderers
+            _logger.LogInformation("Phase 1: Pre-warming renderers on all clients: Schedule={ScheduleId}", schedule.ScheduleId);
+            await PreWarmAllClientsAsync(schedule);
+
+            // PHASE 2: Send animation to first client
+            _logger.LogInformation("Phase 2: Starting animation on first client: Schedule={ScheduleId}", schedule.ScheduleId);
             var currentTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            var clientIndex = 0;
 
-            while (true)
+            var firstClientId = schedule.SelectedClientIds[0];
+            var firstMetadata = new AnimationMetadata
             {
-                // Get next client
-                var clientId = schedule.SelectedClientIds[clientIndex];
+                AnimationId = Guid.NewGuid().ToString(),
+                ContentPath = schedule.BaseMetadata!.ContentPath,
+                TargetHeightPx = schedule.BaseMetadata.TargetHeightPx,
+                AnimationSpeedPxSec = schedule.BaseMetadata.AnimationSpeedPxSec,
+                DurationMs = schedule.BaseMetadata.DurationMs,
+                StartTimestampUtc = currentTime,
+                Background = schedule.BaseMetadata.Background,
+                Loop = false,
+                TargetMonitorIndex = schedule.BaseMetadata.TargetMonitorIndex,
+            };
 
-                // Create metadata for this client
-                var metadata = new AnimationMetadata
-                {
-                    AnimationId = Guid.NewGuid().ToString(),
-                    ContentPath = schedule.BaseMetadata.ContentPath,
-                    TargetHeightPx = schedule.BaseMetadata.TargetHeightPx,
-                    AnimationSpeedPxSec = schedule.BaseMetadata.AnimationSpeedPxSec,
-                    DurationMs = schedule.BaseMetadata.DurationMs,
-                    StartTimestampUtc = currentTime,
-                    Background = schedule.BaseMetadata.Background,
-                    Loop = false,
-                    TargetMonitorIndex = schedule.BaseMetadata.TargetMonitorIndex,
-                };
+            _logger.LogInformation(
+                "Sending first animation: Schedule={ScheduleId}, Client={ClientId}, AnimationId={AnimationId}",
+                schedule.ScheduleId, firstClientId, firstMetadata.AnimationId);
 
-                // Send to client
-                _logger.LogInformation(
-                    "Sending animation to client {ClientIndex}/{TotalClients}: Client={ClientId}, Start={Start}ms",
-                    clientIndex + 1, schedule.SelectedClientIds.Count, clientId, currentTime);
+            _currentAnimatingClient[schedule.ScheduleId] = firstClientId;
+            _distributor.TrackAnimationStart(firstClientId, firstMetadata.AnimationId, firstMetadata.StartTimestampUtc, firstMetadata.DurationMs);
+            await OnSendAnimation?.Invoke(firstClientId, firstMetadata)!;
 
-                _distributor.TrackAnimationStart(clientId, metadata.AnimationId, metadata.StartTimestampUtc, metadata.DurationMs);
-                OnSendAnimation?.Invoke(clientId, metadata);
+            // PHASE 3: Wait for completion reports (handled by OnAnimationCompleted callbacks)
+            _logger.LogInformation(
+                "Waiting for animation completion reports: Schedule={ScheduleId}",
+                schedule.ScheduleId);
 
-                // Wait for this animation to complete
-                await Task.Delay((int)schedule.BaseMetadata.DurationMs);
-
-                // Move to next client
-                clientIndex++;
-                currentTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
-                // Check if we've processed all clients
-                if (clientIndex >= schedule.SelectedClientIds.Count)
-                {
-                    if (schedule.Loop)
-                    {
-                        _logger.LogInformation("Looping animation sequence: Schedule={ScheduleId}", schedule.ScheduleId);
-                        clientIndex = 0;
-                    }
-                    else
-                    {
-                        break;
-                    }
-                }
-            }
-
-            schedule.State = ScheduleState.Completed;
-            schedule.CompletedAt = DateTimeOffset.UtcNow;
-            _logger.LogInformation("Sequential animation schedule completed: Schedule={ScheduleId}", schedule.ScheduleId);
-
-            OnScheduleComplete?.Invoke(schedule.ScheduleId);
+            // The actual handoff will happen when OnAnimationCompleted is called
+            // For now, we just mark the schedule as running
+            // Note: The schedule will transition to Completed when the last client finishes
         }
         catch (Exception ex)
         {
@@ -191,6 +202,56 @@ public class AnimationOrchestrator
             schedule.State = ScheduleState.Failed;
             schedule.ErrorMessage = ex.Message;
         }
+    }
+
+    /// <summary>
+    /// Pre-warm all client renderers before starting animation
+    /// This initializes renderers on all clients and waits for ready confirmations
+    /// </summary>
+    private async Task PreWarmAllClientsAsync(AnimationSchedule schedule)
+    {
+        // Create prepare message (same for all clients)
+        // Convert Models.Animation.BackgroundLayerConfig to Grpc.BackgroundLayerConfig
+        var grpcBackground = ConvertBackgroundConfigToGrpc(schedule.BaseMetadata!.Background);
+
+        var prepare = new WaBiBaBuSy.Grpc.AnimationPrepare
+        {
+            AnimationId = Guid.NewGuid().ToString(),
+            ContentPath = schedule.BaseMetadata.ContentPath,
+            TargetHeightPx = schedule.BaseMetadata.TargetHeightPx,
+            AnimationSpeedPxSec = schedule.BaseMetadata.AnimationSpeedPxSec,
+            DurationMs = schedule.BaseMetadata.DurationMs,
+            Background = grpcBackground,
+            Loop = false,
+            TargetMonitorIndex = schedule.BaseMetadata.TargetMonitorIndex,
+        };
+
+        var warmupStartTime = DateTimeOffset.UtcNow;
+
+        // Send prepare to all clients
+        _logger.LogInformation(
+            "Sending AnimationPrepare to {Count} clients: Schedule={ScheduleId}, AnimationId={AnimationId}",
+            schedule.SelectedClientIds.Count, schedule.ScheduleId, prepare.AnimationId);
+
+        foreach (var clientId in schedule.SelectedClientIds)
+        {
+            await OnPrepareAnimation?.Invoke(clientId, prepare)!;
+        }
+
+        // Wait for all clients to confirm ready (with timeout)
+        // In real implementation, would listen for AnimationReady confirmations
+        // For now, just wait a fixed time for renderers to initialize
+        var warmupTimeoutMs = 5000; // 5 second timeout
+        _logger.LogInformation(
+            "Waiting for all clients to warm up (timeout={TimeoutMs}ms): Schedule={ScheduleId}",
+            warmupTimeoutMs, schedule.ScheduleId);
+
+        await Task.Delay(warmupTimeoutMs);
+
+        var warmupDuration = DateTimeOffset.UtcNow - warmupStartTime;
+        _logger.LogInformation(
+            "Pre-warm completed in {DurationMs}ms: Schedule={ScheduleId}",
+            warmupDuration.TotalMilliseconds, schedule.ScheduleId);
     }
 
     /// <summary>
@@ -249,6 +310,98 @@ public class AnimationOrchestrator
     }
 
     /// <summary>
+    /// Handle animation completion report from client
+    /// Triggers handoff to next client in sequence if applicable
+    /// </summary>
+    public async Task OnAnimationCompleted(
+        string scheduleId,
+        string clientId,
+        string animationId,
+        long startedTimestampUtc,
+        long completedTimestampUtc,
+        long actualDurationMs)
+    {
+        if (!_schedules.TryGetValue(scheduleId, out var schedule))
+        {
+            _logger.LogWarning("Received completion for unknown schedule: {ScheduleId}", scheduleId);
+            return;
+        }
+
+        _logger.LogInformation(
+            "Animation completed: Schedule={ScheduleId}, Client={ClientId}, " +
+            "AnimationId={AnimationId}, ActualDuration={ActualDuration}ms",
+            scheduleId, clientId, animationId, actualDurationMs);
+
+        // Store completion time for diagnostics
+        _animationCompletionTimes[animationId] = completedTimestampUtc;
+
+        // Find current client position
+        var clientIndex = schedule.SelectedClientIds.IndexOf(clientId);
+        if (clientIndex < 0)
+        {
+            _logger.LogWarning("Client {ClientId} not in schedule {ScheduleId}", clientId, scheduleId);
+            return;
+        }
+
+        // Check if there are more clients in sequence
+        var nextClientIndex = clientIndex + 1;
+        if (nextClientIndex >= schedule.SelectedClientIds.Count)
+        {
+            // This was the last client
+            if (schedule.Loop)
+            {
+                _logger.LogInformation(
+                    "Last client finished, looping back: Schedule={ScheduleId}",
+                    scheduleId);
+                nextClientIndex = 0;
+            }
+            else
+            {
+                // Schedule complete
+                _logger.LogInformation(
+                    "Sequential animation schedule completed: Schedule={ScheduleId}",
+                    scheduleId);
+                schedule.State = ScheduleState.Completed;
+                schedule.CompletedAt = DateTimeOffset.UtcNow;
+                OnScheduleComplete?.Invoke(schedule.ScheduleId);
+                return;
+            }
+        }
+
+        // Send animation to next client
+        var nextClientId = schedule.SelectedClientIds[nextClientIndex];
+
+        // Use ACTUAL completion time as next start time
+        // This accounts for renderer init delay and network jitter
+        var nextStartTime = completedTimestampUtc;
+
+        _logger.LogInformation(
+            "Handing off animation to next client: Schedule={ScheduleId}, " +
+            "From={CurrentClient}/{CurrentIndex} to={NextClient}/{NextIndex}, " +
+            "NextStartTime={NextStartTime}ms",
+            scheduleId, clientId, clientIndex, nextClientId, nextClientIndex, nextStartTime);
+
+        // Create metadata for next client
+        var metadata = new AnimationMetadata
+        {
+            AnimationId = Guid.NewGuid().ToString(),
+            ContentPath = schedule.BaseMetadata!.ContentPath,
+            TargetHeightPx = schedule.BaseMetadata.TargetHeightPx,
+            AnimationSpeedPxSec = schedule.BaseMetadata.AnimationSpeedPxSec,
+            DurationMs = schedule.BaseMetadata.DurationMs,
+            StartTimestampUtc = nextStartTime,
+            Background = schedule.BaseMetadata.Background,
+            Loop = false,
+            TargetMonitorIndex = schedule.BaseMetadata.TargetMonitorIndex,
+        };
+
+        _currentAnimatingClient[scheduleId] = nextClientId;
+        _distributor.TrackAnimationStart(nextClientId, metadata.AnimationId, nextStartTime, metadata.DurationMs);
+
+        await OnSendAnimation?.Invoke(nextClientId, metadata)!;
+    }
+
+    /// <summary>
     /// Stop animation schedule
     /// </summary>
     public void StopSchedule(string scheduleId)
@@ -275,6 +428,32 @@ public class AnimationOrchestrator
     public IEnumerable<AnimationSchedule> GetActiveSchedules()
     {
         return _schedules.Values.Where(s => s.State == ScheduleState.Running || s.State == ScheduleState.Scheduled);
+    }
+
+    /// <summary>
+    /// Convert Models.Animation.BackgroundLayerConfig to Grpc.BackgroundLayerConfig
+    /// </summary>
+    private WaBiBaBuSy.Grpc.BackgroundLayerConfig ConvertBackgroundConfigToGrpc(
+        WaBiBaBuSy.Models.Animation.BackgroundLayerConfig modelsConfig)
+    {
+        var grpcConfig = new WaBiBaBuSy.Grpc.BackgroundLayerConfig();
+
+        // Map the mode
+        grpcConfig.Mode = modelsConfig.Mode switch
+        {
+            WaBiBaBuSy.Models.Animation.BackgroundLayerConfig.BackgroundMode.SolidColor =>
+                WaBiBaBuSy.Grpc.BackgroundLayerConfig.Types.BackgroundMode.SolidColor,
+            WaBiBaBuSy.Models.Animation.BackgroundLayerConfig.BackgroundMode.StretchedImage =>
+                WaBiBaBuSy.Grpc.BackgroundLayerConfig.Types.BackgroundMode.StretchedImage,
+            WaBiBaBuSy.Models.Animation.BackgroundLayerConfig.BackgroundMode.TiledImage =>
+                WaBiBaBuSy.Grpc.BackgroundLayerConfig.Types.BackgroundMode.TiledImage,
+            _ => WaBiBaBuSy.Grpc.BackgroundLayerConfig.Types.BackgroundMode.SolidColor,
+        };
+
+        grpcConfig.ColorHex = modelsConfig.ColorHex ?? "#000000";
+        grpcConfig.ImagePath = modelsConfig.ImagePath ?? "";
+
+        return grpcConfig;
     }
 }
 
