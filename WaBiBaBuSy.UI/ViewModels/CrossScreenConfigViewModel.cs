@@ -67,6 +67,9 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     [ObservableProperty]
     private bool _hasMultipleMonitors = false;
 
+    [ObservableProperty]
+    private int _animationDistributionModeIndex = 0; // 0 = Sequential, 1 = Simultaneous
+
     public bool IsSolidColorMode => BackgroundModeIndex == 0;
     public bool IsImageMode => BackgroundModeIndex == 1 || BackgroundModeIndex == 2;
 
@@ -150,6 +153,13 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             _ => 1
         };
 
+        AnimationDistributionModeIndex = config.DistributionMode switch
+        {
+            WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Sequential => 0,
+            WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Simultaneous => 1,
+            _ => 0
+        };
+
         // Restore monitor selection from config
         var selectedIds = new HashSet<string>(config.SelectedMonitorIds);
         foreach (var monitor in AvailableMonitors)
@@ -176,6 +186,13 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             _ => VerticalAlignment.Center
         };
 
+        var distributionMode = AnimationDistributionModeIndex switch
+        {
+            0 => WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Sequential,
+            1 => WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Simultaneous,
+            _ => WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Sequential
+        };
+
         // Collect selected monitor IDs
         var selectedMonitorIds = AvailableMonitors
             .Where(m => m.IsSelected)
@@ -198,7 +215,8 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                 VerticalAlign = verticalAlign
             },
             AnimationSpeedPxPerSecond = AnimationSpeed,
-            SelectedMonitorIds = selectedMonitorIds
+            SelectedMonitorIds = selectedMonitorIds,
+            DistributionMode = distributionMode
         };
     }
 

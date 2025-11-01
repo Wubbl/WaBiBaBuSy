@@ -35,6 +35,30 @@ public class CrossScreenConfig
     /// Default: false (use existing centralized rendering for now).
     /// </summary>
     public bool UseDistributedRendering { get; set; } = false;
+
+    /// <summary>
+    /// Animation distribution mode for orchestrator-based animation (Phase 3).
+    /// Sequential: Animation flows from one client to the next in order
+    /// Simultaneous: All clients animate at the same time
+    /// Default: Sequential
+    /// </summary>
+    public AnimationDistributionMode DistributionMode { get; set; } = AnimationDistributionMode.Sequential;
+}
+
+/// <summary>
+/// Animation distribution modes for orchestrator-based animation (Phase 3)
+/// </summary>
+public enum AnimationDistributionMode
+{
+    /// <summary>
+    /// Animation flows from one client to the next in the specified order (handoff timing)
+    /// </summary>
+    Sequential,
+
+    /// <summary>
+    /// All clients animate at the same time with synchronized timing
+    /// </summary>
+    Simultaneous
 }
 
 /// <summary>

@@ -90,6 +90,25 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Distribution Mode Configuration -->
+                <Border Background="#2D2D30" CornerRadius="5" Padding="15">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="Animation Distribution (Phase 3)" FontSize="14" FontWeight="SemiBold"/>
+                        <TextBlock Text="Choose how animation flows across selected clients:" FontSize="11" Foreground="#AAAAAA"/>
+
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="Mode:" FontSize="12"/>
+                            <ComboBox SelectedIndex="{Binding AnimationDistributionModeIndex}" Width="250" HorizontalAlignment="Left">
+                                <ComboBoxItem Content="Sequential - Animation flows one client to next"/>
+                                <ComboBoxItem Content="Simultaneous - All clients animate together"/>
+                            </ComboBox>
+                        </StackPanel>
+
+                        <TextBlock Text="Sequential: Clients report when rendering starts, next client starts when previous finishes. Simultaneous: All clients start at same time with synchronized timing."
+                                   FontSize="10" Foreground="#888888" TextWrapping="Wrap" Margin="0,5,0,0"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- Speed Configuration -->
                 <Border Background="#2D2D30" CornerRadius="5" Padding="15">
                     <StackPanel Spacing="10">

@@ -64,6 +64,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private UI.Services.CrossScreenWallpaperCoordinator? _crossScreenCoordinator;
     private CrossScreenConfig? _crossScreenConfig;
+    private string? _currentAnimationScheduleId;  // Track active animation schedule (Phase 3)
 
     // Storage provider for file picker dialogs
     private IStorageProvider? _storageProvider;
@@ -1223,9 +1224,24 @@ public partial class MainWindowViewModel : ViewModelBase
 
             Debug.WriteLine($"[CrossScreen] Starting animation on {screenConfigs.Count} selected monitor(s)");
 
-            // Initialize and start
-            await _crossScreenCoordinator.InitializeAsync(screenConfigs, _crossScreenConfig);
-            await _crossScreenCoordinator.StartAsync();
+            // Check if we should use Phase 3 orchestrator (when server mode is active)
+            if (_service.IsServerMode && _crossScreenConfig?.DistributionMode == WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Sequential)
+            {
+                Debug.WriteLine("[CrossScreen] Using Phase 3 orchestrator for sequential animation");
+                await StartOrchestrationAnimation(screenConfigs);
+            }
+            else if (_service.IsServerMode && _crossScreenConfig?.DistributionMode == WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Simultaneous)
+            {
+                Debug.WriteLine("[CrossScreen] Using Phase 3 orchestrator for simultaneous animation");
+                await StartOrchestrationAnimation(screenConfigs);
+            }
+            else
+            {
+                Debug.WriteLine("[CrossScreen] Using traditional cross-screen coordinator");
+                // Initialize and start using traditional method
+                await _crossScreenCoordinator.InitializeAsync(screenConfigs, _crossScreenConfig);
+                await _crossScreenCoordinator.StartAsync();
+            }
 
             IsCrossScreenRunning = true;
             Debug.WriteLine("[CrossScreen] Animation started successfully");
@@ -1237,10 +1253,78 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// Convert Wallpaper.BackgroundLayerConfig to Animation.BackgroundLayerConfig
+    /// </summary>
+    private Models.Animation.BackgroundLayerConfig ConvertToAnimationBackground(Models.Wallpaper.BackgroundLayerConfig wallpaperConfig)
+    {
+        // Simple direct mapping since both models have the same properties
+        var animationConfig = new Models.Animation.BackgroundLayerConfig
+        {
+            ColorHex = wallpaperConfig.ColorHex ?? "#000000",
+            ImagePath = wallpaperConfig.ImagePath ?? string.Empty
+        };
+
+        return animationConfig;
+    }
+
+    /// <summary>
+    /// Start sequential animation using Phase 3 orchestrator
+    /// </summary>
+    private async Task StartOrchestrationAnimation(List<WallpaperEngine.Composition.ScreenConfiguration> screenConfigs)
+    {
+        try
+        {
+            if (_crossScreenConfig?.Animation.AnimationPath == null)
+            {
+                Debug.WriteLine("[Orchestration] No animation path configured");
+                return;
+            }
+
+            // Create animation metadata
+            var metadata = new Models.Animation.AnimationMetadata
+            {
+                AnimationId = Guid.NewGuid().ToString(),
+                ContentPath = _crossScreenConfig.Animation.AnimationPath,
+                TargetHeightPx = _crossScreenConfig.Animation.TargetHeight,  // Use TargetHeight not TargetHeightPx
+                AnimationSpeedPxSec = _crossScreenConfig.AnimationSpeedPxPerSecond,  // Use CrossScreenConfig's speed
+                DurationMs = 5000,  // Default animation duration (5 seconds)
+                StartTimestampUtc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Background = ConvertToAnimationBackground(_crossScreenConfig.Background),  // Convert background config
+                Loop = _crossScreenConfig.Animation.Loop,  // Use animation loop setting
+                TargetMonitorIndex = 0
+            };
+
+            // Extract selected client IDs
+            var selectedClientIds = screenConfigs.Select(s => s.ClientId).ToList();
+
+            // Determine distribution mode from config
+            var isSequential = _crossScreenConfig.DistributionMode == WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Sequential;
+            Debug.WriteLine($"[Orchestration] Starting {(isSequential ? "sequential" : "simultaneous")} animation with {selectedClientIds.Count} clients");
+
+            // Start animation via orchestrator based on configured distribution mode
+            if (isSequential)
+            {
+                _currentAnimationScheduleId = await _service.StartSequentialAnimationAsync(metadata, selectedClientIds, loop: false);
+            }
+            else
+            {
+                _currentAnimationScheduleId = await _service.StartSimultaneousAnimationAsync(metadata, selectedClientIds);
+            }
+
+            Debug.WriteLine($"[Orchestration] Animation started with schedule ID: {_currentAnimationScheduleId}");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Orchestration] Error starting animation: {ex.Message}");
+            throw;
+        }
+    }
+
     [RelayCommand]
     private async Task StopCrossScreen()
     {
-        if (!IsCrossScreenRunning || _crossScreenCoordinator == null)
+        if (!IsCrossScreenRunning)
         {
             Debug.WriteLine("[CrossScreen] Not running");
             return;
@@ -1249,7 +1333,21 @@ public partial class MainWindowViewModel : ViewModelBase
         try
         {
             Debug.WriteLine("[CrossScreen] Stopping cross-screen animation...");
-            await _crossScreenCoordinator.StopAsync();
+
+            // Stop orchestrator animation if active
+            if (!string.IsNullOrEmpty(_currentAnimationScheduleId) && _service.IsServerMode)
+            {
+                Debug.WriteLine($"[Orchestration] Stopping animation schedule: {_currentAnimationScheduleId}");
+                _service.StopAnimation(_currentAnimationScheduleId);
+                _currentAnimationScheduleId = null;
+            }
+
+            // Stop coordinator animation if active
+            if (_crossScreenCoordinator != null)
+            {
+                await _crossScreenCoordinator.StopAsync();
+            }
+
             IsCrossScreenRunning = false;
             Debug.WriteLine("[CrossScreen] Animation stopped");
         }

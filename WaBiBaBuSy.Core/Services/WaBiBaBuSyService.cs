@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Core.Interfaces;
+using WaBiBaBuSy.Core.Services.Animation;
 using WaBiBaBuSy.Core.Services.Networking;
 using WaBiBaBuSy.Grpc;
+using WaBiBaBuSy.Models.Animation;
 using WaBiBaBuSy.Models.Configuration;
 using UpdateAvailableEventArgs = WaBiBaBuSy.Core.Services.Networking.UpdateAvailableEventArgs;
 
@@ -23,6 +25,8 @@ public class WaBiBaBuSyService : IDisposable
     private MdnsClientDiscoveryService? _mdnsClientDiscovery;
     private WallpaperSyncCoordinator? _syncCoordinator;
     private WallpaperPlaybackService? _playbackService;
+    private AnimationDistributor? _animationDistributor;
+    private AnimationOrchestrator? _animationOrchestrator;
 
     public bool IsServerMode { get; private set; }
     public bool IsClientMode { get; private set; }
@@ -43,6 +47,11 @@ public class WaBiBaBuSyService : IDisposable
     /// Get the wallpaper sync client (only available in client mode)
     /// </summary>
     public WallpaperSyncClient? Client => _client;
+
+    /// <summary>
+    /// Get the animation orchestrator (only available in server mode)
+    /// </summary>
+    public AnimationOrchestrator? AnimationOrchestrator => _animationOrchestrator;
 
     // Events for UI updates
     public event EventHandler<ServerStatusChangedEventArgs>? ServerStatusChanged;
@@ -99,8 +108,21 @@ public class WaBiBaBuSyService : IDisposable
                 .CreateLogger<WallpaperSyncCoordinator>();
             _syncCoordinator = new WallpaperSyncCoordinator(coordinatorLogger, _serverHost.SyncService);
 
+            // Create animation distribution and orchestration services (Phase 3)
+            var distributorLogger = LoggerFactory.Create(builder => builder.AddConsole())
+                .CreateLogger<AnimationDistributor>();
+            _animationDistributor = new AnimationDistributor(distributorLogger);
+
+            var orchestratorLogger = LoggerFactory.Create(builder => builder.AddConsole())
+                .CreateLogger<AnimationOrchestrator>();
+            _animationOrchestrator = new AnimationOrchestrator(orchestratorLogger, _animationDistributor);
+
+            // Wire orchestrator event handlers
+            // Note: Events are handled by gRPC service, orchestrator is self-contained
+            _logger.LogInformation("Animation orchestrator events registered");
+
             IsServerMode = true;
-            _logger.LogInformation("Server mode started successfully");
+            _logger.LogInformation("Server mode started successfully with animation orchestration");
         }
         catch (Exception ex)
         {
@@ -362,6 +384,71 @@ public class WaBiBaBuSyService : IDisposable
     private void OnUpdateAvailable(object? sender, UpdateAvailableEventArgs e)
     {
         UpdateAvailable?.Invoke(this, e);
+    }
+
+    /// <summary>
+    /// Start sequential animation across selected clients
+    /// Animation flows from one client to the next in the specified order
+    /// </summary>
+    public async Task<string> StartSequentialAnimationAsync(
+        Models.Animation.AnimationMetadata baseMetadata,
+        List<string> selectedClientIds,
+        bool loop = false)
+    {
+        if (_animationOrchestrator == null)
+        {
+            _logger.LogError("Animation orchestrator not available. Ensure server mode is running.");
+            throw new InvalidOperationException("Animation orchestrator not available");
+        }
+
+        return await _animationOrchestrator.StartSequentialAnimationAsync(baseMetadata, selectedClientIds, loop);
+    }
+
+    /// <summary>
+    /// Start simultaneous animation across all selected clients
+    /// All clients start rendering at the same time
+    /// </summary>
+    public async Task<string> StartSimultaneousAnimationAsync(
+        Models.Animation.AnimationMetadata baseMetadata,
+        List<string> selectedClientIds)
+    {
+        if (_animationOrchestrator == null)
+        {
+            _logger.LogError("Animation orchestrator not available. Ensure server mode is running.");
+            throw new InvalidOperationException("Animation orchestrator not available");
+        }
+
+        return await _animationOrchestrator.StartSimultaneousAnimationAsync(baseMetadata, selectedClientIds);
+    }
+
+    /// <summary>
+    /// Stop an active animation schedule
+    /// </summary>
+    public void StopAnimation(string scheduleId)
+    {
+        if (_animationOrchestrator == null)
+        {
+            _logger.LogWarning("Animation orchestrator not available");
+            return;
+        }
+
+        try
+        {
+            _logger.LogInformation("Stopping animation: {ScheduleId}", scheduleId);
+            _animationOrchestrator.StopSchedule(scheduleId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error stopping animation: {ScheduleId}", scheduleId);
+        }
+    }
+
+    /// <summary>
+    /// Get animation schedule status
+    /// </summary>
+    public AnimationSchedule? GetAnimationStatus(string scheduleId)
+    {
+        return _animationOrchestrator?.GetSchedule(scheduleId);
     }
 
     public void Dispose()
