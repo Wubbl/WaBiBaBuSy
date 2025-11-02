@@ -26,7 +26,8 @@
       "Bash(Write-Host 'Config file not found')",
       "Bash(timeout 15 dotnet run:*)",
       "Read(//c/Users/Patrick/AppData/Roaming/WaBiBaBuSy/**)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(if exist \"CrossScreenFrameDisplayPlan.md\" del /F \"CrossScreenFrameDisplayPlan.md\")"
     ],
     "deny": [],
     "ask": []

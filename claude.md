@@ -327,22 +327,35 @@ WaBiBaBuSy/
 
 **IMPORTANT:** This project uses separate files for different types of documentation:
 
+**Core Documentation:**
 - **`CLAUDE.md`** (this file) - Project overview, architecture, guidelines (read automatically on startup)
+- **`DISTRIBUTED_ANIMATION_SYSTEM.md`** - Complete implementation guide for distributed animation (Phases 1-4)
+- **`wabibabusy-design-doc.md`** - Comprehensive architecture and design decisions
+- **`CrossScreenSpanningDesign.md`** - 30 FPS gRPC frame distribution system
+
+**Project Tracking:**
 - **`MissingFeatures.md`** - Features not yet implemented, planned enhancements, TODO tracking
 - **`OpenIssues.md`** - Active bugs and issues that need fixing (current problems)
-- **`wabibabusy-design-doc.md`** - Comprehensive architecture and design decisions
 
 **When documenting:**
 - **New bugs or broken functionality** → Add to `OpenIssues.md`
 - **Features to be implemented** → Add to `MissingFeatures.md`
 - **Architecture changes or guidelines** → Update `CLAUDE.md`
+- **Implementation details for new features** → Create feature-specific doc (like `DISTRIBUTED_ANIMATION_SYSTEM.md`)
 - **Completed fixes** → Move from `OpenIssues.md` to Recent Updates section in `CLAUDE.md`
 
 ## References
 
+### Architecture & Implementation Documentation
+- **Distributed Animation System**: `DISTRIBUTED_ANIMATION_SYSTEM.md` (complete implementation guide for Phases 1-4)
 - **Design Document**: `wabibabusy-design-doc.md` (comprehensive architecture and design decisions)
+- **Cross-Screen Spanning**: `CrossScreenSpanningDesign.md` (30 FPS gRPC frame distribution)
+
+### Project Tracking
 - **Missing Features**: `MissingFeatures.md` (features not yet implemented, TODO tracking)
 - **Open Issues**: `OpenIssues.md` (active bugs and broken functionality)
+
+### External References
 - **Lively Wallpaper**: https://github.com/rocksdanister/lively (inspiration for wallpaper engine)
 - **gRPC Documentation**: https://grpc.io/docs/languages/csharp/
 - **Avalonia UI**: https://docs.avaloniaui.net/
