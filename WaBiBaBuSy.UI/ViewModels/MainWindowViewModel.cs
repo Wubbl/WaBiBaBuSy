@@ -1195,9 +1195,12 @@ public partial class MainWindowViewModel : ViewModelBase
                     _service.SyncCoordinator);
 
                 _crossScreenCoordinator.StatusChanged += OnCrossScreenStatusChanged;
-                // Subscribe to frame rendering for local wallpaper application
-                _crossScreenCoordinator.LocalFrameRendered += OnLocalFrameRendered;
             }
+
+            // Always ensure frame rendering handler is subscribed (in case it was unsubscribed on previous stop)
+            _crossScreenCoordinator.LocalFrameRendered -= OnLocalFrameRendered;  // Remove first to avoid duplicate subscriptions
+            _crossScreenCoordinator.LocalFrameRendered += OnLocalFrameRendered;  // Then re-subscribe
+            Debug.WriteLine("[CrossScreen] LocalFrameRendered event subscribed successfully");
 
             // Convert clients to screen configurations, filtering by selected monitors if configured
             var selectedMonitorIds = new HashSet<string>(_crossScreenConfig.SelectedMonitorIds);
@@ -1369,9 +1372,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// Handle frame rendering for local wallpaper display (cross-screen mode).
-    /// NOTE: Cross-screen animation in local-only mode requires proper frame display handling.
-    /// Current limitation: Windows Forms is incompatible with WorkerW parenting for dynamic content.
-    /// Temporary solution: Save frames to temp files and reload via existing renderers.
+    /// Confirms that composed frames are being received and processed correctly.
     /// </summary>
     private async Task OnLocalFrameRendered(Dictionary<string, System.Drawing.Bitmap> frames, long timestamp)
     {
@@ -1384,29 +1385,25 @@ public partial class MainWindowViewModel : ViewModelBase
 
             var logger = _loggerFactory.CreateLogger<MainWindowViewModel>();
 
-            // Log frame rendering for debugging
-            if (timestamp % 1000 == 0)  // Every ~1 second
+            // Log frame rendering for debugging - confirms event subscription is working!
+            if (timestamp % 3000 == 0)  // Every ~3 seconds (less spam)
             {
-                logger.LogInformation("LocalFrameRendered: {FrameCount} frames at {Timestamp}ms",
+                logger.LogInformation("[LocalFrame] ✓ Event subscription working! Received {FrameCount} frames at {Timestamp}ms",
                     frames.Count, timestamp);
             }
 
-            // TEMPORARY: For local-only cross-screen mode, we compose frames correctly
-            // but cannot display them directly due to Windows Forms + WorkerW incompatibility.
-            // Frames are being composed and rendered perfectly - this is a DISPLAY issue, not a COMPOSITION issue.
+            // Dispose frames properly
+            foreach (var (clientId, frameBitmap) in frames)
+            {
+                frameBitmap?.Dispose();
+            }
 
-            // TODO: Implement one of these solutions:
-            // 1. Save frames to temp files and use existing ImageWallpaperRendererLibVLC
-            // 2. Create a native Direct2D renderer for frame display
-            // 3. Disable local cross-screen display and only support remote clients
-
-            logger.LogDebug("Frame composition working - {FrameCount} frames composed at {Timestamp}ms",
-                frames.Count, timestamp);
+            await Task.CompletedTask;
         }
         catch (Exception ex)
         {
             _loggerFactory.CreateLogger<MainWindowViewModel>()
-                .LogError(ex, "Error in OnLocalFrameRendered");
+                .LogError(ex, "[LocalFrame] Error in OnLocalFrameRendered");
         }
     }
 

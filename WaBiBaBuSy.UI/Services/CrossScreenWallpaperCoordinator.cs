@@ -256,14 +256,30 @@ public class CrossScreenWallpaperCoordinator : IDisposable
                     _logger.LogTrace("Frame {FrameNum} composed for {Count} local screens", _frameCount, frames.Count);
 
                     // Raise event so UI layer can apply frames to wallpaper
+                    _logger.LogInformation("[LocalFrameEvent] LocalFrameRendered delegate is {State}, subscribers: {HasSubscribers}",
+                        LocalFrameRendered == null ? "NULL" : "EXISTS",
+                        LocalFrameRendered != null ? "YES" : "NO");
+
                     if (LocalFrameRendered != null)
                     {
-                        _logger.LogDebug("Invoking LocalFrameRendered for {Count} frames", frames.Count);
-                        LocalFrameRendered.Invoke(frames, currentTimestamp);
+                        _logger.LogInformation("[LocalFrameEvent] Invoking LocalFrameRendered for {Count} frames at {Timestamp}ms", frames.Count, currentTimestamp);
+
+                        // Invoke async event handler (fire and forget, but log if it fails)
+                        _ = LocalFrameRendered.Invoke(frames, currentTimestamp).ContinueWith(task =>
+                        {
+                            if (task.IsFaulted)
+                            {
+                                _logger.LogError(task.Exception, "[LocalFrameEvent] Error in LocalFrameRendered async handler");
+                            }
+                            else
+                            {
+                                _logger.LogInformation("[LocalFrameEvent] LocalFrameRendered handler completed successfully");
+                            }
+                        });
                     }
                     else
                     {
-                        _logger.LogError("CRITICAL: LocalFrameRendered event has NO SUBSCRIBERS! Frames are being composed but not applied to wallpaper");
+                        _logger.LogError("[LocalFrameEvent] CRITICAL: LocalFrameRendered event has NO SUBSCRIBERS! Frames are being composed but not applied to wallpaper");
                     }
                 }
                 catch (Exception ex)
