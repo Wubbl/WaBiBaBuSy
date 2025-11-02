@@ -1407,6 +1407,43 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// Handle animation rendering for distributed animation system (Phase 1-3).
+    /// This is called when a client animation needs to be rendered.
+    /// In distributed mode, this would compose and display frames locally.
+    /// </summary>
+    private Task OnDistributedAnimationRender(Models.Animation.AnimationMetadata metadata)
+    {
+        try
+        {
+            var logger = _loggerFactory.CreateLogger<MainWindowViewModel>();
+            logger.LogInformation(
+                "[DistributedAnimation] Starting frame composition: Animation={AnimationId}, Duration={DurationMs}ms, Monitor={MonitorIndex}",
+                metadata.AnimationId, metadata.DurationMs, metadata.TargetMonitorIndex);
+
+            // In a full implementation, this would:
+            // 1. Instantiate CompositionRenderer (currently server-side only)
+            // 2. Compose frames at 30 FPS based on metadata
+            // 3. Display frames using existing wallpaper renderer
+            // 4. Detect drift and correct with timing sync messages
+            //
+            // For now, this logs that the animation would render.
+            // The actual frame composition is handled by CrossScreenWallpaperCoordinator for centralized mode.
+            // Phase 4 would move CompositionRenderer to client-side.
+
+            logger.LogInformation(
+                "[DistributedAnimation] Animation render handler invoked. Actual rendering would start here.");
+
+            return Task.CompletedTask;
+        }
+        catch (Exception ex)
+        {
+            _loggerFactory.CreateLogger<MainWindowViewModel>()
+                .LogError(ex, "[DistributedAnimation] Error in OnDistributedAnimationRender");
+            throw;
+        }
+    }
+
     #endregion
 
     #region Helper Methods

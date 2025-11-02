@@ -161,9 +161,10 @@ public class ClientAnimationRenderer
             // 3. Signal to render and record ACTUAL start time
             state.State = AnimationRenderState.Rendering;
             state.StartedRenderingAt = DateTimeOffset.UtcNow;  // ACTUAL rendering start
-            _logger.LogInformation("Starting animation render: {AnimationId}, ActualStart={StartTime}",
-                metadata.AnimationId, state.StartedRenderingAt);
+            _logger.LogInformation("Starting animation render: {AnimationId}, ActualStart={StartTime}, Duration={DurationMs}ms",
+                metadata.AnimationId, state.StartedRenderingAt, metadata.DurationMs);
 
+            // Invoke render callback (UI will handle actual frame composition/display)
             OnAnimationRender?.Invoke(metadata);
 
             // 4. Wait for animation to complete
