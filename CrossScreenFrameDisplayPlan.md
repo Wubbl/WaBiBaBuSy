@@ -1,8 +1,12 @@
 # Cross-Screen Frame Display Solution: Planning & Decision Framework
 
 **Date Created:** 2025-10-29
-**Status:** Planning Phase - Awaiting Decision
-**Context:** Bridging the gap between CompositionRenderer (produces Bitmaps) and wallpaper display system
+**Last Updated:** 2025-11-02
+**Status:** ⛔ DEPRECATED - Superseded by Distributed Composition Architecture
+**Context:** Legacy document for centralized rendering approach (no longer pursued)
+**Replacement:** See `DistributedCompositionArchitecturePlan.md` for active architecture
+
+⚠️ **NOTE:** This document describes solutions for centralized frame display. The project has moved to a distributed composition architecture where clients render frames locally. This document is kept for historical reference only.
 
 ---
 

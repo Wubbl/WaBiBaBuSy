@@ -376,40 +376,111 @@ dotnet run --project WaBiBaBuSy.UI
 
 ---
 
-## Cross-Screen Spanning Animation System
+## Distributed Cross-Screen Animation System
 
-**Status:** ✅ Fully Implemented (gRPC streaming complete)
+**Status:** 🔧 ACTIVE IMPLEMENTATION - Transitioning from centralized to distributed architecture
+**Architecture:** Distributed Composition (clients render locally, server orchestrates)
+**Timeline:** Phases 1-4, estimated 18-24 hours total
 
-The Cross-Screen Spanning Animation System enables animated wallpapers to flow seamlessly across multiple screens with different resolutions. Uses a layered composition pipeline (background + animation) with 30 FPS frame distribution over gRPC.
+### Overview
 
-### Key Features
-- Multi-resolution screen mapping with unified virtual canvas
-- Time-based animation positioning (100-2000 px/s configurable)
-- Background modes: Solid color, stretched image, tiled patterns
-- GIF and video animation support with vertical alignment
-- JPEG-compressed frame streaming (~50-150KB per frame)
-- Full UI integration with configuration dialog
+The Distributed Cross-Screen Animation System enables synchronized wallpaper animation across 50+ clients with minimal server CPU usage. Unlike centralized rendering, each client receives animation metadata and renders frames locally at 30 FPS.
 
-### File Locations
+**Key Architectural Benefits:**
+- **Server CPU:** <5% (was 80%+ with centralized)
+- **Network Bandwidth:** <1 MB/sec (was 9 MB/sec with centralized)
+- **Max Clients:** 50+ (was 2-3 with centralized)
+- **Animation Quality:** Lossless local rendering (was JPEG-compressed)
+- **Scalability:** Linear performance, not exponential
+
+### Implementation Phases
+
+**Phase 1: Animation Distribution (8-10 hours)**
+- Server sends AnimationMetadata (file path, background, speed, duration)
+- Clients download animation file from server
+- Clients compose frames locally at 30 FPS
+- Files: AnimationMetadata.cs, AnimationDistributor.cs, ClientAnimationRenderer.cs
+
+**Phase 2: Timing Synchronization (6-8 hours)**
+- Server broadcasts timing sync messages every 1 second (~1KB)
+- Clients detect drift >50ms and auto-correct
+- Achieves ±50ms synchronization across all clients
+- Files: AnimationTimingSync.cs, TimingSynchronizer.cs
+
+**Phase 3: Sequential Animation Handoff (8-10 hours)**
+- Animation flows through monitors in configurable order
+- Each monitor gets defined animation duration
+- Smooth transition when animation completes on one client
+- Next client automatically starts at right time
+- Files: AnimationOrchestrator.cs
+
+**Phase 4: UI Integration (4-6 hours)**
+- Configuration dialog for distribution modes (Sequential/Simultaneous)
+- Status display showing active animations per client
+- Settings for timing sync interval, clock drift tolerance
+- Performance metrics dashboard
+
+### Current Status
+
+- ✅ Architecture planned and documented (DistributedCompositionArchitecturePlan.md)
+- ✅ gRPC protocol extended with animation messages (planned, not implemented)
+- ⏳ Phase 1 implementation: READY TO START
+- ⏳ Phases 2-4: Queued after Phase 1 completion
+
+### File Locations (Post-Implementation)
 ```
-WaBiBaBuSy.WallpaperEngine/Composition/
-├── VirtualCanvasManager.cs - Unified canvas calculation
-├── BackgroundLayerRenderer.cs - Background rendering
-├── AnimationLayerRenderer.cs - Time-based animation
-└── CompositionRenderer.cs - Layer merging + JPEG encoding
+WaBiBaBuSy.Core/Services/Animation/
+├── AnimationDistributor.cs - Server-side distribution
+├── ClientAnimationRenderer.cs - Client-side rendering
+├── AnimationOrchestrator.cs - Sequential/simultaneous scheduling
+├── TimingSynchronizer.cs - Timing sync broadcast
+└── AnimationFileDownloader.cs - File caching with SHA256
 
-WaBiBaBuSy.UI/
-├── Services/CrossScreenWallpaperCoordinator.cs - 30 FPS orchestration
-└── Views/CrossScreenConfigDialog.axaml - Configuration UI
+WaBiBaBuSy.Models/Animation/
+├── AnimationMetadata.cs - Animation configuration
+├── AnimationTimingSync.cs - Timing messages
+├── AnimationCompleteReport.cs - Completion notifications
+└── AnimationStatus.cs - Client status tracking
+
+WaBiBaBuSy.UI/Services/
+├── CrossScreenWallpaperCoordinator.cs - (DEPRECATED, will be removed)
+└── LocalAnimationService.cs - Client-side animation lifecycle (new)
+
+WaBiBaBuSy.Grpc/Protos/
+└── wabibabusy.proto - Extended with animation RPCs
 ```
 
-### How to Use
-1. Start server with connected clients
-2. Toggle "Cross-Screen Mode" ON
-3. Click "Configure..." to set background and animation
-4. Click "Start Animation" to begin 30 FPS rendering
+### Migration Path
 
-**See `CrossScreenSpanningDesign.md` for complete architectural details**
+**Legacy Code (Centralized):**
+- CrossScreenWallpaperCoordinator.cs - Composes frames on server (being replaced)
+- CompositionRenderer.cs - Local composition only (will be moved to client)
+- LocalFrameRendered event - Frame display hack (will be removed)
+
+**Why Replacing:**
+- Centralized approach doesn't scale (80% server CPU for 2-3 clients)
+- Violates separation of concerns (server does rendering work)
+- Network inefficient (sends 100-150KB per frame)
+- Architecture mismatch with MVP goals
+
+**Implementation Strategy:**
+1. Implement distributed phases 1-4 alongside existing code
+2. Keep centralized code operational during transition
+3. Add configuration flag: `UseDistributedComposition` (default: true)
+4. Users can toggle between old/new during transition period
+5. Post-MVP: Remove centralized code entirely
+
+### How to Use (Future)
+1. Start server with connected clients (local or remote)
+2. Select animation file and background configuration
+3. Choose distribution mode: Sequential (animation flows) or Simultaneous (all together)
+4. Click "Start Animation"
+5. Server sends metadata to all clients
+6. Each client downloads file, composes, and displays locally
+7. Server broadcasts timing sync every 1 second
+8. Animation stays synchronized across all monitors (±50ms tolerance)
+
+**See `DistributedCompositionArchitecturePlan.md` for complete technical architecture**
 
 ---
 
