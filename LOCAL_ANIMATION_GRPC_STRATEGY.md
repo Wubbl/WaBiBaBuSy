@@ -80,235 +80,299 @@ Benefits:
 
 ---
 
-## Implementation Option 1: LibVLC-Based Renderer (RECOMMENDED MVP)
+## Implementation Option 1: Direct2D-Based Renderer (RECOMMENDED MVP - REVISED)
+
+### ⚠️ IMPORTANT CORRECTION (2025-11-03)
+
+**Original LibVLC recommendation was inaccurate.** LibVLC is designed for rendering VIDEO/IMAGE FILES, not arbitrary bitmaps from composition. Direct2D is purpose-built for bitmap rendering and is the correct choice.
 
 ### Architecture
 
 ```csharp
-// Server sends AnimationStart message to local client
-// Local client receives and creates renderer
+// Server sends AnimationPrepare message to local client
+// Local client receives and creates Direct2D renderer
 
 public class ComposedAnimationRenderer : IWallpaperRenderer
 {
-    private LibVLC _libVLC;
-    private VideoWallpaperRenderer _animationRenderer;
-    private ImageWallpaperRenderer _backgroundRenderer;
+    private CompositionRenderer _compositor;
+    private ID2D1Factory _d2dFactory;
+    private ID2D1HwndRenderTarget _renderTarget;
 
-    public async Task InitializeAsync(string animationPath, BackgroundConfig bg)
+    public async Task InitializeAsync(AnimationMetadata metadata)
     {
-        // Same initialization as remote clients
-        _animationRenderer = new VideoWallpaperRenderer(_libVLC);
-        _backgroundRenderer = new ImageWallpaperRenderer(_libVLC);
+        // 1. Load animation file + background using EXISTING renderers
+        var animationFile = await AnimationFileDownloader.DownloadAsync(metadata.AnimationFile);
+        var bgFile = metadata.BackgroundImage;
 
-        // Compose and display locally
-        await ComposeAndDisplay();
+        // 2. Compose frames using EXISTING CompositionRenderer
+        _compositor = new CompositionRenderer(_logger, _loggerFactory);
+        var canvas = new VirtualCanvasManager(metadata.Monitors);
+        await _compositor.InitializeAsync(
+            canvas,
+            metadata.BackgroundConfig,
+            metadata.AnimationConfig
+        );
+
+        // 3. Create Direct2D render target for wallpaper window
+        await SetupDirect2DRenderTarget();
     }
 
-    private async Task ComposeAndDisplay()
+    public async Task OnTimingSyncAsync(AnimationTimingSync sync)
     {
-        // For each frame received via AnimationTimingSync:
-        while (isPlaying)
+        // Update composition position based on server timing
+        _compositor.UpdateAnimationPosition(sync.ServerTimestamp, metadata.SpeedPixelsPerSec);
+
+        // Compose frame for each screen
+        foreach (var screen in metadata.Monitors)
         {
-            // Get animation frame via LibVLC
-            var animFrame = _animationRenderer.GetCurrentFrame();
+            var composedBitmap = _compositor.ComposeForScreen(screen);
 
-            // Get background via LibVLC
-            var bgFrame = _backgroundRenderer.GetCurrentFrame();
+            // Render composed bitmap via Direct2D
+            await RenderViaD2DAsync(composedBitmap, screen);
 
-            // Composite frames
-            var composed = ComposeLayers(bgFrame, animFrame);
-
-            // Display directly via WorkerW (no bitmap conversion needed!)
-            await _wallpaperWindow.RenderFrame(composed);
+            composedBitmap.Dispose();
         }
+    }
+
+    private async Task RenderViaD2DAsync(Bitmap bitmap, ScreenMapping screen)
+    {
+        // 1. Convert GDI bitmap to Direct2D bitmap
+        using (var d2dBitmap = CreateD2DBitmapFromGDI(bitmap))
+        {
+            // 2. Render to wallpaper window
+            _renderTarget.BeginDraw();
+
+            // Draw at screen position
+            var rect = new D2D_RECT_F
+            {
+                Left = screen.VirtualX,
+                Top = screen.VirtualY,
+                Right = screen.VirtualX + screen.Width,
+                Bottom = screen.VirtualY + screen.Height
+            };
+
+            _renderTarget.DrawBitmap(d2dBitmap, rect);
+            _renderTarget.EndDraw();
+        }
+    }
+
+    private async Task SetupDirect2DRenderTarget()
+    {
+        // Create Direct2D factory
+        _d2dFactory = new ID2D1Factory1Impl();
+
+        // Get wallpaper window handle from DesktopWindowManager
+        var wallpaperHwnd = await _desktopManager.GetWallpaperWindowAsync();
+
+        // Create render target for wallpaper window
+        _renderTarget = _d2dFactory.CreateHwndRenderTarget(wallpaperHwnd);
     }
 }
 ```
 
-### Why LibVLC Works
+### Why Direct2D is Correct (NOT LibVLC)
 
-1. **Native Rendering** - LibVLC talks directly to GPU, not through Windows Forms
-2. **Proven Architecture** - We already use it for VideoRenderer, ImageRenderer
-3. **Composition Built-in** - Can layer images/videos natively
-4. **WorkerW Compatible** - LibVLC native windows parent correctly
-5. **No Bitmap Overhead** - Direct GPU-to-screen rendering
+**LibVLC is designed for:**
+- ✅ Loading video files and playing them
+- ✅ Loading image files and displaying them
+- ✅ Hardware-accelerated playback
+- ❌ Rendering arbitrary bitmaps from memory
+- ❌ Compositing pre-rendered frames
+- ❌ Direct bitmap-to-screen rendering
+
+**Direct2D is designed for:**
+- ✅ Rendering bitmaps to screen
+- ✅ Compositing multiple bitmaps
+- ✅ Hardware-accelerated 2D graphics
+- ✅ Direct GPU rendering
+- ✅ Wallpaper/desktop window integration
 
 ### Implementation Steps
 
-1. **Create ComposedAnimationRenderer class**
-   - Similar to CompositionRenderer but receives gRPC AnimationMetadata
-   - Creates local instances of VideoWallpaperRenderer and ImageWallpaperRenderer
-   - Composes frames and displays via WorkerW
+1. **Create ComposedAnimationRenderer class** (~250 lines)
+   - Reuses existing CompositionRenderer for frame composition
+   - Adds Direct2D rendering pipeline for display
+   - Receives AnimationMetadata and TimingSync via gRPC
+   - Renders composed frames to wallpaper window
 
-2. **Register local client in AnimationDistributor**
+2. **Add Direct2D interop** (~150 lines)
+   - P/Invoke declarations for Direct2D APIs
+   - Helper class for bitmap conversion (GDI → Direct2D)
+   - Render target management
+
+3. **Register local client in AnimationDistributor**
    - When server starts, register local machine as animation client
    - LocalClientId = "localhost" or "127.0.0.1"
-   - When animation starts, send AnimationStart to local client too
+   - Send AnimationPrepare to local client same as remote clients
 
-3. **Wire gRPC messages for local client**
+4. **Wire gRPC messages for local client**
    - Local client listens to same gRPC streams as remote clients
-   - Same StartClientAnimation RPC
-   - Same BroadcastAnimationSync RPC
+   - Same StartClientAnimation RPC → OnAnimationPrepare
+   - Same BroadcastAnimationSync RPC → OnTimingSyncAsync
 
-4. **Update MainWindowViewModel**
-   - Create local animation client when server starts
+5. **Update MainWindowViewModel**
+   - Create local animation client when server starts in animation mode
    - Register with AnimationDistributor
-   - Start receiving gRPC messages like any other client
+   - Subscribe to gRPC timing sync messages
 
 ### Files to Create
 
-**New File: ComposedAnimationRenderer.cs** (~300 lines)
+**New File: ComposedAnimationRenderer.cs** (~250 lines)
 ```
 WaBiBaBuSy.WallpaperEngine/Renderers/ComposedAnimationRenderer.cs
 
-├─ Constructor: Takes AnimationMetadata from gRPC
-├─ InitializeAsync: Load animation file + background
-├─ OnRenderFrame: Composite and display frames (called by gRPC timing messages)
-├─ PlayAsync/PauseAsync/StopAsync: Control playback
-└─ DisposeAsync: Cleanup resources
+├─ Constructor: Injected dependencies (logger, factory, desktop manager)
+├─ InitializeAsync(metadata): Setup composition + Direct2D
+├─ OnTimingSyncAsync(sync): Receive timing, update composition, render
+├─ RenderViaD2DAsync(bitmap, screen): Direct2D rendering
+├─ SetupDirect2DRenderTarget(): Create D2D render target
+└─ DisposeAsync: Cleanup Direct2D resources
+```
+
+**New File: Direct2DInterop.cs** (~150 lines)
+```
+WaBiBaBuSy.WallpaperEngine/Native/Direct2DInterop.cs
+
+├─ ID2D1Factory P/Invoke + COM wrapper
+├─ ID2D1HwndRenderTarget P/Invoke + COM wrapper
+├─ ID2D1Bitmap P/Invoke
+├─ CreateD2DBitmapFromGDI helper
+└─ D2D_RECT_F structure
 ```
 
 ### Files to Modify
 
-**AnimationDistributor.cs** (~10 lines)
+**AnimationDistributor.cs** (~15 lines)
 ```
-- In ctor or StartSequentialAnimationAsync:
-  - Detect local client (configuration or hardcoded)
-  - Add local client to animation targets
-  - Send AnimationStart message to local client gRPC stream
+- In StartSequentialAnimationAsync or similar:
+  - Detect local client (from configuration or hardcoded)
+  - Add local client ID to animation target list
+  - Send AnimationPrepare to local client (same as remote)
 ```
 
-**MainWindowViewModel.cs** (~30 lines)
+**MainWindowViewModel.cs** (~40 lines)
 ```
-- When server starts (_service.IsServerRunning):
+- When server starts in animation mode:
   - Create local animation client
-  - Register with AnimationDistributor
-  - Subscribe to gRPC messages
+  - Initialize ComposedAnimationRenderer
+  - Subscribe to gRPC timing sync messages
+  - Call OnTimingSyncAsync when messages arrive
 ```
 
 **CrossScreenConfig.cs** (~5 lines)
 ```
 - Add: UseUnifiedGrpcRendering = true (default)
-- When true: Use gRPC-based rendering (new)
-- When false: Use old composition+bitmap system (deprecated)
+- Add: AnimationRenderingMethod = "Direct2D" or "Legacy"
 ```
 
 ### Effort Estimate
 
 - Design: 30 minutes
-- Implementation: 3-4 hours
+- ComposedAnimationRenderer: 2-3 hours
+- Direct2D interop: 1-2 hours
 - Integration: 30 minutes
-- Testing: 1 hour
-- **Total: 4-6 hours**
+- Testing: 1-2 hours
+- **Total: 5-7 hours (was 4-6, but includes proper Direct2D instead of LibVLC workaround)**
 
-### Risk Level: **LOW**
+### Risk Level: **LOW-MEDIUM**
 
-- ✅ Uses proven LibVLC technology
-- ✅ Code is extension of existing renderers
-- ✅ No new Win32 APIs or complex architecture
-- ✅ Can fall back to old system if issues
-- ✅ Remote clients unaffected
+- ✅ Direct2D is standard Windows API (proven, stable)
+- ✅ Reuses existing CompositionRenderer (no new composition logic)
+- ⚠️ New P/Invoke bindings (standard but requires testing)
+- ✅ Can fall back to old centralized system if issues
+- ✅ Remote clients completely unaffected
 
 ### Expected Outcome
 
 ```
 Before (Broken):
 ┌─ Server composes frames
-├─ Tries to display locally
-└─ ❌ Windows Forms incompatible
+├─ Tries to display locally via Windows Forms
+└─ ❌ Windows Forms incompatible with WorkerW
 
 After (Working):
-┌─ Server broadcasts AnimationStart to local client
-├─ Local client renders via ComposedAnimationRenderer (LibVLC)
-├─ LibVLC handles rendering natively
-└─ ✅ Wallpaper displays correctly on local machine
+┌─ Server sends AnimationPrepare to local client
+├─ Local client composes frames via CompositionRenderer
+├─ Local client renders via Direct2D (GPU-accelerated)
+├─ Direct2D renders to wallpaper window behind desktop icons
+└─ ✅ Wallpaper displays correctly on local machine (unified with remote)
 ```
+
+### Why This is Better Than LibVLC
+
+| Aspect | LibVLC Workaround | Direct2D (Correct) |
+|--------|-------------------|-------------------|
+| **Purpose** | Video playback | Bitmap rendering |
+| **Composing bitmaps** | Not designed for it | Purpose-built |
+| **Performance** | File I/O overhead | Direct GPU rendering |
+| **Workarounds needed** | Yes (temp files) | No |
+| **Code clarity** | Confusing | Clear intent |
+| **Maintainability** | Fragile | Stable |
 
 ---
 
-## Implementation Option 2: Direct2D Native Renderer (Advanced)
+## Implementation Option 2: LibVLC Workaround (NOT RECOMMENDED)
 
-### Architecture
+### ⚠️ Why LibVLC Doesn't Work for This Use Case
 
+LibVLC is **NOT designed for rendering pre-composed bitmaps**. The only workarounds are fragile and slow:
+
+**Workaround A: Temp File I/O** (Ugly)
 ```csharp
-public class Direct2DCompositionRenderer : IWallpaperRenderer
-{
-    private ID2D1Factory _d2dFactory;
-    private ID2D1HwndRenderTarget _renderTarget;
-    private ID2D1Bitmap _animationBitmap;
-    private ID2D1Bitmap _backgroundBitmap;
+// For each composed frame:
+var bitmap = _compositor.ComposeForScreen(screen);
+bitmap.Save("C:\\Temp\\frame_000.png");           // Write to disk
+_libVLC.PlayFile("C:\\Temp\\frame_000.png");      // Reload
+await Task.Delay(33);                              // Wait
+File.Delete("C:\\Temp\\frame_000.png");           // Cleanup
 
-    public async Task InitializeAsync(string animationPath, BackgroundConfig bg)
-    {
-        // Create Direct2D render target for wallpaper window
-        _renderTarget = _d2dFactory.CreateHwndRenderTarget(wallpaperHwnd);
-
-        // Load animation and background as Direct2D bitmaps
-        _animationBitmap = LoadBitmapFromFile(animationPath);
-        _backgroundBitmap = LoadBitmapFromFile(bg.ImagePath);
-    }
-
-    private void OnRenderFrame()
-    {
-        _renderTarget.BeginDraw();
-
-        // Draw background
-        _renderTarget.DrawBitmap(_backgroundBitmap);
-
-        // Draw animation layer
-        _renderTarget.DrawBitmap(_animationBitmap, opacity: 1.0f);
-
-        _renderTarget.EndDraw();
-    }
-}
+// 30 FPS × 33ms = 990ms I/O overhead per second!
 ```
 
-### Why Direct2D is Better
-
-1. **Pure Native** - No managed framework, direct GPU access
-2. **Best Performance** - Hardware-accelerated composition
-3. **Full Control** - Can implement custom blending, effects
-4. **Scales Best** - Direct2D designed for this use case
-5. **Lower Overhead** - No LibVLC translation layer
+**Workaround B: Texture Interop** (Complex)
+```csharp
+// Get LibVLC internals, convert bitmap to DirectX texture, render
+// Result: Fragile code, undocumented APIs, maintenance nightmare
+```
 
 ### Trade-offs
 
-| Aspect | LibVLC | Direct2D |
-|--------|--------|----------|
-| **Performance** | Good | Better |
-| **Complexity** | Simple | High |
-| **Risk** | Low | Medium |
-| **Dev Time** | 4-6h | 8-10h |
-| **Maintenance** | Proven lib | Custom code |
-| **Async Support** | Built-in | Manual |
+| Aspect | Direct2D (Correct) | LibVLC (Workaround) |
+|--------|---------------------|-------------------|
+| **Purpose Match** | ✅ Purpose-built | ❌ Wrong tool |
+| **Performance** | ✅ GPU rendering | ❌ Disk I/O |
+| **Code Clarity** | ✅ Clear intent | ❌ Confusing |
+| **Maintainability** | ✅ Stable | ❌ Fragile |
+| **Complexity** | ⚠️ Medium | ❌ Very High |
 
-### When to Use Direct2D
+### Conclusion
 
-- Post-MVP optimization
-- When performance critical
-- When scaling to 50+ clients
-- When custom effects needed
-- After validating architecture with LibVLC
+LibVLC is best left for what it does well:
+- ✅ Load and play video files
+- ✅ Load and display image files
+- ❌ DO NOT use for rendering bitmaps
 
 ---
 
-## Decision Matrix
+## Final Decision: Use Direct2D (CORRECTED)
 
-| Criteria | LibVLC | Direct2D |
-|----------|--------|----------|
-| **MVP Timeline** | ✅ Fits | ❌ Tight |
-| **Risk** | ✅ Low | ⚠️ Medium |
-| **Code Reuse** | ✅ High | ❌ Low |
-| **Performance** | ✅ Good | ✅ Better |
-| **Proven Tech** | ✅ Yes | ⚠️ New |
-| **Maintenance** | ✅ Easy | ⚠️ Complex |
-| **Long-term** | ⚠️ OK | ✅ Better |
+**Direct2D IS the correct MVP choice** - not a future optimization.
 
-**Recommendation:** **Use LibVLC for MVP, migrate to Direct2D post-MVP**
+| Criteria | Direct2D |
+|----------|----------|
+| **Purpose Match** | ✅ Purpose-built for bitmap rendering |
+| **Performance** | ✅ GPU-accelerated rendering |
+| **Proven Tech** | ✅ Standard Windows API |
+| **Complexity** | ⚠️ Medium (5-7 hours, not a blocker) |
+| **Risk** | ✅ LOW (standard APIs) |
+| **Maintenance** | ✅ Stable, no workarounds |
+| **Long-term** | ✅ Best for scaling |
+
+**Recommendation:** **Use Direct2D for MVP (it's the right tool for the job)**
 
 ---
 
-## Implementation Checklist (LibVLC Option)
+## Implementation Checklist (Direct2D Option)
 
 ### Phase 1: Renderer Implementation (2 hours)
 - [ ] Create ComposedAnimationRenderer.cs
@@ -398,19 +462,39 @@ Or post-MVP:
 
 ## Next Steps
 
-1. **Approve Decision:**
-   - LibVLC (Option 1) - Ready to implement
-   - Direct2D (Option 2) - Plan for post-MVP
+**DECISION MADE: Use Direct2D**
 
-2. **If LibVLC Approved:**
-   - Create ComposedAnimationRenderer.cs
-   - Integrate with AnimationDistributor
-   - Test end-to-end
+Direct2D is the correct solution for this problem. It's:
+- Purpose-built for bitmap rendering
+- Hardware-accelerated
+- Standard Windows API
+- Low risk (5-7 hours, manageable for MVP)
+- Best for long-term scalability
 
-3. **If Direct2D Approved:**
-   - Research Direct2D API
-   - Create prototype renderer
-   - Plan integration
+### Implementation Plan:
+
+1. **Create ComposedAnimationRenderer.cs** (2-3 hours)
+   - Reuse existing CompositionRenderer for frame composition
+   - Add Direct2D rendering pipeline
+   - Receive AnimationMetadata and TimingSync via gRPC
+
+2. **Add Direct2D Interop** (1-2 hours)
+   - P/Invoke declarations for Direct2D APIs
+   - GDI → Direct2D bitmap conversion
+   - Render target management
+
+3. **Register Local Client** (30 min)
+   - Update AnimationDistributor to send to local client
+   - Wire gRPC messages to local client
+
+4. **Update MainWindowViewModel** (30 min)
+   - Create local animation client on server start
+   - Subscribe to timing sync messages
+
+5. **Testing & Validation** (1-2 hours)
+   - Local animation alone
+   - Local + remote clients
+   - Performance validation
 
 ---
 
