@@ -93,164 +93,126 @@ Currently, the UI only allows:
 
 ---
 
-## Issue #2: Cross-Screen Animation - Local Frame Display Issue
+## Issue #2: Cross-Screen Animation - Local Frame Display via Unified gRPC System
 
-**Priority:** Critical
-**Status:** DIAGNOSED (2025-10-28) - Root Cause Identified
+**Priority:** High
+**Status:** PLANNING - Architecture updated (2025-11-03)
 **Date Reported:** 2025-10-23
-**Date Diagnosed:** 2025-10-28
+**Strategy Update:** 2025-11-03 - Unified gRPC approach for local+remote rendering
 
-### Problem Summary
-Cross-screen animation frames compose correctly (verified in logs at 30 FPS), but frames are **NOT displayed on wallpaper windows**. The root cause is a **missing event subscription** + **Windows Forms incompatibility with WorkerW parenting**.
+### Updated Strategy (2025-11-03)
 
-### Root Causes Identified
+**Decision:** We want the SAME gRPC system for both local and remote animations, NOT disable local support.
 
-#### 1. **Missing Event Subscription** ✅ FIXED (2025-10-28)
+**Architecture:**
+- Use distributed animation system (Phases 1-4) for BOTH local and remote clients
+- Server sends AnimationMetadata to each client (whether local or remote)
+- Clients receive gRPC messages and render locally
+- Local client = client running on same machine as server
+- Remote client = client running on different machine
 
-The `LocalFrameRendered` event had **NO SUBSCRIBERS**. Frames were being composed and the event fired, but nobody was listening.
-
-**Before Fix:**
-```csharp
-// In CrossScreenWallpaperCoordinator.cs
-public delegate Task LocalFrameHandler(Dictionary<string, Bitmap> frames, long timestamp);
-public event LocalFrameHandler? LocalFrameRendered;  // ← Event defined but never subscribed!
-
-// In OnRenderFrame()
-LocalFrameRendered?.Invoke(frames, currentTimestamp);  // ← Fires but nobody listening
-```
-
-**After Fix:**
-```csharp
-// In MainWindowViewModel.cs:1169
-_crossScreenCoordinator.LocalFrameRendered += OnLocalFrameRendered;  // ← NOW SUBSCRIBED!
-```
-
-**Impact:** Frames now reach the handler, but display issue remains (see below).
-
-#### 2. **Windows Forms Incompatibility with WorkerW** ⚠️ ARCHITECTURAL LIMITATION
-
-When OnLocalFrameRendered tries to display frames on WorkerW wallpaper windows:
-```
-"WorkerW window not found, cannot set wallpaper window"
-Exception thrown: 'System.ArgumentException' in System.Drawing.Common.dll
-Parameter is not valid.
-```
-
-**Root Cause:**
-- DesktopWindowManager.FindDesktopWorkerWindow() is never called before SetAsWallpaperWindow()
-- Even if called, Windows Forms is **fundamentally incompatible** with system window parenting
-- Form resets its parent when parented to WorkerW, making it invisible
-- This is a known limitation from our extensive testing (see closed Issue 1 in OpenIssues.md for details)
-
-**Why It Fails:**
-1. WorkerW discovery fails or not initialized
-2. SetAsWallpaperWindow() fails without proper WorkerW handle
-3. Windows Forms fighting SetParent from main process
+**Rendering Implementation:**
+Either **LibVLC** (proven working) or **Direct2D** (native, more efficient)
 
 ### Current Status
 
 **What's Working:**
-- ✅ Frames compose perfectly at 30 FPS (verified in logs)
+- ✅ Distributed animation gRPC system fully implemented (Phases 1-4)
+- ✅ Frames compose perfectly at 30 FPS (centralized system)
 - ✅ LocalFrameRendered event now has subscribers
 - ✅ Event fires every frame
 - ✅ Handler receives frames correctly
 
-**What's Broken:**
-- ❌ Frames don't display (WorkerW parenting fails)
-- ❌ WorkerW discovery not initialized before use
-- ❌ Windows Forms incompatible with system window parenting
+**What Needs to Change:**
+- ❌ Current local display uses frame composition + bitmap display
+- ❌ Instead: Should use gRPC client receiving AnimationMetadata
+- ❌ Local client should render like any other client using same mechanism
 
-### Proposed Solutions
+### Implementation Plan
 
-**Option A: Initialize WorkerW Discovery (Quick Fix)**
-```csharp
-// Add to MainWindowViewModel initialization
-if (!_service.IsClientConnected && !_service.IsServerRunning) {
-    _desktopManager.FindDesktopWorkerWindow();  // Pre-initialize
-}
+**Option 1: LibVLC-Based Composed Frame Renderer** (Recommended for MVP)
 ```
-**Status:** Partial solution - fixes one issue, but Windows Forms will still be incompatible
-**Effort:** 15 minutes
-**Expected Result:** May get past "WorkerW window not found" error, but window still won't display
+Timeline: 4-6 hours
+Effort: Medium
+Risk: Low (LibVLC proven working)
 
-**Option B: Temp File + Existing Renderer (Medium Workaround)**
-```csharp
-// Save frames to temp PNG files
-// Reload with ImageWallpaperRendererLibVLC (proven working renderer)
+Architecture:
+├─ Server broadcasts AnimationStart message to local client
+├─ Local client receives metadata (animation file, background, speed)
+├─ Local client creates temporary wallpaper renderer (like ImageWallpaperRendererLibVLC)
+├─ Renderer composes background + animation locally
+├─ Result displayed behind desktop icons via WorkerW
+
+Why This Works:
+- LibVLC handles all rendering natively
+- No Windows Forms compatibility issues
+- Works for local and remote identically
+- No need for frame bitmap capture/display
 ```
-**Status:** Works but disk I/O intensive (saving 30 frames/sec to disk)
-**Effort:** 2-3 hours
-**Expected Result:** Wallpaper displays correctly using proven LibVLC renderer
 
-**Option C: Native Direct2D Renderer (Proper Solution)**
-- Create `ComposedFrameWallpaperRenderer` using Direct2D or DXGI
-- Native rendering bypasses Windows Forms limitations
-- Proper support for WorkerW parenting
-**Status:** Correct but complex solution
-**Effort:** 6-8 hours
-**Expected Result:** Proper frame display with minimal overhead
-
-**Option D: Disable Local Cross-Screen (Safest for MVP)**
-```csharp
-// Log message when starting animation in local-only mode
-if (isLocalOnlyMode) {
-    _logger.LogWarning("Cross-screen animation requires remote clients. Local display not supported in current implementation.");
-    return;
-}
+**Option 2: Direct2D Native Renderer** (Higher quality, more complex)
 ```
-**Status:** MVP-safe, documented limitation
-**Effort:** 30 minutes
-**Expected Result:** Clear user message, no crashes, remote clients still work
+Timeline: 8-10 hours
+Effort: High
+Risk: Medium (new rendering engine)
 
-### Files Modified (2025-10-28)
+Architecture:
+├─ Create Direct2D surface for each client
+├─ Render background layer via Direct2D
+├─ Render animation layer via Direct2D
+├─ Composite on GPU
+├─ Parent surface to WorkerW
 
-**CrossScreenWallpaperCoordinator.cs:**
-- Added defensive logging to detect uninitialized components (line 213-216)
-- Added logging for frame rendering every 30 frames (~1 second interval)
-- Added check for LocalFrameRendered subscribers with error logging (line 259-267)
+Why This Works:
+- Pure native rendering (no managed framework)
+- Better performance than LibVLC
+- Full control over composition pipeline
+- Works for local and remote identically
+- Scales to 50+ clients easily
+```
 
-**CompositionRenderer.cs:**
-- Added null checks for _backgroundRenderer and _animationRenderer (line 114-124)
-- Throws clear exception if renderers not initialized
+### Recommended Approach (MVP)
 
-**MainWindowViewModel.cs:**
-- Added subscription to LocalFrameRendered event (line 1169)
-- Implemented OnLocalFrameRendered handler (lines 1243-1284)
-- Updated ApplyWallpaperAsync with unified architecture (lines 384-416)
-- Created ApplyWallpaperLocallyInternal and ApplyWallpaperRemotelyInternal (lines 421-527)
+**Use Option 1 (LibVLC):**
+1. Extend existing cross-screen animation to send AnimationStart messages to local client
+2. Local client (when running as both server and renderer) treats itself as another animation target
+3. Creates temporary ComposedAnimationRenderer using LibVLC
+4. Receives same gRPC messages as remote clients
+5. Renders and displays identically
+
+**Benefits:**
+- ✅ Reuses proven LibVLC rendering
+- ✅ Same code path for local+remote (unified architecture)
+- ✅ No Windows Forms compatibility issues
+- ✅ Minimal new code (mostly config changes)
+- ✅ Can be completed in 1 sprint
+
+**Post-MVP Enhancement:** Direct2D implementation for better performance
+
+### Files to Modify
+
+**New Files:**
+- `WaBiBaBuSy.WallpaperEngine/Renderers/ComposedAnimationRenderer.cs` - LibVLC-based composed animation
+  - Similar to existing CompositionRenderer but uses gRPC AnimationMetadata
+  - Receives StartClientAnimation gRPC messages
+  - Renders background + animation locally
+
+**Modified Files:**
+- `WaBiBaBuSy.Core/Services/Animation/AnimationDistributor.cs` - Send messages to local client
+- `WaBiBaBuSy.UI/ViewModels/MainWindowViewModel.cs` - Register local client in animation system
+- `CrossScreenConfig.cs` - Add flag: `UseUnifiedGrpcRendering: true` (default)
 
 ### Build Status
 
-**Build Successful:** ✅ All projects compile, 0 errors
+**Current:** ✅ All projects compile, 0 errors, 0 warnings
 
-### Logs Showing Issue
+### Next Steps
 
-```
-[CrossScreen] Animation started successfully
-[OnRenderFrame] Frame 0, LocalMode=True, Timestamp=1761683111523
-WaBiBaBuSy.WallpaperEngine.Native.DesktopWindowManager: Error: WorkerW window not found, cannot set wallpaper window
-[OnLocalFrameRendered] LocalFrameRendered: 2 frames at 1761683111523ms
-Exception thrown: 'System.ArgumentException' in System.Drawing.Common.dll - Parameter is not valid.
-```
-
-### Recommendation for MVP
-
-**Use Option D (Disable Local Display):**
-1. Document as known limitation
-2. Requires remote clients for cross-screen animation
-3. 30 minutes to implement safeguard
-4. Prevents crashes and confusing errors
-5. Post-MVP: Implement Option B or C
-
-Rationale:
-- Cross-screen animation primary use case is **multiple machines** anyway
-- Local-only display is secondary feature
-- Avoids Windows Forms + WorkerW incompatibility for now
-- Can be improved post-MVP with Direct2D solution
-
-### Related Issues
-- Issue #1 (Closed): Detailed Windows Forms + WorkerW incompatibility analysis in OpenIssues.md
-- Issue #3: Client-side animation control (distributed architecture) - would solve this by not needing local display
+1. **Decision:** Approve LibVLC (Option 1) or Direct2D (Option 2) approach
+2. **Implementation:** Create ComposedAnimationRenderer
+3. **Integration:** Wire local client into AnimationDistributor
+4. **Testing:** Verify local animations display correctly
+5. **Performance:** Validate <5% server CPU, <1 MB/s bandwidth maintained
 
 ---
 

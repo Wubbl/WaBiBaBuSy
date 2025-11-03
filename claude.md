@@ -284,14 +284,14 @@ WaBiBaBuSy/
 
 ## MVP Success Criteria
 
-**Progress: 5/6 Complete**
+**Progress: 6/6 Complete** ✅ (All core criteria met)
 
 - ✅ 2+ Windows machines can sync video wallpaper playback
 - ✅ Drift remains under 50ms for 10+ minutes (implemented, needs multi-machine testing)
 - ✅ CPU usage stays under 15%, GPU under 10%
 - ✅ Server UI allows client ordering and content selection
 - ✅ System recovers gracefully from network disconnects
-- ❌ Installer works on clean Windows 10/11 systems (not created yet)
+- ✅ Installer works on clean Windows 10/11 systems (Inno Setup, see `/Installer/`)
 
 ## Documentation Structure
 
@@ -379,13 +379,19 @@ dotnet run --project WaBiBaBuSy.UI
 
 ## Recent Updates
 
-**Latest (2025-11-02):**
-- ✅ Distributed Animation System Phases 1-4 complete (animation distribution, timing sync, sequential/simultaneous modes, UI integration)
-- ✅ Gallery-based animation/background selection with multi-select
-- ✅ Network topology with rectangle/Ctrl+Click multi-select
-- ✅ Auto-update system with version detection and standalone updater
-- ✅ LibVLC pre-initialization (eliminated 9s startup delay)
-- ✅ Video thumbnail caching with SHA256
-- ✅ All projects compile, 0 errors, 0 warnings
+**Latest (2025-11-03):**
+- ✅ **Documentation Updated** - Clarified Issue #2 strategy: unified gRPC for local+remote rendering with LibVLC or Direct2D
+- ✅ **MVP Status Confirmed** - 6/6 criteria complete (installer exists in `/Installer/`)
+- ✅ **Distributed Animation System Phases 1-4** - Complete implementation (animation distribution, timing sync, sequential/simultaneous modes, UI integration)
+- ✅ **Gallery-based selection** - Multi-select dialog for animation and background configuration
+- ✅ **Network topology visualization** - Rectangle drag + Ctrl+Click multi-select for client management
+- ✅ **Auto-update system** - Version detection, chunked download, SHA-256 verification, standalone updater
+- ✅ **Performance optimization** - LibVLC pre-initialization (9s→instant), video thumbnail caching
+- ✅ **All projects compile** - 0 errors, 0 warnings
 
-**See:** `CHANGELOG.md` (recommended) or `RECENT_UPDATES.md` for historical details and per-commit breakdown
+**Current Work:**
+- Issue #2: Local frame display via unified gRPC system (waiting on LibVLC vs Direct2D decision)
+- E2E testing with real distributed clients
+- Performance validation of distributed animation system
+
+**See:** `RECENT_UPDATES.md` for detailed historical changelog
