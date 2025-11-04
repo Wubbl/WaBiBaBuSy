@@ -37,6 +37,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, IWallpaperRenderer> _localWallpaperRenderers = new();
     // Local animation rendering services: ConcurrentDictionary<monitorIndex, service> (for Direct2D rendering)
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, LocalAnimationRenderingService> _localAnimationServices = new();
+    // Debug flag: Enable/disable network topology debug output
+    private static bool _enableNetworkTopologyDebugOutput = false;
 
     [ObservableProperty]
     private ObservableCollection<ClientNodeViewModel> _clients = new();
@@ -926,14 +928,18 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            // Debug.WriteLine($"[RefreshTopology] Called - IsServerRunning: {_service.IsServerRunning}, IsClientConnected: {_service.IsClientConnected}");
+            if (_enableNetworkTopologyDebugOutput)
+            {
+                // Debug.WriteLine($"[RefreshTopology] Called - IsServerRunning: {_service.IsServerRunning}, IsClientConnected: {_service.IsClientConnected}");
+            }
 
             // Always show at least the local machine
             if (_service.IsServerRunning)
             {
                 // Server mode - get connected clients and add localhost as server node
                 var connectedClients = _service.GetConnectedClients().ToList();
-                Debug.WriteLine($"Server mode: Got {connectedClients.Count} connected clients");
+                if (_enableNetworkTopologyDebugOutput)
+                    Debug.WriteLine($"Server mode: Got {connectedClients.Count} connected clients");
 
                 // Create a list that includes the server (localhost) as the first node
                 var allNodes = new List<WaBiBaBuSy.Grpc.ConnectedClient>();
@@ -951,7 +957,8 @@ public partial class MainWindowViewModel : ViewModelBase
                 };
 
                 allNodes.Add(serverNode);
-                Debug.WriteLine($"Added server node: {serverNode.Hostname} at position {serverNode.OrderPosition}");
+                if (_enableNetworkTopologyDebugOutput)
+                    Debug.WriteLine($"Added server node: {serverNode.Hostname} at position {serverNode.OrderPosition}");
 
                 // Add all connected clients with adjusted order positions
                 foreach (var client in connectedClients)
@@ -968,7 +975,8 @@ public partial class MainWindowViewModel : ViewModelBase
                     });
                 }
 
-                Debug.WriteLine($"Total nodes to display: {allNodes.Count}");
+                if (_enableNetworkTopologyDebugOutput)
+                    Debug.WriteLine($"Total nodes to display: {allNodes.Count}");
                 UpdateClientList(allNodes);
             }
             else if (_service.IsClientConnected)
@@ -977,14 +985,16 @@ public partial class MainWindowViewModel : ViewModelBase
                 var topology = await _service.GetTopologyAsync();
                 if (topology != null)
                 {
-                    Debug.WriteLine($"Client mode: Got topology with {topology.Clients.Count} clients");
+                    if (_enableNetworkTopologyDebugOutput)
+                        Debug.WriteLine($"Client mode: Got topology with {topology.Clients.Count} clients");
                     UpdateClientList(topology.Clients);
                 }
             }
             else
             {
                 // Local-only mode - show local machine node
-                Debug.WriteLine("[RefreshTopology] Local-only mode - showing local machine");
+                if (_enableNetworkTopologyDebugOutput)
+                    Debug.WriteLine("[RefreshTopology] Local-only mode - showing local machine");
                 ShowLocalMachineNode();
             }
         }
@@ -1002,7 +1012,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private void ShowLocalMachineNode()
     {
         var screens = System.Windows.Forms.Screen.AllScreens;
-        Debug.WriteLine($"[ShowLocalMachineNode] Detected {screens.Length} monitor(s)");
+        if (_enableNetworkTopologyDebugOutput)
+            Debug.WriteLine($"[ShowLocalMachineNode] Detected {screens.Length} monitor(s)");
 
         // Create screen configuration with all monitors
         var screenConfig = new WaBiBaBuSy.Grpc.ScreenConfiguration
@@ -1044,7 +1055,8 @@ public partial class MainWindowViewModel : ViewModelBase
                 ScreenConfig = screenConfig // Share the same screen config across all nodes
             };
             nodes.Add(node);
-            Debug.WriteLine($"[ShowLocalMachineNode] Created node for monitor {i}: {screen.Bounds.Width}x{screen.Bounds.Height} at ({screen.Bounds.X}, {screen.Bounds.Y})");
+            if (_enableNetworkTopologyDebugOutput)
+                Debug.WriteLine($"[ShowLocalMachineNode] Created node for monitor {i}: {screen.Bounds.Width}x{screen.Bounds.Height} at ({screen.Bounds.X}, {screen.Bounds.Y})");
         }
 
         UpdateClientList(nodes);
@@ -1065,7 +1077,8 @@ public partial class MainWindowViewModel : ViewModelBase
             var toRemove = Clients.Where(c => !clientIds.Contains(c.ClientId)).ToList();
             foreach (var client in toRemove)
             {
-                Debug.WriteLine($"Removing client: {client.ClientId}");
+                if (_enableNetworkTopologyDebugOutput)
+                    Debug.WriteLine($"Removing client: {client.ClientId}");
                 Clients.Remove(client);
             }
 
@@ -1077,7 +1090,8 @@ public partial class MainWindowViewModel : ViewModelBase
                 if (existing != null)
                 {
                     // Update existing
-                    Debug.WriteLine($"Updating existing client: {grpcClient.ClientId} at position {grpcClient.OrderPosition}");
+                    if (_enableNetworkTopologyDebugOutput)
+                        Debug.WriteLine($"Updating existing client: {grpcClient.ClientId} at position {grpcClient.OrderPosition}");
                     existing.Hostname = grpcClient.Hostname;
                     existing.IpAddress = grpcClient.IpAddress;
                     existing.IsConnected = grpcClient.Status == WaBiBaBuSy.Grpc.ClientStatusEnum.ClientConnected ||
@@ -1091,7 +1105,8 @@ public partial class MainWindowViewModel : ViewModelBase
                     // Add new client
                     var x = 100 + (index * 200);
                     var y = 100;
-                    Debug.WriteLine($"[UpdateClientList] Adding new client: {grpcClient.ClientId} ({grpcClient.Hostname}) at X={x}, Y={y}");
+                    if (_enableNetworkTopologyDebugOutput)
+                        Debug.WriteLine($"[UpdateClientList] Adding new client: {grpcClient.ClientId} ({grpcClient.Hostname}) at X={x}, Y={y}");
 
                     // Extract monitor info for this specific node
                     int monitorIndex = -1;

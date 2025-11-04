@@ -59,6 +59,9 @@
                     <Button Content="Apply to All Clients"
                             Command="{Binding ApplyWallpaperToAllCommand}"
                             IsVisible="{Binding !IsCrossScreenMode}"/>
+                    <Button Content="Apply Via Direct2D (TEST)"
+                            Command="{Binding ApplyWallpaperViaDirect2DCommand}"
+                            IsVisible="{Binding !IsCrossScreenMode}"/>
                 </StackPanel>
             </Grid>
         </Border>
