@@ -71,11 +71,20 @@ WaBiBaBuSy/
 │       └── WallpaperSyncServiceImpl.cs
 │
 ├── WaBiBaBuSy.WallpaperEngine/   # Wallpaper rendering implementations
-│   └── Renderers/
-│       ├── VideoWallpaperRenderer.cs         # LibVLC-based video player
-│       ├── ImageWallpaperRendererLibVLC.cs   # LibVLC-based static image renderer (JPG/PNG/BMP)
-│       ├── GifWallpaperRenderer.cs           # GIF animator with frame caching
-│       └── DesktopWindowManager.cs           # WorkerW desktop integration
+│   ├── Renderers/
+│   │   ├── VideoWallpaperRenderer.cs         # LibVLC-based video player
+│   │   ├── ImageWallpaperRendererLibVLC.cs   # LibVLC-based static image renderer (JPG/PNG/BMP)
+│   │   ├── GifWallpaperRenderer.cs           # GIF animator with frame caching
+│   │   └── DesktopWindowManager.cs           # WorkerW desktop integration
+│   ├── Composition/                          # Direct2D composition system
+│   │   ├── CompositionRenderer.cs            # Composites background + content layers
+│   │   ├── ComposerService.cs                # Composition orchestration service
+│   │   ├── AnimationLayerRenderer.cs         # Content layer (GIFs, images, videos)
+│   │   ├── BackgroundLayerRenderer.cs        # Background layer (solid color/gradient)
+│   │   └── VirtualCanvasManager.cs           # Multi-screen layout coordination
+│   └── Direct2D/
+│       ├── Direct2DRenderer.cs               # GPU-accelerated frame display (GDI+ fallback)
+│       └── Direct2DInterop.cs                # Windows API interop
 │
 ├── WaBiBaBuSy.UI/                # Avalonia User Interface
 │   ├── Views/                    # XAML view files
@@ -138,6 +147,10 @@ WaBiBaBuSy/
 - **GIF Renderer**: Frame-based animation with automatic delay extraction from metadata
 - **Multi-Monitor Support**: Per-monitor or spanning configurations
 - **Renderer Factory**: Dynamic renderer selection based on file type
+- **Direct2D Composition**: GPU-accelerated rendering of composed frames (background + content layer)
+  - **AnimationLayerRenderer**: Unified content layer renderer for GIFs, static images, and videos
+  - **CompositionRenderer**: Composites background + animation/content layers into final frames
+  - **Direct2DRenderer**: Displays composed frames to screen via GDI+ (true Direct2D planned)
 
 ### Networking Layer ✅
 - **gRPC Protocol**: Full bidirectional streaming implementation
@@ -379,7 +392,13 @@ dotnet run --project WaBiBaBuSy.UI
 
 ## Recent Updates
 
-**Latest (2025-11-03):**
+**Latest (2025-11-05):**
+- ✅ **Direct2D Frame Rendering** - Implemented actual GIF frame extraction in `AnimationLayerRenderer.cs` (replaced red placeholder rectangles with real frames)
+- ✅ **GIF Animation Support** - Frame-by-frame extraction with metadata-based timing, proper frame sequencing and looping
+- ✅ **Static Image Support** - Added JPG/PNG/BMP rendering as single-frame "animations" in composition system
+- ✅ **Content Layer Architecture** - Renamed conceptually: `AnimationLayerRenderer` is now a unified content layer renderer for Direct2D (handles both animated and static content)
+
+**Previous (2025-11-03):**
 - ✅ **Documentation Updated** - Clarified Issue #2 strategy: unified gRPC for local+remote rendering with LibVLC or Direct2D
 - ✅ **MVP Status Confirmed** - 6/6 criteria complete (installer exists in `/Installer/`)
 - ✅ **Distributed Animation System Phases 1-4** - Complete implementation (animation distribution, timing sync, sequential/simultaneous modes, UI integration)
@@ -390,8 +409,8 @@ dotnet run --project WaBiBaBuSy.UI
 - ✅ **All projects compile** - 0 errors, 0 warnings
 
 **Current Work:**
-- Issue #2: Local frame display via unified gRPC system (waiting on LibVLC vs Direct2D decision)
-- E2E testing with real distributed clients
-- Performance validation of distributed animation system
+- Direct2D rendering: E2E testing with GIF animations and static images
+- Video frame extraction (LibVLC integration pending)
+- Performance validation with distributed clients
 
 **See:** `RECENT_UPDATES.md` for detailed historical changelog

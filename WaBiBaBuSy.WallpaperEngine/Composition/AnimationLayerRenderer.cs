@@ -180,14 +180,19 @@ public class AnimationLayerRenderer : IDisposable
             var animSourceX = visibleRegion.X - _currentVirtualX;
             var animSourceY = visibleRegion.Y - _currentVirtualY;
 
-            // For now, we'll create a placeholder rectangle
-            // TODO: Integrate with actual video/GIF frame capture
-            using var brush = new SolidBrush(Color.FromArgb(200, 255, 0, 0)); // Semi-transparent red for testing
-            graphics.FillRectangle(brush, drawX, drawY, visibleRegion.Width, visibleRegion.Height);
+            // Get the current animation frame
+            var animationFrame = GetAnimationFrame(_currentVirtualX);
 
-            // Draw border for debugging
-            using var pen = new Pen(Color.Yellow, 2);
-            graphics.DrawRectangle(pen, drawX, drawY, visibleRegion.Width - 1, visibleRegion.Height - 1);
+            if (animationFrame != null)
+            {
+                // Draw the animation frame on the screen
+                graphics.DrawImage(
+                    animationFrame,
+                    drawX,
+                    drawY,
+                    visibleRegion.Width,
+                    visibleRegion.Height);
+            }
         }
 
         return bitmap;
@@ -224,6 +229,202 @@ public class AnimationLayerRenderer : IDisposable
 
         _logger.LogDebug("Vertical position calculated: Y={Y} (align={Align})",
             _currentVirtualY, _config.VerticalAlign);
+    }
+
+    /// <summary>
+    /// Get the current animation frame as a Bitmap.
+    /// For GIFs: extracts the appropriate frame based on elapsed time.
+    /// For videos: seeks to the appropriate frame and returns it.
+    /// For static images: returns the image as a single frame.
+    /// </summary>
+    private Bitmap? GetAnimationFrame(int currentX)
+    {
+        if (_config == null || _sourceRenderer == null || string.IsNullOrEmpty(_config.AnimationPath))
+            return null;
+
+        try
+        {
+            var extension = Path.GetExtension(_config.AnimationPath).ToLowerInvariant();
+
+            // For GIFs, extract the frame based on elapsed time
+            if (extension == ".gif")
+            {
+                return GetGifFrame(_config.AnimationPath);
+            }
+
+            // For videos, extract the frame at current playback position
+            if (extension is ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv")
+            {
+                return GetVideoFrame(_config.AnimationPath);
+            }
+
+            // For static images, return the image as a single frame
+            if (extension is ".jpg" or ".jpeg" or ".png" or ".bmp")
+            {
+                return GetStaticImageFrame(_config.AnimationPath);
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting animation frame");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Extract the current frame from a GIF based on elapsed time.
+    /// </summary>
+    private Bitmap? GetGifFrame(string gifPath)
+    {
+        try
+        {
+            if (!File.Exists(gifPath))
+                return null;
+
+            using (var gifImage = Image.FromFile(gifPath))
+            {
+                // Check if GIF has frames
+                if (gifImage.FrameDimensionsList.Length == 0)
+                    return null;
+
+                var frameDimension = new System.Drawing.Imaging.FrameDimension(gifImage.FrameDimensionsList[0]);
+                var frameCount = gifImage.GetFrameCount(frameDimension);
+
+                if (frameCount == 0)
+                    return null;
+
+                // Extract frame delays
+                var frameDelays = ExtractGifFrameDelays(gifImage, frameCount);
+
+                // Calculate which frame to display based on elapsed time
+                var currentTimeMs = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+                var elapsedMs = _animationStartTime > 0 ? currentTimeMs - _animationStartTime : 0;
+                var currentFrameIndex = CalculateFrameIndex(elapsedMs, frameDelays);
+
+                _logger.LogTrace("GIF frame extraction: elapsed={ElapsedMs}ms, frameIndex={FrameIndex}/{FrameCount}",
+                    elapsedMs, currentFrameIndex, frameCount);
+
+                // Select and return the frame
+                gifImage.SelectActiveFrame(frameDimension, currentFrameIndex);
+
+                // Return a clone of the current frame as a Bitmap
+                var frameBitmap = new Bitmap(gifImage.Width, gifImage.Height);
+                using (var g = Graphics.FromImage(frameBitmap))
+                {
+                    g.DrawImage(gifImage, 0, 0);
+                }
+
+                return frameBitmap;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error extracting GIF frame");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Extract frame delays from GIF metadata.
+    /// </summary>
+    private int[] ExtractGifFrameDelays(Image gifImage, int frameCount)
+    {
+        var frameDelays = new int[frameCount];
+        const int PropertyTagFrameDelay = 0x5100;
+
+        try
+        {
+            if (gifImage.PropertyIdList.Contains(PropertyTagFrameDelay))
+            {
+                var delayProperty = gifImage.GetPropertyItem(PropertyTagFrameDelay);
+                if (delayProperty?.Value != null)
+                {
+                    for (int i = 0; i < frameCount; i++)
+                    {
+                        var delayInHundredths = BitConverter.ToInt32(delayProperty.Value, i * 4);
+                        frameDelays[i] = Math.Max(delayInHundredths * 10, 10); // Convert to ms, min 10ms
+                    }
+                    return frameDelays;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error extracting GIF frame delays");
+        }
+
+        // Fallback: default 100ms per frame
+        for (int i = 0; i < frameCount; i++)
+        {
+            frameDelays[i] = 100;
+        }
+
+        return frameDelays;
+    }
+
+    /// <summary>
+    /// Calculate which frame to display based on elapsed time and frame delays.
+    /// </summary>
+    private int CalculateFrameIndex(long elapsedMs, int[] frameDelays)
+    {
+        long accumulatedMs = 0;
+
+        for (int i = 0; i < frameDelays.Length; i++)
+        {
+            accumulatedMs += frameDelays[i];
+            if (accumulatedMs >= elapsedMs)
+            {
+                return i;
+            }
+        }
+
+        // Looping: return to first frame
+        return 0;
+    }
+
+    /// <summary>
+    /// Load a static image (JPG, PNG, BMP) and return it as a frame.
+    /// The same frame is returned for every call (static image, no animation).
+    /// </summary>
+    private Bitmap? GetStaticImageFrame(string imagePath)
+    {
+        try
+        {
+            if (!File.Exists(imagePath))
+            {
+                _logger.LogWarning("Static image file not found: {Path}", imagePath);
+                return null;
+            }
+
+            _logger.LogTrace("Loading static image: {Path}", imagePath);
+
+            // Load the image as a bitmap
+            // Note: Using Bitmap constructor with FromFile parameter to avoid file lock issues
+            var image = Image.FromFile(imagePath);
+            var bitmap = new Bitmap(image);
+            image.Dispose();
+
+            return bitmap;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading static image: {Path}", imagePath);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Extract a frame from a video file at the current playback position.
+    /// Returns null for now - video frame extraction requires LibVLC integration.
+    /// </summary>
+    private Bitmap? GetVideoFrame(string videoPath)
+    {
+        // TODO: Implement video frame extraction using LibVLC
+        // For now, return null - this requires more complex integration with LibVLC
+        _logger.LogTrace("Video frame extraction not yet implemented for {Path}", videoPath);
+        return null;
     }
 
     public void Dispose()
