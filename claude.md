@@ -308,35 +308,42 @@ WaBiBaBuSy/
 
 ## Documentation Structure
 
-**IMPORTANT:** This project uses separate files for different types of documentation:
+**IMPORTANT:** This project uses separate files for different types of documentation in the `.docs/` folder:
 
 **Core Documentation:**
-- **`CLAUDE.md`** (this file) - Project overview, architecture, guidelines (read automatically on startup)
-- **`DISTRIBUTED_ANIMATION_SYSTEM.md`** - Complete implementation guide for distributed animation (Phases 1-4)
-- **`wabibabusy-design-doc.md`** - Comprehensive architecture and design decisions
-- **`CrossScreenSpanningDesign.md`** - 30 FPS gRPC frame distribution system
+- **`CLAUDE.md`** (root) - Project overview, architecture, guidelines (read automatically on startup)
+- **`.docs/DISTRIBUTED_ANIMATION_SYSTEM.md`** - Complete implementation guide for distributed animation (Phases 1-4)
+- **`.docs/wabibabusy-design-doc.md`** - Comprehensive architecture and design decisions
+- **`.docs/CrossScreenSpanningDesign.md`** - 30 FPS gRPC frame distribution system
+- **`.docs/DIRECT2D_IMPLEMENTATION_COMPLETE.md`** - Direct2D rendering implementation details
+- **`.docs/LOCAL_ANIMATION_GRPC_STRATEGY.md`** - Local animation distribution strategy
 
 **Project Tracking:**
-- **`MissingFeatures.md`** - Features not yet implemented, planned enhancements, TODO tracking
-- **`OpenIssues.md`** - Active bugs and issues that need fixing (current problems)
+- **`.docs/MissingFeatures.md`** - Features not yet implemented, planned enhancements, TODO tracking
+- **`.docs/OpenIssues.md`** - Active bugs and issues that need fixing (current problems)
+- **`.docs/RECENT_UPDATES.md`** - Detailed historical changelog of project milestones
 
 **When documenting:**
-- **New bugs or broken functionality** → Add to `OpenIssues.md`
-- **Features to be implemented** → Add to `MissingFeatures.md`
-- **Architecture changes or guidelines** → Update `CLAUDE.md`
-- **Implementation details for new features** → Create feature-specific doc (like `DISTRIBUTED_ANIMATION_SYSTEM.md`)
-- **Completed fixes** → Move from `OpenIssues.md` to Recent Updates section in `CLAUDE.md`
+- **New bugs or broken functionality** → Add to `.docs/OpenIssues.md`
+- **Features to be implemented** → Add to `.docs/MissingFeatures.md`
+- **Architecture changes or guidelines** → Update `CLAUDE.md` (root)
+- **Implementation details for new features** → Create feature-specific doc in `.docs/` (like `.docs/DISTRIBUTED_ANIMATION_SYSTEM.md`)
+- **Completed fixes** → Move from `.docs/OpenIssues.md` to Recent Updates section in `CLAUDE.md`
 
 ## References
 
 ### Architecture & Implementation Documentation
-- **Distributed Animation System**: `DISTRIBUTED_ANIMATION_SYSTEM.md` (complete implementation guide for Phases 1-4)
-- **Design Document**: `wabibabusy-design-doc.md` (comprehensive architecture and design decisions)
-- **Cross-Screen Spanning**: `CrossScreenSpanningDesign.md` (30 FPS gRPC frame distribution)
+- **Distributed Animation System**: `.docs/DISTRIBUTED_ANIMATION_SYSTEM.md` (complete implementation guide for Phases 1-4)
+- **Design Document**: `.docs/wabibabusy-design-doc.md` (comprehensive architecture and design decisions)
+- **Cross-Screen Spanning**: `.docs/CrossScreenSpanningDesign.md` (30 FPS gRPC frame distribution)
+- **Direct2D Implementation**: `.docs/DIRECT2D_IMPLEMENTATION_COMPLETE.md` (GPU-accelerated rendering details)
+- **Architecture Decisions**: `.docs/ARCHITECTURE_DECISION.md` (major decision documentation)
+- **Documentation Index**: `.docs/DOCUMENTATION_INDEX.md` (complete documentation overview)
 
 ### Project Tracking
-- **Missing Features**: `MissingFeatures.md` (features not yet implemented, TODO tracking)
-- **Open Issues**: `OpenIssues.md` (active bugs and broken functionality)
+- **Missing Features**: `.docs/MissingFeatures.md` (features not yet implemented, TODO tracking)
+- **Open Issues**: `.docs/OpenIssues.md` (active bugs and broken functionality)
+- **Recent Updates**: `.docs/RECENT_UPDATES.md` (historical changelog and milestones)
 
 ### External References
 - **Lively Wallpaper**: https://github.com/rocksdanister/lively (inspiration for wallpaper engine)
@@ -388,7 +395,7 @@ dotnet run --project WaBiBaBuSy.UI
 - `TimingSynchronizer` - Timing broadcast & drift correction
 - `AnimationOrchestrator` - Sequential/simultaneous scheduling
 
-**See:** `DISTRIBUTED_ANIMATION_SYSTEM.md` for complete architecture and testing guide
+**See:** `.docs/DISTRIBUTED_ANIMATION_SYSTEM.md` for complete architecture and testing guide
 
 ## Recent Updates
 
@@ -413,4 +420,4 @@ dotnet run --project WaBiBaBuSy.UI
 - Video frame extraction (LibVLC integration pending)
 - Performance validation with distributed clients
 
-**See:** `RECENT_UPDATES.md` for detailed historical changelog
+**See:** `.docs/RECENT_UPDATES.md` for detailed historical changelog

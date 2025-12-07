@@ -1,2 +1,0 @@
-# WaBiBaBuSy
- Wallpaper Sync
