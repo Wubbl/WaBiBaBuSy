@@ -96,9 +96,10 @@ Currently, the UI only allows:
 ## Issue #2: Cross-Screen Animation - Local Frame Display via Unified gRPC System
 
 **Priority:** High
-**Status:** PLANNING - Architecture updated (2025-11-03)
+**Status:** 🟡 BLOCKING - Videos don't render in Direct2D (GIFs/Images work) (2025-11-07)
 **Date Reported:** 2025-10-23
 **Strategy Update:** 2025-11-03 - Unified gRPC approach for local+remote rendering
+**Technical Analysis:** 2025-11-07 - See `.docs/DIRECT2D_VIDEO_SUPPORT.md`
 
 ### Updated Strategy (2025-11-03)
 

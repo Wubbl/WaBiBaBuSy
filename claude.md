@@ -399,25 +399,27 @@ dotnet run --project WaBiBaBuSy.UI
 
 ## Recent Updates
 
-**Latest (2025-11-05):**
-- ✅ **Direct2D Frame Rendering** - Implemented actual GIF frame extraction in `AnimationLayerRenderer.cs` (replaced red placeholder rectangles with real frames)
-- ✅ **GIF Animation Support** - Frame-by-frame extraction with metadata-based timing, proper frame sequencing and looping
-- ✅ **Static Image Support** - Added JPG/PNG/BMP rendering as single-frame "animations" in composition system
-- ✅ **Content Layer Architecture** - Renamed conceptually: `AnimationLayerRenderer` is now a unified content layer renderer for Direct2D (handles both animated and static content)
+**Latest (2025-11-07):**
+- ✅ **Direct2D System Architecture Complete** - Unified composition + rendering pipeline (GDI+ Phase 1, ready for Phase 2 GPU acceleration)
+- ✅ **Static Images work via Direct2D** - JPG/PNG/BMP render correctly via `LocalAnimationRenderingService`
+- 🔴 **Animations DON'T work** - Both GIFs and Videos need synchronous frame provision in composition pipeline
+- 🔴 **BLOCKING:** GIF/Video renderers designed as standalone (with Form/Timer), but composition needs on-demand frame access
+- 📄 **Technical Analysis Complete** - See `.docs/DIRECT2D_ANIMATION_SUPPORT.md` for detailed diagnosis and 3-5 hour fix plan
 
-**Previous (2025-11-03):**
-- ✅ **Documentation Updated** - Clarified Issue #2 strategy: unified gRPC for local+remote rendering with LibVLC or Direct2D
-- ✅ **MVP Status Confirmed** - 6/6 criteria complete (installer exists in `/Installer/`)
+**Previous (2025-11-03 to 2025-11-05):**
 - ✅ **Distributed Animation System Phases 1-4** - Complete implementation (animation distribution, timing sync, sequential/simultaneous modes, UI integration)
 - ✅ **Gallery-based selection** - Multi-select dialog for animation and background configuration
-- ✅ **Network topology visualization** - Rectangle drag + Ctrl+Click multi-select for client management
 - ✅ **Auto-update system** - Version detection, chunked download, SHA-256 verification, standalone updater
 - ✅ **Performance optimization** - LibVLC pre-initialization (9s→instant), video thumbnail caching
-- ✅ **All projects compile** - 0 errors, 0 warnings
+- ✅ **Network topology visualization** - Rectangle drag + Ctrl+Click multi-select for client management
 
-**Current Work:**
-- Direct2D rendering: E2E testing with GIF animations and static images
-- Video frame extraction (LibVLC integration pending)
-- Performance validation with distributed clients
+**Current Work (Priority Order - UPDATED):**
+1. **🔴 BLOCKING: Direct2D Animation Support** - Implement frame timing for GIFs (30 min) + video frame extraction (1-2h) = 3-5 hours total
+   - GIFs: Add `GetFrameAtPosition()` method with frame timing calculation
+   - Videos: Add frame extraction + LRU caching in `GetFrameAtPosition()`
+   - See `.docs/DIRECT2D_ANIMATION_SUPPORT.md` for complete implementation guide
+2. **E2E Multi-Client Testing** - After animations fixed: Test Sequential/Simultaneous modes with 1-3 real clients (1-2 days)
+3. **Issue #1 Resolution** - Multi-monitor selection for cross-screen animations (2-3 hours, parallel work possible)
+4. **Installer Testing** - Validate existing Windows installer on clean systems (2-4 hours, parallel work possible)
 
 **See:** `.docs/RECENT_UPDATES.md` for detailed historical changelog

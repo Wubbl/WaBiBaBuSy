@@ -1,10 +1,26 @@
 # WaBiBaBuSy - Missing Features
 
-**Last Updated:** 2025-11-01
+**Last Updated:** 2025-11-07
 **Project Status:** ~99% MVP Complete (Phase 3 UI Integration Complete)
-**Next Priority:** E2E Testing with 1-3 real clients, Phase 3 completion
+**Current Blocker:** Direct2D Video Support (3-4 hours to fix)
+**Next Priority:** Fix video rendering, then E2E Testing with 1-3 real clients
 
 This document tracks features from the design document that are not yet implemented.
+
+---
+
+## 🔴 BLOCKING ISSUES (Must Fix Before Testing)
+
+### Direct2D Video Support
+**Status:** 🔴 BLOCKING - Videos don't render, GIFs/Images work fine
+**Effort:** 3-4 hours
+**Details:** See `.docs/DIRECT2D_VIDEO_SUPPORT.md` for complete technical analysis
+**Solution:** Implement frame caching in VideoWallpaperRenderer to handle async frame extraction
+**Files to Modify:** `VideoWallpaperRenderer.cs` (1-2h impl + 1-2h testing)
+
+---
+
+## Current Priorities (2025-11-07)
 
 **Session Highlights:**
 - **2025-11-01:** ✅ Completed Phase 3 UI Integration - Animation Distribution Mode Selection
