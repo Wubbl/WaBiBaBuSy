@@ -73,4 +73,12 @@ public interface IWallpaperRenderer : IDisposable
     /// Seeks to the specified position.
     /// </summary>
     Task SeekAsync(TimeSpan position);
+
+    /// <summary>
+    /// Gets the frame at a specific timestamp (used by composition system).
+    /// For GIFs: returns the appropriate frame based on frame delays.
+    /// For videos: returns frame at that timestamp (or cached if available).
+    /// For images: returns the single frame.
+    /// </summary>
+    System.Drawing.Bitmap GetFrameAtPosition(long timestampMs);
 }

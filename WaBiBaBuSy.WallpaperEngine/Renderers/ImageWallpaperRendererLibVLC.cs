@@ -178,6 +178,31 @@ public class ImageWallpaperRendererLibVLC : IWallpaperRenderer
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Gets the frame at a specific timestamp (used by composition system).
+    /// For static images, always returns the same frame regardless of timestamp.
+    /// </summary>
+    public System.Drawing.Bitmap GetFrameAtPosition(long timestampMs)
+    {
+        try
+        {
+            if (_config == null || string.IsNullOrEmpty(_config.FilePath))
+                return new System.Drawing.Bitmap(1, 1);
+
+            // Load and return the image as a bitmap
+            var image = System.Drawing.Image.FromFile(_config.FilePath);
+            var bitmap = new System.Drawing.Bitmap(image);
+            image.Dispose();
+
+            return bitmap;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting image frame at position {Timestamp}ms", timestampMs);
+            return new System.Drawing.Bitmap(1, 1);
+        }
+    }
+
     private Task CreateRenderWindowAsync(WallpaperConfig config)
     {
         // Windows Forms must be created on the calling thread
