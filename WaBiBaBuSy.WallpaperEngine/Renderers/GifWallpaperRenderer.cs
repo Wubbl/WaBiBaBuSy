@@ -236,6 +236,49 @@ public class GifWallpaperRenderer : IWallpaperRenderer
         }
     }
 
+    /// <summary>
+    /// Gets the frame at a specific timestamp (used by composition system).
+    /// This method is called by the composition pipeline to get frames on-demand.
+    /// </summary>
+    public Bitmap GetFrameAtPosition(long timestampMs)
+    {
+        try
+        {
+            if (_gifImage == null || _frameDimension == null || _frameDelays == null)
+                throw new InvalidOperationException("Renderer not initialized");
+
+            // Calculate which frame corresponds to this timestamp
+            long accumulatedMs = 0;
+            int frameIndex = 0;
+
+            for (int i = 0; i < _frameCount; i++)
+            {
+                accumulatedMs += _frameDelays[i];
+                if (timestampMs < accumulatedMs)
+                {
+                    frameIndex = i;
+                    break;
+                }
+            }
+
+            // If we've gone past all frames, loop back to start
+            if (frameIndex >= _frameCount)
+                frameIndex = 0;
+
+            // Select the frame and convert to Bitmap
+            _gifImage.SelectActiveFrame(_frameDimension, frameIndex);
+            var frameBitmap = new Bitmap(_gifImage);
+
+            return frameBitmap;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting GIF frame at position {TimestampMs}ms", timestampMs);
+            // Return blank bitmap on error rather than throwing (composition system should continue)
+            return new Bitmap(1, 1);
+        }
+    }
+
     private void ExtractFrameDelays()
     {
         try

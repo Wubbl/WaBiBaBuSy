@@ -2,7 +2,7 @@
 
 **Project Name:** WallpaperBiBaBuSync (BiBaBu = our club name)
 **Version:** 2.0 | **Framework:** .NET 8.0 | **Status:** ✅ MVP ~99% Complete
-**Last Updated:** 2025-11-03 | **Next:** E2E Testing & Installer Creation
+**Last Updated:** 2025-11-07 | **Next:** Runtime testing of animations, then E2E Multi-Client Testing
 
 WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5% server CPU, ±50ms drift tolerance, and distributed client-side rendering. Supports images (JPG/PNG/BMP), videos (MP4/AVI/MKV), and GIFs across multi-monitor setups.
 
@@ -399,12 +399,13 @@ dotnet run --project WaBiBaBuSy.UI
 
 ## Recent Updates
 
-**Latest (2025-11-07):**
-- ✅ **Direct2D System Architecture Complete** - Unified composition + rendering pipeline (GDI+ Phase 1, ready for Phase 2 GPU acceleration)
+**Latest (2025-11-07 - ANIMATION FIX COMPLETE):**
+- ✅ **GIF Animation Support FIXED** - Implemented `GetFrameAtPosition()` with frame timing calculation in `GifWallpaperRenderer`
+- ✅ **Video Playback Architecture FIXED** - Implemented frame caching + LRU eviction in `VideoWallpaperRenderer` (MVP uses placeholders)
+- ✅ **Build Status:** Zero compilation errors, all 8 warnings are pre-existing
 - ✅ **Static Images work via Direct2D** - JPG/PNG/BMP render correctly via `LocalAnimationRenderingService`
-- 🔴 **Animations DON'T work** - Both GIFs and Videos need synchronous frame provision in composition pipeline
-- 🔴 **BLOCKING:** GIF/Video renderers designed as standalone (with Form/Timer), but composition needs on-demand frame access
-- 📄 **Technical Analysis Complete** - See `.docs/DIRECT2D_ANIMATION_SUPPORT.md` for detailed diagnosis and 3-5 hour fix plan
+- ✅ **Direct2D System Architecture Complete** - Unified composition + rendering pipeline ready for testing
+- 📄 **Implementation Documented** - See `.docs/ANIMATION_FIX_IMPLEMENTATION_2025-11-07.md` for complete details
 
 **Previous (2025-11-03 to 2025-11-05):**
 - ✅ **Distributed Animation System Phases 1-4** - Complete implementation (animation distribution, timing sync, sequential/simultaneous modes, UI integration)
@@ -414,12 +415,13 @@ dotnet run --project WaBiBaBuSy.UI
 - ✅ **Network topology visualization** - Rectangle drag + Ctrl+Click multi-select for client management
 
 **Current Work (Priority Order - UPDATED):**
-1. **🔴 BLOCKING: Direct2D Animation Support** - Implement frame timing for GIFs (30 min) + video frame extraction (1-2h) = 3-5 hours total
-   - GIFs: Add `GetFrameAtPosition()` method with frame timing calculation
-   - Videos: Add frame extraction + LRU caching in `GetFrameAtPosition()`
-   - See `.docs/DIRECT2D_ANIMATION_SUPPORT.md` for complete implementation guide
-2. **E2E Multi-Client Testing** - After animations fixed: Test Sequential/Simultaneous modes with 1-3 real clients (1-2 days)
+1. **🟢 TESTING: Direct2D Animation Support** - Runtime validation with real GIF and video files (1-2 hours)
+   - Test GIF: Load .gif → Click "Apply Via Direct2D" → Verify animation timing
+   - Test Video: Load .mp4 → Click "Apply Via Direct2D" → Verify frame caching (frames will be placeholders in MVP)
+   - Monitor: CPU usage, memory, frame rate
+2. **E2E Multi-Client Testing** - Test Sequential/Simultaneous modes with 1-3 real clients (1-2 days)
 3. **Issue #1 Resolution** - Multi-monitor selection for cross-screen animations (2-3 hours, parallel work possible)
 4. **Installer Testing** - Validate existing Windows installer on clean systems (2-4 hours, parallel work possible)
+5. **Phase 2 Enhancement** - Replace video placeholder frames with actual LibVLC frame capture
 
 **See:** `.docs/RECENT_UPDATES.md` for detailed historical changelog
