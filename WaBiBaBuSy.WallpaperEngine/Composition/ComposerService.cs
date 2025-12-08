@@ -64,15 +64,24 @@ public class ComposerService : IDisposable
         if (_canvasManager == null)
             throw new InvalidOperationException("Composer not initialized. Call InitializeAsync first.");
 
-        _logger.LogDebug("Composing frame for screen {Order}", screen.Order);
+        _logger.LogTrace("[Composer] ComposeSingle called for screen {Order}, timestampMs={TimestampMs}, pixelsPerSecond={PixelsPerSecond}",
+            screen.Order, timestampMs, pixelsPerSecond);
 
         // Update animation position based on timestamp
+        _logger.LogTrace("[Composer] Updating animation position");
         _compositionRenderer.UpdateAnimationPosition(timestampMs, pixelsPerSecond);
 
         // Compose and return the frame
+        _logger.LogTrace("[Composer] Calling ComposeForScreen");
         var frame = _compositionRenderer.ComposeForScreen(screen);
 
-        _logger.LogTrace("Frame composed for screen {Order}: {Width}x{Height}", screen.Order, frame.Width, frame.Height);
+        if (frame == null)
+        {
+            _logger.LogError("[Composer] ComposeForScreen returned null for screen {Order}", screen.Order);
+            throw new InvalidOperationException("ComposeForScreen returned null");
+        }
+
+        _logger.LogInformation("[Composer] Frame composed for screen {Order}: {Width}x{Height}", screen.Order, frame.Width, frame.Height);
 
         return frame;
     }
@@ -146,9 +155,13 @@ public class ComposerService : IDisposable
     {
         if (_disposed) return;
 
-        _logger.LogInformation("Disposing composer service");
+        _logger.LogInformation("[Dispose] Starting composer service disposal");
+        var startTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
 
+        _logger.LogInformation("[Dispose] Disposing composition renderer");
         _compositionRenderer?.Dispose();
+        var elapsedMs = (DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond) - startTime;
+        _logger.LogInformation("[Dispose] Composer service disposed in {ElapsedMs}ms", elapsedMs);
 
         _disposed = true;
         GC.SuppressFinalize(this);

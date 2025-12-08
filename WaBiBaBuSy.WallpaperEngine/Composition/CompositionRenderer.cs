@@ -73,21 +73,28 @@ public class CompositionRenderer : IDisposable
         if (_backgroundRenderer == null || _animationRenderer == null)
             throw new InvalidOperationException("Renderer not initialized");
 
-        _logger.LogTrace("Composing frame for screen {Order}", screen.Order);
+        _logger.LogTrace("[Composition] ComposeForScreen called for screen {Order}", screen.Order);
 
         // Render background layer
+        _logger.LogTrace("[Composition] Rendering background layer");
         var backgroundBitmap = _backgroundRenderer.RenderForScreen(screen);
+        _logger.LogTrace("[Composition] Background layer rendered: {Width}x{Height}", backgroundBitmap.Width, backgroundBitmap.Height);
 
         // Render animation layer (may be null if not visible)
+        _logger.LogTrace("[Composition] Rendering animation layer");
         var animationBitmap = _animationRenderer.RenderForScreen(screen);
 
         if (animationBitmap == null)
         {
             // No animation visible, just return background
+            _logger.LogWarning("[Composition] Animation layer returned null, returning background only");
             return backgroundBitmap;
         }
 
+        _logger.LogTrace("[Composition] Animation layer rendered: {Width}x{Height}", animationBitmap.Width, animationBitmap.Height);
+
         // Composite animation on top of background
+        _logger.LogTrace("[Composition] Compositing animation layer on top of background");
         using (var graphics = Graphics.FromImage(backgroundBitmap))
         {
             graphics.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceOver;
@@ -95,9 +102,13 @@ public class CompositionRenderer : IDisposable
 
             // Draw animation layer on top
             graphics.DrawImage(animationBitmap, 0, 0);
+            _logger.LogTrace("[Composition] Animation composited successfully");
         }
 
         animationBitmap.Dispose();
+
+        _logger.LogInformation("[Composition] Frame composition complete for screen {Order}: {Width}x{Height}",
+            screen.Order, backgroundBitmap.Width, backgroundBitmap.Height);
 
         return backgroundBitmap;
     }
@@ -188,17 +199,30 @@ public class CompositionRenderer : IDisposable
     {
         if (_disposed) return;
 
-        _logger.LogInformation("Disposing composition renderer");
+        _logger.LogInformation("[Dispose] Starting composition renderer disposal");
+        var startTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
 
+        _logger.LogInformation("[Dispose] Clearing frame cache");
         ClearCache();
+        var afterCacheTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+        _logger.LogInformation("[Dispose] Cache cleared in {ElapsedMs}ms", afterCacheTime - startTime);
 
+        _logger.LogInformation("[Dispose] Disposing background renderer");
         _backgroundRenderer?.Dispose();
         _backgroundRenderer = null;
+        var afterBgTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+        _logger.LogInformation("[Dispose] Background renderer disposed in {ElapsedMs}ms", afterBgTime - afterCacheTime);
 
+        _logger.LogInformation("[Dispose] Disposing animation renderer");
         _animationRenderer?.Dispose();
         _animationRenderer = null;
+        var afterAnimTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+        _logger.LogInformation("[Dispose] Animation renderer disposed in {ElapsedMs}ms", afterAnimTime - afterBgTime);
 
         _disposed = true;
+        var totalTime = afterAnimTime - startTime;
+        _logger.LogInformation("[Dispose] COMPOSITION RENDERER TOTAL DISPOSAL TIME: {TotalMs}ms", totalTime);
+
         GC.SuppressFinalize(this);
     }
 }

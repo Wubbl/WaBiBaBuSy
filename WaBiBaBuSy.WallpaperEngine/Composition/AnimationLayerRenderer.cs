@@ -238,7 +238,11 @@ public class AnimationLayerRenderer : IDisposable
     private Bitmap? GetAnimationFrame(int currentX)
     {
         if (_config == null || _sourceRenderer == null || string.IsNullOrEmpty(_config.AnimationPath))
+        {
+            _logger.LogTrace("[AnimFrame] GetAnimationFrame aborted: config={Config}, renderer={Renderer}, path={Path}",
+                _config != null, _sourceRenderer != null, !string.IsNullOrEmpty(_config?.AnimationPath));
             return null;
+        }
 
         try
         {
@@ -246,15 +250,25 @@ public class AnimationLayerRenderer : IDisposable
             var currentTimeMs = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
             var elapsedMs = _animationStartTime > 0 ? currentTimeMs - _animationStartTime : 0;
 
-            _logger.LogTrace("Getting animation frame at elapsed {ElapsedMs}ms", elapsedMs);
+            _logger.LogTrace("[AnimFrame] Requesting frame from {RendererType} at elapsed {ElapsedMs}ms",
+                _sourceRenderer.GetType().Name, elapsedMs);
 
             // Use the renderer's GetFrameAtPosition() method
             // This works for all animation types: GIFs, videos, and images
-            return _sourceRenderer.GetFrameAtPosition(elapsedMs);
+            var frame = _sourceRenderer.GetFrameAtPosition(elapsedMs);
+
+            if (frame == null)
+            {
+                _logger.LogWarning("[AnimFrame] GetFrameAtPosition returned null at elapsedMs={ElapsedMs}", elapsedMs);
+                return null;
+            }
+
+            _logger.LogTrace("[AnimFrame] Received frame: {Width}x{Height}", frame.Width, frame.Height);
+            return frame;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting animation frame");
+            _logger.LogError(ex, "[AnimFrame] Error getting animation frame");
             return null;
         }
     }
@@ -264,9 +278,14 @@ public class AnimationLayerRenderer : IDisposable
     {
         if (_disposed) return;
 
-        _logger.LogInformation("Disposing animation layer renderer");
+        _logger.LogInformation("[Dispose] Starting animation layer renderer disposal");
+        var startTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
 
+        _logger.LogInformation("[Dispose] Disposing source renderer: {RendererType}", _sourceRenderer?.GetType().Name ?? "null");
         _sourceRenderer?.Dispose();
+        var elapsedMs = (DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond) - startTime;
+        _logger.LogInformation("[Dispose] ANIMATION RENDERER DISPOSAL TIME: {ElapsedMs}ms (this is where GIF file handles close)", elapsedMs);
+
         _sourceRenderer = null;
 
         _disposed = true;

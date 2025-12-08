@@ -34,6 +34,11 @@ public class LocalAnimationRenderingService : IDisposable
     private const int RenderIntervalMs = 16; // ~60 FPS
     private readonly object _syncLock = new();
 
+    // Diagnostics
+    private int _frameCount = 0;
+    private long _lastLogTimestampMs = 0;
+    private const int LogIntervalMs = 1000; // Log stats every second
+
     // Screen configuration
     private VirtualCanvasManager? _canvasManager;
     private ScreenMapping? _screenMapping;
@@ -184,7 +189,11 @@ public class LocalAnimationRenderingService : IDisposable
     private void RenderFrame(object? state)
     {
         if (_disposed || _composer == null || _renderer == null || _screenMapping == null)
+        {
+            _logger.LogTrace("RenderFrame aborted: disposed={Disposed}, composer={Composer}, renderer={Renderer}, mapping={Mapping}",
+                _disposed, _composer != null, _renderer != null, _screenMapping != null);
             return;
+        }
 
         try
         {
@@ -194,18 +203,40 @@ public class LocalAnimationRenderingService : IDisposable
                 var currentTimestampMs = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
                 var elapsedMs = currentTimestampMs - _startTimestampMs;
 
+                _frameCount++;
+
+                // Log diagnostic info every second
+                if (currentTimestampMs - _lastLogTimestampMs >= LogIntervalMs)
+                {
+                    _logger.LogInformation("[RenderLoop] Rendered {FrameCount} frames in last {IntervalMs}ms, elapsed={ElapsedMs}ms, pixelsPerSecond={PixelsPerSecond}",
+                        _frameCount, LogIntervalMs, elapsedMs, _pixelsPerSecond);
+                    _frameCount = 0;
+                    _lastLogTimestampMs = currentTimestampMs;
+                }
+
                 // Compose frame
+                _logger.LogTrace("[Compose] Requesting frame at elapsedMs={ElapsedMs}, screenMapping={ScreenId}", elapsedMs, _screenMapping.ClientId);
                 var frame = _composer.ComposeSingle(_screenMapping, elapsedMs, _pixelsPerSecond);
 
+                if (frame == null)
+                {
+                    _logger.LogWarning("[Compose] ComposeSingle returned null frame at elapsedMs={ElapsedMs}", elapsedMs);
+                    return;
+                }
+
+                _logger.LogTrace("[Compose] Received frame: {Width}x{Height}, disposing after display", frame.Width, frame.Height);
+
                 // Render to screen
+                _logger.LogTrace("[Display] Calling DisplayFrame for clientId=LOCAL");
                 _renderer.DisplayFrame("LOCAL", frame, _screenMapping);
+                _logger.LogTrace("[Display] DisplayFrame completed");
 
                 // Frame is disposed by DisplayFrame
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error rendering frame");
+            _logger.LogError(ex, "[RenderFrame] Error rendering frame");
         }
     }
 
@@ -232,14 +263,28 @@ public class LocalAnimationRenderingService : IDisposable
     {
         if (_disposed) return;
 
-        _logger.LogInformation("Disposing local animation rendering service");
+        _logger.LogInformation("[Dispose] Starting disposal of local animation rendering service");
+        var startTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
 
+        _logger.LogInformation("[Dispose] Stopping render timer");
         Stop();
+        var afterStopTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+        _logger.LogInformation("[Dispose] Timer stopped in {ElapsedMs}ms", afterStopTime - startTime);
 
+        _logger.LogInformation("[Dispose] Disposing renderer");
         _renderer?.Dispose();
+        var afterRendererTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+        _logger.LogInformation("[Dispose] Renderer disposed in {ElapsedMs}ms", afterRendererTime - afterStopTime);
+
+        _logger.LogInformation("[Dispose] Disposing composer");
         _composer?.Dispose();
+        var afterComposerTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+        _logger.LogInformation("[Dispose] Composer disposed in {ElapsedMs}ms", afterComposerTime - afterRendererTime);
 
         _disposed = true;
+        var totalTime = afterComposerTime - startTime;
+        _logger.LogInformation("[Dispose] TOTAL DISPOSAL TIME: {TotalMs}ms", totalTime);
+
         GC.SuppressFinalize(this);
     }
 }

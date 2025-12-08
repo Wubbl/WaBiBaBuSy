@@ -107,33 +107,44 @@ public class Direct2DRenderer : IDisposable
     {
         try
         {
+            _logger.LogTrace("[GDI+] Getting device context for WorkerW={WorkerW}", workerW);
             var deviceContext = Direct2DInterop.GetDC(workerW);
             if (deviceContext == IntPtr.Zero)
             {
-                _logger.LogError("Failed to get device context for WorkerW window");
+                _logger.LogError("[GDI+] Failed to get device context for WorkerW window (handle={WorkerW})", workerW);
                 return;
             }
+
+            _logger.LogTrace("[GDI+] Got device context={DeviceContext}, drawing frame {Width}x{Height} to screen bounds {Bounds}",
+                deviceContext, frame.Width, frame.Height, screen.ScreenBounds);
 
             try
             {
                 using (var graphics = Graphics.FromHdc(deviceContext))
                 {
+                    _logger.LogTrace("[GDI+] Created graphics object, clearing to black");
                     graphics.Clear(Color.Black);
 
                     // Draw the frame to fill the screen
+                    _logger.LogTrace("[GDI+] Drawing frame to screen position (0,0) with size {Width}x{Height}",
+                        screen.ScreenBounds.Width, screen.ScreenBounds.Height);
                     graphics.DrawImage(frame, 0, 0, screen.ScreenBounds.Width, screen.ScreenBounds.Height);
+
+                    _logger.LogTrace("[GDI+] Frame drawn successfully");
                 }
             }
             finally
             {
                 Direct2DInterop.ReleaseDC(workerW, deviceContext);
+                _logger.LogTrace("[GDI+] Released device context");
             }
 
-            _logger.LogTrace("Frame rendered to screen {Order} via GDI+", screen.Order);
+            _logger.LogInformation("[GDI+] Frame rendered to screen {Order} via GDI+ ({Width}x{Height})",
+                screen.Order, frame.Width, frame.Height);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error rendering frame to screen via GDI+");
+            _logger.LogError(ex, "[GDI+] Error rendering frame to screen via GDI+");
             throw;
         }
     }

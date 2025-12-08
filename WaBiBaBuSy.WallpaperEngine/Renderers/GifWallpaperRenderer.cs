@@ -431,22 +431,38 @@ public class GifWallpaperRenderer : IWallpaperRenderer
     {
         if (_disposed) return;
 
-        _logger.LogInformation("Disposing GIF wallpaper renderer");
+        _logger.LogInformation("[Dispose] Starting GIF wallpaper renderer disposal");
+        var startTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
 
+        _logger.LogInformation("[Dispose] Disposing frame timer");
         _frameTimer?.Dispose();
         _frameTimer = null;
+        var afterTimerTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+        _logger.LogInformation("[Dispose] Timer disposed in {ElapsedMs}ms", afterTimerTime - startTime);
 
+        _logger.LogInformation("[Dispose] Disposing picture box");
         _pictureBox?.Dispose();
         _pictureBox = null;
+        var afterPicTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+        _logger.LogInformation("[Dispose] PictureBox disposed in {ElapsedMs}ms", afterPicTime - afterTimerTime);
 
+        _logger.LogInformation("[Dispose] Disposing GIF image");
         _gifImage?.Dispose();
         _gifImage = null;
+        var afterGifTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+        _logger.LogInformation("[Dispose] GIF image disposed in {ElapsedMs}ms", afterGifTime - afterPicTime);
 
+        _logger.LogInformation("[Dispose] Closing and disposing render form");
         _renderForm?.Close();
         _renderForm?.Dispose();
         _renderForm = null;
+        var afterFormTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+        _logger.LogInformation("[Dispose] Render form disposed in {ElapsedMs}ms", afterFormTime - afterGifTime);
 
         _disposed = true;
+        var totalTime = afterFormTime - startTime;
+        _logger.LogInformation("[Dispose] GIF WALLPAPER RENDERER TOTAL DISPOSAL TIME: {TotalMs}ms", totalTime);
+
         GC.SuppressFinalize(this);
     }
 }
