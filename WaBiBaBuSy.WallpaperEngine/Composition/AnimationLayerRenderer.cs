@@ -82,8 +82,8 @@ public class AnimationLayerRenderer : IDisposable
 
         _animationStartTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-        _logger.LogInformation("Animation layer initialized: Size={Width}x{Height}, Position=({X},{Y})",
-            _animationWidth, _animationHeight, _currentVirtualX, _currentVirtualY);
+        _logger.LogInformation("[AnimLayer] Animation layer initialized: Size={Width}x{Height}, StartPosition=({X},{Y}), RendererType={RendererType}, AnimationPath={Path}",
+            _animationWidth, _animationHeight, _currentVirtualX, _currentVirtualY, _sourceRenderer.GetType().Name, _config.AnimationPath);
     }
 
     /// <summary>
@@ -94,14 +94,17 @@ public class AnimationLayerRenderer : IDisposable
         if (_config == null)
             throw new InvalidOperationException("Renderer not initialized");
 
-        var elapsedMs = timestampMs - _animationStartTime;
+        // timestampMs is the elapsed time from render loop start, NOT Unix time
+        // So we use it directly
+        var elapsedMs = timestampMs;
         var elapsedSeconds = elapsedMs / 1000.0;
 
         // Calculate new X position
+        var prevX = _currentVirtualX;
         _currentVirtualX = (int)(-_animationWidth + (elapsedSeconds * pixelsPerSecond));
 
-        _logger.LogTrace("Animation position updated: X={X} (elapsed={Elapsed}s)",
-            _currentVirtualX, elapsedSeconds);
+        _logger.LogInformation("[AnimLayer-Detail] Position updated: X={X} (was {PrevX}), elapsed={Elapsed}s, pixelsPerSecond={PPS}, AnimWidth={AnimW}",
+            _currentVirtualX, prevX, elapsedSeconds, pixelsPerSecond, _animationWidth);
     }
 
     /// <summary>
@@ -133,18 +136,21 @@ public class AnimationLayerRenderer : IDisposable
     /// </summary>
     public Bitmap? RenderForScreen(ScreenMapping screen)
     {
-        if (_config == null || _sourceRenderer == null)
-            throw new InvalidOperationException("Renderer not initialized");
-
-        // Check if animation overlaps with this screen
-        if (!IsVisibleOnScreen(screen))
+        try
         {
-            _logger.LogTrace("Animation not visible on screen {Order}", screen.Order);
-            return null;
-        }
+            if (_config == null || _sourceRenderer == null)
+                throw new InvalidOperationException("Renderer not initialized");
 
-        _logger.LogDebug("Rendering animation for screen {Order}: ScreenPos=({X},{Y}), AnimPos=({AnimX},{AnimY})",
-            screen.Order, screen.VirtualBounds.X, screen.VirtualBounds.Y, _currentVirtualX, _currentVirtualY);
+            // Check if animation overlaps with this screen
+            if (!IsVisibleOnScreen(screen))
+            {
+                _logger.LogInformation("[AnimLayer-Detail] Animation not visible on screen {Order}: AnimX={AnimX}, AnimWidth={AnimWidth}, ScreenX={ScreenX}, ScreenWidth={ScreenWidth}",
+                    screen.Order, _currentVirtualX, _animationWidth, screen.VirtualBounds.X, screen.VirtualBounds.Width);
+                return null;
+            }
+
+        _logger.LogDebug("[AnimLayer] Rendering animation for screen {Order}: ScreenPos=({ScreenX},{ScreenY}), AnimPos=({AnimX},{AnimY}), AnimSize={AnimW}x{AnimH}",
+            screen.Order, screen.VirtualBounds.X, screen.VirtualBounds.Y, _currentVirtualX, _currentVirtualY, _animationWidth, _animationHeight);
 
         // Calculate the animation's bounding box in virtual coordinates
         var animationVirtualBounds = new Rectangle(
@@ -153,11 +159,19 @@ public class AnimationLayerRenderer : IDisposable
             _animationWidth,
             _animationHeight);
 
+        _logger.LogTrace("[AnimLayer] Animation bounds: {AnimBounds}, Screen bounds: {ScreenBounds}",
+            animationVirtualBounds, screen.VirtualBounds);
+
         // Calculate the intersection (visible region)
         var visibleRegion = Rectangle.Intersect(screen.VirtualBounds, animationVirtualBounds);
 
+        _logger.LogTrace("[AnimLayer] Visible region: {VisibleRegion}", visibleRegion);
+
         if (visibleRegion.IsEmpty)
+        {
+            _logger.LogWarning("[AnimLayer] Visible region is empty (animation not overlapping screen) on screen {Order}", screen.Order);
             return null;
+        }
 
         // Create bitmap for the visible portion on this screen
         var bitmap = new Bitmap(screen.ScreenBounds.Width, screen.ScreenBounds.Height);
@@ -181,10 +195,15 @@ public class AnimationLayerRenderer : IDisposable
             var animSourceY = visibleRegion.Y - _currentVirtualY;
 
             // Get the current animation frame
+            _logger.LogTrace("[AnimLayer] Getting animation frame for drawX={DrawX}, drawY={DrawY}, visibleWidth={VW}, visibleHeight={VH}",
+                drawX, drawY, visibleRegion.Width, visibleRegion.Height);
+
             var animationFrame = GetAnimationFrame(_currentVirtualX);
 
             if (animationFrame != null)
             {
+                _logger.LogTrace("[AnimLayer] Got animation frame: {Width}x{Height}, drawing to bitmap", animationFrame.Width, animationFrame.Height);
+
                 // Draw the animation frame on the screen
                 graphics.DrawImage(
                     animationFrame,
@@ -192,10 +211,24 @@ public class AnimationLayerRenderer : IDisposable
                     drawY,
                     visibleRegion.Width,
                     visibleRegion.Height);
+
+                _logger.LogTrace("[AnimLayer] Animation frame drawn to bitmap");
+            }
+            else
+            {
+                _logger.LogWarning("[AnimLayer] GetAnimationFrame returned null - animation will not be visible!");
             }
         }
 
-        return bitmap;
+            _logger.LogTrace("[AnimLayer] Returning composed animation bitmap for screen {Order}: {Width}x{Height}",
+                screen.Order, bitmap.Width, bitmap.Height);
+            return bitmap;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[AnimLayer] EXCEPTION in RenderForScreen: {Message}", ex.Message);
+            return null;
+        }
     }
 
     private async Task CalculateAnimationDimensionsAsync(AnimationLayerConfig config)

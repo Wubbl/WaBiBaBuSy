@@ -64,15 +64,15 @@ public class ComposerService : IDisposable
         if (_canvasManager == null)
             throw new InvalidOperationException("Composer not initialized. Call InitializeAsync first.");
 
-        _logger.LogTrace("[Composer] ComposeSingle called for screen {Order}, timestampMs={TimestampMs}, pixelsPerSecond={PixelsPerSecond}",
+        _logger.LogInformation("[Composer-Detail] ComposeSingle called for screen {Order}, timestampMs={TimestampMs}, pixelsPerSecond={PixelsPerSecond}",
             screen.Order, timestampMs, pixelsPerSecond);
 
         // Update animation position based on timestamp
-        _logger.LogTrace("[Composer] Updating animation position");
+        _logger.LogInformation("[Composer-Detail] Updating animation position");
         _compositionRenderer.UpdateAnimationPosition(timestampMs, pixelsPerSecond);
 
         // Compose and return the frame
-        _logger.LogTrace("[Composer] Calling ComposeForScreen");
+        _logger.LogInformation("[Composer-Detail] Calling ComposeForScreen");
         var frame = _compositionRenderer.ComposeForScreen(screen);
 
         if (frame == null)

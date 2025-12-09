@@ -172,14 +172,27 @@ public class LocalAnimationRenderingService : IDisposable
     /// </summary>
     public void Stop()
     {
+        System.Threading.Timer? timerToDispose = null;
+
+        // Get the timer without holding the lock during disposal wait
         lock (_syncLock)
         {
             if (_renderTimer != null)
             {
-                _renderTimer.Dispose();
+                timerToDispose = _renderTimer;
                 _renderTimer = null;
-                _logger.LogInformation("Stopped local animation rendering");
             }
+        }
+
+        // Dispose the timer OUTSIDE the lock to avoid deadlock
+        if (timerToDispose != null)
+        {
+            using (var waitHandle = new System.Threading.ManualResetEvent(false))
+            {
+                timerToDispose.Dispose(waitHandle);
+                waitHandle.WaitOne();
+            }
+            _logger.LogInformation("Stopped local animation rendering");
         }
     }
 
@@ -199,6 +212,13 @@ public class LocalAnimationRenderingService : IDisposable
         {
             lock (_syncLock)
             {
+                // Double-check after acquiring lock (in case disposal happened)
+                if (_disposed || _composer == null || _renderer == null || _screenMapping == null)
+                {
+                    _logger.LogTrace("[RenderFrame] Aborted after lock: disposed={Disposed}", _disposed);
+                    return;
+                }
+
                 // Calculate elapsed time since start
                 var currentTimestampMs = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
                 var elapsedMs = currentTimestampMs - _startTimestampMs;
@@ -215,24 +235,27 @@ public class LocalAnimationRenderingService : IDisposable
                 }
 
                 // Compose frame
-                _logger.LogTrace("[Compose] Requesting frame at elapsedMs={ElapsedMs}, screenMapping={ScreenId}", elapsedMs, _screenMapping.ClientId);
+                _logger.LogInformation("[RenderLoop-Detail] About to call ComposeSingle at elapsedMs={ElapsedMs}", elapsedMs);
                 var frame = _composer.ComposeSingle(_screenMapping, elapsedMs, _pixelsPerSecond);
 
                 if (frame == null)
                 {
-                    _logger.LogWarning("[Compose] ComposeSingle returned null frame at elapsedMs={ElapsedMs}", elapsedMs);
+                    _logger.LogWarning("[RenderLoop-Detail] ComposeSingle returned null frame at elapsedMs={ElapsedMs}", elapsedMs);
                     return;
                 }
 
-                _logger.LogTrace("[Compose] Received frame: {Width}x{Height}, disposing after display", frame.Width, frame.Height);
+                _logger.LogInformation("[RenderLoop-Detail] Received frame: {Width}x{Height}, about to display", frame.Width, frame.Height);
 
                 // Render to screen
-                _logger.LogTrace("[Display] Calling DisplayFrame for clientId=LOCAL");
                 _renderer.DisplayFrame("LOCAL", frame, _screenMapping);
-                _logger.LogTrace("[Display] DisplayFrame completed");
+                _logger.LogInformation("[RenderLoop-Detail] Frame displayed");
 
                 // Frame is disposed by DisplayFrame
             }
+        }
+        catch (ObjectDisposedException ex)
+        {
+            _logger.LogDebug(ex, "[RenderFrame] Caught ObjectDisposedException (likely due to shutdown) - this is expected");
         }
         catch (Exception ex)
         {

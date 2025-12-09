@@ -62,6 +62,9 @@ public class CompositionRenderer : IDisposable
         if (_animationRenderer == null)
             throw new InvalidOperationException("Renderer not initialized");
 
+        _logger.LogInformation("[Composition-Detail] UpdateAnimationPosition called: timestampMs={TimestampMs}, pixelsPerSecond={PPS}",
+            timestampMs, pixelsPerSecond);
+
         _animationRenderer.UpdatePosition(timestampMs, pixelsPerSecond);
     }
 
