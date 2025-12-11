@@ -85,11 +85,19 @@ public class GifWallpaperRenderer : IWallpaperRenderer
             // Extract frame delays from GIF metadata
             ExtractFrameDelays();
 
-            // Create render window
-            await CreateRenderWindowAsync(config);
+            // Create render window (only in non-headless mode)
+            // In headless mode, we only provide frames via GetFrameAtPosition()
+            if (!config.HeadlessMode)
+            {
+                await CreateRenderWindowAsync(config);
+            }
+            else
+            {
+                _logger.LogInformation("GIF renderer initialized in HEADLESS mode (no window created)");
+            }
 
             State = WallpaperState.Stopped;
-            _logger.LogInformation("GIF wallpaper renderer initialized successfully");
+            _logger.LogInformation("GIF wallpaper renderer initialized successfully (Headless={Headless})", config.HeadlessMode);
         }
         catch (Exception ex)
         {

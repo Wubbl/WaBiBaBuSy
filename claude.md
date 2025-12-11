@@ -2,7 +2,7 @@
 
 **Project Name:** WallpaperBiBaBuSync (BiBaBu = our club name)
 **Version:** 2.0 | **Framework:** .NET 8.0 | **Status:** ✅ MVP ~99% Complete
-**Last Updated:** 2025-11-07 | **Next:** Runtime testing of animations, then E2E Multi-Client Testing
+**Last Updated:** 2025-12-11 | **Next:** Runtime testing of Direct2D animations, then E2E Multi-Client Testing
 
 WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5% server CPU, ±50ms drift tolerance, and distributed client-side rendering. Supports images (JPG/PNG/BMP), videos (MP4/AVI/MKV), and GIFs across multi-monitor setups.
 
@@ -312,10 +312,11 @@ WaBiBaBuSy/
 
 **Core Documentation:**
 - **`CLAUDE.md`** (root) - Project overview, architecture, guidelines (read automatically on startup)
+- **`.docs/DIRECT2D_RENDERING_ARCHITECTURE.md`** - **CRITICAL:** Composition pipeline architecture, HeadlessMode, Windows 11 24H2+ compatibility
 - **`.docs/DISTRIBUTED_ANIMATION_SYSTEM.md`** - Complete implementation guide for distributed animation (Phases 1-4)
 - **`.docs/wabibabusy-design-doc.md`** - Comprehensive architecture and design decisions
 - **`.docs/CrossScreenSpanningDesign.md`** - 30 FPS gRPC frame distribution system
-- **`.docs/DIRECT2D_IMPLEMENTATION_COMPLETE.md`** - Direct2D rendering implementation details
+- **`.docs/DIRECT2D_IMPLEMENTATION_COMPLETE.md`** - Original Direct2D implementation notes
 - **`.docs/LOCAL_ANIMATION_GRPC_STRATEGY.md`** - Local animation distribution strategy
 
 **Project Tracking:**
@@ -333,10 +334,11 @@ WaBiBaBuSy/
 ## References
 
 ### Architecture & Implementation Documentation
+- **Direct2D Rendering Architecture**: `.docs/DIRECT2D_RENDERING_ARCHITECTURE.md` (**READ FIRST** - composition pipeline, HeadlessMode, Windows 11 compatibility)
 - **Distributed Animation System**: `.docs/DISTRIBUTED_ANIMATION_SYSTEM.md` (complete implementation guide for Phases 1-4)
 - **Design Document**: `.docs/wabibabusy-design-doc.md` (comprehensive architecture and design decisions)
 - **Cross-Screen Spanning**: `.docs/CrossScreenSpanningDesign.md` (30 FPS gRPC frame distribution)
-- **Direct2D Implementation**: `.docs/DIRECT2D_IMPLEMENTATION_COMPLETE.md` (GPU-accelerated rendering details)
+- **Direct2D Original Implementation**: `.docs/DIRECT2D_IMPLEMENTATION_COMPLETE.md` (original implementation notes)
 - **Architecture Decisions**: `.docs/ARCHITECTURE_DECISION.md` (major decision documentation)
 - **Documentation Index**: `.docs/DOCUMENTATION_INDEX.md` (complete documentation overview)
 
@@ -399,13 +401,18 @@ dotnet run --project WaBiBaBuSy.UI
 
 ## Recent Updates
 
-**Latest (2025-11-07 - ANIMATION FIX COMPLETE):**
-- ✅ **GIF Animation Support FIXED** - Implemented `GetFrameAtPosition()` with frame timing calculation in `GifWallpaperRenderer`
-- ✅ **Video Playback Architecture FIXED** - Implemented frame caching + LRU eviction in `VideoWallpaperRenderer` (MVP uses placeholders)
-- ✅ **Build Status:** Zero compilation errors, all 8 warnings are pre-existing
-- ✅ **Static Images work via Direct2D** - JPG/PNG/BMP render correctly via `LocalAnimationRenderingService`
-- ✅ **Direct2D System Architecture Complete** - Unified composition + rendering pipeline ready for testing
-- 📄 **Implementation Documented** - See `.docs/ANIMATION_FIX_IMPLEMENTATION_2025-11-07.md` for complete details
+**Latest (2025-12-11 - DIRECT2D ARCHITECTURE FIX):**
+- ✅ **Windows 11 24H2+ Compatibility** - Direct2D renderer now creates dedicated window (like GIF/Video renderers) instead of drawing via GetDC(WorkerW)
+- ✅ **HeadlessMode Added** - `WallpaperConfig.HeadlessMode` allows renderers to provide frames without creating windows (for composition pipeline)
+- ✅ **Timing Synchronization Fixed** - Animation position and frame selection now use same elapsed time source
+- ✅ **Timestamp Overflow Fixed** - Animation position no longer overflows to int.MinValue
+- ✅ **Timer Disposal Deadlock Fixed** - Extract→Release→Wait pattern prevents freezing during disposal
+- 📄 **Architecture Documented** - See `.docs/DIRECT2D_RENDERING_ARCHITECTURE.md` for complete details
+
+**Previous (2025-11-07):**
+- ✅ **GIF Animation Support** - Implemented `GetFrameAtPosition()` with frame timing calculation in `GifWallpaperRenderer`
+- ✅ **Video Playback Architecture** - Implemented frame caching + LRU eviction in `VideoWallpaperRenderer` (MVP uses placeholders)
+- ✅ **Build Status:** Zero compilation errors
 
 **Previous (2025-11-03 to 2025-11-05):**
 - ✅ **Distributed Animation System Phases 1-4** - Complete implementation (animation distribution, timing sync, sequential/simultaneous modes, UI integration)
@@ -414,14 +421,14 @@ dotnet run --project WaBiBaBuSy.UI
 - ✅ **Performance optimization** - LibVLC pre-initialization (9s→instant), video thumbnail caching
 - ✅ **Network topology visualization** - Rectangle drag + Ctrl+Click multi-select for client management
 
-**Current Work (Priority Order - UPDATED):**
-1. **🟢 TESTING: Direct2D Animation Support** - Runtime validation with real GIF and video files (1-2 hours)
-   - Test GIF: Load .gif → Click "Apply Via Direct2D" → Verify animation timing
+**Current Work (Priority Order):**
+1. **🟢 TESTING: Direct2D Animation Support** - Runtime validation with real GIF and video files
+   - Test GIF: Load .gif → Click "Apply Via Direct2D" → Verify animation renders on desktop
    - Test Video: Load .mp4 → Click "Apply Via Direct2D" → Verify frame caching (frames will be placeholders in MVP)
    - Monitor: CPU usage, memory, frame rate
-2. **E2E Multi-Client Testing** - Test Sequential/Simultaneous modes with 1-3 real clients (1-2 days)
-3. **Issue #1 Resolution** - Multi-monitor selection for cross-screen animations (2-3 hours, parallel work possible)
-4. **Installer Testing** - Validate existing Windows installer on clean systems (2-4 hours, parallel work possible)
+2. **E2E Multi-Client Testing** - Test Sequential/Simultaneous modes with 1-3 real clients
+3. **Issue #1 Resolution** - Multi-monitor selection for cross-screen animations
+4. **Installer Testing** - Validate existing Windows installer on clean systems
 5. **Phase 2 Enhancement** - Replace video placeholder frames with actual LibVLC frame capture
 
 **See:** `.docs/RECENT_UPDATES.md` for detailed historical changelog

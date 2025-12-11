@@ -78,6 +78,8 @@ public class AnimationLayerRenderer : IDisposable
 
         // Initialize the renderer with the animation config
         // Create a WallpaperConfig from the AnimationLayerConfig
+        // CRITICAL: Use HeadlessMode=true for composition pipeline
+        // This prevents the renderer from creating its own window
         var wallpaperConfig = new WallpaperConfig
         {
             FilePath = config.AnimationPath,
@@ -85,7 +87,8 @@ public class AnimationLayerRenderer : IDisposable
             Loop = true,
             HardwareAcceleration = true,
             MaxFPS = 60,
-            MonitorIndex = monitorIndex
+            MonitorIndex = monitorIndex,
+            HeadlessMode = true  // Required for composition - no window creation
         };
 
         await _sourceRenderer.InitializeAsync(wallpaperConfig);

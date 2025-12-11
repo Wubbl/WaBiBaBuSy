@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Windows.Forms;
 using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Models.Wallpaper;
 using WaBiBaBuSy.WallpaperEngine.Composition;
@@ -7,8 +8,9 @@ using WaBiBaBuSy.WallpaperEngine.Native;
 namespace WaBiBaBuSy.WallpaperEngine.Direct2D;
 
 /// <summary>
-/// Direct2D-based renderer that displays pre-composed bitmap frames via GPU acceleration.
-/// Receives frames directly from ComposerService and renders them to screen via WorkerW.
+/// Direct2D-based renderer that displays pre-composed bitmap frames.
+/// Creates a dedicated rendering window parented to Progman (like standalone renderers).
+/// This approach is required for Windows 11 24H2+ layered desktop mode.
 /// </summary>
 public class Direct2DRenderer : IDisposable
 {
@@ -16,8 +18,12 @@ public class Direct2DRenderer : IDisposable
     private readonly DesktopWindowManager _desktopWindowManager;
     private bool _disposed;
 
-    // Frame buffer cache (one per client/screen)
-    private readonly Dictionary<string, IntPtr> _screenBuffers = new();
+    // Rendering window and controls
+    private Form? _renderForm;
+    private PictureBox? _pictureBox;
+    private bool _windowInitialized;
+
+    // Frame buffer cache
     private readonly Dictionary<string, Bitmap> _previousFrames = new();
 
     public Direct2DRenderer(
@@ -29,7 +35,70 @@ public class Direct2DRenderer : IDisposable
     }
 
     /// <summary>
-    /// Display a pre-composed frame on screen via GDI+.
+    /// Initialize the rendering window for a specific screen.
+    /// Must be called before DisplayFrame.
+    /// </summary>
+    public void Initialize(ScreenMapping screen)
+    {
+        if (_windowInitialized)
+        {
+            _logger.LogWarning("Direct2D renderer already initialized");
+            return;
+        }
+
+        _logger.LogInformation("[Direct2D] Initializing render window for screen {Order}", screen.Order);
+
+        // Create render form (similar to GIF/Video renderers)
+        _renderForm = new Form
+        {
+            FormBorderStyle = FormBorderStyle.None,
+            StartPosition = FormStartPosition.Manual,
+            ShowInTaskbar = false,
+            TopMost = false,
+            BackColor = Color.Black
+        };
+
+        // Set window bounds for the specific monitor
+        _renderForm.Bounds = screen.ScreenBounds;
+
+        _logger.LogInformation("[Direct2D] Render window set to: {Bounds}", screen.ScreenBounds);
+
+        // Create PictureBox for frame display
+        _pictureBox = new PictureBox
+        {
+            Dock = DockStyle.Fill,
+            SizeMode = PictureBoxSizeMode.StretchImage,
+            BackColor = Color.Black
+        };
+
+        _renderForm.Controls.Add(_pictureBox);
+
+        // Show the form to initialize its handle
+        _renderForm.Show();
+
+        _logger.LogDebug("[Direct2D] Form shown, handle: {Handle}", _renderForm.Handle);
+
+        // Find WorkerW and set as wallpaper window
+        var workerW = _desktopWindowManager.FindDesktopWorkerWindow();
+        if (workerW != IntPtr.Zero)
+        {
+            _logger.LogInformation("[Direct2D] Found WorkerW: {WorkerW}, parenting render window", workerW);
+
+            // Use the same SetAsWallpaperWindow that works for GIF/Video renderers
+            _desktopWindowManager.SetAsWallpaperWindow(_renderForm.Handle, screen.ScreenBounds);
+            _logger.LogInformation("[Direct2D] Render window parented to desktop successfully");
+        }
+        else
+        {
+            _logger.LogWarning("[Direct2D] Could not find WorkerW window, wallpaper may not render behind icons");
+        }
+
+        _windowInitialized = true;
+        _logger.LogInformation("[Direct2D] Render window initialized successfully");
+    }
+
+    /// <summary>
+    /// Display a pre-composed frame on screen.
     /// Called by the composer after frame composition is complete.
     /// </summary>
     public void DisplayFrame(string clientId, Bitmap frame, ScreenMapping screen)
@@ -40,33 +109,52 @@ public class Direct2DRenderer : IDisposable
         if (frame == null)
             throw new ArgumentNullException(nameof(frame));
 
+        // Initialize window on first frame if not already done
+        if (!_windowInitialized)
+        {
+            Initialize(screen);
+        }
+
         try
         {
-            _logger.LogDebug("Displaying frame for screen {Order} (client {ClientId})", screen.Order, clientId);
+            _logger.LogTrace("[Direct2D] Displaying frame for screen {Order} (client {ClientId})", screen.Order, clientId);
 
-            // Get the WorkerW window
-            var workerW = _desktopWindowManager.WorkerWHandle;
-            if (workerW == IntPtr.Zero)
+            // Update the PictureBox image
+            if (_pictureBox != null && _renderForm != null && !_renderForm.IsDisposed)
             {
-                _logger.LogWarning("WorkerW window not found");
-                return;
+                // Store previous frame for disposal
+                var previousFrame = _previousFrames.TryGetValue(clientId, out var cached) ? cached : null;
+
+                // Update on UI thread
+                if (_renderForm.InvokeRequired)
+                {
+                    _renderForm.Invoke(() =>
+                    {
+                        _pictureBox.Image = frame;
+                    });
+                }
+                else
+                {
+                    _pictureBox.Image = frame;
+                }
+
+                // Cache current frame
+                _previousFrames[clientId] = frame;
+
+                // Dispose previous frame to avoid memory leak
+                previousFrame?.Dispose();
+
+                _logger.LogInformation("[Direct2D] Frame displayed on screen {Order} ({Width}x{Height})",
+                    screen.Order, frame.Width, frame.Height);
             }
-
-            // Render the frame to the screen
-            RenderFrameToScreen(workerW, frame, screen);
-
-            // Cache the frame for potential reuse
-            var previousFrame = _previousFrames.TryGetValue(clientId, out var cached) ? cached : null;
-            _previousFrames[clientId] = frame;
-
-            // Dispose previous frame to avoid memory leak
-            previousFrame?.Dispose();
-
-            _logger.LogTrace("Frame displayed successfully for screen {Order}", screen.Order);
+            else
+            {
+                _logger.LogWarning("[Direct2D] Cannot display frame - render form/pictureBox not available");
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error displaying frame for screen {Order}", screen.Order);
+            _logger.LogError(ex, "[Direct2D] Error displaying frame for screen {Order}", screen.Order);
             throw;
         }
     }
@@ -81,7 +169,7 @@ public class Direct2DRenderer : IDisposable
 
         if (frames == null || frames.Count == 0)
         {
-            _logger.LogWarning("No frames to display");
+            _logger.LogWarning("[Direct2D] No frames to display");
             return;
         }
 
@@ -93,59 +181,9 @@ public class Direct2DRenderer : IDisposable
             }
             else
             {
-                _logger.LogWarning("Screen mapping not found for client {ClientId}", clientId);
+                _logger.LogWarning("[Direct2D] Screen mapping not found for client {ClientId}", clientId);
                 frame.Dispose();
             }
-        }
-    }
-
-    /// <summary>
-    /// Render frame to screen using GDI+ (will be upgraded to true Direct2D in Phase 2).
-    /// For now, we use GDI+ which is sufficient for single-screen testing.
-    /// </summary>
-    private void RenderFrameToScreen(IntPtr workerW, Bitmap frame, ScreenMapping screen)
-    {
-        try
-        {
-            _logger.LogTrace("[GDI+] Getting device context for WorkerW={WorkerW}", workerW);
-            var deviceContext = Direct2DInterop.GetDC(workerW);
-            if (deviceContext == IntPtr.Zero)
-            {
-                _logger.LogError("[GDI+] Failed to get device context for WorkerW window (handle={WorkerW})", workerW);
-                return;
-            }
-
-            _logger.LogTrace("[GDI+] Got device context={DeviceContext}, drawing frame {Width}x{Height} to screen bounds {Bounds}",
-                deviceContext, frame.Width, frame.Height, screen.ScreenBounds);
-
-            try
-            {
-                using (var graphics = Graphics.FromHdc(deviceContext))
-                {
-                    _logger.LogTrace("[GDI+] Created graphics object, clearing to black");
-                    graphics.Clear(Color.Black);
-
-                    // Draw the frame to fill the screen
-                    _logger.LogTrace("[GDI+] Drawing frame to screen position (0,0) with size {Width}x{Height}",
-                        screen.ScreenBounds.Width, screen.ScreenBounds.Height);
-                    graphics.DrawImage(frame, 0, 0, screen.ScreenBounds.Width, screen.ScreenBounds.Height);
-
-                    _logger.LogTrace("[GDI+] Frame drawn successfully");
-                }
-            }
-            finally
-            {
-                Direct2DInterop.ReleaseDC(workerW, deviceContext);
-                _logger.LogTrace("[GDI+] Released device context");
-            }
-
-            _logger.LogInformation("[GDI+] Frame rendered to screen {Order} via GDI+ ({Width}x{Height})",
-                screen.Order, frame.Width, frame.Height);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "[GDI+] Error rendering frame to screen via GDI+");
-            throw;
         }
     }
 
@@ -160,27 +198,37 @@ public class Direct2DRenderer : IDisposable
         }
         _previousFrames.Clear();
 
-        foreach (var buffer in _screenBuffers.Values)
-        {
-            if (buffer != IntPtr.Zero)
-            {
-                // Buffer cleanup would go here for true Direct2D implementation
-            }
-        }
-        _screenBuffers.Clear();
-
-        _logger.LogDebug("Frame buffer cache cleared");
+        _logger.LogDebug("[Direct2D] Frame buffer cache cleared");
     }
 
     public void Dispose()
     {
         if (_disposed) return;
 
-        _logger.LogInformation("Disposing Direct2D renderer");
+        _logger.LogInformation("[Direct2D] Disposing renderer");
 
         ClearCache();
 
+        // Dispose picture box
+        if (_pictureBox != null)
+        {
+            _pictureBox.Image = null;
+            _pictureBox.Dispose();
+            _pictureBox = null;
+        }
+
+        // Close and dispose render form
+        if (_renderForm != null)
+        {
+            _renderForm.Close();
+            _renderForm.Dispose();
+            _renderForm = null;
+        }
+
+        _windowInitialized = false;
         _disposed = true;
         GC.SuppressFinalize(this);
+
+        _logger.LogInformation("[Direct2D] Renderer disposed");
     }
 }

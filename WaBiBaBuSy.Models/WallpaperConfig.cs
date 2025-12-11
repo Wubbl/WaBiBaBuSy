@@ -39,4 +39,10 @@ public class WallpaperConfig
     /// Monitor index to render on (-1 = all monitors).
     /// </summary>
     public int MonitorIndex { get; set; } = -1;
+
+    /// <summary>
+    /// Headless mode - when true, renderer only provides frames via GetFrameAtPosition()
+    /// without creating a window. Used for composition/Direct2D rendering pipeline.
+    /// </summary>
+    public bool HeadlessMode { get; set; } = false;
 }
