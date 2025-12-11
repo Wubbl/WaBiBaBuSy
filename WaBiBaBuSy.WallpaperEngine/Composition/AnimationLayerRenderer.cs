@@ -2,6 +2,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Core.Interfaces;
+using WaBiBaBuSy.Models;
 using WaBiBaBuSy.Models.Wallpaper;
 using WaBiBaBuSy.WallpaperEngine.Renderers;
 
@@ -22,6 +23,7 @@ public class AnimationLayerRenderer : IDisposable
     private int _animationHeight;
     private int _currentVirtualX; // Current X position in virtual canvas
     private int _currentVirtualY; // Current Y position in virtual canvas
+    private long _currentElapsedMs; // Current elapsed time in milliseconds (for frame selection)
 
     private long _animationStartTime;
     private int _virtualCanvasHeight;
@@ -40,7 +42,8 @@ public class AnimationLayerRenderer : IDisposable
     /// </summary>
     /// <param name="config">Animation layer configuration</param>
     /// <param name="virtualCanvasHeight">Height of the virtual canvas for alignment calculations</param>
-    public async Task InitializeAsync(AnimationLayerConfig config, int virtualCanvasHeight)
+    /// <param name="monitorIndex">Monitor index for renderer initialization (default: 0)</param>
+    public async Task InitializeAsync(AnimationLayerConfig config, int virtualCanvasHeight, int monitorIndex = 0)
     {
         _logger.LogInformation("Initializing animation layer renderer: Path={Path}, TargetHeight={Height}",
             config.AnimationPath, config.TargetHeight);
@@ -73,6 +76,21 @@ public class AnimationLayerRenderer : IDisposable
 
         _sourceRenderer = renderer;
 
+        // Initialize the renderer with the animation config
+        // Create a WallpaperConfig from the AnimationLayerConfig
+        var wallpaperConfig = new WallpaperConfig
+        {
+            FilePath = config.AnimationPath,
+            Type = extension == ".gif" ? WallpaperType.Gif : WallpaperType.Video,
+            Loop = true,
+            HardwareAcceleration = true,
+            MaxFPS = 60,
+            MonitorIndex = monitorIndex
+        };
+
+        await _sourceRenderer.InitializeAsync(wallpaperConfig);
+        _logger.LogInformation("Source renderer initialized for animation: {Path}", config.AnimationPath);
+
         // Calculate animation dimensions
         await CalculateAnimationDimensionsAsync(config);
 
@@ -80,7 +98,9 @@ public class AnimationLayerRenderer : IDisposable
         _currentVirtualX = -_animationWidth;
         CalculateVerticalPosition();
 
-        _animationStartTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        // DO NOT set _animationStartTime here - let it be set by the render loop start
+        // The render loop passes elapsed time, so _animationStartTime tracks frame position timing
+        _animationStartTime = 0;
 
         _logger.LogInformation("[AnimLayer] Animation layer initialized: Size={Width}x{Height}, StartPosition=({X},{Y}), RendererType={RendererType}, AnimationPath={Path}",
             _animationWidth, _animationHeight, _currentVirtualX, _currentVirtualY, _sourceRenderer.GetType().Name, _config.AnimationPath);
@@ -98,6 +118,9 @@ public class AnimationLayerRenderer : IDisposable
         // So we use it directly
         var elapsedMs = timestampMs;
         var elapsedSeconds = elapsedMs / 1000.0;
+
+        // Store elapsed time for use by GetAnimationFrame()
+        _currentElapsedMs = elapsedMs;
 
         // Calculate new X position
         var prevX = _currentVirtualX;
@@ -279,9 +302,9 @@ public class AnimationLayerRenderer : IDisposable
 
         try
         {
-            // Calculate elapsed time since animation started
-            var currentTimeMs = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
-            var elapsedMs = _animationStartTime > 0 ? currentTimeMs - _animationStartTime : 0;
+            // Use the stored elapsed time from UpdatePosition()
+            // This ensures frame selection is synchronized with position updates
+            var elapsedMs = _currentElapsedMs;
 
             _logger.LogTrace("[AnimFrame] Requesting frame from {RendererType} at elapsed {ElapsedMs}ms",
                 _sourceRenderer.GetType().Name, elapsedMs);

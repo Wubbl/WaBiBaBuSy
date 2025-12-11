@@ -124,7 +124,7 @@ public class LocalAnimationRenderingService : IDisposable
             if (_composer == null)
                 throw new InvalidOperationException("Composer not initialized");
 
-            await _composer.InitializeAsync(_canvasManager, backgroundConfig, animationConfig);
+            await _composer.InitializeAsync(_canvasManager, backgroundConfig, animationConfig, monitorIndex);
 
             _startTimestampMs = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
             _logger.LogInformation("Local animation rendering service initialized successfully");

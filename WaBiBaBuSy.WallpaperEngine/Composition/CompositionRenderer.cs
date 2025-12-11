@@ -34,7 +34,8 @@ public class CompositionRenderer : IDisposable
     public async Task InitializeAsync(
         VirtualCanvasManager canvasManager,
         BackgroundLayerConfig backgroundConfig,
-        AnimationLayerConfig animationConfig)
+        AnimationLayerConfig animationConfig,
+        int monitorIndex = 0)
     {
         _logger.LogInformation("Initializing composition renderer");
 
@@ -49,7 +50,7 @@ public class CompositionRenderer : IDisposable
         _animationRenderer = new AnimationLayerRenderer(
             _loggerFactory.CreateLogger<AnimationLayerRenderer>(),
             _loggerFactory);
-        await _animationRenderer.InitializeAsync(animationConfig, canvasManager.VirtualBounds.Height);
+        await _animationRenderer.InitializeAsync(animationConfig, canvasManager.VirtualBounds.Height, monitorIndex);
 
         _logger.LogInformation("Composition renderer initialized successfully");
     }

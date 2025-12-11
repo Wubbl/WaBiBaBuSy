@@ -35,7 +35,8 @@ public class ComposerService : IDisposable
     public async Task InitializeAsync(
         VirtualCanvasManager canvasManager,
         BackgroundLayerConfig backgroundConfig,
-        AnimationLayerConfig animationConfig)
+        AnimationLayerConfig animationConfig,
+        int monitorIndex = 0)
     {
         if (_disposed)
             throw new ObjectDisposedException(nameof(ComposerService));
@@ -47,7 +48,7 @@ public class ComposerService : IDisposable
         _animationConfig = animationConfig ?? throw new ArgumentNullException(nameof(animationConfig));
 
         // Initialize the underlying composition renderer
-        await _compositionRenderer.InitializeAsync(canvasManager, backgroundConfig, animationConfig);
+        await _compositionRenderer.InitializeAsync(canvasManager, backgroundConfig, animationConfig, monitorIndex);
 
         _logger.LogInformation("Composer service initialized successfully");
     }
