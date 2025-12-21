@@ -87,6 +87,13 @@ public class Direct2DRenderer : IDisposable
             // Use the same SetAsWallpaperWindow that works for GIF/Video renderers
             _desktopWindowManager.SetAsWallpaperWindow(_renderForm.Handle, screen.ScreenBounds);
             _logger.LogInformation("[Direct2D] Render window parented to desktop successfully");
+
+            // CRITICAL: Force the form to be visible after parenting
+            // The SetAsWallpaperWindow may hide/show the form during style changes
+            _renderForm.Visible = true;
+            _renderForm.Invalidate();
+            _renderForm.Update();
+            _logger.LogInformation("[Direct2D] Forced form visibility and repaint after parenting");
         }
         else
         {
@@ -131,11 +138,20 @@ public class Direct2DRenderer : IDisposable
                     _renderForm.Invoke(() =>
                     {
                         _pictureBox.Image = frame;
+                        // CRITICAL: Force immediate repaint - without this, WM_PAINT messages
+                        // may queue up without being processed since we don't have a full message pump
+                        _pictureBox.Refresh();
+                        // Pump messages to ensure paint happens
+                        Application.DoEvents();
                     });
                 }
                 else
                 {
                     _pictureBox.Image = frame;
+                    // CRITICAL: Force immediate repaint
+                    _pictureBox.Refresh();
+                    // Pump messages to ensure paint happens
+                    Application.DoEvents();
                 }
 
                 // Cache current frame

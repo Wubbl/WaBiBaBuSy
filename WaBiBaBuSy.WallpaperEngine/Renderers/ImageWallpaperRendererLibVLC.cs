@@ -22,6 +22,7 @@ public class ImageWallpaperRendererLibVLC : IWallpaperRenderer
     private WallpaperConfig? _config;
     private WallpaperState _state = WallpaperState.Uninitialized;
     private bool _disposed;
+    private System.Drawing.Bitmap? _cachedFrame; // Cache the image for GetFrameAtPosition
 
     public event EventHandler<FrameRenderedEventArgs>? FrameRendered;
     public event EventHandler<WallpaperState>? StateChanged;
@@ -65,6 +66,25 @@ public class ImageWallpaperRendererLibVLC : IWallpaperRenderer
                 throw new FileNotFoundException($"Image file not found: {config.FilePath}");
             }
 
+            // CRITICAL: Check HeadlessMode - if true, we're being used by the composition pipeline
+            // In HeadlessMode, we don't create windows or LibVLC players - just cache the image
+            if (config.HeadlessMode)
+            {
+                _logger.LogInformation("HeadlessMode enabled - caching image for composition pipeline");
+
+                // Load and cache the image once
+                using var sourceImage = System.Drawing.Image.FromFile(config.FilePath);
+                _cachedFrame = new System.Drawing.Bitmap(sourceImage);
+
+                State = WallpaperState.Stopped;
+                _logger.LogInformation("Image cached successfully for headless rendering: {Width}x{Height}",
+                    _cachedFrame.Width, _cachedFrame.Height);
+                return;
+            }
+
+            // Normal mode (not headless) - use LibVLC for direct rendering
+            _logger.LogInformation("Normal mode - initializing LibVLC for direct rendering");
+
             // Initialize LibVLC
             LibVLCSharp.Shared.Core.Initialize();
             _libVLC = new LibVLC(enableDebugLogs: false,
@@ -97,6 +117,14 @@ public class ImageWallpaperRendererLibVLC : IWallpaperRenderer
     {
         try
         {
+            // In HeadlessMode, we don't have a media player - just mark as playing
+            if (_config?.HeadlessMode == true)
+            {
+                _logger.LogInformation("Starting image display (HeadlessMode - no-op)");
+                State = WallpaperState.Playing;
+                return;
+            }
+
             if (_mediaPlayer == null || _config == null)
                 throw new InvalidOperationException("Renderer not initialized");
 
@@ -181,20 +209,31 @@ public class ImageWallpaperRendererLibVLC : IWallpaperRenderer
     /// <summary>
     /// Gets the frame at a specific timestamp (used by composition system).
     /// For static images, always returns the same frame regardless of timestamp.
+    /// CRITICAL: Returns a CLONE of the cached frame to prevent disposal issues.
     /// </summary>
     public System.Drawing.Bitmap GetFrameAtPosition(long timestampMs)
     {
         try
         {
+            // If we have a cached frame (HeadlessMode), return a clone
+            if (_cachedFrame != null)
+            {
+                // Return a clone to prevent the caller from disposing our cached frame
+                return new System.Drawing.Bitmap(_cachedFrame);
+            }
+
+            // Fallback: Load from file (shouldn't happen in HeadlessMode)
             if (_config == null || string.IsNullOrEmpty(_config.FilePath))
+            {
+                _logger.LogWarning("GetFrameAtPosition called with no config - returning 1x1 bitmap");
                 return new System.Drawing.Bitmap(1, 1);
+            }
+
+            _logger.LogWarning("GetFrameAtPosition called without cached frame - loading from disk (slow!)");
 
             // Load and return the image as a bitmap
-            var image = System.Drawing.Image.FromFile(_config.FilePath);
-            var bitmap = new System.Drawing.Bitmap(image);
-            image.Dispose();
-
-            return bitmap;
+            using var image = System.Drawing.Image.FromFile(_config.FilePath);
+            return new System.Drawing.Bitmap(image);
         }
         catch (Exception ex)
         {
@@ -284,6 +323,10 @@ public class ImageWallpaperRendererLibVLC : IWallpaperRenderer
 
         _libVLC?.Dispose();
         _libVLC = null;
+
+        // Dispose cached frame
+        _cachedFrame?.Dispose();
+        _cachedFrame = null;
 
         _disposed = true;
         GC.SuppressFinalize(this);

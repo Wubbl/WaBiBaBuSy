@@ -71,6 +71,11 @@ public class AnimationLayerRenderer : IDisposable
                     _loggerFactory.CreateLogger<VideoWallpaperRenderer>(),
                     new Native.DesktopWindowManager(_loggerFactory.CreateLogger<Native.DesktopWindowManager>())),
 
+            ".jpg" or ".jpeg" or ".png" or ".bmp" =>
+                new ImageWallpaperRendererLibVLC(
+                    _loggerFactory.CreateLogger<ImageWallpaperRendererLibVLC>(),
+                    new Native.DesktopWindowManager(_loggerFactory.CreateLogger<Native.DesktopWindowManager>())),
+
             _ => throw new NotSupportedException($"Animation file format not supported: {extension}")
         };
 
@@ -83,7 +88,12 @@ public class AnimationLayerRenderer : IDisposable
         var wallpaperConfig = new WallpaperConfig
         {
             FilePath = config.AnimationPath,
-            Type = extension == ".gif" ? WallpaperType.Gif : WallpaperType.Video,
+            Type = extension switch
+            {
+                ".gif" => WallpaperType.Gif,
+                ".jpg" or ".jpeg" or ".png" or ".bmp" => WallpaperType.Image,
+                _ => WallpaperType.Video
+            },
             Loop = true,
             HardwareAcceleration = true,
             MaxFPS = 60,

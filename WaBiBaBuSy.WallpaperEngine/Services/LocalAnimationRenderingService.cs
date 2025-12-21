@@ -289,23 +289,46 @@ public class LocalAnimationRenderingService : IDisposable
         _logger.LogInformation("[Dispose] Starting disposal of local animation rendering service");
         var startTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
 
+        // Set disposed flag FIRST to prevent timer callbacks from executing during disposal
+        _disposed = true;
+
         _logger.LogInformation("[Dispose] Stopping render timer");
-        Stop();
-        var afterStopTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
-        _logger.LogInformation("[Dispose] Timer stopped in {ElapsedMs}ms", afterStopTime - startTime);
+        try
+        {
+            Stop();
+            var afterStopTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+            _logger.LogInformation("[Dispose] Timer stopped in {ElapsedMs}ms", afterStopTime - startTime);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Dispose] Error stopping timer");
+        }
 
         _logger.LogInformation("[Dispose] Disposing renderer");
-        _renderer?.Dispose();
-        var afterRendererTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
-        _logger.LogInformation("[Dispose] Renderer disposed in {ElapsedMs}ms", afterRendererTime - afterStopTime);
+        try
+        {
+            _renderer?.Dispose();
+            var afterRendererTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+            _logger.LogInformation("[Dispose] Renderer disposed in {ElapsedMs}ms", afterRendererTime - startTime);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Dispose] Error disposing renderer");
+        }
 
         _logger.LogInformation("[Dispose] Disposing composer");
-        _composer?.Dispose();
-        var afterComposerTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
-        _logger.LogInformation("[Dispose] Composer disposed in {ElapsedMs}ms", afterComposerTime - afterRendererTime);
+        try
+        {
+            _composer?.Dispose();
+            var afterComposerTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+            _logger.LogInformation("[Dispose] Composer disposed in {ElapsedMs}ms", afterComposerTime - startTime);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Dispose] Error disposing composer");
+        }
 
-        _disposed = true;
-        var totalTime = afterComposerTime - startTime;
+        var totalTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond - startTime;
         _logger.LogInformation("[Dispose] TOTAL DISPOSAL TIME: {TotalMs}ms", totalTime);
 
         GC.SuppressFinalize(this);

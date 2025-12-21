@@ -570,8 +570,20 @@ public partial class MainWindowViewModel : ViewModelBase
             if (_localAnimationServices.TryRemove(monitorIndex, out var existingService))
             {
                 Debug.WriteLine($"[Direct2D] Disposing existing animation service for monitor {monitorIndex}");
-                existingService.Stop();
-                existingService.Dispose();
+                try
+                {
+                    // Only call Dispose() - it internally calls Stop() with proper synchronization
+                    existingService.Dispose();
+                    Debug.WriteLine($"[Direct2D] Successfully disposed existing service for monitor {monitorIndex}");
+
+                    // Give the system a moment to clean up before creating new service
+                    await Task.Delay(100);
+                }
+                catch (Exception disposeEx)
+                {
+                    Debug.WriteLine($"[Direct2D] Error disposing existing service: {disposeEx.Message}");
+                    // Continue anyway - we'll try to create the new service
+                }
             }
 
             // Validate monitor index
@@ -582,18 +594,18 @@ public partial class MainWindowViewModel : ViewModelBase
                 return;
             }
 
-            // Determine if this is an animation file
+            // Determine if this is a supported file for Direct2D composition
             var extension = Path.GetExtension(wallpaper.FilePath).ToLowerInvariant();
-            bool isAnimationFile = extension switch
+            bool isSupportedFile = extension switch
             {
-                ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv" or ".gif" => true,
+                ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv" or ".gif"
+                or ".jpg" or ".jpeg" or ".png" or ".bmp" => true,
                 _ => false
             };
 
-            if (!isAnimationFile)
+            if (!isSupportedFile)
             {
-                Debug.WriteLine($"[Direct2D] File '{wallpaper.FilePath}' is not an animation. Using standard renderer instead.");
-                await ApplyWallpaperLocallyInternal(wallpaper, monitorIndex);
+                Debug.WriteLine($"[Direct2D] File '{wallpaper.FilePath}' is not supported for Direct2D. Extension: {extension}");
                 return;
             }
 
