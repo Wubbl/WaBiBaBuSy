@@ -1,0 +1,410 @@
+using System;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Windows.Forms;
+using Microsoft.Extensions.Logging;
+using Vortice.Direct2D1;
+using Vortice.Direct3D;
+using Vortice.Direct3D11;
+using Vortice.DXGI;
+using Vortice.DCommon;
+using WaBiBaBuSy.WallpaperEngine.Composition;
+using WaBiBaBuSy.WallpaperEngine.Native;
+using DXGIAlphaMode = Vortice.DXGI.AlphaMode;
+using FeatureLevel = Vortice.Direct3D.FeatureLevel;
+
+namespace WaBiBaBuSy.WallpaperEngine.Direct2D;
+
+/// <summary>
+/// Hardware-accelerated Direct2D renderer using Vortice.Windows with DXGI swap chain.
+/// Renders composed wallpaper frames to the desktop via GPU acceleration.
+/// </summary>
+public class D2DVorticeRenderer : IDisposable
+{
+    private readonly ILogger<D2DVorticeRenderer> _logger;
+    private readonly DesktopWindowManager _desktopWindowManager;
+    private readonly ScreenMapping _screen;
+
+    // Windows Forms
+    private Form? _renderForm;
+
+    // Direct3D11 & DXGI
+    private ID3D11Device? _d3dDevice;
+    private ID3D11DeviceContext? _immediateContext;
+    private IDXGISwapChain1? _swapChain;
+
+    // Direct2D
+    private ID2D1Factory1? _d2dFactory;
+    private ID2D1RenderTarget? _d2dRenderTarget;
+
+    // State
+    private bool _isInitialized;
+    private bool _disposed;
+    private int _width;
+    private int _height;
+
+    public D2DVorticeRenderer(
+        ScreenMapping screen,
+        ILogger<D2DVorticeRenderer> logger,
+        DesktopWindowManager desktopWindowManager)
+    {
+        _screen = screen ?? throw new ArgumentNullException(nameof(screen));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _desktopWindowManager = desktopWindowManager ?? throw new ArgumentNullException(nameof(desktopWindowManager));
+
+        _width = screen.ScreenBounds.Width;
+        _height = screen.ScreenBounds.Height;
+    }
+
+    /// <summary>
+    /// Initializes the Direct3D11 device, DXGI swap chain, and Direct2D render target.
+    /// </summary>
+    public void Initialize()
+    {
+        if (_isInitialized)
+        {
+            _logger.LogWarning("D2DVorticeRenderer already initialized");
+            return;
+        }
+
+        try
+        {
+            _logger.LogInformation("Initializing D2DVorticeRenderer for screen {Order} ({Width}x{Height})",
+                _screen.Order, _width, _height);
+
+            // Step 1: Create borderless form window
+            CreateRenderWindow();
+
+            // Step 2: Create Direct3D11 device with BGRA support
+            CreateD3DDevice();
+
+            // Step 3: Create DXGI swap chain
+            CreateSwapChain();
+
+            // Step 4: Create Direct2D factory and render target
+            CreateD2DRenderTarget();
+
+            // Step 5: Parent window to WorkerW desktop
+            ParentToDesktop();
+
+            _isInitialized = true;
+            _logger.LogInformation("D2DVorticeRenderer initialized successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to initialize D2DVorticeRenderer");
+            Dispose();
+            throw;
+        }
+    }
+
+    private void CreateRenderWindow()
+    {
+        _renderForm = new Form
+        {
+            FormBorderStyle = FormBorderStyle.None,
+            StartPosition = FormStartPosition.Manual,
+            Bounds = _screen.ScreenBounds,
+            BackColor = System.Drawing.Color.Black,
+            TopMost = false,
+            ShowInTaskbar = false,
+            ControlBox = false,
+            MaximizeBox = false,
+            MinimizeBox = false
+        };
+
+        _renderForm.Show();
+        _logger.LogDebug("Render window created: {Handle}, Bounds: {Bounds}",
+            _renderForm.Handle, _screen.ScreenBounds);
+    }
+
+    private void CreateD3DDevice()
+    {
+        var creationFlags = DeviceCreationFlags.BgraSupport;
+
+#if DEBUG
+        creationFlags |= DeviceCreationFlags.Debug;
+#endif
+
+        var featureLevels = new[]
+        {
+            FeatureLevel.Level_11_1,
+            FeatureLevel.Level_11_0,
+            FeatureLevel.Level_10_1,
+            FeatureLevel.Level_10_0
+        };
+
+        var result = D3D11.D3D11CreateDevice(
+            null,  // Use default adapter
+            DriverType.Hardware,
+            creationFlags,
+            featureLevels,
+            out _d3dDevice,
+            out var featureLevel,
+            out _immediateContext);
+
+        if (result.Failure)
+        {
+            throw new Exception($"Failed to create D3D11 device: {result}");
+        }
+
+        _logger.LogDebug("D3D11 device created with feature level: {FeatureLevel}", featureLevel);
+    }
+
+    private void CreateSwapChain()
+    {
+        if (_d3dDevice == null || _renderForm == null)
+        {
+            throw new InvalidOperationException("D3D device or render form not initialized");
+        }
+
+        // Get DXGI device and factory
+        using var dxgiDevice = _d3dDevice.QueryInterface<IDXGIDevice>();
+        using var dxgiAdapter = dxgiDevice.GetAdapter();
+        using var dxgiFactory = dxgiAdapter.GetParent<IDXGIFactory2>();
+
+        // Create swap chain description
+        var swapChainDesc = new SwapChainDescription1
+        {
+            Width = (uint)_width,
+            Height = (uint)_height,
+            Format = Format.B8G8R8A8_UNorm,  // BGRA for Direct2D compatibility
+            BufferCount = 2,  // Double buffering
+            BufferUsage = Usage.RenderTargetOutput,
+            SampleDescription = new SampleDescription(1, 0),  // No MSAA
+            Scaling = Scaling.Stretch,
+            SwapEffect = SwapEffect.FlipDiscard,  // Modern flip model
+            AlphaMode = DXGIAlphaMode.Ignore,
+            Flags = SwapChainFlags.None
+        };
+
+        _swapChain = dxgiFactory.CreateSwapChainForHwnd(
+            _d3dDevice,
+            _renderForm.Handle,
+            swapChainDesc);
+
+        _logger.LogDebug("DXGI swap chain created: {Width}x{Height}, Format: {Format}",
+            _width, _height, swapChainDesc.Format);
+    }
+
+    private void CreateD2DRenderTarget()
+    {
+        if (_swapChain == null)
+        {
+            throw new InvalidOperationException("Swap chain not initialized");
+        }
+
+        // Create Direct2D factory
+        _d2dFactory = D2D1.D2D1CreateFactory<ID2D1Factory1>(FactoryType.MultiThreaded);
+
+        // Get back buffer surface from swap chain
+        using var backBuffer = _swapChain.GetBuffer<IDXGISurface>(0);
+
+        // Create Direct2D render target from DXGI surface
+        var renderTargetProps = new RenderTargetProperties
+        {
+            Type = RenderTargetType.Hardware,
+            PixelFormat = new Vortice.DCommon.PixelFormat(
+                Format.B8G8R8A8_UNorm,
+                Vortice.DCommon.AlphaMode.Ignore),
+            DpiX = 96.0f,
+            DpiY = 96.0f
+        };
+
+        _d2dRenderTarget = _d2dFactory.CreateDxgiSurfaceRenderTarget(backBuffer, renderTargetProps);
+
+        _logger.LogDebug("Direct2D render target created from DXGI surface");
+    }
+
+    private void ParentToDesktop()
+    {
+        if (_renderForm == null)
+        {
+            throw new InvalidOperationException("Render form not initialized");
+        }
+
+        var workerW = _desktopWindowManager.FindDesktopWorkerWindow();
+        if (workerW != IntPtr.Zero)
+        {
+            _desktopWindowManager.SetAsWallpaperWindow(_renderForm.Handle, _screen.ScreenBounds);
+            _logger.LogInformation("Window {Handle} parented to WorkerW {WorkerW}",
+                _renderForm.Handle, workerW);
+        }
+        else
+        {
+            _logger.LogWarning("Failed to find WorkerW window, wallpaper may not appear correctly");
+        }
+    }
+
+    /// <summary>
+    /// Displays a composed frame to the desktop wallpaper.
+    /// </summary>
+    /// <param name="frame">The composed bitmap frame to display</param>
+    public void DisplayFrame(Bitmap frame)
+    {
+        if (!_isInitialized || _disposed)
+        {
+            _logger.LogWarning("Cannot display frame: renderer not initialized or disposed");
+            return;
+        }
+
+        if (_d2dRenderTarget == null || _swapChain == null)
+        {
+            _logger.LogError("D2D render target or swap chain is null");
+            return;
+        }
+
+        try
+        {
+            // Convert System.Drawing.Bitmap to Direct2D bitmap
+            using var d2dBitmap = ConvertToD2DBitmap(frame);
+
+            // Render to DXGI surface
+            _d2dRenderTarget.BeginDraw();
+            _d2dRenderTarget.Clear(new Vortice.Mathematics.Color4(0, 0, 0, 1));  // Black background
+
+            // Draw bitmap scaled to screen
+            var destRect = new System.Drawing.RectangleF(0, 0, _width, _height);
+            _d2dRenderTarget.DrawBitmap(
+                d2dBitmap,
+                destRect,
+                1.0f,  // Opacity
+                BitmapInterpolationMode.Linear,
+                null);
+
+            _d2dRenderTarget.EndDraw(out _, out _);
+
+            // Present to screen (1 = VSync, 0 = immediate)
+            _swapChain.Present(1, PresentFlags.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error displaying frame");
+        }
+    }
+
+    private ID2D1Bitmap ConvertToD2DBitmap(Bitmap source)
+    {
+        if (_d2dRenderTarget == null)
+        {
+            throw new InvalidOperationException("D2D render target not initialized");
+        }
+
+        // Lock bitmap to access pixel data
+        var bitmapData = source.LockBits(
+            new Rectangle(0, 0, source.Width, source.Height),
+            ImageLockMode.ReadOnly,
+            System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+
+        try
+        {
+            var bitmapProps = new BitmapProperties
+            {
+                PixelFormat = new Vortice.DCommon.PixelFormat(
+                    Format.B8G8R8A8_UNorm,
+                    Vortice.DCommon.AlphaMode.Premultiplied)
+            };
+
+            // Create Direct2D bitmap from pixel data
+            var d2dBitmap = _d2dRenderTarget.CreateBitmap(
+                new Vortice.Mathematics.SizeI(source.Width, source.Height),
+                bitmapData.Scan0,
+                (uint)bitmapData.Stride,
+                bitmapProps);
+
+            return d2dBitmap;
+        }
+        finally
+        {
+            source.UnlockBits(bitmapData);
+        }
+    }
+
+    /// <summary>
+    /// Handles window resize events (if needed for dynamic resolution changes).
+    /// </summary>
+    public void OnResize(int newWidth, int newHeight)
+    {
+        if (_disposed || _swapChain == null || _d2dFactory == null)
+        {
+            return;
+        }
+
+        try
+        {
+            _logger.LogInformation("Resizing swap chain to {Width}x{Height}", newWidth, newHeight);
+
+            // Dispose old render target
+            _d2dRenderTarget?.Dispose();
+            _d2dRenderTarget = null;
+
+            // Resize swap chain buffers
+            _swapChain.ResizeBuffers(
+                2,  // Buffer count
+                (uint)newWidth,
+                (uint)newHeight,
+                Format.B8G8R8A8_UNorm,
+                SwapChainFlags.None);
+
+            // Recreate Direct2D render target
+            using var backBuffer = _swapChain.GetBuffer<IDXGISurface>(0);
+            var renderTargetProps = new RenderTargetProperties
+            {
+                Type = RenderTargetType.Hardware,
+                PixelFormat = new Vortice.DCommon.PixelFormat(
+                    Format.B8G8R8A8_UNorm,
+                    Vortice.DCommon.AlphaMode.Ignore),
+                DpiX = 96.0f,
+                DpiY = 96.0f
+            };
+
+            _d2dRenderTarget = _d2dFactory.CreateDxgiSurfaceRenderTarget(backBuffer, renderTargetProps);
+
+            _width = newWidth;
+            _height = newHeight;
+
+            _logger.LogDebug("Swap chain resized successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resizing swap chain");
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _logger.LogInformation("Disposing D2DVorticeRenderer");
+
+        _d2dRenderTarget?.Dispose();
+        _d2dRenderTarget = null;
+
+        _swapChain?.Dispose();
+        _swapChain = null;
+
+        _immediateContext?.Dispose();
+        _immediateContext = null;
+
+        _d3dDevice?.Dispose();
+        _d3dDevice = null;
+
+        _d2dFactory?.Dispose();
+        _d2dFactory = null;
+
+        if (_renderForm != null)
+        {
+            _renderForm.Close();
+            _renderForm.Dispose();
+            _renderForm = null;
+        }
+
+        _disposed = true;
+        _isInitialized = false;
+
+        _logger.LogDebug("D2DVorticeRenderer disposed");
+    }
+}

@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net9.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -44,7 +44,7 @@
   <!-- Copy Player.Image executable and dependencies to output directory -->
   <Target Name="CopyPlayerExecutables" AfterTargets="Build">
     <ItemGroup>
-      <PlayerImageFiles Include="..\WaBiBaBuSy.Player.Image\bin\$(Configuration)\net8.0-windows\**\*.*" />
+      <PlayerImageFiles Include="..\WaBiBaBuSy.Player.Image\bin\$(Configuration)\net9.0-windows\**\*.*" />
     </ItemGroup>
     <Copy SourceFiles="@(PlayerImageFiles)" DestinationFolder="$(OutputPath)\%(RecursiveDir)" SkipUnchangedFiles="true" />
   </Target>

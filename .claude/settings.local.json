@@ -27,7 +27,10 @@
       "Bash(timeout 15 dotnet run:*)",
       "Read(//c/Users/Patrick/AppData/Roaming/WaBiBaBuSy/**)",
       "Bash(find:*)",
-      "Bash(if exist \"CrossScreenFrameDisplayPlan.md\" del /F \"CrossScreenFrameDisplayPlan.md\")"
+      "Bash(if exist \"CrossScreenFrameDisplayPlan.md\" del /F \"CrossScreenFrameDisplayPlan.md\")",
+      "WebFetch(domain:www.nuget.org)",
+      "Bash(if exist \"WaBiBaBuSy.WallpaperEngine\\\\Direct2D\\\\D2DRenderContext.cs\" del /F \"WaBiBaBuSy.WallpaperEngine\\\\Direct2D\\\\D2DRenderContext.cs\")",
+      "Bash(if exist \"WaBiBaBuSy.WallpaperEngine\\\\Direct2D\\\\D2DWallpaperWindow.cs\" del /F \"WaBiBaBuSy.WallpaperEngine\\\\Direct2D\\\\D2DWallpaperWindow.cs\")"
     ],
     "deny": [],
     "ask": []
