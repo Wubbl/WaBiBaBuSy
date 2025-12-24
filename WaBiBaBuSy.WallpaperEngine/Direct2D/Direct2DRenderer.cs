@@ -106,9 +106,10 @@ public class Direct2DRenderer : IDisposable
 
         _logger.LogDebug("[Direct2D] Window class registered: {ClassName} (atom: {Atom})", _windowClassName, _classAtom);
 
-        // Create window with WS_EX_TRANSPARENT to let mouse clicks pass through to desktop icons
+        // Create window - initially without WS_EX_TRANSPARENT
+        // (Will be added later ONLY for legacy mode, not layered mode)
         _hwnd = Win32Interop.CreateWindowEx(
-            Win32Interop.WS_EX_NOACTIVATE | Win32Interop.WS_EX_TRANSPARENT,  // CRITICAL: Allow input to pass through
+            Win32Interop.WS_EX_NOACTIVATE,  // No activation, but NO transparent flag yet
             _windowClassName,
             "WaBiBaBuSy Wallpaper",
             Win32Interop.WS_POPUP | Win32Interop.WS_VISIBLE | Win32Interop.WS_CLIPCHILDREN | Win32Interop.WS_CLIPSIBLINGS,
@@ -133,16 +134,13 @@ public class Direct2DRenderer : IDisposable
 
     /// <summary>
     /// Minimal window procedure - handles paint and essential messages.
+    /// NOTE: In Windows 11 24H2+ layered mode, we rely on Z-ordering,
+    /// not WM_NCHITTEST, to ensure mouse input reaches desktop icons.
     /// </summary>
     private IntPtr WindowProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
         switch (msg)
         {
-            case Win32Interop.WM_NCHITTEST:
-                // CRITICAL: Return HTTRANSPARENT to pass all mouse input through to desktop
-                // This prevents Explorer.exe from freezing when clicking on desktop icons
-                return new IntPtr(Win32Interop.HTTRANSPARENT);
-
             case Win32Interop.WM_PAINT:
                 // Handle paint message - render current frame
                 PaintFrame(hWnd);
@@ -157,7 +155,8 @@ public class Direct2DRenderer : IDisposable
                 return IntPtr.Zero;
 
             default:
-                // Let Windows handle all other messages
+                // Let Windows handle all other messages (including WM_NCHITTEST)
+                // In layered mode, proper Z-ordering ensures input routes correctly
                 return Win32Interop.DefWindowProc(hWnd, msg, wParam, lParam);
         }
     }
@@ -219,7 +218,30 @@ public class Direct2DRenderer : IDisposable
             _logger.LogInformation("[Direct2D] Found WorkerW: {WorkerW}, parenting render window", workerW);
 
             _desktopWindowManager.SetAsWallpaperWindow(_hwnd, screenBounds);
-            _logger.LogInformation("[Direct2D] Render window parented to desktop successfully");
+
+            // Check which mode was used
+            bool isLayeredMode = _desktopWindowManager.IsLayeredDesktopMode;
+            _logger.LogInformation("[Direct2D] Window parented using {Mode} mode",
+                isLayeredMode ? "LAYERED" : "LEGACY");
+
+            if (!isLayeredMode)
+            {
+                // LEGACY MODE: Add WS_EX_TRANSPARENT to pass mouse input through
+                _logger.LogInformation("[Direct2D] LEGACY mode: Adding WS_EX_TRANSPARENT for input pass-through");
+                var currentExStyle = Win32Interop.GetWindowLong(_hwnd, Win32Interop.GWL_EXSTYLE);
+                var newExStyle = currentExStyle | Win32Interop.WS_EX_TRANSPARENT | Win32Interop.WS_EX_NOACTIVATE;
+                Win32Interop.SetWindowLong(_hwnd, Win32Interop.GWL_EXSTYLE, newExStyle);
+                _logger.LogInformation("[Direct2D] Applied WS_EX_TRANSPARENT (0x{Old:X} -> 0x{New:X})",
+                    currentExStyle, newExStyle);
+            }
+            else
+            {
+                // LAYERED MODE (Windows 11 24H2+): DO NOT use WS_EX_TRANSPARENT
+                // Z-ordering below SHELLDLL_DefView handles input routing
+                _logger.LogInformation("[Direct2D] LAYERED mode: Relying on Z-order for input routing (no WS_EX_TRANSPARENT)");
+                var currentExStyle = Win32Interop.GetWindowLong(_hwnd, Win32Interop.GWL_EXSTYLE);
+                _logger.LogInformation("[Direct2D] Current extended style in layered mode: 0x{ExStyle:X}", currentExStyle);
+            }
         }
         else
         {

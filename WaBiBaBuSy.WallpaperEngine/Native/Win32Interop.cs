@@ -248,8 +248,15 @@ internal static class Win32Interop
     public const uint WM_DESTROY = 0x0002;
     public const uint WM_ERASEBKGND = 0x0014;
     public const uint WM_NCHITTEST = 0x0084;
+    public const uint WM_MOUSEACTIVATE = 0x0021;
+    public const uint WM_SETFOCUS = 0x0007;
+    public const uint WM_KILLFOCUS = 0x0008;
 
     // Hit test return values
     public const int HTTRANSPARENT = -1;
     public const int HTCLIENT = 1;
+
+    // Mouse activate return values
+    public const int MA_NOACTIVATE = 3;
+    public const int MA_NOACTIVATEANDEAT = 4;
 }
