@@ -310,7 +310,26 @@ private void CreateNativeWindow()
 
 **Why:** If the delegate is a local variable, the garbage collector may collect it, causing crashes when Windows tries to call the window procedure.
 
-### 2. Window Class Name Uniqueness
+### 2. Critical Window Styles: WS_EX_TRANSPARENT + WS_EX_NOACTIVATE
+
+**CRITICAL:** Always use `WS_EX_TRANSPARENT` and `WS_EX_NOACTIVATE` for wallpaper windows:
+
+```csharp
+_hwnd = CreateWindowEx(
+    WS_EX_NOACTIVATE | WS_EX_TRANSPARENT,  // CRITICAL: Allow input to pass through
+    _windowClassName,
+    "WaBiBaBuSy Wallpaper",
+    WS_POPUP | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+    ...);
+```
+
+**Why:**
+- **`WS_EX_TRANSPARENT`** - Makes mouse clicks pass through to windows below (desktop icons, Explorer)
+- **`WS_EX_NOACTIVATE`** - Prevents the window from being activated (stealing focus)
+
+**Without these styles:** Explorer.exe will freeze and crash when users try to interact with desktop icons!
+
+### 3. Window Class Name Uniqueness
 
 Generate unique class names to avoid conflicts:
 
@@ -320,7 +339,7 @@ _windowClassName = $"WaBiBaBuSyD2DRenderer_{Guid.NewGuid():N}";
 
 **Why:** Multiple renderer instances may coexist (multi-monitor). Unique class names prevent registration conflicts.
 
-### 3. Proper Disposal Order
+### 4. Proper Disposal Order
 
 Always dispose in reverse order of creation:
 
@@ -341,7 +360,7 @@ public void Dispose()
 }
 ```
 
-### 4. Error Handling
+### 5. Error Handling
 
 Always check return values and use `Marshal.GetLastWin32Error()`:
 

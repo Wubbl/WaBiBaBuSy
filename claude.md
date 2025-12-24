@@ -403,13 +403,14 @@ dotnet run --project WaBiBaBuSy.UI
 
 ## Recent Updates
 
-**Latest (2025-12-24 - NATIVE WIN32 ARCHITECTURE):**
+**Latest (2025-12-24 - NATIVE WIN32 ARCHITECTURE + INPUT FIX):**
 - ✅ **Native Win32 Window Creation** - Eliminated Windows Forms dependency that caused application freezing
 - ✅ **No Message Loop Conflicts** - Direct Win32 API integration works seamlessly with Avalonia UI framework
 - ✅ **D2DVorticeRenderer Rewrite** - Uses `CreateWindowEx`, `RegisterClassEx`, native window procedure (no `Application.Run()` required)
-- ✅ **Improved Stability** - Application no longer freezes during renderer initialization
-- ✅ **Enhanced Win32Interop** - Added window creation APIs: `WNDCLASSEX`, `WndProc`, `CreateWindowEx`, `DestroyWindow`, `DefWindowProc`
-- 📄 **Architecture Documented** - Native window lifecycle, minimal window procedure, proper disposal pattern
+- ✅ **CRITICAL FIX: WS_EX_TRANSPARENT** - Added transparent window style to allow mouse input to pass through to desktop icons (prevents Explorer.exe crashes)
+- ✅ **Improved Stability** - Application no longer freezes during renderer initialization, desktop remains fully interactive
+- ✅ **Enhanced Win32Interop** - Added window creation APIs: `WNDCLASSEX`, `WndProc`, `CreateWindowEx`, `DestroyWindow`, `DefWindowProc`, `WS_EX_TRANSPARENT`
+- 📄 **Architecture Documented** - Native window lifecycle, minimal window procedure, input transparency, proper disposal pattern
 
 **Previous (2025-12-11 - DIRECT2D ARCHITECTURE FIX):**
 - ✅ **Windows 11 24H2+ Compatibility** - Direct2D renderer now creates dedicated window (like GIF/Video renderers) instead of drawing via GetDC(WorkerW)

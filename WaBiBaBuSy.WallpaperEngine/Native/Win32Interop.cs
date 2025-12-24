@@ -98,6 +98,7 @@ internal static class Win32Interop
     public const int WS_EX_NOACTIVATE = 0x08000000;
     public const int WS_EX_TOOLWINDOW = 0x00000080;
     public const int WS_EX_LAYERED = 0x00080000;
+    public const int WS_EX_TRANSPARENT = 0x00000020;
     public const int WS_EX_NOREDIRECTIONBITMAP = 0x00200000;
     public const int WS_EX_DLGMODALFRAME = 0x00000001;
     public const int WS_EX_COMPOSITED = 0x02000000;

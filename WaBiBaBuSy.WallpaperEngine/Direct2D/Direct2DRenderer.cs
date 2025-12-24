@@ -106,9 +106,9 @@ public class Direct2DRenderer : IDisposable
 
         _logger.LogDebug("[Direct2D] Window class registered: {ClassName} (atom: {Atom})", _windowClassName, _classAtom);
 
-        // Create window
+        // Create window with WS_EX_TRANSPARENT to let mouse clicks pass through to desktop icons
         _hwnd = Win32Interop.CreateWindowEx(
-            0,  // No extended styles yet
+            Win32Interop.WS_EX_NOACTIVATE | Win32Interop.WS_EX_TRANSPARENT,  // CRITICAL: Allow input to pass through
             _windowClassName,
             "WaBiBaBuSy Wallpaper",
             Win32Interop.WS_POPUP | Win32Interop.WS_VISIBLE | Win32Interop.WS_CLIPCHILDREN | Win32Interop.WS_CLIPSIBLINGS,
