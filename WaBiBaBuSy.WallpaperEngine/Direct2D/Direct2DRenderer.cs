@@ -138,6 +138,11 @@ public class Direct2DRenderer : IDisposable
     {
         switch (msg)
         {
+            case Win32Interop.WM_NCHITTEST:
+                // CRITICAL: Return HTTRANSPARENT to pass all mouse input through to desktop
+                // This prevents Explorer.exe from freezing when clicking on desktop icons
+                return new IntPtr(Win32Interop.HTTRANSPARENT);
+
             case Win32Interop.WM_PAINT:
                 // Handle paint message - render current frame
                 PaintFrame(hWnd);

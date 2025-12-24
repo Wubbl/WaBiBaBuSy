@@ -247,4 +247,9 @@ internal static class Win32Interop
     public const uint WM_PAINT = 0x000F;
     public const uint WM_DESTROY = 0x0002;
     public const uint WM_ERASEBKGND = 0x0014;
+    public const uint WM_NCHITTEST = 0x0084;
+
+    // Hit test return values
+    public const int HTTRANSPARENT = -1;
+    public const int HTCLIENT = 1;
 }

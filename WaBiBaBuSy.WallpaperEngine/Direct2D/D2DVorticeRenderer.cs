@@ -174,6 +174,11 @@ public class D2DVorticeRenderer : IDisposable
     {
         switch (msg)
         {
+            case Win32Interop.WM_NCHITTEST:
+                // CRITICAL: Return HTTRANSPARENT to pass all mouse input through to desktop
+                // This prevents Explorer.exe from freezing when clicking on desktop icons
+                return new IntPtr(Win32Interop.HTTRANSPARENT);
+
             case Win32Interop.WM_PAINT:
                 // Let Direct2D handle all rendering
                 return IntPtr.Zero;
