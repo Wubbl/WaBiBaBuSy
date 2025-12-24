@@ -133,7 +133,8 @@ WaBiBaBuSy/
 | **Framework** | .NET 8.0 |
 | **UI** | Avalonia 11.x + CommunityToolkit.Mvvm |
 | **Communication** | gRPC + Protobuf |
-| **Rendering** | LibVLCSharp (video/image) + GDI+ (composition) |
+| **Rendering** | Vortice.Windows (Direct3D11/Direct2D) + LibVLCSharp (video/image) |
+| **Windowing** | Native Win32 API (no Windows Forms) |
 | **DI / Config** | Microsoft.Extensions.* |
 | **Discovery** | Makaretu.Dns (mDNS) |
 | **Logging** | Serilog (planned) |
@@ -142,6 +143,7 @@ WaBiBaBuSy/
 
 ### Wallpaper Engine ✅
 - **WorkerW Integration**: Renders wallpapers behind desktop icons using Windows WorkerW technique
+- **Native Win32 Windows**: Direct window creation via Win32 API (no Windows Forms dependency for Avalonia compatibility)
 - **Video Renderer**: LibVLC-based with hardware acceleration (MP4, AVI, MKV, MOV, WMV, WebM, FLV)
 - **Image Renderer**: Static image display with aspect ratio preservation (JPG, PNG, BMP)
 - **GIF Renderer**: Frame-based animation with automatic delay extraction from metadata
@@ -150,7 +152,7 @@ WaBiBaBuSy/
 - **Direct2D Composition**: GPU-accelerated rendering of composed frames (background + content layer)
   - **AnimationLayerRenderer**: Unified content layer renderer for GIFs, static images, and videos
   - **CompositionRenderer**: Composites background + animation/content layers into final frames
-  - **Direct2DRenderer**: Displays composed frames to screen via GDI+ (true Direct2D planned)
+  - **D2DVorticeRenderer**: Hardware-accelerated Direct3D11/Direct2D renderer with DXGI swap chain (native Win32 window)
 
 ### Networking Layer ✅
 - **gRPC Protocol**: Full bidirectional streaming implementation
@@ -401,7 +403,15 @@ dotnet run --project WaBiBaBuSy.UI
 
 ## Recent Updates
 
-**Latest (2025-12-11 - DIRECT2D ARCHITECTURE FIX):**
+**Latest (2025-12-24 - NATIVE WIN32 ARCHITECTURE):**
+- ✅ **Native Win32 Window Creation** - Eliminated Windows Forms dependency that caused application freezing
+- ✅ **No Message Loop Conflicts** - Direct Win32 API integration works seamlessly with Avalonia UI framework
+- ✅ **D2DVorticeRenderer Rewrite** - Uses `CreateWindowEx`, `RegisterClassEx`, native window procedure (no `Application.Run()` required)
+- ✅ **Improved Stability** - Application no longer freezes during renderer initialization
+- ✅ **Enhanced Win32Interop** - Added window creation APIs: `WNDCLASSEX`, `WndProc`, `CreateWindowEx`, `DestroyWindow`, `DefWindowProc`
+- 📄 **Architecture Documented** - Native window lifecycle, minimal window procedure, proper disposal pattern
+
+**Previous (2025-12-11 - DIRECT2D ARCHITECTURE FIX):**
 - ✅ **Windows 11 24H2+ Compatibility** - Direct2D renderer now creates dedicated window (like GIF/Video renderers) instead of drawing via GetDC(WorkerW)
 - ✅ **HeadlessMode Added** - `WallpaperConfig.HeadlessMode` allows renderers to provide frames without creating windows (for composition pipeline)
 - ✅ **Timing Synchronization Fixed** - Animation position and frame selection now use same elapsed time source

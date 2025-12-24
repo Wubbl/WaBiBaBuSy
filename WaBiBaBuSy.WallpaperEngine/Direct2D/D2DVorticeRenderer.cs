@@ -1,7 +1,7 @@
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
-using System.Windows.Forms;
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using Vortice.Direct2D1;
 using Vortice.Direct3D;
@@ -18,6 +18,7 @@ namespace WaBiBaBuSy.WallpaperEngine.Direct2D;
 /// <summary>
 /// Hardware-accelerated Direct2D renderer using Vortice.Windows with DXGI swap chain.
 /// Renders composed wallpaper frames to the desktop via GPU acceleration.
+/// Uses native Win32 window (no Windows Forms dependency).
 /// </summary>
 public class D2DVorticeRenderer : IDisposable
 {
@@ -25,8 +26,11 @@ public class D2DVorticeRenderer : IDisposable
     private readonly DesktopWindowManager _desktopWindowManager;
     private readonly ScreenMapping _screen;
 
-    // Windows Forms
-    private Form? _renderForm;
+    // Native window
+    private IntPtr _hwnd = IntPtr.Zero;
+    private string _windowClassName = "";
+    private Win32Interop.WndProc? _wndProcDelegate;
+    private ushort _classAtom;
 
     // Direct3D11 & DXGI
     private ID3D11Device? _d3dDevice;
@@ -72,8 +76,8 @@ public class D2DVorticeRenderer : IDisposable
             _logger.LogInformation("Initializing D2DVorticeRenderer for screen {Order} ({Width}x{Height})",
                 _screen.Order, _width, _height);
 
-            // Step 1: Create borderless form window
-            CreateRenderWindow();
+            // Step 1: Create native Win32 window
+            CreateNativeWindow();
 
             // Step 2: Create Direct3D11 device with BGRA support
             CreateD3DDevice();
@@ -98,24 +102,94 @@ public class D2DVorticeRenderer : IDisposable
         }
     }
 
-    private void CreateRenderWindow()
+    private void CreateNativeWindow()
     {
-        _renderForm = new Form
+        _logger.LogInformation("Creating native Win32 window...");
+
+        // Generate unique class name
+        _windowClassName = $"WaBiBaBuSyD2DRenderer_{Guid.NewGuid():N}";
+
+        // Get module handle
+        var hInstance = Win32Interop.GetModuleHandle(null);
+
+        // Create window procedure delegate (must keep reference to prevent GC)
+        _wndProcDelegate = WindowProc;
+
+        // Register window class
+        var wndClass = new Win32Interop.WNDCLASSEX
         {
-            FormBorderStyle = FormBorderStyle.None,
-            StartPosition = FormStartPosition.Manual,
-            Bounds = _screen.ScreenBounds,
-            BackColor = System.Drawing.Color.Black,
-            TopMost = false,
-            ShowInTaskbar = false,
-            ControlBox = false,
-            MaximizeBox = false,
-            MinimizeBox = false
+            cbSize = (uint)Marshal.SizeOf<Win32Interop.WNDCLASSEX>(),
+            style = Win32Interop.CS_HREDRAW | Win32Interop.CS_VREDRAW | Win32Interop.CS_OWNDC,
+            lpfnWndProc = Marshal.GetFunctionPointerForDelegate(_wndProcDelegate),
+            cbClsExtra = 0,
+            cbWndExtra = 0,
+            hInstance = hInstance,
+            hIcon = IntPtr.Zero,
+            hCursor = Win32Interop.LoadCursor(IntPtr.Zero, Win32Interop.IDC_ARROW),
+            hbrBackground = IntPtr.Zero,  // No background brush (we'll render everything)
+            lpszMenuName = null,
+            lpszClassName = _windowClassName,
+            hIconSm = IntPtr.Zero
         };
 
-        _renderForm.Show();
-        _logger.LogDebug("Render window created: {Handle}, Bounds: {Bounds}",
-            _renderForm.Handle, _screen.ScreenBounds);
+        _classAtom = Win32Interop.RegisterClassEx(ref wndClass);
+        if (_classAtom == 0)
+        {
+            var error = Marshal.GetLastWin32Error();
+            throw new Exception($"Failed to register window class. Error: {error}");
+        }
+
+        _logger.LogDebug("Window class registered: {ClassName} (atom: {Atom})", _windowClassName, _classAtom);
+
+        // Create window
+        _hwnd = Win32Interop.CreateWindowEx(
+            0,  // No extended styles yet
+            _windowClassName,
+            "WaBiBaBuSy Wallpaper",
+            Win32Interop.WS_POPUP | Win32Interop.WS_VISIBLE | Win32Interop.WS_CLIPCHILDREN | Win32Interop.WS_CLIPSIBLINGS,
+            _screen.ScreenBounds.X,
+            _screen.ScreenBounds.Y,
+            _screen.ScreenBounds.Width,
+            _screen.ScreenBounds.Height,
+            IntPtr.Zero,  // No parent yet
+            IntPtr.Zero,  // No menu
+            hInstance,
+            IntPtr.Zero);
+
+        if (_hwnd == IntPtr.Zero)
+        {
+            var error = Marshal.GetLastWin32Error();
+            throw new Exception($"Failed to create window. Error: {error}");
+        }
+
+        _logger.LogInformation("Native window created: HWND={Handle}, Bounds={Bounds}",
+            _hwnd, _screen.ScreenBounds);
+    }
+
+    /// <summary>
+    /// Minimal window procedure - handles only essential messages.
+    /// No message pumping required - DefWindowProc handles everything.
+    /// </summary>
+    private IntPtr WindowProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
+    {
+        switch (msg)
+        {
+            case Win32Interop.WM_PAINT:
+                // Let Direct2D handle all rendering
+                return IntPtr.Zero;
+
+            case Win32Interop.WM_ERASEBKGND:
+                // Prevent flicker - we render everything ourselves
+                return new IntPtr(1);
+
+            case Win32Interop.WM_DESTROY:
+                _logger.LogDebug("Window {Handle} received WM_DESTROY", hWnd);
+                return IntPtr.Zero;
+
+            default:
+                // Let Windows handle all other messages
+                return Win32Interop.DefWindowProc(hWnd, msg, wParam, lParam);
+        }
     }
 
     private void CreateD3DDevice()
@@ -153,9 +227,9 @@ public class D2DVorticeRenderer : IDisposable
 
     private void CreateSwapChain()
     {
-        if (_d3dDevice == null || _renderForm == null)
+        if (_d3dDevice == null || _hwnd == IntPtr.Zero)
         {
-            throw new InvalidOperationException("D3D device or render form not initialized");
+            throw new InvalidOperationException("D3D device or window handle not initialized");
         }
 
         // Get DXGI device and factory
@@ -180,7 +254,7 @@ public class D2DVorticeRenderer : IDisposable
 
         _swapChain = dxgiFactory.CreateSwapChainForHwnd(
             _d3dDevice,
-            _renderForm.Handle,
+            _hwnd,
             swapChainDesc);
 
         _logger.LogDebug("DXGI swap chain created: {Width}x{Height}, Format: {Format}",
@@ -218,17 +292,17 @@ public class D2DVorticeRenderer : IDisposable
 
     private void ParentToDesktop()
     {
-        if (_renderForm == null)
+        if (_hwnd == IntPtr.Zero)
         {
-            throw new InvalidOperationException("Render form not initialized");
+            throw new InvalidOperationException("Window handle not initialized");
         }
 
         var workerW = _desktopWindowManager.FindDesktopWorkerWindow();
         if (workerW != IntPtr.Zero)
         {
-            _desktopWindowManager.SetAsWallpaperWindow(_renderForm.Handle, _screen.ScreenBounds);
+            _desktopWindowManager.SetAsWallpaperWindow(_hwnd, _screen.ScreenBounds);
             _logger.LogInformation("Window {Handle} parented to WorkerW {WorkerW}",
-                _renderForm.Handle, workerW);
+                _hwnd, workerW);
         }
         else
         {
@@ -395,11 +469,21 @@ public class D2DVorticeRenderer : IDisposable
         _d2dFactory?.Dispose();
         _d2dFactory = null;
 
-        if (_renderForm != null)
+        // Destroy native window
+        if (_hwnd != IntPtr.Zero)
         {
-            _renderForm.Close();
-            _renderForm.Dispose();
-            _renderForm = null;
+            Win32Interop.DestroyWindow(_hwnd);
+            _hwnd = IntPtr.Zero;
+            _logger.LogDebug("Native window destroyed");
+        }
+
+        // Unregister window class
+        if (_classAtom != 0)
+        {
+            var hInstance = Win32Interop.GetModuleHandle(null);
+            Win32Interop.UnregisterClass(_windowClassName, hInstance);
+            _classAtom = 0;
+            _logger.LogDebug("Window class unregistered: {ClassName}", _windowClassName);
         }
 
         _disposed = true;

@@ -175,4 +175,75 @@ internal static class Win32Interop
     // ShowWindow constants
     public const int SW_HIDE = 0;
     public const int SW_SHOW = 5;
+
+    // Window creation
+    public const int WS_POPUP = unchecked((int)0x80000000);
+    public const int WS_CLIPCHILDREN = 0x02000000;
+    public const int WS_CLIPSIBLINGS = 0x04000000;
+
+    // Window class styles
+    public const uint CS_HREDRAW = 0x0002;
+    public const uint CS_VREDRAW = 0x0001;
+    public const uint CS_OWNDC = 0x0020;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct WNDCLASSEX
+    {
+        public uint cbSize;
+        public uint style;
+        public IntPtr lpfnWndProc;
+        public int cbClsExtra;
+        public int cbWndExtra;
+        public IntPtr hInstance;
+        public IntPtr hIcon;
+        public IntPtr hCursor;
+        public IntPtr hbrBackground;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? lpszMenuName;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string lpszClassName;
+        public IntPtr hIconSm;
+    }
+
+    public delegate IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern ushort RegisterClassEx([In] ref WNDCLASSEX lpwcx);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool UnregisterClass(string lpClassName, IntPtr hInstance);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern IntPtr CreateWindowEx(
+        int dwExStyle,
+        string lpClassName,
+        string lpWindowName,
+        int dwStyle,
+        int x,
+        int y,
+        int nWidth,
+        int nHeight,
+        IntPtr hWndParent,
+        IntPtr hMenu,
+        IntPtr hInstance,
+        IntPtr lpParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool DestroyWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr DefWindowProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr GetModuleHandle(string? lpModuleName);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr LoadCursor(IntPtr hInstance, int lpCursorName);
+
+    public const int IDC_ARROW = 32512;
+
+    // Common window messages
+    public const uint WM_PAINT = 0x000F;
+    public const uint WM_DESTROY = 0x0002;
+    public const uint WM_ERASEBKGND = 0x0014;
 }

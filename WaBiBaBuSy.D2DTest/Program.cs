@@ -9,6 +9,7 @@ namespace WaBiBaBuSy.D2DTest;
 /// <summary>
 /// Simple test program to verify D2DVorticeRenderer renders correctly.
 /// This creates a red window on the desktop behind icons for 10 seconds.
+/// NO WINDOWS FORMS - uses native Win32 windows only.
 /// </summary>
 class Program
 {
@@ -21,7 +22,7 @@ class Program
         Console.WriteLine("1. Create a Direct2D DXGI renderer on your primary monitor");
         Console.WriteLine("2. Parent it to the desktop (behind icons)");
         Console.WriteLine("3. Fill it with RED color");
-        Console.WriteLine("4. Keep it visible for 10 seconds");
+        Console.WriteLine("4. Keep it visibl 60 seconds");
         Console.WriteLine();
         Console.WriteLine("You should see a RED wallpaper behind your desktop icons.");
         Console.WriteLine();
@@ -45,10 +46,10 @@ class Program
             var desktopManager = new DesktopWindowManager(desktopLogger);
 
             Console.WriteLine("Getting primary screen bounds...");
-            var primaryScreen = System.Windows.Forms.Screen.PrimaryScreen;
-            var bounds = primaryScreen?.Bounds ?? new Rectangle(0, 0, 1920, 1080);
 
-            Console.WriteLine($"Primary screen: {bounds.Width}x{bounds.Height} at ({bounds.X}, {bounds.Y})");
+            // Get primary screen bounds using Win32 API (no Windows Forms)
+            var primaryScreen = GetPrimaryScreenBounds();
+            Console.WriteLine($"Primary screen: {primaryScreen.Width}x{primaryScreen.Height} at ({primaryScreen.X}, {primaryScreen.Y})");
             Console.WriteLine();
 
             // Create ScreenMapping for D2DVorticeRenderer
@@ -56,11 +57,11 @@ class Program
             {
                 ClientId = "test-client",
                 Order = 0,
-                ScreenBounds = bounds,
-                VirtualBounds = bounds  // Same as screen bounds for single-screen test
+                ScreenBounds = primaryScreen,
+                VirtualBounds = primaryScreen  // Same as screen bounds for single-screen test
             };
 
-            Console.WriteLine("Creating D2DVorticeRenderer...");
+            Console.WriteLine("Creating D2DVorticeRenderer (native Win32 window)...");
             using var renderer = new D2DVorticeRenderer(
                 screenMapping,
                 rendererLogger,
@@ -73,7 +74,7 @@ class Program
             Console.WriteLine();
 
             // Create a red bitmap
-            var testBitmap = new Bitmap(bounds.Width, bounds.Height);
+            var testBitmap = new Bitmap(primaryScreen.Width, primaryScreen.Height);
             using (var g = Graphics.FromImage(testBitmap))
             {
                 g.Clear(Color.Red);
@@ -84,22 +85,22 @@ class Program
             Console.WriteLine("RED WINDOW SHOULD NOW BE VISIBLE!");
             Console.WriteLine("===================================");
             Console.WriteLine();
-            Console.WriteLine("Rendering red color continuously for 10 seconds...");
+            Console.WriteLine("Rendering red color continuously for 60 seconds...");
             Console.WriteLine("Check your desktop - you should see a red wallpaper behind your icons.");
             Console.WriteLine();
 
-            // Render continuously for 10 seconds at ~60 FPS
+            // Render continuously for 60 seconds at ~60 FPS
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             int frameCount = 0;
 
-            while (stopwatch.Elapsed.TotalSeconds < 10)
+            while (stopwatch.Elapsed.TotalSeconds < 60)
             {
                 // Display frame
                 renderer.DisplayFrame(testBitmap);
                 frameCount++;
 
                 // Update console every second
-                int secondsLeft = 10 - (int)stopwatch.Elapsed.TotalSeconds;
+                int secondsLeft = 60 - (int)stopwatch.Elapsed.TotalSeconds;
                 if (frameCount % 60 == 0)
                 {
                     Console.Write($"\rRendering... {secondsLeft} seconds remaining (Frames: {frameCount})  ");
@@ -133,4 +134,19 @@ class Program
         Console.WriteLine("Press ENTER to exit...");
         Console.ReadLine();
     }
+
+    /// <summary>
+    /// Gets the primary screen bounds using native Win32 API (no Windows Forms).
+    /// </summary>
+    private static Rectangle GetPrimaryScreenBounds()
+    {
+        // SM_CXSCREEN = 0 (width), SM_CYSCREEN = 1 (height)
+        int width = GetSystemMetrics(0);
+        int height = GetSystemMetrics(1);
+
+        return new Rectangle(0, 0, width, height);
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int nIndex);
 }
