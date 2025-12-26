@@ -33,6 +33,16 @@ public class DesktopWindowManager
     public bool IsLayeredDesktopMode => _isRaisedDesktopWithLayeredShellView;
 
     /// <summary>
+    /// Gets the Progman window handle.
+    /// </summary>
+    public IntPtr ProgmanHandle => _progman;
+
+    /// <summary>
+    /// Gets the SHELLDLL_DefView window handle (contains desktop icons).
+    /// </summary>
+    public IntPtr ShellDllDefViewHandle => _shellDLL_DefView;
+
+    /// <summary>
     /// Finds and returns the WorkerW window handle.
     /// This window sits between the desktop and desktop icons.
     /// Detects Windows 11 24H2+ layered desktop mode.
@@ -152,8 +162,9 @@ public class DesktopWindowManager
     /// </summary>
     /// <param name="windowHandle">Window handle to set as wallpaper</param>
     /// <param name="screenBounds">Screen bounds (X, Y, Width, Height) for positioning</param>
+    /// <param name="forceLegacyMode">Force legacy WorkerW mode even on Windows 11 24H2+ (required for DXGI swap chain windows)</param>
     /// <returns>True if successful</returns>
-    public bool SetAsWallpaperWindow(IntPtr windowHandle, System.Drawing.Rectangle screenBounds)
+    public bool SetAsWallpaperWindow(IntPtr windowHandle, System.Drawing.Rectangle screenBounds, bool forceLegacyMode = false)
     {
         try
         {
@@ -163,13 +174,17 @@ public class DesktopWindowManager
                 return false;
             }
 
-            _logger.LogInformation("Setting window {Window} as wallpaper (Mode: {Mode}, WorkerW: {WorkerW})",
+            // DXGI swap chain windows MUST use legacy mode - layered mode causes explorer crash
+            bool useLegacyMode = forceLegacyMode || !_isRaisedDesktopWithLayeredShellView;
+
+            _logger.LogInformation("Setting window {Window} as wallpaper (DetectedMode: {DetectedMode}, ForceLegacy: {ForceLegacy}, UsingMode: {UsingMode}, WorkerW: {WorkerW})",
                 windowHandle,
                 _isRaisedDesktopWithLayeredShellView ? "Layered" : "Legacy",
+                forceLegacyMode,
+                useLegacyMode ? "Legacy" : "Layered",
                 _workerW);
 
-            // Use the appropriate mode based on Windows version
-            if (_isRaisedDesktopWithLayeredShellView)
+            if (!useLegacyMode)
             {
                 // Windows 11 24H2+ Layered Desktop Mode - parent to Progman with WS_EX_LAYERED
                 _logger.LogInformation("Using LAYERED mode (Windows 11 24H2+)");
@@ -178,7 +193,7 @@ public class DesktopWindowManager
             else
             {
                 // Legacy Mode (Windows 10 / Windows 11 pre-24H2) - parent to WorkerW
-                _logger.LogInformation("Using LEGACY mode (Windows 10 / pre-24H2)");
+                _logger.LogInformation("Using LEGACY mode (forced or pre-24H2)");
                 return SetAsWallpaperLegacyMode(windowHandle, screenBounds);
             }
         }

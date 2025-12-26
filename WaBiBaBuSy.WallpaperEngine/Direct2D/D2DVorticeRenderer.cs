@@ -301,39 +301,27 @@ public class D2DVorticeRenderer : IDisposable
             throw new InvalidOperationException("Window handle not initialized");
         }
 
-        var workerW = _desktopWindowManager.FindDesktopWorkerWindow();
-        if (workerW != IntPtr.Zero)
-        {
-            _desktopWindowManager.SetAsWallpaperWindow(_hwnd, _screen.ScreenBounds);
+        // EXPERIMENTAL: Don't parent to desktop at all - just make it a bottom-most window
+        // This tests whether the crash is specifically caused by parenting DXGI windows to desktop
+        _logger.LogInformation("EXPERIMENTAL: Skipping desktop parenting - using bottom-most window approach");
 
-            // Check which mode was used
-            bool isLayeredMode = _desktopWindowManager.IsLayeredDesktopMode;
-            _logger.LogInformation("Window {Handle} parented using {Mode} mode",
-                _hwnd, isLayeredMode ? "LAYERED" : "LEGACY");
+        // Set window to bottom of Z-order
+        Win32Interop.SetWindowPos(
+            _hwnd,
+            Win32Interop.HWND_BOTTOM,
+            _screen.ScreenBounds.X,
+            _screen.ScreenBounds.Y,
+            _screen.ScreenBounds.Width,
+            _screen.ScreenBounds.Height,
+            (uint)Win32Interop.SWP_NOACTIVATE);
 
-            if (!isLayeredMode)
-            {
-                // LEGACY MODE: Add WS_EX_TRANSPARENT to pass mouse input through
-                _logger.LogInformation("LEGACY mode: Adding WS_EX_TRANSPARENT for input pass-through");
-                var currentExStyle = Win32Interop.GetWindowLong(_hwnd, Win32Interop.GWL_EXSTYLE);
-                var newExStyle = currentExStyle | Win32Interop.WS_EX_TRANSPARENT | Win32Interop.WS_EX_NOACTIVATE;
-                Win32Interop.SetWindowLong(_hwnd, Win32Interop.GWL_EXSTYLE, newExStyle);
-                _logger.LogInformation("Applied WS_EX_TRANSPARENT (0x{Old:X} -> 0x{New:X})",
-                    currentExStyle, newExStyle);
-            }
-            else
-            {
-                // LAYERED MODE (Windows 11 24H2+): DO NOT use WS_EX_TRANSPARENT
-                // Z-ordering below SHELLDLL_DefView handles input routing
-                _logger.LogInformation("LAYERED mode: Relying on Z-order for input routing (no WS_EX_TRANSPARENT)");
-                var currentExStyle = Win32Interop.GetWindowLong(_hwnd, Win32Interop.GWL_EXSTYLE);
-                _logger.LogInformation("Current extended style in layered mode: 0x{ExStyle:X}", currentExStyle);
-            }
-        }
-        else
-        {
-            _logger.LogWarning("Failed to find WorkerW window, wallpaper may not appear correctly");
-        }
+        // Add WS_EX_TRANSPARENT so mouse clicks pass through
+        var currentExStyle = Win32Interop.GetWindowLong(_hwnd, Win32Interop.GWL_EXSTYLE);
+        var newExStyle = currentExStyle | Win32Interop.WS_EX_TRANSPARENT | Win32Interop.WS_EX_NOACTIVATE | Win32Interop.WS_EX_TOOLWINDOW;
+        Win32Interop.SetWindowLong(_hwnd, Win32Interop.GWL_EXSTYLE, newExStyle);
+
+        _logger.LogInformation("Window set to HWND_BOTTOM with WS_EX_TRANSPARENT (no desktop parenting)");
+        _logger.LogInformation("Extended style: 0x{Old:X} -> 0x{New:X}", currentExStyle, newExStyle);
     }
 
     /// <summary>

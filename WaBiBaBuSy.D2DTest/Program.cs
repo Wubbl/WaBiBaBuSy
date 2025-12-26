@@ -7,24 +7,24 @@ using WaBiBaBuSy.WallpaperEngine.Native;
 namespace WaBiBaBuSy.D2DTest;
 
 /// <summary>
-/// Simple test program to verify D2DVorticeRenderer renders correctly.
-/// This creates a red window on the desktop behind icons for 10 seconds.
-/// NO WINDOWS FORMS - uses native Win32 windows only.
+/// Test program for D2DPlayerHost - the separate process approach for DXGI rendering.
+/// This tests whether parenting an external process's window to the desktop works
+/// without crashing explorer.exe on Windows 11 24H2+.
 /// </summary>
 class Program
 {
-    static void Main(string[] args)
+    static async Task Main(string[] args)
     {
-        Console.WriteLine("WaBiBaBuSy Direct2D Vortice Renderer Test");
-        Console.WriteLine("==========================================");
+        Console.WriteLine("WaBiBaBuSy D2D Player Host Test");
+        Console.WriteLine("================================");
         Console.WriteLine();
         Console.WriteLine("This test will:");
-        Console.WriteLine("1. Create a Direct2D DXGI renderer on your primary monitor");
-        Console.WriteLine("2. Parent it to the desktop (behind icons)");
-        Console.WriteLine("3. Fill it with RED color");
-        Console.WriteLine("4. Keep it visibl 60 seconds");
+        Console.WriteLine("1. Spawn a separate D2D player process");
+        Console.WriteLine("2. Parent its window to the desktop (behind icons)");
+        Console.WriteLine("3. Render RED color for 30 seconds");
+        Console.WriteLine("4. Change to GREEN, then BLUE");
         Console.WriteLine();
-        Console.WriteLine("You should see a RED wallpaper behind your desktop icons.");
+        Console.WriteLine("You should be able to click on desktop icons WITHOUT crashing explorer!");
         Console.WriteLine();
         Console.WriteLine("Press ENTER to start test...");
         Console.ReadLine();
@@ -36,7 +36,7 @@ class Program
             builder.SetMinimumLevel(LogLevel.Debug);
         });
 
-        var rendererLogger = loggerFactory.CreateLogger<D2DVorticeRenderer>();
+        var hostLogger = loggerFactory.CreateLogger<D2DPlayerHost>();
         var desktopLogger = loggerFactory.CreateLogger<DesktopWindowManager>();
 
         try
@@ -46,77 +46,54 @@ class Program
             var desktopManager = new DesktopWindowManager(desktopLogger);
 
             Console.WriteLine("Getting primary screen bounds...");
-
-            // Get primary screen bounds using Win32 API (no Windows Forms)
             var primaryScreen = GetPrimaryScreenBounds();
             Console.WriteLine($"Primary screen: {primaryScreen.Width}x{primaryScreen.Height} at ({primaryScreen.X}, {primaryScreen.Y})");
             Console.WriteLine();
 
-            // Create ScreenMapping for D2DVorticeRenderer
+            // Create ScreenMapping
             var screenMapping = new ScreenMapping
             {
                 ClientId = "test-client",
                 Order = 0,
                 ScreenBounds = primaryScreen,
-                VirtualBounds = primaryScreen  // Same as screen bounds for single-screen test
+                VirtualBounds = primaryScreen
             };
 
-            Console.WriteLine("Creating D2DVorticeRenderer (native Win32 window)...");
-            using var renderer = new D2DVorticeRenderer(
+            Console.WriteLine("Creating D2DPlayerHost (separate process approach)...");
+            using var host = new D2DPlayerHost(
                 screenMapping,
-                rendererLogger,
+                hostLogger,
                 desktopManager);
 
-            Console.WriteLine("Initializing renderer...");
-            renderer.Initialize();
-
-            Console.WriteLine("SUCCESS: Renderer initialized!");
-            Console.WriteLine();
-
-            // Create a red bitmap
-            var testBitmap = new Bitmap(primaryScreen.Width, primaryScreen.Height);
-            using (var g = Graphics.FromImage(testBitmap))
-            {
-                g.Clear(Color.Red);
-            }
+            Console.WriteLine("Initializing player host (spawning player process)...");
+            await host.InitializeAsync();
 
             Console.WriteLine();
-            Console.WriteLine("===================================");
-            Console.WriteLine("RED WINDOW SHOULD NOW BE VISIBLE!");
-            Console.WriteLine("===================================");
+            Console.WriteLine("============================================");
+            Console.WriteLine("PLAYER WINDOW SHOULD NOW BE ON YOUR DESKTOP!");
+            Console.WriteLine("============================================");
             Console.WriteLine();
-            Console.WriteLine("Rendering red color continuously for 60 seconds...");
-            Console.WriteLine("Check your desktop - you should see a red wallpaper behind your icons.");
+            Console.WriteLine("TRY CLICKING ON DESKTOP ICONS - they should work!");
             Console.WriteLine();
 
-            // Render continuously for 60 seconds at ~60 FPS
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-            int frameCount = 0;
+            // Test color changes
+            Console.WriteLine("Setting color to RED...");
+            await host.SetColorAsync(Color.Red);
+            Console.WriteLine("Waiting 10 seconds... (try clicking on icons!)");
+            await Task.Delay(10000);
 
-            while (stopwatch.Elapsed.TotalSeconds < 60)
-            {
-                // Display frame
-                renderer.DisplayFrame(testBitmap);
-                frameCount++;
+            Console.WriteLine("Setting color to GREEN...");
+            await host.SetColorAsync(Color.Green);
+            Console.WriteLine("Waiting 10 seconds...");
+            await Task.Delay(10000);
 
-                // Update console every second
-                int secondsLeft = 60 - (int)stopwatch.Elapsed.TotalSeconds;
-                if (frameCount % 60 == 0)
-                {
-                    Console.Write($"\rRendering... {secondsLeft} seconds remaining (Frames: {frameCount})  ");
-                }
-
-                // Target ~60 FPS with VSync (renderer uses Present(1))
-                Thread.Sleep(16);
-            }
+            Console.WriteLine("Setting color to BLUE...");
+            await host.SetColorAsync(Color.Blue);
+            Console.WriteLine("Waiting 10 seconds...");
+            await Task.Delay(10000);
 
             Console.WriteLine();
-            Console.WriteLine($"\nRendered {frameCount} frames in {stopwatch.Elapsed.TotalSeconds:F2} seconds ({frameCount / stopwatch.Elapsed.TotalSeconds:F1} FPS)");
-
-            Console.WriteLine();
-            Console.WriteLine();
-            Console.WriteLine("Disposing renderer...");
-            testBitmap.Dispose();
+            Console.WriteLine("Test completed! Cleaning up...");
         }
         catch (Exception ex)
         {
