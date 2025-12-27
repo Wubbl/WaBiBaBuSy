@@ -2,7 +2,7 @@
 
 **Project Name:** WallpaperBiBaBuSync (BiBaBu = our club name)
 **Version:** 2.0 | **Framework:** .NET 8.0 | **Status:** ✅ MVP ~99% Complete
-**Last Updated:** 2025-12-11 | **Next:** Runtime testing of Direct2D animations, then E2E Multi-Client Testing
+**Last Updated:** 2025-12-27 | **Next:** E2E Multi-Client Testing, Direct2D integration with main UI
 
 WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5% server CPU, ±50ms drift tolerance, and distributed client-side rendering. Supports images (JPG/PNG/BMP), videos (MP4/AVI/MKV), and GIFs across multi-monitor setups.
 
@@ -84,7 +84,11 @@ WaBiBaBuSy/
 │   │   └── VirtualCanvasManager.cs           # Multi-screen layout coordination
 │   └── Direct2D/
 │       ├── Direct2DRenderer.cs               # GPU-accelerated frame display (GDI+ fallback)
-│       └── Direct2DInterop.cs                # Windows API interop
+│       ├── Direct2DInterop.cs                # Windows API interop
+│       └── D2DPlayerHost.cs                  # Spawns/manages separate D2D player process
+│
+├── WaBiBaBuSy.Player.D2D/        # Separate DXGI player process (Windows 11 24H2+ fix)
+│   └── Program.cs                # Native Win32 window + DXGI swap chain + IPC
 │
 ├── WaBiBaBuSy.UI/                # Avalonia User Interface
 │   ├── Views/                    # XAML view files
@@ -403,7 +407,17 @@ dotnet run --project WaBiBaBuSy.UI
 
 ## Recent Updates
 
-**Latest (2025-12-24 - NATIVE WIN32 ARCHITECTURE + INPUT FIX):**
+**Latest (2025-12-27 - SEPARATE PLAYER PROCESS FOR WINDOWS 11 24H2+):**
+- ✅ **CRITICAL FIX: Explorer.exe Crash** - DXGI swap chain windows crash explorer when parented to desktop on Windows 11 24H2+
+- ✅ **Separate Player Process** - New `WaBiBaBuSy.Player.D2D` project runs DXGI rendering in isolated process
+- ✅ **IPC Protocol** - stdin/stdout communication for PARENT, COLOR, EXIT commands
+- ✅ **D2DPlayerHost** - Host class spawns player process, manages lifecycle, sends commands
+- ✅ **Correct Z-Order** - SetParent first, then SetWindowPos with DefView reference for proper layering behind icons
+- ✅ **Message Pump Fix** - Limit 100 messages per frame to prevent infinite loops on first frame
+- ✅ **WS_EX_TRANSPARENT** - Mouse clicks pass through to desktop icons
+- 📄 **Architecture Documented** - See `.docs/2025.12_DIRECT2D_RENDERING_ARCHITECTURE.md` for complete details
+
+**Previous (2025-12-24 - NATIVE WIN32 ARCHITECTURE + INPUT FIX):**
 - ✅ **Native Win32 Window Creation** - Eliminated Windows Forms dependency that caused application freezing
 - ✅ **No Message Loop Conflicts** - Direct Win32 API integration works seamlessly with Avalonia UI framework
 - ✅ **D2DVorticeRenderer Rewrite** - Uses `CreateWindowEx`, `RegisterClassEx`, native window procedure (no `Application.Run()` required)

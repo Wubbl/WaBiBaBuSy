@@ -389,39 +389,6 @@ class Program
     }
 
     /// <summary>
-    /// Waits for and processes the PARENT command on the main thread.
-    /// This must happen before the render loop starts to avoid cross-thread window issues.
-    /// </summary>
-    private static void WaitForParentCommand()
-    {
-        Console.Error.WriteLine("DEBUG: Waiting for PARENT command on main thread...");
-
-        while (true)
-        {
-            var line = Console.ReadLine();
-            if (line == null)
-            {
-                Console.Error.WriteLine("DEBUG: stdin closed while waiting for PARENT");
-                return;
-            }
-
-            line = line.Trim();
-            if (string.IsNullOrEmpty(line))
-                continue;
-
-            if (line.StartsWith("PARENT:"))
-            {
-                ProcessParentCommand(line);
-                return; // Done, proceed to render loop
-            }
-            else
-            {
-                Console.Error.WriteLine($"DEBUG: Ignoring command while waiting for PARENT: {line}");
-            }
-        }
-    }
-
-    /// <summary>
     /// Processes the PARENT command on the calling thread.
     /// </summary>
     private static void ProcessParentCommand(string line)
@@ -480,15 +447,10 @@ class Program
         }
     }
 
-    private static int _frameCount = 0;
-    private static DateTime _lastDebugTime = DateTime.MinValue;
 
     private static void RenderLoop()
     {
         Console.Error.WriteLine("DEBUG: RenderLoop started");
-        Console.Error.Flush();
-
-        Console.Error.WriteLine("DEBUG: Entering render loop while");
         Console.Error.Flush();
 
         while (_running)
@@ -505,12 +467,6 @@ class Program
                     DispatchMessage(ref msg);
                 }
 
-                if (_frameCount == 0)
-                {
-                    Console.Error.WriteLine($"DEBUG: First frame - processed {msgCount} messages");
-                    Console.Error.Flush();
-                }
-
                 // Check for pending PARENT command - must be processed on main thread
                 string? parentCmd = null;
                 lock (_parentLock)
@@ -520,32 +476,7 @@ class Program
                 }
                 if (parentCmd != null)
                 {
-                    Console.Error.WriteLine("DEBUG: Processing PARENT command on main thread (render loop)");
-                    Console.Error.Flush();
                     ProcessParentCommand(parentCmd);
-                }
-
-                // Debug: log first 10 frames to confirm loop is running
-                if (_frameCount < 10)
-                {
-                    Console.Error.WriteLine($"DEBUG: Render frame {_frameCount}");
-                    Console.Error.Flush();
-                }
-
-                _frameCount++;
-
-                // Debug output every 5 seconds - OUTSIDE the render block to always see this
-                if ((DateTime.Now - _lastDebugTime).TotalSeconds >= 5)
-                {
-                    bool hasRenderTarget = _d2dRenderTarget != null;
-                    bool hasSwapChain = _swapChain != null;
-                    Color4 color;
-                    lock (_colorLock)
-                    {
-                        color = _currentColor;
-                    }
-                    Console.Error.WriteLine($"DEBUG: Loop frame {_frameCount}, running={_running}, RT={hasRenderTarget}, SC={hasSwapChain}, color: R={color.R:F2} G={color.G:F2} B={color.B:F2}");
-                    _lastDebugTime = DateTime.Now;
                 }
 
                 if (_d2dRenderTarget != null && _swapChain != null)
@@ -556,29 +487,10 @@ class Program
                         color = _currentColor;
                     }
 
-                    if (_frameCount <= 1)
-                    {
-                        Console.Error.WriteLine($"DEBUG: Frame {_frameCount} - before BeginDraw");
-                        Console.Error.Flush();
-                    }
-
                     _d2dRenderTarget.BeginDraw();
                     _d2dRenderTarget.Clear(color);
                     _d2dRenderTarget.EndDraw(out _, out _);
-
-                    if (_frameCount <= 1)
-                    {
-                        Console.Error.WriteLine($"DEBUG: Frame {_frameCount} - before Present");
-                        Console.Error.Flush();
-                    }
-
                     _swapChain.Present(1, PresentFlags.None);
-
-                    if (_frameCount <= 1)
-                    {
-                        Console.Error.WriteLine($"DEBUG: Frame {_frameCount} - after Present");
-                        Console.Error.Flush();
-                    }
                 }
             }
             catch (Exception ex)
