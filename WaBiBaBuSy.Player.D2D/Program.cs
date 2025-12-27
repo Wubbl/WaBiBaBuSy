@@ -139,6 +139,10 @@ class Program
     private static readonly object _colorLock = new();
     private static Color4 _currentColor = new(1, 0, 0, 1); // Default red
 
+    // Pending PARENT command to be processed on main thread
+    private static volatile string? _pendingParentCommand = null;
+    private static readonly object _parentLock = new();
+
     static int Main(string[] args)
     {
         try
@@ -175,11 +179,13 @@ class Program
             Console.WriteLine($"HWND:{_hwnd.ToInt64()}");
             Console.Out.Flush();
 
-            // Start command processing in background (stdin is blocking)
+            // Start command processing in background
+            // PARENT commands will be queued and processed on main thread in render loop
             var commandThread = new Thread(ProcessCommands) { IsBackground = true };
             commandThread.Start();
 
-            // Run render loop with message pump on MAIN thread (required for window stability)
+            // Run render loop with message pump on MAIN thread
+            // This also processes pending PARENT commands to ensure thread affinity
             RenderLoop();
 
             // Cleanup
@@ -382,20 +388,164 @@ class Program
         _d2dRenderTarget = _d2dFactory.CreateDxgiSurfaceRenderTarget(backBuffer, renderTargetProps);
     }
 
+    /// <summary>
+    /// Waits for and processes the PARENT command on the main thread.
+    /// This must happen before the render loop starts to avoid cross-thread window issues.
+    /// </summary>
+    private static void WaitForParentCommand()
+    {
+        Console.Error.WriteLine("DEBUG: Waiting for PARENT command on main thread...");
+
+        while (true)
+        {
+            var line = Console.ReadLine();
+            if (line == null)
+            {
+                Console.Error.WriteLine("DEBUG: stdin closed while waiting for PARENT");
+                return;
+            }
+
+            line = line.Trim();
+            if (string.IsNullOrEmpty(line))
+                continue;
+
+            if (line.StartsWith("PARENT:"))
+            {
+                ProcessParentCommand(line);
+                return; // Done, proceed to render loop
+            }
+            else
+            {
+                Console.Error.WriteLine($"DEBUG: Ignoring command while waiting for PARENT: {line}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Processes the PARENT command on the calling thread.
+    /// </summary>
+    private static void ProcessParentCommand(string line)
+    {
+        var parts = line.Substring(7).Split(',');
+        if (parts.Length >= 1)
+        {
+            try
+            {
+                var parentHwnd = new IntPtr(long.Parse(parts[0]));
+                var zOrderHwnd = parts.Length >= 2 ? new IntPtr(long.Parse(parts[1])) : IntPtr.Zero;
+
+                Console.Error.WriteLine($"DEBUG: Parenting to {parentHwnd}, z-order below {zOrderHwnd}");
+
+                // Add WS_EX_TRANSPARENT for mouse pass-through
+                var exStyle = GetWindowLong(_hwnd, GWL_EXSTYLE);
+                SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT);
+                Console.Error.WriteLine($"DEBUG: Added WS_EX_TRANSPARENT");
+
+                // FIRST: SetParent to make us a sibling of DefView
+                var prevParent = SetParent(_hwnd, parentHwnd);
+                Console.Error.WriteLine($"DEBUG: SetParent result: prev={prevParent}, error={Marshal.GetLastWin32Error()}");
+
+                // THEN: Position behind DefView (now that we're siblings)
+                // When hWndInsertAfter is a window handle, we're placed AFTER it in z-order (behind it visually)
+                if (zOrderHwnd != IntPtr.Zero)
+                {
+                    SetWindowPos(_hwnd, zOrderHwnd, 0, 0, _width, _height, SWP_NOACTIVATE);
+                    Console.Error.WriteLine($"DEBUG: Positioned behind {zOrderHwnd} (DefView) - should be BEHIND icons");
+                }
+                else
+                {
+                    var HWND_BOTTOM = new IntPtr(1);
+                    SetWindowPos(_hwnd, HWND_BOTTOM, 0, 0, _width, _height, SWP_NOACTIVATE);
+                    Console.Error.WriteLine($"DEBUG: Positioned at HWND_BOTTOM");
+                }
+
+                // Show window
+                ShowWindow(_hwnd, 5); // SW_SHOW
+                UpdateWindow(_hwnd);
+                Console.Error.WriteLine($"DEBUG: Called ShowWindow");
+
+                Console.WriteLine("READY");
+                Console.Out.Flush();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"ERROR:PARENT failed: {ex.Message}");
+                Console.Out.Flush();
+            }
+        }
+        else
+        {
+            Console.WriteLine("ERROR:Invalid PARENT format");
+            Console.Out.Flush();
+        }
+    }
+
     private static int _frameCount = 0;
     private static DateTime _lastDebugTime = DateTime.MinValue;
 
     private static void RenderLoop()
     {
+        Console.Error.WriteLine("DEBUG: RenderLoop started");
+        Console.Error.Flush();
+
+        Console.Error.WriteLine("DEBUG: Entering render loop while");
+        Console.Error.Flush();
+
         while (_running)
         {
             try
             {
                 // Process Windows messages (CRITICAL for window stability!)
-                while (PeekMessage(out MSG msg, IntPtr.Zero, 0, 0, PM_REMOVE))
+                // Limit to 100 messages per frame to avoid infinite loops
+                int msgCount = 0;
+                while (PeekMessage(out MSG msg, IntPtr.Zero, 0, 0, PM_REMOVE) && msgCount < 100)
                 {
+                    msgCount++;
                     TranslateMessage(ref msg);
                     DispatchMessage(ref msg);
+                }
+
+                if (_frameCount == 0)
+                {
+                    Console.Error.WriteLine($"DEBUG: First frame - processed {msgCount} messages");
+                    Console.Error.Flush();
+                }
+
+                // Check for pending PARENT command - must be processed on main thread
+                string? parentCmd = null;
+                lock (_parentLock)
+                {
+                    parentCmd = _pendingParentCommand;
+                    _pendingParentCommand = null;
+                }
+                if (parentCmd != null)
+                {
+                    Console.Error.WriteLine("DEBUG: Processing PARENT command on main thread (render loop)");
+                    Console.Error.Flush();
+                    ProcessParentCommand(parentCmd);
+                }
+
+                // Debug: log first 10 frames to confirm loop is running
+                if (_frameCount < 10)
+                {
+                    Console.Error.WriteLine($"DEBUG: Render frame {_frameCount}");
+                    Console.Error.Flush();
+                }
+
+                _frameCount++;
+
+                // Debug output every 5 seconds - OUTSIDE the render block to always see this
+                if ((DateTime.Now - _lastDebugTime).TotalSeconds >= 5)
+                {
+                    bool hasRenderTarget = _d2dRenderTarget != null;
+                    bool hasSwapChain = _swapChain != null;
+                    Color4 color;
+                    lock (_colorLock)
+                    {
+                        color = _currentColor;
+                    }
+                    Console.Error.WriteLine($"DEBUG: Loop frame {_frameCount}, running={_running}, RT={hasRenderTarget}, SC={hasSwapChain}, color: R={color.R:F2} G={color.G:F2} B={color.B:F2}");
+                    _lastDebugTime = DateTime.Now;
                 }
 
                 if (_d2dRenderTarget != null && _swapChain != null)
@@ -406,28 +556,41 @@ class Program
                         color = _currentColor;
                     }
 
+                    if (_frameCount <= 1)
+                    {
+                        Console.Error.WriteLine($"DEBUG: Frame {_frameCount} - before BeginDraw");
+                        Console.Error.Flush();
+                    }
+
                     _d2dRenderTarget.BeginDraw();
                     _d2dRenderTarget.Clear(color);
                     _d2dRenderTarget.EndDraw(out _, out _);
+
+                    if (_frameCount <= 1)
+                    {
+                        Console.Error.WriteLine($"DEBUG: Frame {_frameCount} - before Present");
+                        Console.Error.Flush();
+                    }
+
                     _swapChain.Present(1, PresentFlags.None);
 
-                    _frameCount++;
-
-                    // Debug output every 5 seconds
-                    if ((DateTime.Now - _lastDebugTime).TotalSeconds >= 5)
+                    if (_frameCount <= 1)
                     {
-                        Console.Error.WriteLine($"DEBUG: Render loop running, frame {_frameCount}, color: R={color.R:F2} G={color.G:F2} B={color.B:F2}");
-                        _lastDebugTime = DateTime.Now;
+                        Console.Error.WriteLine($"DEBUG: Frame {_frameCount} - after Present");
+                        Console.Error.Flush();
                     }
                 }
             }
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"Render error: {ex.Message}");
+                Console.Error.WriteLine($"Render error stack: {ex.StackTrace}");
             }
 
             Thread.Sleep(16); // ~60 FPS
         }
+
+        Console.Error.WriteLine("DEBUG: RenderLoop exited");
     }
 
     private static void ProcessCommands()
@@ -450,68 +613,14 @@ class Program
 
                 if (line.StartsWith("PARENT:"))
                 {
-                    // Parse parent command: PARENT:parentHwnd,zOrderHwnd
-                    // e.g., PARENT:12345,67890
-                    var parts = line.Substring(7).Split(',');
-                    if (parts.Length >= 1)
+                    // Queue PARENT command to be processed on main thread (render loop)
+                    // This ensures window operations happen on the owning thread
+                    Console.Error.WriteLine("DEBUG: Queuing PARENT command for main thread");
+                    lock (_parentLock)
                     {
-                        try
-                        {
-                            var parentHwnd = new IntPtr(long.Parse(parts[0]));
-                            var zOrderHwnd = parts.Length >= 2 ? new IntPtr(long.Parse(parts[1])) : IntPtr.Zero;
-
-                            Console.Error.WriteLine($"DEBUG: Parenting to {parentHwnd}, z-order below {zOrderHwnd}");
-
-                            // Add WS_CHILD style
-                            var style = GetWindowLong(_hwnd, GWL_STYLE);
-                            SetWindowLong(_hwnd, GWL_STYLE, style | (int)WS_CHILD);
-                            Console.Error.WriteLine($"DEBUG: Added WS_CHILD style");
-
-                            // NOTE: Do NOT add WS_EX_LAYERED for DXGI swap chain windows!
-                            // WS_EX_LAYERED + SetLayeredWindowAttributes conflicts with DXGI Present()
-                            // The swap chain handles its own rendering without needing layered window attributes.
-                            Console.Error.WriteLine($"DEBUG: Skipping WS_EX_LAYERED (DXGI compatibility)");
-
-                            // Set parent
-                            var prevParent = SetParent(_hwnd, parentHwnd);
-                            if (prevParent == IntPtr.Zero && parentHwnd != IntPtr.Zero)
-                            {
-                                var error = Marshal.GetLastWin32Error();
-                                Console.WriteLine($"ERROR:SetParent failed with error {error}");
-                                Console.Out.Flush();
-                            }
-                            else
-                            {
-                                Console.Error.WriteLine($"DEBUG: SetParent succeeded, prev parent: {prevParent}");
-
-                                // Set z-order if provided
-                                if (zOrderHwnd != IntPtr.Zero)
-                                {
-                                    SetWindowPos(_hwnd, zOrderHwnd, 0, 0, 0, 0,
-                                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-                                    Console.Error.WriteLine($"DEBUG: Set z-order below {zOrderHwnd}");
-                                }
-
-                                // Add WS_EX_TRANSPARENT for mouse pass-through
-                                var exStyle = GetWindowLong(_hwnd, GWL_EXSTYLE);
-                                SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT);
-                                Console.Error.WriteLine($"DEBUG: Added WS_EX_TRANSPARENT");
-
-                                Console.WriteLine("READY");
-                                Console.Out.Flush();
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"ERROR:PARENT failed: {ex.Message}");
-                            Console.Out.Flush();
-                        }
+                        _pendingParentCommand = line;
                     }
-                    else
-                    {
-                        Console.WriteLine("ERROR:Invalid PARENT format. Use PARENT:parentHwnd,zOrderHwnd");
-                        Console.Out.Flush();
-                    }
+                    // Don't send READY yet - will be sent after main thread processes it
                 }
                 else if (line.StartsWith("COLOR:"))
                 {

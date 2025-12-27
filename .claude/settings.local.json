@@ -30,7 +30,9 @@
       "Bash(if exist \"CrossScreenFrameDisplayPlan.md\" del /F \"CrossScreenFrameDisplayPlan.md\")",
       "WebFetch(domain:www.nuget.org)",
       "Bash(if exist \"WaBiBaBuSy.WallpaperEngine\\\\Direct2D\\\\D2DRenderContext.cs\" del /F \"WaBiBaBuSy.WallpaperEngine\\\\Direct2D\\\\D2DRenderContext.cs\")",
-      "Bash(if exist \"WaBiBaBuSy.WallpaperEngine\\\\Direct2D\\\\D2DWallpaperWindow.cs\" del /F \"WaBiBaBuSy.WallpaperEngine\\\\Direct2D\\\\D2DWallpaperWindow.cs\")"
+      "Bash(if exist \"WaBiBaBuSy.WallpaperEngine\\\\Direct2D\\\\D2DWallpaperWindow.cs\" del /F \"WaBiBaBuSy.WallpaperEngine\\\\Direct2D\\\\D2DWallpaperWindow.cs\")",
+      "Bash(dotnet run:*)",
+      "Bash(timeout /t 5 /nobreak)"
     ],
     "deny": [],
     "ask": []
