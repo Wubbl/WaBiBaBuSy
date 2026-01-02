@@ -663,7 +663,18 @@ public partial class MainWindowViewModel : ViewModelBase
                 compositionRenderer);
 
             Debug.WriteLine($"[Direct2D] Initializing D2D composition service for monitor {monitorIndex}");
-            await d2dService.InitializeAsync(canvasManager, backgroundConfig, animationConfig, monitorIndex);
+
+            // Pass actual monitor bounds from Windows
+            var actualBounds = new System.Drawing.Rectangle(
+                screen.Bounds.X,
+                screen.Bounds.Y,
+                screen.Bounds.Width,
+                screen.Bounds.Height);
+
+            await d2dService.InitializeAsync(canvasManager, backgroundConfig, animationConfig, actualBounds, monitorIndex);
+
+            // Small delay to ensure player window is fully ready
+            await Task.Delay(100);
 
             // For static images, just render a single frame
             if (extension is ".jpg" or ".jpeg" or ".png" or ".bmp")

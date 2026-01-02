@@ -107,8 +107,21 @@ public class AnimationLayerRenderer : IDisposable
         // Calculate animation dimensions
         await CalculateAnimationDimensionsAsync(config);
 
-        // Initialize the start position (off-screen to the left)
-        _currentVirtualX = -_animationWidth;
+        // Initialize the start position
+        // For static images, center them on screen. For animations, start off-screen to the left
+        bool isStaticImage = extension is ".jpg" or ".jpeg" or ".png" or ".bmp";
+        if (isStaticImage)
+        {
+            // Center static images on the first screen (X=0)
+            _currentVirtualX = 0;
+            _logger.LogInformation("[AnimLayer] Static image positioned at X=0 (centered on first screen)");
+        }
+        else
+        {
+            // Animations start off-screen to the left
+            _currentVirtualX = -_animationWidth;
+            _logger.LogInformation("[AnimLayer] Animation positioned off-screen at X={X}", _currentVirtualX);
+        }
         CalculateVerticalPosition();
 
         // DO NOT set _animationStartTime here - let it be set by the render loop start
@@ -135,12 +148,18 @@ public class AnimationLayerRenderer : IDisposable
         // Store elapsed time for use by GetAnimationFrame()
         _currentElapsedMs = elapsedMs;
 
-        // Calculate new X position
-        var prevX = _currentVirtualX;
-        _currentVirtualX = (int)(-_animationWidth + (elapsedSeconds * pixelsPerSecond));
+        // Only update position for moving animations
+        // Static images should remain at their initial position (X=0)
+        if (pixelsPerSecond > 0)
+        {
+            // Calculate new X position for moving animations
+            var prevX = _currentVirtualX;
+            _currentVirtualX = (int)(-_animationWidth + (elapsedSeconds * pixelsPerSecond));
 
-        _logger.LogInformation("[AnimLayer-Detail] Position updated: X={X} (was {PrevX}), elapsed={Elapsed}s, pixelsPerSecond={PPS}, AnimWidth={AnimW}",
-            _currentVirtualX, prevX, elapsedSeconds, pixelsPerSecond, _animationWidth);
+            _logger.LogInformation("[AnimLayer-Detail] Position updated: X={X} (was {PrevX}), elapsed={Elapsed}s, pixelsPerSecond={PPS}, AnimWidth={AnimW}",
+                _currentVirtualX, prevX, elapsedSeconds, pixelsPerSecond, _animationWidth);
+        }
+        // For static images (pixelsPerSecond=0), X position remains unchanged at 0
     }
 
     /// <summary>

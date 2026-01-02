@@ -82,6 +82,7 @@ public class D2DCompositionService : IDisposable
         VirtualCanvasManager canvasManager,
         BackgroundLayerConfig backgroundConfig,
         AnimationLayerConfig animationConfig,
+        Rectangle actualMonitorBounds,
         int monitorIndex = 0,
         CancellationToken cancellationToken = default)
     {
@@ -104,7 +105,8 @@ public class D2DCompositionService : IDisposable
             var playerHost = new D2DPlayerHost(
                 screen,
                 _loggerFactory.CreateLogger<D2DPlayerHost>(),
-                _desktopWindowManager);
+                _desktopWindowManager,
+                actualMonitorBounds);
 
             await playerHost.InitializeAsync(cancellationToken);
 

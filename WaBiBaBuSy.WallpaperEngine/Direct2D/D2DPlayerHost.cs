@@ -16,6 +16,7 @@ public class D2DPlayerHost : IDisposable
     private readonly ILogger<D2DPlayerHost> _logger;
     private readonly DesktopWindowManager _desktopWindowManager;
     private readonly ScreenMapping _screen;
+    private readonly Rectangle _actualMonitorBounds;
 
     private Process? _playerProcess;
     private IntPtr _playerHwnd = IntPtr.Zero;
@@ -26,11 +27,13 @@ public class D2DPlayerHost : IDisposable
     public D2DPlayerHost(
         ScreenMapping screen,
         ILogger<D2DPlayerHost> logger,
-        DesktopWindowManager desktopWindowManager)
+        DesktopWindowManager desktopWindowManager,
+        Rectangle actualMonitorBounds)
     {
         _screen = screen ?? throw new ArgumentNullException(nameof(screen));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _desktopWindowManager = desktopWindowManager ?? throw new ArgumentNullException(nameof(desktopWindowManager));
+        _actualMonitorBounds = actualMonitorBounds;
     }
 
     /// <summary>
@@ -63,9 +66,11 @@ public class D2DPlayerHost : IDisposable
             var playerPath = FindPlayerExecutable();
             _logger.LogInformation("Player executable: {Path}", playerPath);
 
-            // Prepare command line arguments
-            var bounds = _screen.ScreenBounds;
+            // Prepare command line arguments using actual monitor bounds
+            var bounds = _actualMonitorBounds;
             var args = $"--bounds {bounds.X},{bounds.Y},{bounds.Width},{bounds.Height}";
+            _logger.LogInformation("Player window bounds: X={X}, Y={Y}, Width={W}, Height={H}",
+                bounds.X, bounds.Y, bounds.Width, bounds.Height);
 
             // Start the player process
             _playerProcess = new Process

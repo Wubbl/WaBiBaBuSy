@@ -140,7 +140,7 @@ class Program
     private static int _height;
     private static volatile bool _running = true;
     private static readonly object _colorLock = new();
-    private static Color4 _currentColor = new(1, 0, 0, 1); // Default red
+    private static Color4 _currentColor = new(0, 0, 0, 1); // Default black
     private static readonly object _frameLock = new();
     private static ID2D1Bitmap? _currentFrame = null;
 

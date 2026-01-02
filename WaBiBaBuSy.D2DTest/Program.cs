@@ -63,7 +63,8 @@ class Program
             using var host = new D2DPlayerHost(
                 screenMapping,
                 hostLogger,
-                desktopManager);
+                desktopManager,
+                primaryScreen);
 
             Console.WriteLine("Initializing player host (spawning player process)...");
             await host.InitializeAsync();
