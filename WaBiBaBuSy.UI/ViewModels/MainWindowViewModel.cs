@@ -19,6 +19,7 @@ using WaBiBaBuSy.Core.Services;
 using WaBiBaBuSy.Models;
 using WaBiBaBuSy.Models.Configuration;
 using WaBiBaBuSy.Models.Wallpaper;
+using WaBiBaBuSy.WallpaperEngine.Composition;
 using WaBiBaBuSy.WallpaperEngine.Native;
 using WaBiBaBuSy.WallpaperEngine.Renderers;
 using WaBiBaBuSy.WallpaperEngine.Services;
@@ -35,8 +36,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly VideoThumbnailGenerator _thumbnailGenerator;
     // Multi-monitor support: ConcurrentDictionary<monitorIndex, renderer> (thread-safe for gRPC callbacks)
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, IWallpaperRenderer> _localWallpaperRenderers = new();
-    // Local animation rendering services: ConcurrentDictionary<monitorIndex, service> (for Direct2D rendering)
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, LocalAnimationRenderingService> _localAnimationServices = new();
+    // D2D composition services: ConcurrentDictionary<monitorIndex, service> (for Direct2D rendering with separate player process)
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, D2DCompositionService> _d2dCompositionServices = new();
     // Debug flag: Enable/disable network topology debug output
     private static bool _enableNetworkTopologyDebugOutput = false;
 
@@ -272,6 +273,14 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private void SelectAllClients()
+    {
+        // Select all clients
+        foreach (var c in Clients)
+            c.IsSelected = true;
+    }
+
+    [RelayCommand]
     private void SelectWallpaper(WallpaperItemViewModel wallpaper)
     {
         SelectedWallpaper = wallpaper;
@@ -384,9 +393,9 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// TEST COMMAND: Apply wallpaper using Direct2D animation rendering path.
-    /// This is for testing the new LocalAnimationRenderingService + Composer + Direct2DRenderer.
-    /// Only applies to local monitors (animation files).
+    /// Apply wallpaper using the Direct2D composition pipeline (separate player process).
+    /// Uses D2DCompositionService + D2DPlayerHost for Windows 11 24H2+ compatibility.
+    /// Only applies to local monitors.
     /// </summary>
     [RelayCommand]
     private async Task ApplyWallpaperViaDirect2D()
@@ -557,32 +566,30 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// INTERNAL: Apply Direct2D animation rendering locally for testing
-    /// This is the new path using LocalAnimationRenderingService + Composer + Direct2DRenderer
+    /// INTERNAL: Apply Direct2D rendering using separate player process (Windows 11 24H2+ compatible).
+    /// This uses D2DCompositionService + D2DPlayerHost instead of the old Direct2DRenderer.
     /// </summary>
     private async Task ApplyWallpaperWithDirect2DAsync(WallpaperItemViewModel wallpaper, int monitorIndex = 0)
     {
         try
         {
-            Debug.WriteLine($"[Direct2D] Applying animation '{wallpaper.Name}' to monitor {monitorIndex} via Direct2D");
+            Debug.WriteLine($"[Direct2D] Applying '{wallpaper.Name}' to monitor {monitorIndex} via D2D separate process");
 
-            // Dispose previous animation service for this monitor if exists
-            if (_localAnimationServices.TryRemove(monitorIndex, out var existingService))
+            // Dispose previous composition service for this monitor if exists
+            if (_d2dCompositionServices.TryRemove(monitorIndex, out var existingService))
             {
-                Debug.WriteLine($"[Direct2D] Disposing existing animation service for monitor {monitorIndex}");
+                Debug.WriteLine($"[Direct2D] Disposing existing D2D composition service for monitor {monitorIndex}");
                 try
                 {
-                    // Only call Dispose() - it internally calls Stop() with proper synchronization
                     existingService.Dispose();
                     Debug.WriteLine($"[Direct2D] Successfully disposed existing service for monitor {monitorIndex}");
 
-                    // Give the system a moment to clean up before creating new service
-                    await Task.Delay(100);
+                    // Give the system a moment to clean up
+                    await Task.Delay(200);
                 }
                 catch (Exception disposeEx)
                 {
                     Debug.WriteLine($"[Direct2D] Error disposing existing service: {disposeEx.Message}");
-                    // Continue anyway - we'll try to create the new service
                 }
             }
 
@@ -605,53 +612,83 @@ public partial class MainWindowViewModel : ViewModelBase
 
             if (!isSupportedFile)
             {
-                Debug.WriteLine($"[Direct2D] File '{wallpaper.FilePath}' is not supported for Direct2D. Extension: {extension}");
+                Debug.WriteLine($"[Direct2D] File '{wallpaper.FilePath}' is not supported. Extension: {extension}");
                 return;
             }
 
-            // Create animation configuration
-            // For now, use solid color background with the animation file
+            // Get screen bounds for this monitor
+            var screen = screens[monitorIndex];
+
+            // Create screen configuration for the virtual canvas manager
+            var screenConfig = new WaBiBaBuSy.WallpaperEngine.Composition.ScreenConfiguration
+            {
+                ClientId = $"LOCAL_MACHINE_MONITOR_{monitorIndex}",
+                Order = 0, // Single screen, always order 0
+                Width = screen.Bounds.Width,
+                Height = screen.Bounds.Height,
+                PhysicalDistanceCm = 0
+            };
+
+            // Create canvas manager for single screen
+            var canvasManager = new VirtualCanvasManager(
+                _loggerFactory.CreateLogger<VirtualCanvasManager>());
+            canvasManager.CalculateLayout(new WaBiBaBuSy.WallpaperEngine.Composition.ScreenConfiguration[] { screenConfig });
+
+            // Create background configuration
             var backgroundConfig = new BackgroundLayerConfig
             {
                 Mode = BackgroundMode.SolidColor,
                 ColorHex = "#000000"
             };
 
+            // Create animation configuration
             var animationConfig = new AnimationLayerConfig
             {
                 AnimationPath = wallpaper.FilePath,
-                TargetHeight = 720,
+                TargetHeight = screen.Bounds.Height,
                 Loop = true,
                 VerticalAlign = VerticalAlignment.Center
             };
 
-            // Create and initialize the local animation rendering service
-            var animationService = new LocalAnimationRenderingService(
-                _loggerFactory.CreateLogger<LocalAnimationRenderingService>(),
-                _desktopManager,
+            // Create composition renderer
+            var compositionRenderer = new CompositionRenderer(
+                _loggerFactory.CreateLogger<CompositionRenderer>(),
                 _loggerFactory);
 
-            Debug.WriteLine($"[Direct2D] Initializing animation service for monitor {monitorIndex}");
-            await animationService.InitializeAsync(backgroundConfig, animationConfig, monitorIndex);
+            // Create D2D composition service (uses separate player process)
+            var d2dService = new D2DCompositionService(
+                _loggerFactory.CreateLogger<D2DCompositionService>(),
+                _loggerFactory,
+                _desktopManager,
+                compositionRenderer);
 
-            // Set animation speed (pixels per second)
-            animationService.SetPlaybackSpeed(500);
+            Debug.WriteLine($"[Direct2D] Initializing D2D composition service for monitor {monitorIndex}");
+            await d2dService.InitializeAsync(canvasManager, backgroundConfig, animationConfig, monitorIndex);
 
-            // Start rendering
-            Debug.WriteLine($"[Direct2D] Starting animation rendering for monitor {monitorIndex}");
-            animationService.Start();
+            // For static images, just render a single frame
+            if (extension is ".jpg" or ".jpeg" or ".png" or ".bmp")
+            {
+                Debug.WriteLine($"[Direct2D] Rendering static image");
+                await d2dService.RenderSingleFrameAsync(0, 0);
+            }
+            else
+            {
+                // For animations/videos, start the render loop
+                Debug.WriteLine($"[Direct2D] Starting render loop at {d2dService.TargetFps} FPS");
+                d2dService.Start(startTimestampMs: 0, pixelsPerSecond: 500);
+            }
 
             // Store the service for later cleanup
-            _localAnimationServices[monitorIndex] = animationService;
+            _d2dCompositionServices[monitorIndex] = d2dService;
 
             // Update UI
             var localClient = Clients.FirstOrDefault(c => c.ClientId == $"LOCAL_MACHINE_MONITOR_{monitorIndex}");
             if (localClient != null)
             {
-                localClient.CurrentWallpaper = $"{wallpaper.Name} (Direct2D)";
+                localClient.CurrentWallpaper = $"{wallpaper.Name} (D2D)";
             }
 
-            Debug.WriteLine($"[Direct2D] Successfully started animation rendering for '{wallpaper.Name}' on monitor {monitorIndex}");
+            Debug.WriteLine($"[Direct2D] Successfully started D2D rendering for '{wallpaper.Name}' on monitor {monitorIndex}");
         }
         catch (Exception ex)
         {
