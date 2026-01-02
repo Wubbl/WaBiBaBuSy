@@ -1,4 +1,6 @@
 using System.Runtime.InteropServices;
+using System.Drawing;
+using System.Drawing.Imaging;
 using Vortice.Direct2D1;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
@@ -17,7 +19,8 @@ namespace WaBiBaBuSy.Player.D2D;
 /// - On startup: outputs "HWND:&lt;handle&gt;" when window is ready
 /// - Commands (stdin):
 ///   - "COLOR:RRGGBB" - Fill with solid color
-///   - "FILE:&lt;path&gt;" - Load and display image file
+///   - "FRAME:&lt;base64_jpeg&gt;" - Display JPEG frame from base64 data
+///   - "FILE:&lt;path&gt;" - Load and display image file (future)
 ///   - "EXIT" - Clean shutdown
 /// - Responses (stdout):
 ///   - "READY" - Command completed
@@ -138,6 +141,8 @@ class Program
     private static volatile bool _running = true;
     private static readonly object _colorLock = new();
     private static Color4 _currentColor = new(1, 0, 0, 1); // Default red
+    private static readonly object _frameLock = new();
+    private static ID2D1Bitmap? _currentFrame = null;
 
     // Pending PARENT command to be processed on main thread
     private static volatile string? _pendingParentCommand = null;
@@ -481,14 +486,32 @@ class Program
 
                 if (_d2dRenderTarget != null && _swapChain != null)
                 {
-                    Color4 color;
-                    lock (_colorLock)
+                    _d2dRenderTarget.BeginDraw();
+
+                    // Check if we have a frame to display
+                    ID2D1Bitmap? frame = null;
+                    lock (_frameLock)
                     {
-                        color = _currentColor;
+                        frame = _currentFrame;
                     }
 
-                    _d2dRenderTarget.BeginDraw();
-                    _d2dRenderTarget.Clear(color);
+                    if (frame != null)
+                    {
+                        // Draw the bitmap frame (stretch to fill window)
+                        var destRect = new Vortice.RawRectF(0, 0, _width, _height);
+                        _d2dRenderTarget.DrawBitmap(frame, 1.0f, BitmapInterpolationMode.Linear, destRect);
+                    }
+                    else
+                    {
+                        // Fallback to solid color
+                        Color4 color;
+                        lock (_colorLock)
+                        {
+                            color = _currentColor;
+                        }
+                        _d2dRenderTarget.Clear(color);
+                    }
+
                     _d2dRenderTarget.EndDraw(out _, out _);
                     _swapChain.Present(1, PresentFlags.None);
                 }
@@ -560,6 +583,74 @@ class Program
                         Console.Out.Flush();
                     }
                 }
+                else if (line.StartsWith("FRAME:"))
+                {
+                    try
+                    {
+                        // Extract base64 data
+                        var base64Data = line.Substring(6);
+                        var jpegBytes = Convert.FromBase64String(base64Data);
+
+                        Console.Error.WriteLine($"DEBUG: Received frame data: {jpegBytes.Length} bytes");
+
+                        if (_d2dRenderTarget == null)
+                        {
+                            Console.WriteLine("ERROR:Renderer not initialized");
+                            Console.Out.Flush();
+                            continue;
+                        }
+
+                        // Decode JPEG using System.Drawing
+                        using var memStream = new MemoryStream(jpegBytes);
+                        using var gdiBitmap = new Bitmap(memStream);
+
+                        // Lock pixel data
+                        var bitmapData = gdiBitmap.LockBits(
+                            new Rectangle(0, 0, gdiBitmap.Width, gdiBitmap.Height),
+                            ImageLockMode.ReadOnly,
+                            System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+
+                        try
+                        {
+                            // Create D2D bitmap from pixel data
+                            var bitmapProps = new BitmapProperties
+                            {
+                                PixelFormat = new Vortice.DCommon.PixelFormat(
+                                    Format.B8G8R8A8_UNorm,
+                                    Vortice.DCommon.AlphaMode.Premultiplied),
+                                DpiX = 96.0f,
+                                DpiY = 96.0f
+                            };
+
+                            var newBitmap = _d2dRenderTarget.CreateBitmap(
+                                new Vortice.Mathematics.SizeI(gdiBitmap.Width, gdiBitmap.Height),
+                                bitmapData.Scan0,
+                                (uint)bitmapData.Stride,
+                                bitmapProps);
+
+                            // Dispose old frame and store new one
+                            lock (_frameLock)
+                            {
+                                _currentFrame?.Dispose();
+                                _currentFrame = newBitmap;
+                            }
+
+                            Console.Error.WriteLine($"DEBUG: Frame loaded successfully ({gdiBitmap.Width}x{gdiBitmap.Height})");
+                            Console.WriteLine("READY");
+                            Console.Out.Flush();
+                        }
+                        finally
+                        {
+                            gdiBitmap.UnlockBits(bitmapData);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"ERROR:Failed to load frame: {ex.Message}");
+                        Console.Error.WriteLine($"Frame error stack: {ex.StackTrace}");
+                        Console.Out.Flush();
+                    }
+                }
                 else if (line == "EXIT")
                 {
                     _running = false;
@@ -583,6 +674,13 @@ class Program
     private static void Cleanup()
     {
         _running = false;
+
+        // Dispose current frame
+        lock (_frameLock)
+        {
+            _currentFrame?.Dispose();
+            _currentFrame = null;
+        }
 
         _d2dRenderTarget?.Dispose();
         _swapChain?.Dispose();

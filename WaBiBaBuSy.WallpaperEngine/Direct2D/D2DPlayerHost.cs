@@ -249,6 +249,57 @@ public class D2DPlayerHost : IDisposable
     }
 
     /// <summary>
+    /// Sends a JPEG frame to the player process to display.
+    /// </summary>
+    /// <param name="jpegData">JPEG-encoded frame data</param>
+    public async Task SetFrameAsync(byte[] jpegData)
+    {
+        if (!IsRunning)
+        {
+            _logger.LogWarning("Cannot send frame: player not running");
+            return;
+        }
+
+        if (jpegData == null || jpegData.Length == 0)
+        {
+            _logger.LogWarning("Cannot send frame: data is null or empty");
+            return;
+        }
+
+        try
+        {
+            // Encode to base64
+            var base64 = Convert.ToBase64String(jpegData);
+            _logger.LogDebug("Sending frame: {Size} bytes ({Base64Size} base64)", jpegData.Length, base64.Length);
+
+            // Send FRAME command
+            await SendCommandAsync($"FRAME:{base64}");
+
+            // Wait for response
+            if (_playerProcess != null)
+            {
+                var response = await _playerProcess.StandardOutput.ReadLineAsync();
+                if (response?.StartsWith("ERROR:") == true)
+                {
+                    _logger.LogError("Player failed to display frame: {Error}", response);
+                }
+                else if (response == "READY")
+                {
+                    _logger.LogTrace("Frame displayed successfully");
+                }
+                else
+                {
+                    _logger.LogWarning("Unexpected response from player: {Response}", response);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send frame to player");
+        }
+    }
+
+    /// <summary>
     /// Sends a command to the player process.
     /// </summary>
     private async Task SendCommandAsync(string command)
