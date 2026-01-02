@@ -584,8 +584,13 @@ public partial class MainWindowViewModel : ViewModelBase
                     existingService.Dispose();
                     Debug.WriteLine($"[Direct2D] Successfully disposed existing service for monitor {monitorIndex}");
 
+                    // Force garbage collection to ensure processes are fully terminated
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect();
+
                     // Give the system a moment to clean up
-                    await Task.Delay(200);
+                    await Task.Delay(500);
                 }
                 catch (Exception disposeEx)
                 {
@@ -619,11 +624,14 @@ public partial class MainWindowViewModel : ViewModelBase
             // Get screen bounds for this monitor
             var screen = screens[monitorIndex];
 
+            Debug.WriteLine($"[Direct2D] Selected monitor {monitorIndex}: Position=({screen.Bounds.X},{screen.Bounds.Y}), Size={screen.Bounds.Width}x{screen.Bounds.Height}");
+            Debug.WriteLine($"[Direct2D] IsPrimary={screen.Primary}, DeviceName={screen.DeviceName}");
+
             // Create screen configuration for the virtual canvas manager
             var screenConfig = new WaBiBaBuSy.WallpaperEngine.Composition.ScreenConfiguration
             {
                 ClientId = $"LOCAL_MACHINE_MONITOR_{monitorIndex}",
-                Order = 0, // Single screen, always order 0
+                Order = monitorIndex, // Use actual monitor index, not always 0
                 Width = screen.Bounds.Width,
                 Height = screen.Bounds.Height,
                 PhysicalDistanceCm = 0
@@ -670,6 +678,8 @@ public partial class MainWindowViewModel : ViewModelBase
                 screen.Bounds.Y,
                 screen.Bounds.Width,
                 screen.Bounds.Height);
+
+            Debug.WriteLine($"[Direct2D] Passing actualBounds to service: X={actualBounds.X}, Y={actualBounds.Y}, W={actualBounds.Width}, H={actualBounds.Height}");
 
             await d2dService.InitializeAsync(canvasManager, backgroundConfig, animationConfig, actualBounds, monitorIndex);
 

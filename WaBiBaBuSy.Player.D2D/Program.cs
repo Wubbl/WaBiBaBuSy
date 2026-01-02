@@ -88,6 +88,7 @@ class Program
     private const uint SWP_NOACTIVATE = 0x0010;
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOSIZE = 0x0001;
+    private const uint SWP_SHOWWINDOW = 0x0040;
 
     [DllImport("user32.dll")]
     private static extern bool PeekMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
@@ -143,6 +144,8 @@ class Program
     private static Color4 _currentColor = new(0, 0, 0, 1); // Default black
     private static readonly object _frameLock = new();
     private static ID2D1Bitmap? _currentFrame = null;
+    private static volatile bool _windowShown = false; // Track if window has been shown (show on first frame)
+    private static IntPtr _zOrderReference = IntPtr.Zero; // Store z-order reference from PARENT command
 
     // Pending PARENT command to be processed on main thread
     private static volatile string? _pendingParentCommand = null;
@@ -273,11 +276,12 @@ class Program
 
             Console.Error.WriteLine($"DEBUG: Window class registered with atom: {_classAtom}");
 
+            // Create window HIDDEN initially - will be shown on first frame render
             _hwnd = CreateWindowExW(
                 WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
                 _windowClassName,
                 "WaBiBaBuSy Player",
-                WS_POPUP | WS_VISIBLE,
+                WS_POPUP, // No WS_VISIBLE - window starts hidden
                 x, y, width, height,
                 IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
 
@@ -287,9 +291,9 @@ class Program
                 throw new Exception($"Failed to create window. Error: {error}");
             }
 
-            Console.Error.WriteLine($"DEBUG: Window created: {_hwnd}");
+            Console.Error.WriteLine($"DEBUG: Window created (hidden): {_hwnd}");
 
-            ShowWindow(_hwnd, 5); // SW_SHOW
+            // Don't show window yet - will be shown on first frame render
             UpdateWindow(_hwnd);
         }
         finally
@@ -419,22 +423,23 @@ class Program
 
                 // THEN: Position behind DefView (now that we're siblings)
                 // When hWndInsertAfter is a window handle, we're placed AFTER it in z-order (behind it visually)
+                // Use SWP_NOMOVE | SWP_NOSIZE to preserve the window's position and size
                 if (zOrderHwnd != IntPtr.Zero)
                 {
-                    SetWindowPos(_hwnd, zOrderHwnd, 0, 0, _width, _height, SWP_NOACTIVATE);
+                    _zOrderReference = zOrderHwnd; // Store for later when showing window
+                    SetWindowPos(_hwnd, zOrderHwnd, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
                     Console.Error.WriteLine($"DEBUG: Positioned behind {zOrderHwnd} (DefView) - should be BEHIND icons");
                 }
                 else
                 {
+                    _zOrderReference = new IntPtr(1); // HWND_BOTTOM
                     var HWND_BOTTOM = new IntPtr(1);
-                    SetWindowPos(_hwnd, HWND_BOTTOM, 0, 0, _width, _height, SWP_NOACTIVATE);
+                    SetWindowPos(_hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
                     Console.Error.WriteLine($"DEBUG: Positioned at HWND_BOTTOM");
                 }
 
-                // Show window
-                ShowWindow(_hwnd, 5); // SW_SHOW
-                UpdateWindow(_hwnd);
-                Console.Error.WriteLine($"DEBUG: Called ShowWindow");
+                // Don't show window here - it will be shown on first frame render with correct z-order
+                Console.Error.WriteLine($"DEBUG: Window parented and positioned (still hidden until first frame)");
 
                 Console.WriteLine("READY");
                 Console.Out.Flush();
@@ -500,10 +505,37 @@ class Program
                         // Draw the bitmap frame (stretch to fill window)
                         var destRect = new Vortice.RawRectF(0, 0, _width, _height);
                         _d2dRenderTarget.DrawBitmap(frame, 1.0f, BitmapInterpolationMode.Linear, destRect);
+
+                        // Show window ONLY after first actual FRAME is rendered (not just black color)
+                        // This prevents black screen flash
+                        if (!_windowShown)
+                        {
+                            _windowShown = true;
+                            _d2dRenderTarget.EndDraw(out _, out _);
+                            _swapChain.Present(1, PresentFlags.None);
+
+                            // Use SetWindowPos with SWP_SHOWWINDOW to show window while maintaining z-order
+                            // This prevents the window from jumping to the front when shown
+                            if (_zOrderReference != IntPtr.Zero)
+                            {
+                                SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0,
+                                    SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                                Console.Error.WriteLine($"DEBUG: Window shown with SetWindowPos (maintaining z-order behind {_zOrderReference})");
+                            }
+                            else
+                            {
+                                ShowWindow(_hwnd, 5); // SW_SHOW (fallback)
+                                Console.Error.WriteLine($"DEBUG: Window shown with ShowWindow (fallback)");
+                            }
+
+                            UpdateWindow(_hwnd);
+                            Console.Error.WriteLine($"DEBUG: Window shown after first FRAME render");
+                            continue; // Skip second present below
+                        }
                     }
                     else
                     {
-                        // Fallback to solid color
+                        // Fallback to solid color (but don't show window yet if hidden)
                         Color4 color;
                         lock (_colorLock)
                         {
