@@ -274,8 +274,6 @@ class Program
                 throw new Exception($"Failed to register window class. Error: {error}");
             }
 
-            Console.Error.WriteLine($"DEBUG: Window class registered with atom: {_classAtom}");
-
             // Create window HIDDEN initially - will be shown on first frame render
             _hwnd = CreateWindowExW(
                 WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
@@ -290,8 +288,6 @@ class Program
                 var error = Marshal.GetLastWin32Error();
                 throw new Exception($"Failed to create window. Error: {error}");
             }
-
-            Console.Error.WriteLine($"DEBUG: Window created (hidden): {_hwnd}");
 
             // Don't show window yet - will be shown on first frame render
             UpdateWindow(_hwnd);
@@ -410,16 +406,12 @@ class Program
                 var parentHwnd = new IntPtr(long.Parse(parts[0]));
                 var zOrderHwnd = parts.Length >= 2 ? new IntPtr(long.Parse(parts[1])) : IntPtr.Zero;
 
-                Console.Error.WriteLine($"DEBUG: Parenting to {parentHwnd}, z-order below {zOrderHwnd}");
-
                 // Add WS_EX_TRANSPARENT for mouse pass-through
                 var exStyle = GetWindowLong(_hwnd, GWL_EXSTYLE);
                 SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT);
-                Console.Error.WriteLine($"DEBUG: Added WS_EX_TRANSPARENT");
 
                 // FIRST: SetParent to make us a sibling of DefView
                 var prevParent = SetParent(_hwnd, parentHwnd);
-                Console.Error.WriteLine($"DEBUG: SetParent result: prev={prevParent}, error={Marshal.GetLastWin32Error()}");
 
                 // THEN: Position behind DefView (now that we're siblings)
                 // When hWndInsertAfter is a window handle, we're placed AFTER it in z-order (behind it visually)
@@ -428,19 +420,15 @@ class Program
                 {
                     _zOrderReference = zOrderHwnd; // Store for later when showing window
                     SetWindowPos(_hwnd, zOrderHwnd, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
-                    Console.Error.WriteLine($"DEBUG: Positioned behind {zOrderHwnd} (DefView) - should be BEHIND icons");
                 }
                 else
                 {
                     _zOrderReference = new IntPtr(1); // HWND_BOTTOM
                     var HWND_BOTTOM = new IntPtr(1);
                     SetWindowPos(_hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
-                    Console.Error.WriteLine($"DEBUG: Positioned at HWND_BOTTOM");
                 }
 
                 // Don't show window here - it will be shown on first frame render with correct z-order
-                Console.Error.WriteLine($"DEBUG: Window parented and positioned (still hidden until first frame)");
-
                 Console.WriteLine("READY");
                 Console.Out.Flush();
             }
@@ -460,9 +448,6 @@ class Program
 
     private static void RenderLoop()
     {
-        Console.Error.WriteLine("DEBUG: RenderLoop started");
-        Console.Error.Flush();
-
         while (_running)
         {
             try
@@ -520,16 +505,13 @@ class Program
                             {
                                 SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0,
                                     SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-                                Console.Error.WriteLine($"DEBUG: Window shown with SetWindowPos (maintaining z-order behind {_zOrderReference})");
                             }
                             else
                             {
                                 ShowWindow(_hwnd, 5); // SW_SHOW (fallback)
-                                Console.Error.WriteLine($"DEBUG: Window shown with ShowWindow (fallback)");
                             }
 
                             UpdateWindow(_hwnd);
-                            Console.Error.WriteLine($"DEBUG: Window shown after first FRAME render");
                             continue; // Skip second present below
                         }
                     }
@@ -556,8 +538,6 @@ class Program
 
             Thread.Sleep(16); // ~60 FPS
         }
-
-        Console.Error.WriteLine("DEBUG: RenderLoop exited");
     }
 
     private static void ProcessCommands()
@@ -582,7 +562,6 @@ class Program
                 {
                     // Queue PARENT command to be processed on main thread (render loop)
                     // This ensures window operations happen on the owning thread
-                    Console.Error.WriteLine("DEBUG: Queuing PARENT command for main thread");
                     lock (_parentLock)
                     {
                         _pendingParentCommand = line;
@@ -605,7 +584,6 @@ class Program
                             _currentColor = newColor;
                         }
 
-                        Console.Error.WriteLine($"DEBUG: Color changed to R={r} G={g} B={b}");
                         Console.WriteLine("READY");
                         Console.Out.Flush();
                     }
@@ -622,8 +600,6 @@ class Program
                         // Extract base64 data
                         var base64Data = line.Substring(6);
                         var jpegBytes = Convert.FromBase64String(base64Data);
-
-                        Console.Error.WriteLine($"DEBUG: Received frame data: {jpegBytes.Length} bytes");
 
                         if (_d2dRenderTarget == null)
                         {
@@ -667,7 +643,6 @@ class Program
                                 _currentFrame = newBitmap;
                             }
 
-                            Console.Error.WriteLine($"DEBUG: Frame loaded successfully ({gdiBitmap.Width}x{gdiBitmap.Height})");
                             Console.WriteLine("READY");
                             Console.Out.Flush();
                         }
