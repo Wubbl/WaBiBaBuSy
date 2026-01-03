@@ -7,7 +7,7 @@
         x:Class="WaBiBaBuSy.UI.Views.CrossScreenConfigDialog"
         x:DataType="vm:CrossScreenConfigViewModel"
         Icon="/Assets/BiBaBuColorIcon.ico"
-        Title="Cross-Screen Configuration"
+        Title="Animation Configuration"
         Width="600" Height="550"
         WindowStartupLocation="CenterOwner"
         CanResize="False">
@@ -18,7 +18,7 @@
 
     <Grid RowDefinitions="Auto,*,Auto" Margin="20">
         <!-- Header -->
-        <TextBlock Grid.Row="0" Text="Cross-Screen Animation Configuration"
+        <TextBlock Grid.Row="0" Text="Animation Configuration"
                    FontSize="18" FontWeight="Bold" Margin="0,0,0,20"/>
 
         <!-- Configuration Form -->
@@ -129,10 +129,16 @@
                 </Border>
 
                 <!-- Monitor Selection Configuration -->
-                <Border Background="#2D2D30" CornerRadius="5" Padding="15" IsVisible="{Binding HasMultipleMonitors}">
+                <Border Background="#2D2D30" CornerRadius="5" Padding="15">
                     <StackPanel Spacing="10">
                         <TextBlock Text="Target Monitors" FontSize="14" FontWeight="SemiBold"/>
-                        <TextBlock Text="Select which monitors/clients should display this animation:" FontSize="11" Foreground="#AAAAAA"/>
+                        <TextBlock Text="Select which monitors/clients should display this animation (at least one required):" FontSize="11" Foreground="#AAAAAA" TextWrapping="Wrap"/>
+
+                        <!-- Show monitor list or helpful message if empty -->
+                        <Border IsVisible="{Binding !AvailableMonitors.Count}" Background="#3E3E42" CornerRadius="3" Padding="15" Margin="0,5,0,0">
+                            <TextBlock Text="No monitors detected. Please ensure the application has detected your local monitors or connected clients."
+                                       FontSize="11" Foreground="#CCCCCC" TextWrapping="Wrap"/>
+                        </Border>
 
                         <ItemsControl ItemsSource="{Binding AvailableMonitors}">
                             <ItemsControl.ItemTemplate>

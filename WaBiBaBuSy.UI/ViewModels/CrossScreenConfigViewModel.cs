@@ -341,6 +341,13 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             return;
         }
 
+        // Validate at least one monitor is selected
+        if (!AvailableMonitors.Any(m => m.IsSelected))
+        {
+            // TODO: Show error message - "Please select at least one monitor for the animation"
+            return;
+        }
+
         DialogResult = true;
         _closeAction?.Invoke();
     }
