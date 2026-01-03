@@ -128,6 +128,12 @@ public class AnimationLayerConfig
     /// Vertical alignment of the animation on the canvas
     /// </summary>
     public VerticalAlignment VerticalAlign { get; set; } = VerticalAlignment.Center;
+
+    /// <summary>
+    /// If true, start the animation centered (X=0) instead of off-screen.
+    /// Used for simple playback mode where we want stationary centered content.
+    /// </summary>
+    public bool CenterInitialPosition { get; set; } = false;
 }
 
 /// <summary>

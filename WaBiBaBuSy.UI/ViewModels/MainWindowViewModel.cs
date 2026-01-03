@@ -650,12 +650,14 @@ public partial class MainWindowViewModel : ViewModelBase
             };
 
             // Create animation configuration
+            // SIMPLE PLAYBACK MODE: Center the content and keep it stationary
             var animationConfig = new AnimationLayerConfig
             {
                 AnimationPath = wallpaper.FilePath,
                 TargetHeight = screen.Bounds.Height,
                 Loop = true,
-                VerticalAlign = VerticalAlignment.Center
+                VerticalAlign = VerticalAlignment.Center,
+                CenterInitialPosition = true  // Start centered, not off-screen
             };
 
             // Create composition renderer
@@ -695,8 +697,10 @@ public partial class MainWindowViewModel : ViewModelBase
             else
             {
                 // For animations/videos, start the render loop
-                Debug.WriteLine($"[Direct2D] Starting render loop at {d2dService.TargetFps} FPS");
-                d2dService.Start(startTimestampMs: 0, pixelsPerSecond: 500);
+                // SIMPLE PLAYBACK MODE: pixelsPerSecond = 0 means STATIONARY (centered, no movement)
+                // Animation mode would use pixelsPerSecond > 0 for cross-screen movement
+                Debug.WriteLine($"[Direct2D] Starting render loop at {d2dService.TargetFps} FPS (stationary playback)");
+                d2dService.Start(startTimestampMs: 0, pixelsPerSecond: 0);
             }
 
             // Store the service for later cleanup

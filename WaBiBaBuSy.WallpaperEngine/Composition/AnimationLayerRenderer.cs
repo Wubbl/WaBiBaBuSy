@@ -108,19 +108,23 @@ public class AnimationLayerRenderer : IDisposable
         await CalculateAnimationDimensionsAsync(config);
 
         // Initialize the start position
-        // For static images, center them on screen. For animations, start off-screen to the left
+        // For static images or centered playback mode, center them on screen
+        // For cross-screen animations, start off-screen to the left
         bool isStaticImage = extension is ".jpg" or ".jpeg" or ".png" or ".bmp";
-        if (isStaticImage)
+        bool shouldCenter = isStaticImage || config.CenterInitialPosition;
+
+        if (shouldCenter)
         {
-            // Center static images on the first screen (X=0)
+            // Center content on the screen (X=0)
             _currentVirtualX = 0;
-            _logger.LogInformation("[AnimLayer] Static image positioned at X=0 (centered on first screen)");
+            _logger.LogInformation("[AnimLayer] Content positioned at X=0 (centered - StaticImage={IsStatic}, CenterFlag={CenterFlag})",
+                isStaticImage, config.CenterInitialPosition);
         }
         else
         {
-            // Animations start off-screen to the left
+            // Animations start off-screen to the left for cross-screen movement
             _currentVirtualX = -_animationWidth;
-            _logger.LogInformation("[AnimLayer] Animation positioned off-screen at X={X}", _currentVirtualX);
+            _logger.LogInformation("[AnimLayer] Animation positioned off-screen at X={X} (cross-screen mode)", _currentVirtualX);
         }
         CalculateVerticalPosition();
 
