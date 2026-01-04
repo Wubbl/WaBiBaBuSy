@@ -176,12 +176,13 @@ class Program
     {
         try
         {
-            // Setup logging
+            // Setup logging - CRITICAL: All logs must go to stderr, not stdout!
+            // stdout is reserved for IPC protocol (HWND:, READY, ERROR:)
             using var loggerFactory = LoggerFactory.Create(builder =>
             {
                 builder.AddConsole(options =>
                 {
-                    options.LogToStandardErrorThreshold = LogLevel.Error;
+                    options.LogToStandardErrorThreshold = LogLevel.Trace; // ALL logs to stderr
                 });
                 builder.SetMinimumLevel(LogLevel.Information);
             });
@@ -521,12 +522,12 @@ class Program
                             var elapsedMs = (long)(DateTime.UtcNow - _renderLoopStart).TotalMilliseconds;
                             var currentTimestampMs = _startTimestampMs + elapsedMs;
 
+                            // CRITICAL: Update animation position BEFORE composing
+                            _compositionRenderer.UpdateAnimationPosition(currentTimestampMs, _pixelsPerSecond);
+
                             // Compose frame for this screen
                             var screen = _canvasManager.ScreenMappings[0]; // Single screen for this player
                             using var composedFrame = _compositionRenderer.ComposeForScreen(screen);
-
-                            // Update animation position
-                            _compositionRenderer.UpdateAnimationPosition(currentTimestampMs, _pixelsPerSecond);
 
                             // Convert System.Drawing.Bitmap to D2D bitmap
                             var d2dBitmap = ConvertBitmapToD2D(composedFrame);
@@ -587,9 +588,11 @@ class Program
                 _logger?.LogError(ex, "Render loop error");
             }
 
-            // Variable frame rate: use GIF frame delay if available, otherwise 60 FPS
-            // TODO: Get actual frame delay from GifWallpaperRenderer
-            Thread.Sleep(16); // Temporary: ~60 FPS
+            // Adaptive sleep based on content type
+            // For 60 FPS content: sleep 16ms
+            // For 10 FPS GIFs: sleep can be longer (e.g., 50-100ms)
+            // Using 16ms ensures we check for new frames frequently while not wasting CPU
+            Thread.Sleep(16);
         }
 
         _logger?.LogInformation("Render loop stopped");
@@ -739,29 +742,34 @@ class Program
     {
         try
         {
-            // Deserialize base message to get MessageType
-            var baseMsg = JsonConvert.DeserializeObject<PlayerMessageBase>(json);
-            if (baseMsg == null)
+            // Use MessageTypeWrapper to extract MessageType without deserializing the whole object
+            var wrapper = JsonConvert.DeserializeObject<MessageTypeWrapper>(json);
+            if (wrapper == null || string.IsNullOrEmpty(wrapper.MessageType))
             {
-                Console.WriteLine("ERROR:Failed to parse JSON message");
+                Console.WriteLine("ERROR:Failed to parse JSON message or missing MessageType");
                 Console.Out.Flush();
                 return;
             }
 
-            _logger?.LogDebug("JSON message type: {MessageType}", baseMsg.MessageType);
+            _logger?.LogDebug("JSON message type: {MessageType}", wrapper.MessageType);
 
-            switch (baseMsg.MessageType)
+            // Deserialize to the correct concrete type based on MessageType
+            switch (wrapper.MessageType)
             {
                 case "cmd_load_animation":
                     var loadCmd = JsonConvert.DeserializeObject<PlayerCommandLoadAnimation>(json);
                     if (loadCmd != null)
                         HandleLoadAnimationCommand(loadCmd);
+                    else
+                        Console.WriteLine("ERROR:Failed to deserialize PlayerCommandLoadAnimation");
                     break;
 
                 case "cmd_start_animation":
                     var startCmd = JsonConvert.DeserializeObject<PlayerCommandStartAnimation>(json);
                     if (startCmd != null)
                         HandleStartAnimationCommand(startCmd);
+                    else
+                        Console.WriteLine("ERROR:Failed to deserialize PlayerCommandStartAnimation");
                     break;
 
                 case "cmd_stop_animation":
@@ -769,7 +777,7 @@ class Program
                     break;
 
                 default:
-                    Console.WriteLine($"ERROR:Unknown JSON message type: {baseMsg.MessageType}");
+                    Console.WriteLine($"ERROR:Unknown JSON message type: {wrapper.MessageType}");
                     Console.Out.Flush();
                     break;
             }
@@ -820,7 +828,10 @@ class Program
                 // Create composition renderer
                 var loggerFactory = LoggerFactory.Create(builder =>
                 {
-                    builder.AddConsole();
+                    builder.AddConsole(options =>
+                    {
+                        options.LogToStandardErrorThreshold = LogLevel.Trace; // ALL logs to stderr
+                    });
                     builder.SetMinimumLevel(LogLevel.Information);
                 });
 
