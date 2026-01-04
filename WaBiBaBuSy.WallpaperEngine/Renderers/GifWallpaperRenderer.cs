@@ -255,6 +255,19 @@ public class GifWallpaperRenderer : IWallpaperRenderer
             if (_gifImage == null || _frameDimension == null || _frameDelays == null)
                 throw new InvalidOperationException("Renderer not initialized");
 
+            // Calculate total animation duration for looping
+            long totalDurationMs = 0;
+            for (int i = 0; i < _frameCount; i++)
+            {
+                totalDurationMs += _frameDelays[i];
+            }
+
+            // Handle looping: wrap timestamp around total duration
+            if (totalDurationMs > 0)
+            {
+                timestampMs = timestampMs % totalDurationMs;
+            }
+
             // Calculate which frame corresponds to this timestamp
             long accumulatedMs = 0;
             int frameIndex = 0;
@@ -268,10 +281,6 @@ public class GifWallpaperRenderer : IWallpaperRenderer
                     break;
                 }
             }
-
-            // If we've gone past all frames, loop back to start
-            if (frameIndex >= _frameCount)
-                frameIndex = 0;
 
             // Select the frame and convert to Bitmap
             _gifImage.SelectActiveFrame(_frameDimension, frameIndex);

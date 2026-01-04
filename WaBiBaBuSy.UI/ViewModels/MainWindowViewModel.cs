@@ -661,18 +661,13 @@ public partial class MainWindowViewModel : ViewModelBase
             };
 
             // Create composition renderer
-            var compositionRenderer = new CompositionRenderer(
-                _loggerFactory.CreateLogger<CompositionRenderer>(),
-                _loggerFactory);
-
-            // Create D2D composition service (uses separate player process)
+            // Create D2D composition service (metadata-based, no CompositionRenderer needed in main process)
             var d2dService = new D2DCompositionService(
                 _loggerFactory.CreateLogger<D2DCompositionService>(),
                 _loggerFactory,
-                _desktopManager,
-                compositionRenderer);
+                _desktopManager);
 
-            Debug.WriteLine($"[Direct2D] Initializing D2D composition service for monitor {monitorIndex}");
+            Debug.WriteLine($"[Direct2D] Initializing D2D composition service for monitor {monitorIndex} (metadata-based)");
 
             // Pass actual monitor bounds from Windows
             var actualBounds = new System.Drawing.Rectangle(
@@ -683,25 +678,17 @@ public partial class MainWindowViewModel : ViewModelBase
 
             Debug.WriteLine($"[Direct2D] Passing actualBounds to service: X={actualBounds.X}, Y={actualBounds.Y}, W={actualBounds.Width}, H={actualBounds.Height}");
 
+            // Initialize: sends LOAD_ANIMATION command with metadata to player
             await d2dService.InitializeAsync(canvasManager, backgroundConfig, animationConfig, actualBounds, monitorIndex);
 
-            // Small delay to ensure player window is fully ready
+            // Small delay to ensure player has loaded animation
             await Task.Delay(100);
 
-            // For static images, just render a single frame
-            if (extension is ".jpg" or ".jpeg" or ".png" or ".bmp")
-            {
-                Debug.WriteLine($"[Direct2D] Rendering static image");
-                await d2dService.RenderSingleFrameAsync(0, 0);
-            }
-            else
-            {
-                // For animations/videos, start the render loop
-                // SIMPLE PLAYBACK MODE: pixelsPerSecond = 0 means STATIONARY (centered, no movement)
-                // Animation mode would use pixelsPerSecond > 0 for cross-screen movement
-                Debug.WriteLine($"[Direct2D] Starting render loop at {d2dService.TargetFps} FPS (stationary playback)");
-                d2dService.Start(startTimestampMs: 0, pixelsPerSecond: 0);
-            }
+            // Start playback (works for both static images and animations)
+            // SIMPLE PLAYBACK MODE: pixelsPerSecond = 0 means STATIONARY (centered, no movement)
+            // Animation mode would use pixelsPerSecond > 0 for cross-screen movement
+            Debug.WriteLine($"[Direct2D] Starting animation playback (metadata-based, players render locally)");
+            await d2dService.StartAsync(startTimestampMs: 0, pixelsPerSecond: 0);
 
             // Store the service for later cleanup
             _d2dCompositionServices[monitorIndex] = d2dService;

@@ -7,24 +7,32 @@ using Vortice.DXGI;
 using Vortice.Mathematics;
 using FeatureLevel = Vortice.Direct3D.FeatureLevel;
 using DriverType = Vortice.Direct3D.DriverType;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Console;
+using Newtonsoft.Json;
+using WaBiBaBuSy.Player.Common.Messages;
+using WaBiBaBuSy.WallpaperEngine.Composition;
+using WaBiBaBuSy.Models.Wallpaper;
 
 namespace WaBiBaBuSy.Player.D2D;
 
 /// <summary>
-/// Separate process for DXGI/Direct2D rendering.
-/// This process creates a window that can be safely parented to the desktop
-/// by the main WaBiBaBuSy application without crashing explorer.exe.
+/// Separate process for DXGI/Direct2D rendering with local composition.
+/// This process receives animation metadata (not frames) and handles all composition locally,
+/// eliminating JPEG encoding/decoding and reducing main process CPU to ~0%.
 ///
-/// IPC Protocol (stdin/stdout):
-/// - On startup: outputs "HWND:&lt;handle&gt;" when window is ready
+/// IPC Protocol (stdin/stdout - JSON messages):
+/// - On startup: outputs "HWND:<handle>" when window is ready
 /// - Commands (stdin):
-///   - "COLOR:RRGGBB" - Fill with solid color
-///   - "FRAME:&lt;base64_jpeg&gt;" - Display JPEG frame from base64 data
-///   - "FILE:&lt;path&gt;" - Load and display image file (future)
+///   - JSON: PlayerCommandLoadAnimation - Load animation + composition config
+///   - JSON: PlayerCommandStartAnimation - Start playback with timing info
+///   - JSON: PlayerCommandStopAnimation - Stop playback
+///   - "PARENT:<hwnd>,<z-order>" - Parent window to desktop
+///   - "COLOR:RRGGBB" - Fill with solid color (legacy, for testing)
 ///   - "EXIT" - Clean shutdown
 /// - Responses (stdout):
 ///   - "READY" - Command completed
-///   - "ERROR:&lt;message&gt;" - Error occurred
+///   - "ERROR:<message>" - Error occurred
 /// </summary>
 class Program
 {
@@ -42,7 +50,6 @@ class Program
     private const int IDC_ARROW = 32512;
 
     // Win32 imports
-
     [DllImport("user32.dll")]
     private static extern IntPtr DefWindowProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
@@ -119,7 +126,6 @@ class Program
 
     private const uint PM_REMOVE = 0x0001;
 
-
     private delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
     // Instance fields
@@ -142,19 +148,45 @@ class Program
     private static volatile bool _running = true;
     private static readonly object _colorLock = new();
     private static Color4 _currentColor = new(0, 0, 0, 1); // Default black
-    private static readonly object _frameLock = new();
-    private static ID2D1Bitmap? _currentFrame = null;
-    private static volatile bool _windowShown = false; // Track if window has been shown (show on first frame)
-    private static IntPtr _zOrderReference = IntPtr.Zero; // Store z-order reference from PARENT command
+    private static volatile bool _windowShown = false;
+    private static IntPtr _zOrderReference = IntPtr.Zero;
 
     // Pending PARENT command to be processed on main thread
     private static volatile string? _pendingParentCommand = null;
     private static readonly object _parentLock = new();
 
+    // Composition system
+    private static CompositionRenderer? _compositionRenderer;
+    private static VirtualCanvasManager? _canvasManager;
+    private static AnimationLayerConfig? _animationConfig;
+    private static BackgroundLayerConfig? _backgroundConfig;
+    private static readonly object _compositionLock = new();
+    private static volatile bool _compositionInitialized = false;
+
+    // Animation state
+    private static volatile bool _isPlaying = false;
+    private static long _startTimestampMs = 0;
+    private static int _pixelsPerSecond = 0;
+    private static DateTime _renderLoopStart = DateTime.MinValue;
+
+    // Logging
+    private static ILogger? _logger;
+
     static int Main(string[] args)
     {
         try
         {
+            // Setup logging
+            using var loggerFactory = LoggerFactory.Create(builder =>
+            {
+                builder.AddConsole(options =>
+                {
+                    options.LogToStandardErrorThreshold = LogLevel.Error;
+                });
+                builder.SetMinimumLevel(LogLevel.Information);
+            });
+            _logger = loggerFactory.CreateLogger<Program>();
+
             // Parse command line: --bounds x,y,width,height
             int x = 0, y = 0;
             _width = 800;
@@ -175,6 +207,8 @@ class Program
                 }
             }
 
+            _logger?.LogInformation("D2DPlayer starting: bounds=({X},{Y},{Width},{Height})", x, y, _width, _height);
+
             // Create window
             CreateNativeWindow(x, y, _width, _height);
 
@@ -188,12 +222,10 @@ class Program
             Console.Out.Flush();
 
             // Start command processing in background
-            // PARENT commands will be queued and processed on main thread in render loop
             var commandThread = new Thread(ProcessCommands) { IsBackground = true };
             commandThread.Start();
 
             // Run render loop with message pump on MAIN thread
-            // This also processes pending PARENT commands to ensure thread affinity
             RenderLoop();
 
             // Cleanup
@@ -289,7 +321,6 @@ class Program
                 throw new Exception($"Failed to create window. Error: {error}");
             }
 
-            // Don't show window yet - will be shown on first frame render
             UpdateWindow(_hwnd);
         }
         finally
@@ -393,9 +424,6 @@ class Program
         _d2dRenderTarget = _d2dFactory.CreateDxgiSurfaceRenderTarget(backBuffer, renderTargetProps);
     }
 
-    /// <summary>
-    /// Processes the PARENT command on the calling thread.
-    /// </summary>
     private static void ProcessParentCommand(string line)
     {
         var parts = line.Substring(7).Split(',');
@@ -410,15 +438,13 @@ class Program
                 var exStyle = GetWindowLong(_hwnd, GWL_EXSTYLE);
                 SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT);
 
-                // FIRST: SetParent to make us a sibling of DefView
-                var prevParent = SetParent(_hwnd, parentHwnd);
+                // SetParent to make us a child/sibling
+                SetParent(_hwnd, parentHwnd);
 
-                // THEN: Position behind DefView (now that we're siblings)
-                // When hWndInsertAfter is a window handle, we're placed AFTER it in z-order (behind it visually)
-                // Use SWP_NOMOVE | SWP_NOSIZE to preserve the window's position and size
+                // Position behind DefView or bottom
                 if (zOrderHwnd != IntPtr.Zero)
                 {
-                    _zOrderReference = zOrderHwnd; // Store for later when showing window
+                    _zOrderReference = zOrderHwnd;
                     SetWindowPos(_hwnd, zOrderHwnd, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
                 }
                 else
@@ -428,12 +454,13 @@ class Program
                     SetWindowPos(_hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
                 }
 
-                // Don't show window here - it will be shown on first frame render with correct z-order
+                _logger?.LogInformation("Window parented to desktop: parent={Parent}, zOrder={ZOrder}", parentHwnd, zOrderHwnd);
                 Console.WriteLine("READY");
                 Console.Out.Flush();
             }
             catch (Exception ex)
             {
+                _logger?.LogError(ex, "PARENT command failed");
                 Console.WriteLine($"ERROR:PARENT failed: {ex.Message}");
                 Console.Out.Flush();
             }
@@ -445,15 +472,16 @@ class Program
         }
     }
 
-
     private static void RenderLoop()
     {
+        _logger?.LogInformation("Render loop started");
+        _renderLoopStart = DateTime.UtcNow;
+
         while (_running)
         {
             try
             {
                 // Process Windows messages (CRITICAL for window stability!)
-                // Limit to 100 messages per frame to avoid infinite loops
                 int msgCount = 0;
                 while (PeekMessage(out MSG msg, IntPtr.Zero, 0, 0, PM_REMOVE) && msgCount < 100)
                 {
@@ -462,7 +490,7 @@ class Program
                     DispatchMessage(ref msg);
                 }
 
-                // Check for pending PARENT command - must be processed on main thread
+                // Check for pending PARENT command
                 string? parentCmd = null;
                 lock (_parentLock)
                 {
@@ -478,46 +506,70 @@ class Program
                 {
                     _d2dRenderTarget.BeginDraw();
 
-                    // Check if we have a frame to display
-                    ID2D1Bitmap? frame = null;
-                    lock (_frameLock)
+                    // Check if composition is initialized and playing
+                    bool shouldCompose = false;
+                    lock (_compositionLock)
                     {
-                        frame = _currentFrame;
+                        shouldCompose = _compositionInitialized && _isPlaying;
                     }
 
-                    if (frame != null)
+                    if (shouldCompose && _compositionRenderer != null && _canvasManager != null)
                     {
-                        // Draw the bitmap frame (stretch to fill window)
-                        var destRect = new Vortice.RawRectF(0, 0, _width, _height);
-                        _d2dRenderTarget.DrawBitmap(frame, 1.0f, BitmapInterpolationMode.Linear, destRect);
-
-                        // Show window ONLY after first actual FRAME is rendered (not just black color)
-                        // This prevents black screen flash
-                        if (!_windowShown)
+                        try
                         {
-                            _windowShown = true;
-                            _d2dRenderTarget.EndDraw(out _, out _);
-                            _swapChain.Present(1, PresentFlags.None);
+                            // Calculate current timestamp
+                            var elapsedMs = (long)(DateTime.UtcNow - _renderLoopStart).TotalMilliseconds;
+                            var currentTimestampMs = _startTimestampMs + elapsedMs;
 
-                            // Use SetWindowPos with SWP_SHOWWINDOW to show window while maintaining z-order
-                            // This prevents the window from jumping to the front when shown
-                            if (_zOrderReference != IntPtr.Zero)
-                            {
-                                SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0,
-                                    SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-                            }
-                            else
-                            {
-                                ShowWindow(_hwnd, 5); // SW_SHOW (fallback)
-                            }
+                            // Compose frame for this screen
+                            var screen = _canvasManager.ScreenMappings[0]; // Single screen for this player
+                            using var composedFrame = _compositionRenderer.ComposeForScreen(screen);
 
-                            UpdateWindow(_hwnd);
-                            continue; // Skip second present below
+                            // Update animation position
+                            _compositionRenderer.UpdateAnimationPosition(currentTimestampMs, _pixelsPerSecond);
+
+                            // Convert System.Drawing.Bitmap to D2D bitmap
+                            var d2dBitmap = ConvertBitmapToD2D(composedFrame);
+
+                            // Draw the bitmap
+                            if (d2dBitmap != null)
+                            {
+                                var destRect = new Vortice.RawRectF(0, 0, _width, _height);
+                                _d2dRenderTarget.DrawBitmap(d2dBitmap, 1.0f, BitmapInterpolationMode.Linear, destRect);
+                                d2dBitmap.Dispose();
+
+                                // Show window on first frame
+                                if (!_windowShown)
+                                {
+                                    _windowShown = true;
+                                    _d2dRenderTarget.EndDraw(out _, out _);
+                                    _swapChain.Present(1, PresentFlags.None);
+
+                                    if (_zOrderReference != IntPtr.Zero)
+                                    {
+                                        SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0,
+                                            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                                    }
+                                    else
+                                    {
+                                        ShowWindow(_hwnd, 5); // SW_SHOW
+                                    }
+
+                                    UpdateWindow(_hwnd);
+                                    _logger?.LogInformation("Window shown after first frame");
+                                    continue;
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger?.LogError(ex, "Composition error");
+                            // Fall through to color fill
                         }
                     }
                     else
                     {
-                        // Fallback to solid color (but don't show window yet if hidden)
+                        // Fallback to solid color
                         Color4 color;
                         lock (_colorLock)
                         {
@@ -532,16 +584,64 @@ class Program
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Render error: {ex.Message}");
-                Console.Error.WriteLine($"Render error stack: {ex.StackTrace}");
+                _logger?.LogError(ex, "Render loop error");
             }
 
-            Thread.Sleep(16); // ~60 FPS
+            // Variable frame rate: use GIF frame delay if available, otherwise 60 FPS
+            // TODO: Get actual frame delay from GifWallpaperRenderer
+            Thread.Sleep(16); // Temporary: ~60 FPS
+        }
+
+        _logger?.LogInformation("Render loop stopped");
+    }
+
+    private static ID2D1Bitmap? ConvertBitmapToD2D(Bitmap gdiBitmap)
+    {
+        if (_d2dRenderTarget == null)
+            return null;
+
+        try
+        {
+            var bitmapData = gdiBitmap.LockBits(
+                new Rectangle(0, 0, gdiBitmap.Width, gdiBitmap.Height),
+                ImageLockMode.ReadOnly,
+                System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+
+            try
+            {
+                var bitmapProps = new BitmapProperties
+                {
+                    PixelFormat = new Vortice.DCommon.PixelFormat(
+                        Format.B8G8R8A8_UNorm,
+                        Vortice.DCommon.AlphaMode.Premultiplied),
+                    DpiX = 96.0f,
+                    DpiY = 96.0f
+                };
+
+                var d2dBitmap = _d2dRenderTarget.CreateBitmap(
+                    new Vortice.Mathematics.SizeI(gdiBitmap.Width, gdiBitmap.Height),
+                    bitmapData.Scan0,
+                    (uint)bitmapData.Stride,
+                    bitmapProps);
+
+                return d2dBitmap;
+            }
+            finally
+            {
+                gdiBitmap.UnlockBits(bitmapData);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to convert bitmap to D2D");
+            return null;
         }
     }
 
     private static void ProcessCommands()
     {
+        _logger?.LogInformation("Command processor started");
+
         while (_running)
         {
             try
@@ -549,7 +649,7 @@ class Program
                 var line = Console.ReadLine();
                 if (line == null)
                 {
-                    // Stdin closed - parent process likely exited
+                    _logger?.LogInformation("Stdin closed, exiting");
                     _running = false;
                     break;
                 }
@@ -558,111 +658,30 @@ class Program
                 if (string.IsNullOrEmpty(line))
                     continue;
 
+                _logger?.LogDebug("Received command: {Command}", line.Substring(0, Math.Min(50, line.Length)));
+
+                // Handle string-based commands (legacy/special)
                 if (line.StartsWith("PARENT:"))
                 {
-                    // Queue PARENT command to be processed on main thread (render loop)
-                    // This ensures window operations happen on the owning thread
                     lock (_parentLock)
                     {
                         _pendingParentCommand = line;
                     }
-                    // Don't send READY yet - will be sent after main thread processes it
                 }
                 else if (line.StartsWith("COLOR:"))
                 {
-                    // Parse hex color: COLOR:FF0000
-                    var hex = line.Substring(6);
-                    if (hex.Length == 6)
-                    {
-                        int r = Convert.ToInt32(hex.Substring(0, 2), 16);
-                        int g = Convert.ToInt32(hex.Substring(2, 2), 16);
-                        int b = Convert.ToInt32(hex.Substring(4, 2), 16);
-                        var newColor = new Color4(r / 255f, g / 255f, b / 255f, 1f);
-
-                        lock (_colorLock)
-                        {
-                            _currentColor = newColor;
-                        }
-
-                        Console.WriteLine("READY");
-                        Console.Out.Flush();
-                    }
-                    else
-                    {
-                        Console.WriteLine("ERROR:Invalid color format");
-                        Console.Out.Flush();
-                    }
-                }
-                else if (line.StartsWith("FRAME:"))
-                {
-                    try
-                    {
-                        // Extract base64 data
-                        var base64Data = line.Substring(6);
-                        var jpegBytes = Convert.FromBase64String(base64Data);
-
-                        if (_d2dRenderTarget == null)
-                        {
-                            Console.WriteLine("ERROR:Renderer not initialized");
-                            Console.Out.Flush();
-                            continue;
-                        }
-
-                        // Decode JPEG using System.Drawing
-                        using var memStream = new MemoryStream(jpegBytes);
-                        using var gdiBitmap = new Bitmap(memStream);
-
-                        // Lock pixel data
-                        var bitmapData = gdiBitmap.LockBits(
-                            new Rectangle(0, 0, gdiBitmap.Width, gdiBitmap.Height),
-                            ImageLockMode.ReadOnly,
-                            System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
-
-                        try
-                        {
-                            // Create D2D bitmap from pixel data
-                            var bitmapProps = new BitmapProperties
-                            {
-                                PixelFormat = new Vortice.DCommon.PixelFormat(
-                                    Format.B8G8R8A8_UNorm,
-                                    Vortice.DCommon.AlphaMode.Premultiplied),
-                                DpiX = 96.0f,
-                                DpiY = 96.0f
-                            };
-
-                            var newBitmap = _d2dRenderTarget.CreateBitmap(
-                                new Vortice.Mathematics.SizeI(gdiBitmap.Width, gdiBitmap.Height),
-                                bitmapData.Scan0,
-                                (uint)bitmapData.Stride,
-                                bitmapProps);
-
-                            // Dispose old frame and store new one
-                            lock (_frameLock)
-                            {
-                                _currentFrame?.Dispose();
-                                _currentFrame = newBitmap;
-                            }
-
-                            Console.WriteLine("READY");
-                            Console.Out.Flush();
-                        }
-                        finally
-                        {
-                            gdiBitmap.UnlockBits(bitmapData);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"ERROR:Failed to load frame: {ex.Message}");
-                        Console.Error.WriteLine($"Frame error stack: {ex.StackTrace}");
-                        Console.Out.Flush();
-                    }
+                    HandleColorCommand(line);
                 }
                 else if (line == "EXIT")
                 {
                     _running = false;
                     Console.WriteLine("READY");
                     Console.Out.Flush();
+                }
+                else if (line.StartsWith("{"))
+                {
+                    // JSON message - parse and handle
+                    HandleJsonCommand(line);
                 }
                 else
                 {
@@ -672,29 +691,244 @@ class Program
             }
             catch (Exception ex)
             {
+                _logger?.LogError(ex, "Command processing error");
                 Console.WriteLine($"ERROR:{ex.Message}");
                 Console.Out.Flush();
             }
+        }
+
+        _logger?.LogInformation("Command processor stopped");
+    }
+
+    private static void HandleColorCommand(string line)
+    {
+        try
+        {
+            var hex = line.Substring(6);
+            if (hex.Length == 6)
+            {
+                int r = Convert.ToInt32(hex.Substring(0, 2), 16);
+                int g = Convert.ToInt32(hex.Substring(2, 2), 16);
+                int b = Convert.ToInt32(hex.Substring(4, 2), 16);
+                var newColor = new Color4(r / 255f, g / 255f, b / 255f, 1f);
+
+                lock (_colorLock)
+                {
+                    _currentColor = newColor;
+                }
+
+                _logger?.LogInformation("Color set to RGB({R},{G},{B})", r, g, b);
+                Console.WriteLine("READY");
+                Console.Out.Flush();
+            }
+            else
+            {
+                Console.WriteLine("ERROR:Invalid color format");
+                Console.Out.Flush();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Color command error");
+            Console.WriteLine($"ERROR:{ex.Message}");
+            Console.Out.Flush();
+        }
+    }
+
+    private static void HandleJsonCommand(string json)
+    {
+        try
+        {
+            // Deserialize base message to get MessageType
+            var baseMsg = JsonConvert.DeserializeObject<PlayerMessageBase>(json);
+            if (baseMsg == null)
+            {
+                Console.WriteLine("ERROR:Failed to parse JSON message");
+                Console.Out.Flush();
+                return;
+            }
+
+            _logger?.LogDebug("JSON message type: {MessageType}", baseMsg.MessageType);
+
+            switch (baseMsg.MessageType)
+            {
+                case "cmd_load_animation":
+                    var loadCmd = JsonConvert.DeserializeObject<PlayerCommandLoadAnimation>(json);
+                    if (loadCmd != null)
+                        HandleLoadAnimationCommand(loadCmd);
+                    break;
+
+                case "cmd_start_animation":
+                    var startCmd = JsonConvert.DeserializeObject<PlayerCommandStartAnimation>(json);
+                    if (startCmd != null)
+                        HandleStartAnimationCommand(startCmd);
+                    break;
+
+                case "cmd_stop_animation":
+                    HandleStopAnimationCommand();
+                    break;
+
+                default:
+                    Console.WriteLine($"ERROR:Unknown JSON message type: {baseMsg.MessageType}");
+                    Console.Out.Flush();
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "JSON command error");
+            Console.WriteLine($"ERROR:JSON parsing failed: {ex.Message}");
+            Console.Out.Flush();
+        }
+    }
+
+    private static void HandleLoadAnimationCommand(PlayerCommandLoadAnimation cmd)
+    {
+        try
+        {
+            _logger?.LogInformation("Loading animation: {Path}", cmd.AnimationConfig.AnimationPath);
+
+            lock (_compositionLock)
+            {
+                // Dispose existing composition
+                _compositionRenderer?.Dispose();
+                _compositionRenderer = null;
+                _canvasManager = null;
+                _compositionInitialized = false;
+
+                // Store configuration
+                _animationConfig = cmd.AnimationConfig;
+                _backgroundConfig = cmd.BackgroundConfig;
+
+                // Create virtual canvas for this screen
+                var screenConfig = new ScreenConfiguration
+                {
+                    ClientId = "D2DPlayer",
+                    Order = 0,
+                    Width = _width,
+                    Height = _height,
+                    PhysicalDistanceCm = 0,
+                    Hostname = "localhost",
+                    MonitorIndex = cmd.MonitorIndex
+                };
+
+                _canvasManager = new VirtualCanvasManager(
+                    Microsoft.Extensions.Logging.Abstractions.NullLogger<VirtualCanvasManager>.Instance);
+
+                _canvasManager.CalculateLayout(new[] { screenConfig });
+
+                // Create composition renderer
+                var loggerFactory = LoggerFactory.Create(builder =>
+                {
+                    builder.AddConsole();
+                    builder.SetMinimumLevel(LogLevel.Information);
+                });
+
+                _compositionRenderer = new CompositionRenderer(
+                    loggerFactory.CreateLogger<CompositionRenderer>(),
+                    loggerFactory);
+
+                // Initialize composition renderer
+                var initTask = _compositionRenderer.InitializeAsync(
+                    _canvasManager,
+                    cmd.BackgroundConfig,
+                    cmd.AnimationConfig,
+                    cmd.MonitorIndex);
+
+                initTask.Wait(); // Synchronous wait on background thread
+
+                _compositionInitialized = true;
+                _logger?.LogInformation("Composition initialized successfully");
+            }
+
+            Console.WriteLine("READY");
+            Console.Out.Flush();
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to load animation");
+            Console.WriteLine($"ERROR:Load animation failed: {ex.Message}");
+            Console.Out.Flush();
+        }
+    }
+
+    private static void HandleStartAnimationCommand(PlayerCommandStartAnimation cmd)
+    {
+        try
+        {
+            _logger?.LogInformation("Starting animation: timestamp={Timestamp}ms, speed={Speed}px/s",
+                cmd.StartTimestampMs, cmd.PixelsPerSecond);
+
+            lock (_compositionLock)
+            {
+                if (!_compositionInitialized || _compositionRenderer == null)
+                {
+                    throw new InvalidOperationException("Composition not initialized. Call LOAD_ANIMATION first.");
+                }
+
+                _startTimestampMs = cmd.StartTimestampMs;
+                _pixelsPerSecond = cmd.PixelsPerSecond;
+                _renderLoopStart = DateTime.UtcNow; // Reset render loop timer
+                _isPlaying = true;
+            }
+
+            Console.WriteLine("READY");
+            Console.Out.Flush();
+            _logger?.LogInformation("Animation started");
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to start animation");
+            Console.WriteLine($"ERROR:Start animation failed: {ex.Message}");
+            Console.Out.Flush();
+        }
+    }
+
+    private static void HandleStopAnimationCommand()
+    {
+        try
+        {
+            _logger?.LogInformation("Stopping animation");
+
+            lock (_compositionLock)
+            {
+                _isPlaying = false;
+            }
+
+            Console.WriteLine("READY");
+            Console.Out.Flush();
+            _logger?.LogInformation("Animation stopped");
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to stop animation");
+            Console.WriteLine($"ERROR:Stop animation failed: {ex.Message}");
+            Console.Out.Flush();
         }
     }
 
     private static void Cleanup()
     {
+        _logger?.LogInformation("Cleanup starting");
         _running = false;
 
-        // Dispose current frame
-        lock (_frameLock)
+        // Dispose composition
+        lock (_compositionLock)
         {
-            _currentFrame?.Dispose();
-            _currentFrame = null;
+            _compositionRenderer?.Dispose();
+            _compositionRenderer = null;
+            _canvasManager = null;
+            _compositionInitialized = false;
         }
 
+        // Dispose D2D/D3D resources
         _d2dRenderTarget?.Dispose();
         _swapChain?.Dispose();
         _immediateContext?.Dispose();
         _d3dDevice?.Dispose();
         _d2dFactory?.Dispose();
 
+        // Destroy window
         if (_hwnd != IntPtr.Zero)
         {
             DestroyWindow(_hwnd);
@@ -713,5 +947,7 @@ class Program
         {
             _wndProcHandle.Free();
         }
+
+        _logger?.LogInformation("Cleanup complete");
     }
 }

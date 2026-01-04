@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Drawing;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using WaBiBaBuSy.Player.Common.Messages;
 using WaBiBaBuSy.WallpaperEngine.Composition;
 using WaBiBaBuSy.WallpaperEngine.Native;
 
@@ -305,6 +307,144 @@ public class D2DPlayerHost : IDisposable
     }
 
     /// <summary>
+    /// Sends a LOAD_ANIMATION command with animation metadata to the player.
+    /// This replaces the per-frame approach with metadata-based rendering.
+    /// </summary>
+    public async Task SendLoadAnimationAsync(PlayerCommandLoadAnimation cmd)
+    {
+        if (!IsRunning)
+        {
+            _logger.LogWarning("Cannot send load animation: player not running");
+            return;
+        }
+
+        try
+        {
+            // Serialize command to JSON
+            var json = JsonConvert.SerializeObject(cmd);
+            _logger.LogInformation("Sending LOAD_ANIMATION command: {Path}", cmd.AnimationConfig.AnimationPath);
+
+            // Send JSON command
+            await SendCommandAsync(json);
+
+            // Wait for response
+            if (_playerProcess != null)
+            {
+                var response = await _playerProcess.StandardOutput.ReadLineAsync();
+                if (response?.StartsWith("ERROR:") == true)
+                {
+                    _logger.LogError("Player failed to load animation: {Error}", response);
+                    throw new InvalidOperationException($"Player failed to load animation: {response}");
+                }
+                else if (response == "READY")
+                {
+                    _logger.LogInformation("Animation loaded successfully");
+                }
+                else
+                {
+                    _logger.LogWarning("Unexpected response from player: {Response}", response);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send load animation command");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Sends a START_ANIMATION command to the player to begin playback.
+    /// </summary>
+    public async Task SendStartAnimationAsync(PlayerCommandStartAnimation cmd)
+    {
+        if (!IsRunning)
+        {
+            _logger.LogWarning("Cannot send start animation: player not running");
+            return;
+        }
+
+        try
+        {
+            // Serialize command to JSON
+            var json = JsonConvert.SerializeObject(cmd);
+            _logger.LogInformation("Sending START_ANIMATION command: timestamp={Timestamp}ms, speed={Speed}px/s",
+                cmd.StartTimestampMs, cmd.PixelsPerSecond);
+
+            // Send JSON command
+            await SendCommandAsync(json);
+
+            // Wait for response
+            if (_playerProcess != null)
+            {
+                var response = await _playerProcess.StandardOutput.ReadLineAsync();
+                if (response?.StartsWith("ERROR:") == true)
+                {
+                    _logger.LogError("Player failed to start animation: {Error}", response);
+                    throw new InvalidOperationException($"Player failed to start animation: {response}");
+                }
+                else if (response == "READY")
+                {
+                    _logger.LogInformation("Animation started successfully");
+                }
+                else
+                {
+                    _logger.LogWarning("Unexpected response from player: {Response}", response);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send start animation command");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Sends a STOP_ANIMATION command to the player to stop playback.
+    /// </summary>
+    public async Task SendStopAnimationAsync()
+    {
+        if (!IsRunning)
+        {
+            _logger.LogWarning("Cannot send stop animation: player not running");
+            return;
+        }
+
+        try
+        {
+            var cmd = new PlayerCommandStopAnimation();
+            var json = JsonConvert.SerializeObject(cmd);
+            _logger.LogInformation("Sending STOP_ANIMATION command");
+
+            // Send JSON command
+            await SendCommandAsync(json);
+
+            // Wait for response
+            if (_playerProcess != null)
+            {
+                var response = await _playerProcess.StandardOutput.ReadLineAsync();
+                if (response?.StartsWith("ERROR:") == true)
+                {
+                    _logger.LogError("Player failed to stop animation: {Error}", response);
+                }
+                else if (response == "READY")
+                {
+                    _logger.LogInformation("Animation stopped successfully");
+                }
+                else
+                {
+                    _logger.LogWarning("Unexpected response from player: {Response}", response);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send stop animation command");
+        }
+    }
+
+    /// <summary>
     /// Sends a command to the player process.
     /// </summary>
     private async Task SendCommandAsync(string command)
@@ -314,7 +454,7 @@ public class D2DPlayerHost : IDisposable
             throw new InvalidOperationException("Player stdin not available");
         }
 
-        _logger.LogDebug("Sending command to player: {Command}", command);
+        _logger.LogDebug("Sending command to player: {Command}", command.Substring(0, Math.Min(100, command.Length)));
         await _playerStdin.WriteLineAsync(command);
         await _playerStdin.FlushAsync();
     }

@@ -87,6 +87,9 @@ public class ProcessCommunicator : IDisposable
                         "cmd_load" => JsonConvert.DeserializeObject<PlayerCommandLoad>(line),
                         "cmd_play" => JsonConvert.DeserializeObject<PlayerCommandPlay>(line),
                         "cmd_close" => JsonConvert.DeserializeObject<PlayerCommandClose>(line),
+                        "cmd_load_animation" => JsonConvert.DeserializeObject<PlayerCommandLoadAnimation>(line),
+                        "cmd_start_animation" => JsonConvert.DeserializeObject<PlayerCommandStartAnimation>(line),
+                        "cmd_stop_animation" => JsonConvert.DeserializeObject<PlayerCommandStopAnimation>(line),
                         _ => null
                     };
 
