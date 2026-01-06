@@ -245,31 +245,64 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
     {
         try
         {
-            if (_mediaPlayer == null)
-                return;
-
-            // For video frame extraction via composition, we simply seek to the timestamp
-            // and create a placeholder bitmap. In a real implementation, you'd:
-            // 1. Use LibVLC's frame callbacks to get actual decoded frames
-            // 2. Or use async buffering to pre-decode frames
-            // 3. Or write frames to disk during initialization
-
-            _mediaPlayer.Time = timestampMs;
-
-            // Wait briefly for seek to complete
-            Thread.Sleep(30);
-
-            // For now, create a placeholder bitmap that marks this timestamp as "cached"
-            // In production, replace with actual frame capture from LibVLC
-            var bitmap = new Bitmap(320, 240); // Placeholder dimensions
-            using (var g = System.Drawing.Graphics.FromImage(bitmap))
+            if (_mediaPlayer == null || _config == null)
             {
-                g.Clear(System.Drawing.Color.Black);
-                // In production: draw actual video frame here
+                _logger.LogWarning("Cannot extract frame - media player or config is null");
+                return;
             }
 
-            _frameCache[timestampMs] = bitmap;
-            _lastCachedTimestamp = timestampMs;
+            // Seek to the desired timestamp
+            _mediaPlayer.Time = timestampMs;
+
+            // Wait for seek to complete and frame to be decoded
+            // LibVLC needs time to seek and render the frame to the window
+            Thread.Sleep(150);  // Increased wait time for more reliable frame capture
+
+            // Try to capture frame using TakeSnapshot
+            var tempSnapshotPath = Path.Combine(Path.GetTempPath(), $"vlc_snapshot_{Guid.NewGuid()}.png");
+
+            try
+            {
+                // TakeSnapshot(num, path, width, height) - 0 means take at native resolution
+                // This works because we created a window (even if hidden) for LibVLC to render to
+                bool success = _mediaPlayer.TakeSnapshot(0, tempSnapshotPath, 0, 0);
+
+                if (success)
+                {
+                    // Wait a bit for the file to be written
+                    Thread.Sleep(50);
+
+                    if (File.Exists(tempSnapshotPath))
+                    {
+                        // Load the snapshot into a bitmap
+                        using (var tempImage = Image.FromFile(tempSnapshotPath))
+                        {
+                            var bitmap = new Bitmap(tempImage);
+                            _frameCache[timestampMs] = bitmap;
+                            _lastCachedTimestamp = timestampMs;
+                            _logger.LogDebug("Successfully captured frame at {Timestamp}ms via TakeSnapshot", timestampMs);
+                        }
+
+                        // Clean up temp file
+                        try { File.Delete(tempSnapshotPath); } catch { }
+                    }
+                    else
+                    {
+                        _logger.LogWarning("TakeSnapshot succeeded but file not found at {Path}", tempSnapshotPath);
+                        CreatePlaceholderFrame(timestampMs);
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("TakeSnapshot returned false at {Timestamp}ms - media may not be playing", timestampMs);
+                    CreatePlaceholderFrame(timestampMs);
+                }
+            }
+            catch (Exception snapshotEx)
+            {
+                _logger.LogWarning(snapshotEx, "Exception during TakeSnapshot at {Timestamp}ms", timestampMs);
+                CreatePlaceholderFrame(timestampMs);
+            }
 
             // Implement LRU cache eviction - keep only recent frames
             if (_frameCache.Count > MaxCachedFrames)
@@ -281,17 +314,31 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
                     _frameCache.Remove(oldestKey);
                 }
             }
-
-            _logger.LogDebug("Cached frame reference at {Timestamp}ms", timestampMs);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing frame at {Timestamp}ms", timestampMs);
+            _logger.LogError(ex, "Error extracting frame at {Timestamp}ms", timestampMs);
         }
+    }
+
+    private void CreatePlaceholderFrame(long timestampMs)
+    {
+        // Fallback: create a small black placeholder bitmap
+        var bitmap = new Bitmap(320, 240);
+        using (var g = System.Drawing.Graphics.FromImage(bitmap))
+        {
+            g.Clear(System.Drawing.Color.Black);
+        }
+        _frameCache[timestampMs] = bitmap;
+        _lastCachedTimestamp = timestampMs;
     }
 
     private Task CreateRenderWindowAsync(WallpaperConfig config)
     {
+        // Even in headless mode, LibVLC needs a window handle to decode and provide frames
+        // Create a minimal hidden window for LibVLC's internal rendering
+        // Frames will be extracted via TakeSnapshot() in GetFrameAtPosition()
+
         // Windows Forms must be created on the calling thread, NOT on a background thread
         _renderForm = new Form
         {
@@ -304,46 +351,62 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
             MinimizeBox = false
         };
 
-        // Validate monitor index
-        if (config.MonitorIndex < 0 || config.MonitorIndex >= Screen.AllScreens.Length)
+        if (config.HeadlessMode)
         {
-            throw new ArgumentOutOfRangeException(
-                nameof(config.MonitorIndex),
-                $"Invalid monitor index {config.MonitorIndex}. Must be between 0 and {Screen.AllScreens.Length - 1}. Total monitors: {Screen.AllScreens.Length}");
-        }
+            // Headless mode: Create a minimal hidden window just for LibVLC to have an output target
+            // This allows TakeSnapshot() to work for frame extraction
+            _renderForm.Size = new Size(320, 240);  // Small size to minimize overhead
+            _renderForm.Location = new Point(-10000, -10000);  // Off-screen
+            _renderForm.Opacity = 0;  // Fully transparent (hidden)
+            _renderForm.Show();
+            _renderForm.Hide();  // Extra insurance to keep it hidden
 
-        // Set window bounds for the specific monitor
-        var screen = Screen.AllScreens[config.MonitorIndex];
-        _renderForm.Bounds = screen.Bounds;
-
-        _logger.LogInformation("Video renderer set to monitor {Index}: {Bounds} (Device: {Device})",
-            config.MonitorIndex,
-            screen.Bounds,
-            screen.DeviceName);
-
-        // CRITICAL: Show the form FIRST to ensure handle is fully initialized
-        _renderForm.Show();
-
-        _logger.LogDebug("Form shown, handle: {Handle}", _renderForm.Handle);
-
-        // Now find WorkerW window and set as parent (after form is shown)
-        var workerW = _desktopManager.FindDesktopWorkerWindow();
-        if (workerW != IntPtr.Zero)
-        {
-            _logger.LogDebug("Found WorkerW: {WorkerW}, parenting form to it", workerW);
-
-            // Convert Screen.Bounds to System.Drawing.Rectangle for DesktopWindowManager
-            var screenBounds = new System.Drawing.Rectangle(
-                screen.Bounds.X,
-                screen.Bounds.Y,
-                screen.Bounds.Width,
-                screen.Bounds.Height);
-
-            _desktopManager.SetAsWallpaperWindow(_renderForm.Handle, screenBounds);
+            _logger.LogInformation("Headless mode: Created hidden off-screen window for LibVLC frame extraction");
         }
         else
         {
-            _logger.LogWarning("Could not find WorkerW window, wallpaper may not render behind icons");
+            // Normal mode: Full-screen window on specified monitor for visible wallpaper
+            // Validate monitor index
+            if (config.MonitorIndex < 0 || config.MonitorIndex >= Screen.AllScreens.Length)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(config.MonitorIndex),
+                    $"Invalid monitor index {config.MonitorIndex}. Must be between 0 and {Screen.AllScreens.Length - 1}. Total monitors: {Screen.AllScreens.Length}");
+            }
+
+            // Set window bounds for the specific monitor
+            var screen = Screen.AllScreens[config.MonitorIndex];
+            _renderForm.Bounds = screen.Bounds;
+
+            _logger.LogInformation("Video renderer set to monitor {Index}: {Bounds} (Device: {Device})",
+                config.MonitorIndex,
+                screen.Bounds,
+                screen.DeviceName);
+
+            // CRITICAL: Show the form FIRST to ensure handle is fully initialized
+            _renderForm.Show();
+
+            _logger.LogDebug("Form shown, handle: {Handle}", _renderForm.Handle);
+
+            // Now find WorkerW window and set as parent (after form is shown)
+            var workerW = _desktopManager.FindDesktopWorkerWindow();
+            if (workerW != IntPtr.Zero)
+            {
+                _logger.LogDebug("Found WorkerW: {WorkerW}, parenting form to it", workerW);
+
+                // Convert Screen.Bounds to System.Drawing.Rectangle for DesktopWindowManager
+                var screenBounds = new System.Drawing.Rectangle(
+                    screen.Bounds.X,
+                    screen.Bounds.Y,
+                    screen.Bounds.Width,
+                    screen.Bounds.Height);
+
+                _desktopManager.SetAsWallpaperWindow(_renderForm.Handle, screenBounds);
+            }
+            else
+            {
+                _logger.LogWarning("Could not find WorkerW window, wallpaper may not render behind icons");
+            }
         }
 
         // Set media player output

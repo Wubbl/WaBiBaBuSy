@@ -74,14 +74,10 @@ public partial class TrayViewModel : ObservableObject
             // Note: monitorIndex will be used when WallpaperConfig is passed to InitializeAsync
             return extension switch
             {
-                ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv" =>
+                // GIFs now use LibVLC (VideoWallpaperRenderer) for instant loading
+                ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv" or ".gif" =>
                     new VideoWallpaperRenderer(
                         loggerFactory.CreateLogger<VideoWallpaperRenderer>(),
-                        desktopManager),
-
-                ".gif" =>
-                    new GifWallpaperRenderer(
-                        loggerFactory.CreateLogger<GifWallpaperRenderer>(),
                         desktopManager),
 
                 ".jpg" or ".jpeg" or ".png" or ".bmp" =>

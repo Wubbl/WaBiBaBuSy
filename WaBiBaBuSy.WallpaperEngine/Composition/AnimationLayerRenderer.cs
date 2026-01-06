@@ -62,11 +62,10 @@ public class AnimationLayerRenderer : IDisposable
 
         IWallpaperRenderer renderer = extension switch
         {
-            ".gif" => new GifWallpaperRenderer(
-                _loggerFactory.CreateLogger<GifWallpaperRenderer>(),
-                new Native.DesktopWindowManager(_loggerFactory.CreateLogger<Native.DesktopWindowManager>())),
-
-            ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" =>
+            // GIFs are handled by LibVLC (VideoWallpaperRenderer) for instant loading
+            // LibVLC can decode GIF files natively as video media with hardware acceleration
+            // This avoids the 10-minute GDI+ SelectActiveFrame() performance disaster
+            ".gif" or ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" =>
                 new VideoWallpaperRenderer(
                     _loggerFactory.CreateLogger<VideoWallpaperRenderer>(),
                     new Native.DesktopWindowManager(_loggerFactory.CreateLogger<Native.DesktopWindowManager>())),
@@ -90,7 +89,8 @@ public class AnimationLayerRenderer : IDisposable
             FilePath = config.AnimationPath,
             Type = extension switch
             {
-                ".gif" => WallpaperType.Gif,
+                // GIFs now handled as video by LibVLC
+                ".gif" or ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" => WallpaperType.Video,
                 ".jpg" or ".jpeg" or ".png" or ".bmp" => WallpaperType.Image,
                 _ => WallpaperType.Video
             },
@@ -105,6 +105,11 @@ public class AnimationLayerRenderer : IDisposable
         await _sourceRenderer.InitializeAsync(wallpaperConfig);
         _logger.LogInformation("Source renderer initialized for animation: {Path} with speed multiplier {Multiplier}x",
             config.AnimationPath, config.SpeedMultiplier);
+
+        // Start the renderer to load media (required for GetFrameAtPosition to work)
+        // In headless mode, this loads the media without displaying a window
+        await _sourceRenderer.StartAsync();
+        _logger.LogInformation("Source renderer started (media loaded for frame extraction)");
 
         // Calculate animation dimensions
         await CalculateAnimationDimensionsAsync(config);

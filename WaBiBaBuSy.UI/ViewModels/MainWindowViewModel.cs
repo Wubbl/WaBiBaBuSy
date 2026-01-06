@@ -514,13 +514,10 @@ public partial class MainWindowViewModel : ViewModelBase
             var extension = Path.GetExtension(wallpaper.FilePath).ToLowerInvariant();
             IWallpaperRenderer? renderer = extension switch
             {
-                ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv"
+                // GIFs now use LibVLC (VideoWallpaperRenderer) for instant loading
+                ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv" or ".gif"
                     => new VideoWallpaperRenderer(
                         _loggerFactory.CreateLogger<VideoWallpaperRenderer>(),
-                        _desktopManager),
-                ".gif"
-                    => new GifWallpaperRenderer(
-                        _loggerFactory.CreateLogger<GifWallpaperRenderer>(),
                         _desktopManager),
                 ".jpg" or ".jpeg" or ".png" or ".bmp"
                     => new ImageWallpaperRendererLibVLC(
