@@ -134,6 +134,13 @@ public class AnimationLayerConfig
     /// Used for simple playback mode where we want stationary centered content.
     /// </summary>
     public bool CenterInitialPosition { get; set; } = false;
+
+    /// <summary>
+    /// Speed multiplier for GIF/video playback (1.0 = normal, 2.0 = 2x speed, 0.5 = half speed).
+    /// Applied to frame delays to adjust animation speed.
+    /// Default: 1.0 (normal speed)
+    /// </summary>
+    public double SpeedMultiplier { get; set; } = 1.0;
 }
 
 /// <summary>

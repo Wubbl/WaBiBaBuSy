@@ -15,6 +15,7 @@ public class GifWallpaperRenderer : IWallpaperRenderer
 {
     private readonly ILogger<GifWallpaperRenderer> _logger;
     private readonly DesktopWindowManager _desktopManager;
+    private readonly object _gifImageLock = new(); // Thread-safe access to _gifImage (GDI+ not thread-safe!)
 
     private Image? _gifImage;
     private FrameDimension? _frameDimension;
@@ -22,6 +23,8 @@ public class GifWallpaperRenderer : IWallpaperRenderer
     private int _currentFrameIndex;
     private int[]? _frameDelays; // Delay in milliseconds for each frame
     private Bitmap[]? _frameCache; // Cached frames to avoid repeated SelectActiveFrame calls
+    private volatile bool _frameCacheReady = false; // True when all frames are cached
+    private CancellationTokenSource? _cachingCancellation; // Cancellation token for background caching
     private Form? _renderForm;
     private PictureBox? _pictureBox;
     private System.Threading.Timer? _frameTimer;
@@ -29,6 +32,7 @@ public class GifWallpaperRenderer : IWallpaperRenderer
     private WallpaperState _state = WallpaperState.Uninitialized;
     private long _playbackStartTime;
     private bool _disposed;
+    private double _speedMultiplier = 1.0; // Speed multiplier (2.0 = 2x faster, 0.5 = half speed)
 
     public event EventHandler<FrameRenderedEventArgs>? FrameRendered;
     public event EventHandler<WallpaperState>? StateChanged;
@@ -67,6 +71,19 @@ public class GifWallpaperRenderer : IWallpaperRenderer
         }
     }
 
+    /// <summary>
+    /// Set the speed multiplier for GIF playback.
+    /// 1.0 = normal speed, 2.0 = 2x faster, 0.5 = half speed.
+    /// </summary>
+    public void SetSpeedMultiplier(double speedMultiplier)
+    {
+        if (speedMultiplier <= 0)
+            throw new ArgumentOutOfRangeException(nameof(speedMultiplier), "Speed multiplier must be greater than 0");
+
+        _speedMultiplier = speedMultiplier;
+        _logger.LogInformation("GIF speed multiplier set to {Multiplier}x", speedMultiplier);
+    }
+
     public async Task InitializeAsync(WallpaperConfig config)
     {
         try
@@ -86,8 +103,10 @@ public class GifWallpaperRenderer : IWallpaperRenderer
             // Extract frame delays from GIF metadata
             ExtractFrameDelays();
 
-            // Extract and cache all frames for fast access
-            ExtractAndCacheFrames();
+            // Start async frame caching in background (non-blocking!)
+            // This allows initialization to complete immediately while frames cache in background
+            _cachingCancellation = new CancellationTokenSource();
+            _ = Task.Run(() => ExtractAndCacheFramesAsync(_cachingCancellation.Token), _cachingCancellation.Token);
 
             // Create render window (only in non-headless mode)
             // In headless mode, we only provide frames via GetFrameAtPosition()
@@ -231,9 +250,13 @@ public class GifWallpaperRenderer : IWallpaperRenderer
             {
                 _renderForm.Invoke(() =>
                 {
-                    _gifImage.SelectActiveFrame(_frameDimension, _currentFrameIndex);
-                    _pictureBox.Image = (Image)_gifImage.Clone();
-                    _pictureBox.Refresh();
+                    // CRITICAL: Lock access to _gifImage (GDI+ not thread-safe!)
+                    lock (_gifImageLock)
+                    {
+                        _gifImage.SelectActiveFrame(_frameDimension, _currentFrameIndex);
+                        _pictureBox.Image = (Image)_gifImage.Clone();
+                        _pictureBox.Refresh();
+                    }
                 });
             }
 
@@ -289,8 +312,14 @@ public class GifWallpaperRenderer : IWallpaperRenderer
             // Return cached frame if available (FAST PATH - no SelectActiveFrame needed!)
             if (_frameCache != null && frameIndex < _frameCache.Length)
             {
-                // Clone the cached frame to avoid disposal issues in caller
-                return new Bitmap(_frameCache[frameIndex]);
+                // CRITICAL: Check if this specific frame is cached (may still be caching in background)
+                var cachedFrame = _frameCache[frameIndex];
+                if (cachedFrame != null)
+                {
+                    // Clone the cached frame to avoid disposal issues in caller
+                    return new Bitmap(cachedFrame);
+                }
+                // else: Frame not yet cached, fall through to on-demand selection below
             }
 
             // Fallback: select frame on-demand if cache not available (SLOW PATH)
@@ -298,10 +327,15 @@ public class GifWallpaperRenderer : IWallpaperRenderer
                 throw new InvalidOperationException("GIF image not loaded and frame cache unavailable");
 
             _logger.LogWarning("Frame cache unavailable, using slow on-demand frame selection");
-            _gifImage.SelectActiveFrame(_frameDimension, frameIndex);
-            var frameBitmap = new Bitmap(_gifImage);
 
-            return frameBitmap;
+            // CRITICAL: Lock access to _gifImage (GDI+ not thread-safe!)
+            // Prevents "Object is currently in use elsewhere" when caching is in progress
+            lock (_gifImageLock)
+            {
+                _gifImage.SelectActiveFrame(_frameDimension, frameIndex);
+                var frameBitmap = new Bitmap(_gifImage);
+                return frameBitmap;
+            }
         }
         catch (Exception ex)
         {
@@ -334,8 +368,16 @@ public class GifWallpaperRenderer : IWallpaperRenderer
                         // Frame delay is in 1/100th of a second, stored as 4-byte integer
                         var delayInHundredths = BitConverter.ToInt32(delayProperty.Value, i * 4);
 
-                        // Convert to milliseconds (and ensure minimum 10ms to avoid too fast animation)
-                        _frameDelays[i] = Math.Max(delayInHundredths * 10, 10);
+                        // Convert to milliseconds
+                        // NOTE: GIF spec allows delays < 20ms, but browsers clamp 0-10ms delays to 100ms!
+                        // We honor the original timing but apply speed multiplier to allow user control
+                        var delayMs = delayInHundredths * 10;
+
+                        // Apply speed multiplier (2.0 = half the delay = 2x speed)
+                        delayMs = (int)(delayMs / _speedMultiplier);
+
+                        // Enforce absolute minimum 1ms to prevent infinite loops
+                        _frameDelays[i] = Math.Max(delayMs, 1);
                     }
 
                     _logger.LogDebug("Extracted frame delays from GIF metadata");
@@ -361,7 +403,7 @@ public class GifWallpaperRenderer : IWallpaperRenderer
         }
     }
 
-    private void ExtractAndCacheFrames()
+    private async Task ExtractAndCacheFramesAsync(CancellationToken cancellationToken)
     {
         try
         {
@@ -371,35 +413,79 @@ public class GifWallpaperRenderer : IWallpaperRenderer
                 return;
             }
 
-            // Only cache small GIFs to avoid excessive memory usage and initialization delay
-            // Large GIFs (>100 frames) use on-demand frame selection
-            const int MAX_FRAMES_TO_CACHE = 100;
+            // Only cache small-to-medium GIFs to avoid excessive memory usage
+            // Very large GIFs use on-demand frame selection (slower but less memory)
+            const int MAX_FRAMES_TO_CACHE = 1000; // Increased from 100 to support user's 500-frame GIF
 
             if (_frameCount > MAX_FRAMES_TO_CACHE)
             {
-                _logger.LogInformation("GIF has {FrameCount} frames (>{Max}), skipping frame cache to save memory (~{MemoryMB}MB). Using on-demand frame selection.",
-                    _frameCount, MAX_FRAMES_TO_CACHE, (_frameCount * _gifImage.Width * _gifImage.Height * 4) / (1024 * 1024));
+                var estimatedMemoryMB = (_frameCount * _gifImage.Width * _gifImage.Height * 4) / (1024 * 1024);
+                _logger.LogInformation("GIF has {FrameCount} frames (>{Max}), skipping frame cache to save ~{MemoryMB}MB memory. Using on-demand frame selection.",
+                    _frameCount, MAX_FRAMES_TO_CACHE, estimatedMemoryMB);
                 _frameCache = null;
+                _frameCacheReady = false;
                 return;
             }
 
-            _logger.LogInformation("Extracting and caching {FrameCount} GIF frames to reduce CPU usage", _frameCount);
+            _logger.LogInformation("Starting background frame caching for {FrameCount} frames (non-blocking)...", _frameCount);
+            var startTime = DateTime.UtcNow;
             _frameCache = new Bitmap[_frameCount];
 
             for (int i = 0; i < _frameCount; i++)
             {
-                _gifImage.SelectActiveFrame(_frameDimension, i);
-                // Clone the frame to avoid corruption when SelectActiveFrame is called again
-                _frameCache[i] = (Bitmap)_gifImage.Clone();
+                // Check for cancellation (renderer disposed or stopped)
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    _logger.LogWarning("Frame caching cancelled - renderer stopped/disposed");
+                    // Clear partially cached frames to avoid null reference issues
+                    if (_frameCache != null)
+                    {
+                        for (int j = 0; j < i; j++)
+                        {
+                            _frameCache[j]?.Dispose();
+                        }
+                    }
+                    _frameCache = null;
+                    _frameCacheReady = false;
+                    return;
+                }
+
+                // CRITICAL: Lock access to _gifImage (GDI+ not thread-safe!)
+                // Prevents "Object is currently in use elsewhere" errors
+                lock (_gifImageLock)
+                {
+                    _gifImage.SelectActiveFrame(_frameDimension, i);
+                    // Clone the frame to avoid corruption when SelectActiveFrame is called again
+                    _frameCache[i] = (Bitmap)_gifImage.Clone();
+                }
+
+                // Yield periodically to avoid blocking for too long
+                if (i % 50 == 0 && i > 0)
+                {
+                    await Task.Delay(1, cancellationToken); // Allow other tasks to run
+                    var progress = (i + 1) * 100 / _frameCount;
+                    _logger.LogDebug("Frame caching progress: {Progress}% ({Current}/{Total})", progress, i + 1, _frameCount);
+                }
             }
 
-            _logger.LogInformation("GIF frame cache created: {FrameCount} frames cached, memory usage ~{MemoryMB}MB",
-                _frameCount, (_frameCount * _gifImage.Width * _gifImage.Height * 4) / (1024 * 1024));
+            _frameCacheReady = true;
+            var elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds;
+            var memoryMB = (_frameCount * _gifImage.Width * _gifImage.Height * 4) / (1024 * 1024);
+
+            _logger.LogInformation("✓ Frame cache complete: {FrameCount} frames cached in {ElapsedMs}ms (~{MemoryMB}MB). CPU usage will now drop significantly.",
+                _frameCount, (int)elapsedMs, memoryMB);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Frame caching cancelled");
+            _frameCache = null;
+            _frameCacheReady = false;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error caching GIF frames, falling back to on-demand frame selection");
             _frameCache = null;
+            _frameCacheReady = false;
         }
     }
 
@@ -416,9 +502,13 @@ public class GifWallpaperRenderer : IWallpaperRenderer
             // Update the frame on UI thread
             _renderForm.Invoke(() =>
             {
-                _gifImage.SelectActiveFrame(_frameDimension, _currentFrameIndex);
-                _pictureBox.Image = (Image)_gifImage.Clone();
-                _pictureBox.Refresh();
+                // CRITICAL: Lock access to _gifImage (GDI+ not thread-safe!)
+                lock (_gifImageLock)
+                {
+                    _gifImage.SelectActiveFrame(_frameDimension, _currentFrameIndex);
+                    _pictureBox.Image = (Image)_gifImage.Clone();
+                    _pictureBox.Refresh();
+                }
             });
 
             // Schedule next frame
@@ -508,11 +598,19 @@ public class GifWallpaperRenderer : IWallpaperRenderer
         _logger.LogInformation("[Dispose] Starting GIF wallpaper renderer disposal");
         var startTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
 
+        // Cancel background frame caching FIRST to prevent race conditions
+        _logger.LogInformation("[Dispose] Cancelling background frame caching");
+        _cachingCancellation?.Cancel();
+        _cachingCancellation?.Dispose();
+        _cachingCancellation = null;
+        var afterCancelTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
+        _logger.LogInformation("[Dispose] Caching cancelled in {ElapsedMs}ms", afterCancelTime - startTime);
+
         _logger.LogInformation("[Dispose] Disposing frame timer");
         _frameTimer?.Dispose();
         _frameTimer = null;
         var afterTimerTime = DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond;
-        _logger.LogInformation("[Dispose] Timer disposed in {ElapsedMs}ms", afterTimerTime - startTime);
+        _logger.LogInformation("[Dispose] Timer disposed in {ElapsedMs}ms", afterTimerTime - afterCancelTime);
 
         _logger.LogInformation("[Dispose] Disposing picture box");
         _pictureBox?.Dispose();

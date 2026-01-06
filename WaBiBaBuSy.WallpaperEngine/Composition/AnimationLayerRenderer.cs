@@ -102,6 +102,14 @@ public class AnimationLayerRenderer : IDisposable
         };
 
         await _sourceRenderer.InitializeAsync(wallpaperConfig);
+
+        // Apply speed multiplier if available and renderer supports it
+        if (_sourceRenderer is GifWallpaperRenderer gifRenderer && config.SpeedMultiplier != 1.0)
+        {
+            gifRenderer.SetSpeedMultiplier(config.SpeedMultiplier);
+            _logger.LogInformation("Applied speed multiplier {Multiplier}x to GIF renderer", config.SpeedMultiplier);
+        }
+
         _logger.LogInformation("Source renderer initialized for animation: {Path}", config.AnimationPath);
 
         // Calculate animation dimensions
