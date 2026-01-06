@@ -91,6 +91,10 @@ public class GifWallpaperRenderer : IWallpaperRenderer
             _logger.LogInformation("Initializing GIF wallpaper renderer for {FilePath}", config.FilePath);
             _config = config;
 
+            // Set speed multiplier from config BEFORE extracting frame delays
+            _speedMultiplier = config.SpeedMultiplier;
+            _logger.LogInformation("Using speed multiplier: {Multiplier}x", _speedMultiplier);
+
             // Load GIF image
             _gifImage = Image.FromFile(config.FilePath);
 
@@ -103,10 +107,13 @@ public class GifWallpaperRenderer : IWallpaperRenderer
             // Extract frame delays from GIF metadata
             ExtractFrameDelays();
 
-            // Start async frame caching in background (non-blocking!)
-            // This allows initialization to complete immediately while frames cache in background
+            // CRITICAL: Extract and cache frames SYNCHRONOUSLY during initialization
+            // For distributed systems, all clients must have frames cached BEFORE animation starts
+            // This ensures timing consistency across all machines
+            _logger.LogInformation("Extracting and caching all frames BEFORE initialization completes (blocking for distributed sync)...");
             _cachingCancellation = new CancellationTokenSource();
-            _ = Task.Run(() => ExtractAndCacheFramesAsync(_cachingCancellation.Token), _cachingCancellation.Token);
+            await ExtractAndCacheFramesAsync(_cachingCancellation.Token);
+            _logger.LogInformation("Frame caching complete, initialization can proceed");
 
             // Create render window (only in non-headless mode)
             // In headless mode, we only provide frames via GetFrameAtPosition()
@@ -427,9 +434,10 @@ public class GifWallpaperRenderer : IWallpaperRenderer
                 return;
             }
 
-            _logger.LogInformation("Starting background frame caching for {FrameCount} frames (non-blocking)...", _frameCount);
+            _logger.LogInformation("Caching {FrameCount} frames (BLOCKING - required for distributed sync)...", _frameCount);
             var startTime = DateTime.UtcNow;
             _frameCache = new Bitmap[_frameCount];
+            var lastProgressLog = 0;
 
             for (int i = 0; i < _frameCount; i++)
             {
@@ -459,12 +467,15 @@ public class GifWallpaperRenderer : IWallpaperRenderer
                     _frameCache[i] = (Bitmap)_gifImage.Clone();
                 }
 
-                // Yield periodically to avoid blocking for too long
-                if (i % 50 == 0 && i > 0)
+                // Log progress every 10% to show it's working
+                var currentProgress = (i + 1) * 100 / _frameCount;
+                if (currentProgress >= lastProgressLog + 10 || i == _frameCount - 1)
                 {
-                    await Task.Delay(1, cancellationToken); // Allow other tasks to run
-                    var progress = (i + 1) * 100 / _frameCount;
-                    _logger.LogDebug("Frame caching progress: {Progress}% ({Current}/{Total})", progress, i + 1, _frameCount);
+                    lastProgressLog = currentProgress;
+                    var elapsed = (DateTime.UtcNow - startTime).TotalSeconds;
+                    var eta = elapsed / (i + 1) * (_frameCount - i - 1);
+                    _logger.LogInformation("Frame caching: {Progress}% ({Current}/{Total}) - Elapsed: {Elapsed:F1}s, ETA: {ETA:F1}s",
+                        currentProgress, i + 1, _frameCount, elapsed, eta);
                 }
             }
 

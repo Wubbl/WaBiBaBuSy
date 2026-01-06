@@ -45,4 +45,11 @@ public class WallpaperConfig
     /// without creating a window. Used for composition/Direct2D rendering pipeline.
     /// </summary>
     public bool HeadlessMode { get; set; } = false;
+
+    /// <summary>
+    /// Speed multiplier for GIF/video playback (1.0 = normal, 2.0 = 2x speed, 0.5 = half speed).
+    /// Applied to frame delays during initialization.
+    /// Default: 2.0 (2x speed)
+    /// </summary>
+    public double SpeedMultiplier { get; set; } = 2.0;
 }

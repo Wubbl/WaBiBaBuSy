@@ -98,19 +98,13 @@ public class AnimationLayerRenderer : IDisposable
             HardwareAcceleration = true,
             MaxFPS = 60,
             MonitorIndex = monitorIndex,
-            HeadlessMode = true  // Required for composition - no window creation
+            HeadlessMode = true,  // Required for composition - no window creation
+            SpeedMultiplier = config.SpeedMultiplier  // Apply speed multiplier from animation config
         };
 
         await _sourceRenderer.InitializeAsync(wallpaperConfig);
-
-        // Apply speed multiplier if available and renderer supports it
-        if (_sourceRenderer is GifWallpaperRenderer gifRenderer && config.SpeedMultiplier != 1.0)
-        {
-            gifRenderer.SetSpeedMultiplier(config.SpeedMultiplier);
-            _logger.LogInformation("Applied speed multiplier {Multiplier}x to GIF renderer", config.SpeedMultiplier);
-        }
-
-        _logger.LogInformation("Source renderer initialized for animation: {Path}", config.AnimationPath);
+        _logger.LogInformation("Source renderer initialized for animation: {Path} with speed multiplier {Multiplier}x",
+            config.AnimationPath, config.SpeedMultiplier);
 
         // Calculate animation dimensions
         await CalculateAnimationDimensionsAsync(config);
