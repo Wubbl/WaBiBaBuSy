@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
@@ -109,6 +110,35 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
             _logger.LogInformation("Starting video playback");
 
             var media = new Media(_libVLC, _config.FilePath, FromType.FromPath);
+
+            // If using memory callbacks (headless mode), we need to detect video dimensions first
+            if (_useMemoryCallbacks)
+            {
+                _logger.LogInformation("Parsing media to detect video dimensions for memory callbacks...");
+
+                // Parse media to get track information
+                await media.Parse(MediaParseOptions.ParseNetwork);
+
+                // Get video track to determine actual dimensions
+                var videoTracks = media.Tracks.Where(t => t.TrackType == TrackType.Video).ToArray();
+                if (videoTracks.Length > 0)
+                {
+                    var videoTrack = videoTracks[0];
+                    // Access video track data to get dimensions
+                    _videoWidth = (int)videoTrack.Data.Video.Width;
+                    _videoHeight = (int)videoTrack.Data.Video.Height;
+
+                    _logger.LogInformation("Detected video dimensions: {Width}x{Height}", _videoWidth, _videoHeight);
+
+                    // Now setup callbacks with correct dimensions
+                    SetupVideoCallbacksWithDimensions(_videoWidth, _videoHeight);
+                }
+                else
+                {
+                    _logger.LogWarning("Could not detect video dimensions, using default 1920x1080");
+                    SetupVideoCallbacksWithDimensions(1920, 1080);
+                }
+            }
 
             // Configure media options
             if (_config.HardwareAcceleration)
@@ -343,9 +373,9 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
         {
             // Headless mode: Use LibVLC memory callbacks for direct frame access
             // No window needed - callbacks provide frames in memory
+            // Callbacks will be setup in StartAsync() after detecting actual video dimensions
             _useMemoryCallbacks = true;
-            SetupVideoCallbacks();
-            _logger.LogInformation("Headless mode: Using LibVLC memory callbacks for composition system (zero disk I/O)");
+            _logger.LogInformation("Headless mode: Will use LibVLC memory callbacks (dimensions detected in StartAsync)");
             return Task.CompletedTask;
         }
 
@@ -416,11 +446,13 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
     #region LibVLC Memory Callbacks
 
     /// <summary>
-    /// Setup LibVLC memory callbacks for direct frame access (headless mode).
+    /// Setup LibVLC memory callbacks for direct frame access (headless mode) with specified dimensions.
     /// Uses LibVLCSharp 3.x simplified callback API.
     /// Based on: https://github.com/mfkl/libvlcsharp-samples/blob/master/PreviewThumbnailExtractor/Program.cs
     /// </summary>
-    private void SetupVideoCallbacks()
+    /// <param name="width">Actual video/GIF width in pixels (detected from media track)</param>
+    /// <param name="height">Actual video/GIF height in pixels (detected from media track)</param>
+    private void SetupVideoCallbacksWithDimensions(int width, int height)
     {
         if (_mediaPlayer == null)
         {
@@ -430,13 +462,12 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
 
         try
         {
-            // Set fixed video format (will be updated when media starts playing)
-            // Using 1920x1080 as initial size - LibVLC will call back with actual dimensions
-            _videoWidth = 1920;
-            _videoHeight = 1080;
+            // Use actual video dimensions (detected from media track in StartAsync)
+            _videoWidth = width;
+            _videoHeight = height;
             uint pitch = (uint)(_videoWidth * 4);  // 4 bytes per pixel for RGBA
 
-            // Allocate frame buffer
+            // Allocate frame buffer based on actual video/GIF dimensions
             int bufferSize = _videoWidth * _videoHeight * 4;
             _frameBufferPtr = Marshal.AllocHGlobal(bufferSize);
 
