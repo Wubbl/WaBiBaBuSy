@@ -32,7 +32,8 @@
       "Bash(if exist \"WaBiBaBuSy.WallpaperEngine\\\\Direct2D\\\\D2DRenderContext.cs\" del /F \"WaBiBaBuSy.WallpaperEngine\\\\Direct2D\\\\D2DRenderContext.cs\")",
       "Bash(if exist \"WaBiBaBuSy.WallpaperEngine\\\\Direct2D\\\\D2DWallpaperWindow.cs\" del /F \"WaBiBaBuSy.WallpaperEngine\\\\Direct2D\\\\D2DWallpaperWindow.cs\")",
       "Bash(dotnet run:*)",
-      "Bash(timeout /t 5 /nobreak)"
+      "Bash(timeout /t 5 /nobreak)",
+      "WebFetch(domain:github.com)"
     ],
     "deny": [],
     "ask": []

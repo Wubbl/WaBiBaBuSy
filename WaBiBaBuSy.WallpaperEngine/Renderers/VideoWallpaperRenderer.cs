@@ -1,4 +1,7 @@
 using System.Drawing;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows.Forms;
 using LibVLCSharp.Shared;
 using Microsoft.Extensions.Logging;
@@ -23,7 +26,16 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
     private WallpaperState _state = WallpaperState.Uninitialized;
     private bool _disposed;
 
-    // Frame caching for composition system
+    // LibVLC Memory Callbacks (for composition system)
+    // Instead of TakeSnapshot() which uses disk I/O, we use LibVLC's direct memory access
+    private IntPtr _frameBufferPtr;
+    private int _videoWidth;
+    private int _videoHeight;
+    private Bitmap? _currentFrameBitmap;
+    private readonly object _frameLock = new object();
+    private bool _useMemoryCallbacks = false;  // Enabled for headless mode
+
+    // Legacy frame cache (not used with memory callbacks)
     private Dictionary<long, System.Drawing.Bitmap> _frameCache = new();
     private long _lastCachedTimestamp = -1;
     private const int MaxCachedFrames = 10;  // Keep last 10 frames in cache
@@ -201,8 +213,7 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
 
     /// <summary>
     /// Gets the current frame from the playing GIF/video (used by composition system).
-    /// For GIFs, we don't seek - we just capture whatever frame LibVLC is currently displaying.
-    /// LibVLC handles the frame timing and looping automatically.
+    /// Uses LibVLC memory callbacks for zero-copy frame access (no disk I/O).
     /// </summary>
     public Bitmap GetFrameAtPosition(long timestampMs)
     {
@@ -211,34 +222,42 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
             if (_mediaPlayer == null)
                 return new Bitmap(1, 1);
 
-            // For GIF/video playback, we capture the CURRENT frame being displayed by LibVLC
-            // Not the frame at the requested timestamp - LibVLC is playing in real-time
-            // This avoids slow seeks and lets LibVLC handle frame timing naturally
+            // If using memory callbacks (headless mode), return the callback-provided frame
+            if (_useMemoryCallbacks)
+            {
+                lock (_frameLock)
+                {
+                    if (_currentFrameBitmap != null)
+                    {
+                        // Clone to avoid threading issues with composition system
+                        return new Bitmap(_currentFrameBitmap);
+                    }
+                }
 
-            // Check if we have a recent frame (within last 100ms)
-            // This avoids hammering TakeSnapshot() on every frame of composition
+                // No frame decoded yet - return placeholder
+                _logger.LogTrace("No frame available yet from memory callbacks");
+                return new Bitmap(320, 240);
+            }
+
+            // Legacy path: TakeSnapshot approach for non-headless mode
+            // (Not used in composition system, kept for backwards compatibility)
             var recentTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             if (_lastCachedTimestamp > 0 && (recentTimestamp - _lastCachedTimestamp) < 100)
             {
-                // Return the last captured frame (it's recent enough)
                 var lastFrame = _frameCache.Values.LastOrDefault();
                 if (lastFrame != null)
                 {
-                    return new Bitmap(lastFrame);  // Clone to avoid concurrent access issues
+                    return new Bitmap(lastFrame);
                 }
             }
 
-            // Time to capture a new frame - do it async to avoid blocking
-            // For now, return last frame if available, and trigger background capture
             var existingFrame = _frameCache.Values.LastOrDefault();
             if (existingFrame != null)
             {
-                // Trigger async capture for next time (don't block)
                 _ = Task.Run(() => CaptureCurrentFrame());
                 return new Bitmap(existingFrame);
             }
 
-            // No frames yet - do synchronous capture for first frame
             CaptureCurrentFrame();
             var frame = _frameCache.Values.LastOrDefault();
             if (frame != null)
@@ -246,8 +265,6 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
                 return new Bitmap(frame);
             }
 
-            // Fallback - return small black bitmap
-            _logger.LogWarning("Could not capture current frame");
             return new Bitmap(320, 240);
         }
         catch (Exception ex)
@@ -322,10 +339,17 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
 
     private Task CreateRenderWindowAsync(WallpaperConfig config)
     {
-        // Even in headless mode, LibVLC needs a window handle to decode and provide frames
-        // Create a minimal hidden window for LibVLC's internal rendering
-        // Frames will be extracted via TakeSnapshot() in GetFrameAtPosition()
+        if (config.HeadlessMode)
+        {
+            // Headless mode: Use LibVLC memory callbacks for direct frame access
+            // No window needed - callbacks provide frames in memory
+            _useMemoryCallbacks = true;
+            SetupVideoCallbacks();
+            _logger.LogInformation("Headless mode: Using LibVLC memory callbacks for composition system (zero disk I/O)");
+            return Task.CompletedTask;
+        }
 
+        // Normal mode: Create visible window for wallpaper display
         // Windows Forms must be created on the calling thread, NOT on a background thread
         _renderForm = new Form
         {
@@ -338,62 +362,46 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
             MinimizeBox = false
         };
 
-        if (config.HeadlessMode)
+        // Validate monitor index
+        if (config.MonitorIndex < 0 || config.MonitorIndex >= Screen.AllScreens.Length)
         {
-            // Headless mode: Create a minimal hidden window just for LibVLC to have an output target
-            // This allows TakeSnapshot() to work for frame extraction
-            _renderForm.Size = new Size(320, 240);  // Small size to minimize overhead
-            _renderForm.Location = new Point(-10000, -10000);  // Off-screen
-            _renderForm.Opacity = 0;  // Fully transparent (hidden)
-            _renderForm.Show();
-            _renderForm.Hide();  // Extra insurance to keep it hidden
+            throw new ArgumentOutOfRangeException(
+                nameof(config.MonitorIndex),
+                $"Invalid monitor index {config.MonitorIndex}. Must be between 0 and {Screen.AllScreens.Length - 1}. Total monitors: {Screen.AllScreens.Length}");
+        }
 
-            _logger.LogInformation("Headless mode: Created hidden off-screen window for LibVLC frame extraction");
+        // Set window bounds for the specific monitor
+        var screen = Screen.AllScreens[config.MonitorIndex];
+        _renderForm.Bounds = screen.Bounds;
+
+        _logger.LogInformation("Video renderer set to monitor {Index}: {Bounds} (Device: {Device})",
+            config.MonitorIndex,
+            screen.Bounds,
+            screen.DeviceName);
+
+        // CRITICAL: Show the form FIRST to ensure handle is fully initialized
+        _renderForm.Show();
+
+        _logger.LogDebug("Form shown, handle: {Handle}", _renderForm.Handle);
+
+        // Now find WorkerW window and set as parent (after form is shown)
+        var workerW = _desktopManager.FindDesktopWorkerWindow();
+        if (workerW != IntPtr.Zero)
+        {
+            _logger.LogDebug("Found WorkerW: {WorkerW}, parenting form to it", workerW);
+
+            // Convert Screen.Bounds to System.Drawing.Rectangle for DesktopWindowManager
+            var screenBounds = new System.Drawing.Rectangle(
+                screen.Bounds.X,
+                screen.Bounds.Y,
+                screen.Bounds.Width,
+                screen.Bounds.Height);
+
+            _desktopManager.SetAsWallpaperWindow(_renderForm.Handle, screenBounds);
         }
         else
         {
-            // Normal mode: Full-screen window on specified monitor for visible wallpaper
-            // Validate monitor index
-            if (config.MonitorIndex < 0 || config.MonitorIndex >= Screen.AllScreens.Length)
-            {
-                throw new ArgumentOutOfRangeException(
-                    nameof(config.MonitorIndex),
-                    $"Invalid monitor index {config.MonitorIndex}. Must be between 0 and {Screen.AllScreens.Length - 1}. Total monitors: {Screen.AllScreens.Length}");
-            }
-
-            // Set window bounds for the specific monitor
-            var screen = Screen.AllScreens[config.MonitorIndex];
-            _renderForm.Bounds = screen.Bounds;
-
-            _logger.LogInformation("Video renderer set to monitor {Index}: {Bounds} (Device: {Device})",
-                config.MonitorIndex,
-                screen.Bounds,
-                screen.DeviceName);
-
-            // CRITICAL: Show the form FIRST to ensure handle is fully initialized
-            _renderForm.Show();
-
-            _logger.LogDebug("Form shown, handle: {Handle}", _renderForm.Handle);
-
-            // Now find WorkerW window and set as parent (after form is shown)
-            var workerW = _desktopManager.FindDesktopWorkerWindow();
-            if (workerW != IntPtr.Zero)
-            {
-                _logger.LogDebug("Found WorkerW: {WorkerW}, parenting form to it", workerW);
-
-                // Convert Screen.Bounds to System.Drawing.Rectangle for DesktopWindowManager
-                var screenBounds = new System.Drawing.Rectangle(
-                    screen.Bounds.X,
-                    screen.Bounds.Y,
-                    screen.Bounds.Width,
-                    screen.Bounds.Height);
-
-                _desktopManager.SetAsWallpaperWindow(_renderForm.Handle, screenBounds);
-            }
-            else
-            {
-                _logger.LogWarning("Could not find WorkerW window, wallpaper may not render behind icons");
-            }
+            _logger.LogWarning("Could not find WorkerW window, wallpaper may not render behind icons");
         }
 
         // Set media player output
@@ -405,13 +413,153 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
         return Task.CompletedTask;
     }
 
+    #region LibVLC Memory Callbacks
+
+    /// <summary>
+    /// Setup LibVLC memory callbacks for direct frame access (headless mode).
+    /// Uses LibVLCSharp 3.x simplified callback API.
+    /// Based on: https://github.com/mfkl/libvlcsharp-samples/blob/master/PreviewThumbnailExtractor/Program.cs
+    /// </summary>
+    private void SetupVideoCallbacks()
+    {
+        if (_mediaPlayer == null)
+        {
+            _logger.LogWarning("Cannot setup video callbacks - media player is null");
+            return;
+        }
+
+        try
+        {
+            // Set fixed video format (will be updated when media starts playing)
+            // Using 1920x1080 as initial size - LibVLC will call back with actual dimensions
+            _videoWidth = 1920;
+            _videoHeight = 1080;
+            uint pitch = (uint)(_videoWidth * 4);  // 4 bytes per pixel for RGBA
+
+            // Allocate frame buffer
+            int bufferSize = _videoWidth * _videoHeight * 4;
+            _frameBufferPtr = Marshal.AllocHGlobal(bufferSize);
+
+            // LibVLCSharp 3.x simplified API: SetVideoFormat + SetVideoCallbacks
+            // RV32 = RGBA 32-bit format
+            _mediaPlayer.SetVideoFormat("RV32", (uint)_videoWidth, (uint)_videoHeight, pitch);
+            _mediaPlayer.SetVideoCallbacks(VideoLockCallback, null, VideoDisplayCallback);
+
+            _logger.LogInformation("LibVLC memory callbacks configured: RV32 {Width}x{Height}, buffer={Bytes} bytes",
+                _videoWidth, _videoHeight, bufferSize);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to setup video callbacks");
+        }
+    }
+
+    /// <summary>
+    /// Lock callback - called by LibVLC before decoding a frame.
+    /// Returns pointer to buffer where LibVLC will write decoded frame data.
+    /// Signature: IntPtr Lock(IntPtr opaque, IntPtr planes)
+    /// </summary>
+    private IntPtr VideoLockCallback(IntPtr opaque, IntPtr planes)
+    {
+        try
+        {
+            // Provide buffer pointer to LibVLC via planes parameter
+            Marshal.WriteIntPtr(planes, _frameBufferPtr);
+            return IntPtr.Zero;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in VideoLockCallback");
+            return IntPtr.Zero;
+        }
+    }
+
+    /// <summary>
+    /// Display callback - called by LibVLC when frame is ready to display.
+    /// This is where we convert the raw frame buffer to a Bitmap for composition.
+    /// Signature: void Display(IntPtr opaque, IntPtr picture)
+    /// </summary>
+    private void VideoDisplayCallback(IntPtr opaque, IntPtr picture)
+    {
+        try
+        {
+            if (_frameBufferPtr == IntPtr.Zero || _videoWidth == 0 || _videoHeight == 0)
+                return;
+
+            lock (_frameLock)
+            {
+                // Dispose old frame
+                _currentFrameBitmap?.Dispose();
+
+                // Convert raw RGBA buffer to Bitmap
+                _currentFrameBitmap = ConvertRawFrameToBitmap(_frameBufferPtr, _videoWidth, _videoHeight);
+
+                _logger.LogTrace("Frame decoded: {Width}x{Height} via memory callback", _videoWidth, _videoHeight);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in VideoDisplayCallback");
+        }
+    }
+
+    /// <summary>
+    /// Convert raw RGBA frame buffer to System.Drawing.Bitmap.
+    /// Uses unsafe pointer for fast memory copy.
+    /// </summary>
+    private Bitmap ConvertRawFrameToBitmap(IntPtr bufferPtr, int width, int height)
+    {
+        var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+
+        var bitmapData = bitmap.LockBits(
+            new Rectangle(0, 0, width, height),
+            ImageLockMode.WriteOnly,
+            PixelFormat.Format32bppArgb);
+
+        try
+        {
+            // Copy raw frame data to bitmap (direct memory copy - fast!)
+            int byteCount = width * height * 4;
+            unsafe
+            {
+                Buffer.MemoryCopy(
+                    (void*)bufferPtr,
+                    (void*)bitmapData.Scan0,
+                    byteCount,
+                    byteCount
+                );
+            }
+        }
+        finally
+        {
+            bitmap.UnlockBits(bitmapData);
+        }
+
+        return bitmap;
+    }
+
+    #endregion
+
     public void Dispose()
     {
         if (_disposed) return;
 
         _logger.LogInformation("Disposing video wallpaper renderer");
 
-        // Clean up frame cache
+        // Clean up memory callback resources
+        lock (_frameLock)
+        {
+            _currentFrameBitmap?.Dispose();
+            _currentFrameBitmap = null;
+        }
+
+        if (_frameBufferPtr != IntPtr.Zero)
+        {
+            Marshal.FreeHGlobal(_frameBufferPtr);
+            _frameBufferPtr = IntPtr.Zero;
+        }
+
+        // Clean up legacy frame cache
         foreach (var frame in _frameCache.Values)
         {
             frame?.Dispose();

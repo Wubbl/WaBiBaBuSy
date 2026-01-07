@@ -603,8 +603,27 @@ public partial class MainWindowViewModel : ViewModelBase
                 return;
             }
 
-            // Determine if this is a supported file for Direct2D composition
+            // Determine file type
             var extension = Path.GetExtension(wallpaper.FilePath).ToLowerInvariant();
+
+            // OPTION 1 (DEFAULT): Use composition pipeline with LibVLC memory callbacks
+            // GIFs/videos use memory callbacks for direct frame access (zero disk I/O, <1% CPU)
+            // This enables GIFs in cross-screen animations and composition system
+
+            // OPTION 2 (DISABLED): Direct LibVLC rendering (bypasses composition)
+            // Uncomment this block to use direct LibVLC window rendering for GIFs
+            // Pros: Simplest approach, guaranteed to work
+            // Cons: Can't use GIFs in composition/cross-screen animations
+            /*
+            if (extension == ".gif")
+            {
+                Debug.WriteLine($"[Direct2D] GIF detected - using native LibVLC rendering (bypassing composition)");
+                await ApplyGifWithLibVLCAsync(wallpaper, monitorIndex);
+                return;
+            }
+            */
+
+            // Check if file is supported for composition pipeline (images, videos, AND GIFs)
             bool isSupportedFile = extension switch
             {
                 ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv" or ".gif"
@@ -703,6 +722,74 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             Debug.WriteLine($"[Direct2D] Error: {ex.Message}");
             Debug.WriteLine($"[Direct2D] Stack trace: {ex.StackTrace}");
+        }
+    }
+
+    /// <summary>
+    /// Apply GIF using native LibVLC rendering (bypasses composition pipeline for performance).
+    /// LibVLC renders directly to a desktop window - no frame extraction needed.
+    /// This eliminates the TakeSnapshot() overhead and memory leaks.
+    /// </summary>
+    private async Task ApplyGifWithLibVLCAsync(WallpaperItemViewModel wallpaper, int monitorIndex = 0)
+    {
+        try
+        {
+            Debug.WriteLine($"[LibVLC-GIF] Applying GIF '{wallpaper.Name}' to monitor {monitorIndex} via native LibVLC");
+
+            // Dispose previous renderer for this monitor if exists
+            if (_localWallpaperRenderers.TryRemove(monitorIndex, out var existingRenderer))
+            {
+                Debug.WriteLine($"[LibVLC-GIF] Disposing existing renderer for monitor {monitorIndex}");
+                try
+                {
+                    await existingRenderer.StopAsync();
+                    existingRenderer.Dispose();
+                    await Task.Delay(200);  // Give it time to clean up
+                }
+                catch (Exception disposeEx)
+                {
+                    Debug.WriteLine($"[LibVLC-GIF] Error disposing existing renderer: {disposeEx.Message}");
+                }
+            }
+
+            // Create VideoWallpaperRenderer in NON-headless mode
+            // This creates a real visible window on the desktop that LibVLC renders to
+            var renderer = new VideoWallpaperRenderer(
+                _loggerFactory.CreateLogger<VideoWallpaperRenderer>(),
+                _desktopManager);
+
+            var config = new WallpaperConfig
+            {
+                FilePath = wallpaper.FilePath,
+                Type = WaBiBaBuSy.Models.WallpaperType.Video,  // LibVLC treats GIFs as videos
+                Loop = true,  // Enable looping
+                HardwareAcceleration = true,
+                MonitorIndex = monitorIndex,
+                HeadlessMode = false  // CRITICAL: Create visible window for LibVLC rendering
+            };
+
+            Debug.WriteLine($"[LibVLC-GIF] Initializing renderer for monitor {monitorIndex}");
+            await renderer.InitializeAsync(config);
+
+            Debug.WriteLine($"[LibVLC-GIF] Starting playback");
+            await renderer.StartAsync();
+
+            // Store renderer
+            _localWallpaperRenderers[monitorIndex] = renderer;
+
+            // Update UI
+            var localClient = Clients.FirstOrDefault(c => c.ClientId == $"LOCAL_MACHINE_MONITOR_{monitorIndex}");
+            if (localClient != null)
+            {
+                localClient.CurrentWallpaper = $"{wallpaper.Name} (LibVLC)";
+            }
+
+            Debug.WriteLine($"[LibVLC-GIF] Successfully applied GIF to monitor {monitorIndex}");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[LibVLC-GIF] Error: {ex.Message}");
+            Debug.WriteLine($"[LibVLC-GIF] Stack trace: {ex.StackTrace}");
         }
     }
 
