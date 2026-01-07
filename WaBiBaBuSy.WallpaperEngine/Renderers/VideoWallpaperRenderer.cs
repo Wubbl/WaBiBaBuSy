@@ -105,6 +105,15 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
             }
 
             _mediaPlayer.Media = media;
+
+            // Enable looping for GIFs and videos
+            if (_config.Loop)
+            {
+                // Set media to loop - use MediaPlayer's repeat feature
+                _mediaPlayer.Media.AddOption("input-repeat=-1");  // -1 = infinite loop
+                _logger.LogInformation("Looping enabled for media playback");
+            }
+
             _mediaPlayer.Play();
 
             // Wait a bit for playback to actually start
@@ -191,8 +200,9 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
     }
 
     /// <summary>
-    /// Gets the video frame at a specific timestamp (used by composition system).
-    /// Uses frame caching to avoid re-extracting frames for nearby timestamps.
+    /// Gets the current frame from the playing GIF/video (used by composition system).
+    /// For GIFs, we don't seek - we just capture whatever frame LibVLC is currently displaying.
+    /// LibVLC handles the frame timing and looping automatically.
     /// </summary>
     public Bitmap GetFrameAtPosition(long timestampMs)
     {
@@ -201,136 +211,113 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
             if (_mediaPlayer == null)
                 return new Bitmap(1, 1);
 
-            // Check cache first - if requesting same frame or very close timestamp
-            if (_frameCache.TryGetValue(timestampMs, out var cachedFrame))
+            // For GIF/video playback, we capture the CURRENT frame being displayed by LibVLC
+            // Not the frame at the requested timestamp - LibVLC is playing in real-time
+            // This avoids slow seeks and lets LibVLC handle frame timing naturally
+
+            // Check if we have a recent frame (within last 100ms)
+            // This avoids hammering TakeSnapshot() on every frame of composition
+            var recentTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            if (_lastCachedTimestamp > 0 && (recentTimestamp - _lastCachedTimestamp) < 100)
             {
-                return cachedFrame;
+                // Return the last captured frame (it's recent enough)
+                var lastFrame = _frameCache.Values.LastOrDefault();
+                if (lastFrame != null)
+                {
+                    return new Bitmap(lastFrame);  // Clone to avoid concurrent access issues
+                }
             }
 
-            // Check if we have a frame from nearby timestamp (avoid re-seeking)
-            // This is optimized for composition calling GetFrameAtPosition multiple times per frame
-            var nearbyFrame = _frameCache.Keys.FirstOrDefault(k => Math.Abs(k - timestampMs) < 10);
-            if (nearbyFrame >= 0 && _frameCache.TryGetValue(nearbyFrame, out var nearby))
+            // Time to capture a new frame - do it async to avoid blocking
+            // For now, return last frame if available, and trigger background capture
+            var existingFrame = _frameCache.Values.LastOrDefault();
+            if (existingFrame != null)
             {
-                return nearby;
+                // Trigger async capture for next time (don't block)
+                _ = Task.Run(() => CaptureCurrentFrame());
+                return new Bitmap(existingFrame);
             }
 
-            // Cache miss - need to seek and extract frame
-            // This is slow (~100-200ms) but happens infrequently when timestamps change significantly
-            ExtractFrameFromLibVLC(timestampMs);
-
-            // Retry cache lookup
-            if (_frameCache.TryGetValue(timestampMs, out var frame))
+            // No frames yet - do synchronous capture for first frame
+            CaptureCurrentFrame();
+            var frame = _frameCache.Values.LastOrDefault();
+            if (frame != null)
             {
-                return frame;
+                return new Bitmap(frame);
             }
 
-            // Fallback - return blank bitmap if extraction failed
-            _logger.LogWarning("Could not extract frame at {Timestamp}ms", timestampMs);
-            return new Bitmap(1, 1);
+            // Fallback - return small black bitmap
+            _logger.LogWarning("Could not capture current frame");
+            return new Bitmap(320, 240);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting video frame at position {TimestampMs}ms", timestampMs);
+            _logger.LogError(ex, "Error getting current video frame");
             return new Bitmap(1, 1);
         }
     }
 
     /// <summary>
-    /// Extracts a frame from the video at the specified timestamp and caches it.
-    /// For MVP, we use a simplified approach: cache by playing to the timestamp.
-    /// For production, consider using LibVLC callbacks or async frame buffers.
+    /// Captures the current frame from LibVLC (whatever is being displayed right now).
+    /// Does NOT seek - just takes a snapshot of the current playback position.
     /// </summary>
-    private void ExtractFrameFromLibVLC(long timestampMs)
+    private void CaptureCurrentFrame()
     {
         try
         {
             if (_mediaPlayer == null || _config == null)
-            {
-                _logger.LogWarning("Cannot extract frame - media player or config is null");
                 return;
-            }
 
-            // Seek to the desired timestamp
-            _mediaPlayer.Time = timestampMs;
-
-            // Wait for seek to complete and frame to be decoded
-            // LibVLC needs time to seek and render the frame to the window
-            Thread.Sleep(150);  // Increased wait time for more reliable frame capture
-
-            // Try to capture frame using TakeSnapshot
-            var tempSnapshotPath = Path.Combine(Path.GetTempPath(), $"vlc_snapshot_{Guid.NewGuid()}.png");
+            // Take snapshot of CURRENT frame (no seeking)
+            var tempSnapshotPath = Path.Combine(Path.GetTempPath(), $"vlc_current_{Guid.NewGuid()}.png");
 
             try
             {
-                // TakeSnapshot(num, path, width, height) - 0 means take at native resolution
-                // This works because we created a window (even if hidden) for LibVLC to render to
                 bool success = _mediaPlayer.TakeSnapshot(0, tempSnapshotPath, 0, 0);
 
                 if (success)
                 {
-                    // Wait a bit for the file to be written
-                    Thread.Sleep(50);
+                    // Wait briefly for file to be written
+                    Thread.Sleep(30);
 
                     if (File.Exists(tempSnapshotPath))
                     {
-                        // Load the snapshot into a bitmap
                         using (var tempImage = Image.FromFile(tempSnapshotPath))
                         {
                             var bitmap = new Bitmap(tempImage);
-                            _frameCache[timestampMs] = bitmap;
-                            _lastCachedTimestamp = timestampMs;
-                            _logger.LogDebug("Successfully captured frame at {Timestamp}ms via TakeSnapshot", timestampMs);
+                            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+                            // Store with current timestamp
+                            _frameCache[timestamp] = bitmap;
+                            _lastCachedTimestamp = timestamp;
+
+                            _logger.LogDebug("Captured current frame at playback position {Position}ms", _mediaPlayer.Time);
                         }
 
-                        // Clean up temp file
                         try { File.Delete(tempSnapshotPath); } catch { }
                     }
-                    else
-                    {
-                        _logger.LogWarning("TakeSnapshot succeeded but file not found at {Path}", tempSnapshotPath);
-                        CreatePlaceholderFrame(timestampMs);
-                    }
-                }
-                else
-                {
-                    _logger.LogWarning("TakeSnapshot returned false at {Timestamp}ms - media may not be playing", timestampMs);
-                    CreatePlaceholderFrame(timestampMs);
                 }
             }
-            catch (Exception snapshotEx)
+            catch (Exception ex)
             {
-                _logger.LogWarning(snapshotEx, "Exception during TakeSnapshot at {Timestamp}ms", timestampMs);
-                CreatePlaceholderFrame(timestampMs);
+                _logger.LogDebug(ex, "Failed to capture current frame");
             }
 
-            // Implement LRU cache eviction - keep only recent frames
-            if (_frameCache.Count > MaxCachedFrames)
+            // Keep only most recent frame (we don't need history for real-time playback)
+            if (_frameCache.Count > 2)
             {
-                var oldestKey = _frameCache.Keys.Min();
+                var oldestKey = _frameCache.Keys.OrderBy(k => k).First();
                 if (_frameCache.TryGetValue(oldestKey, out var oldBitmap))
                 {
-                    oldBitmap.Dispose();
+                    oldBitmap?.Dispose();
                     _frameCache.Remove(oldestKey);
                 }
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error extracting frame at {Timestamp}ms", timestampMs);
+            _logger.LogError(ex, "Error capturing current frame");
         }
-    }
-
-    private void CreatePlaceholderFrame(long timestampMs)
-    {
-        // Fallback: create a small black placeholder bitmap
-        var bitmap = new Bitmap(320, 240);
-        using (var g = System.Drawing.Graphics.FromImage(bitmap))
-        {
-            g.Clear(System.Drawing.Color.Black);
-        }
-        _frameCache[timestampMs] = bitmap;
-        _lastCachedTimestamp = timestampMs;
     }
 
     private Task CreateRenderWindowAsync(WallpaperConfig config)
