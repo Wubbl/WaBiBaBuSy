@@ -63,7 +63,8 @@ public class CompositionRenderer : IDisposable
         if (_animationRenderer == null)
             throw new InvalidOperationException("Renderer not initialized");
 
-        _logger.LogInformation("[Composition-Detail] UpdateAnimationPosition called: timestampMs={TimestampMs}, pixelsPerSecond={PPS}",
+        // TASK-012: Disabled noisy log (was LogInformation, now Trace)
+        _logger.LogTrace("[Composition-Detail] UpdateAnimationPosition called: timestampMs={TimestampMs}, pixelsPerSecond={PPS}",
             timestampMs, pixelsPerSecond);
 
         _animationRenderer.UpdatePosition(timestampMs, pixelsPerSecond);
@@ -111,7 +112,8 @@ public class CompositionRenderer : IDisposable
 
         animationBitmap.Dispose();
 
-        _logger.LogInformation("[Composition] Frame composition complete for screen {Order}: {Width}x{Height}",
+        // TASK-012: Disabled noisy log (was LogInformation, now Trace)
+        _logger.LogTrace("[Composition] Frame composition complete for screen {Order}: {Width}x{Height}",
             screen.Order, backgroundBitmap.Width, backgroundBitmap.Height);
 
         return backgroundBitmap;

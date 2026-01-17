@@ -71,6 +71,9 @@ class Program
     [DllImport("user32.dll")]
     private static extern bool UpdateWindow(IntPtr hWnd);
 
+    [DllImport("user32.dll")]
+    private static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);
+
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
 
@@ -168,6 +171,8 @@ class Program
     private static long _startTimestampMs = 0;
     private static int _pixelsPerSecond = 0;
     private static DateTime _renderLoopStart = DateTime.MinValue;
+    private static long _frameCount = 0; // TASK-008 VERIFICATION: Track render loop iterations
+    private static DateTime _lastLoopLogTime = DateTime.MinValue; // TASK-008: Track when we last logged loop status
 
     // Logging
     private static ILogger? _logger;
@@ -480,6 +485,20 @@ class Program
 
         while (_running)
         {
+            // TASK-008 DEBUG: Log every second to verify loop is running
+            var now = DateTime.UtcNow;
+            if ((now - _lastLoopLogTime).TotalSeconds >= 1.0)
+            {
+                _lastLoopLogTime = now;
+                bool composing = false;
+                lock (_compositionLock)
+                {
+                    composing = _compositionInitialized && _isPlaying;
+                }
+                _logger?.LogWarning("[D2D-LOOP] Render loop alive! Frame #{Count} | Composing: {Composing} | WindowShown: {Shown}",
+                    _frameCount, composing, _windowShown);
+            }
+
             try
             {
                 // Process Windows messages (CRITICAL for window stability!)
@@ -522,6 +541,13 @@ class Program
                             var elapsedMs = (long)(DateTime.UtcNow - _renderLoopStart).TotalMilliseconds;
                             var currentTimestampMs = _startTimestampMs + elapsedMs;
 
+                            // TASK-008 VERIFICATION: Log timestamp every 60 frames (~once per second)
+                            if (_frameCount % 60 == 0)
+                            {
+                                _logger?.LogInformation("[D2D-VERIFY] Render loop frame #{Frame} | Timestamp: {Timestamp}ms | PixelsPerSecond: {PPS} | Composing: {Composing}",
+                                    _frameCount, currentTimestampMs, _pixelsPerSecond, shouldCompose);
+                            }
+
                             // CRITICAL: Update animation position BEFORE composing
                             _compositionRenderer.UpdateAnimationPosition(currentTimestampMs, _pixelsPerSecond);
 
@@ -544,7 +570,8 @@ class Program
                                 {
                                     _windowShown = true;
                                     _d2dRenderTarget.EndDraw(out _, out _);
-                                    _swapChain.Present(1, PresentFlags.None);
+                                    // TASK-008 FIX: Use Present(0, ...) - no vsync wait
+                                    _swapChain.Present(0, PresentFlags.None);
 
                                     if (_zOrderReference != IntPtr.Zero)
                                     {
@@ -580,7 +607,20 @@ class Program
                     }
 
                     _d2dRenderTarget.EndDraw(out _, out _);
-                    _swapChain.Present(1, PresentFlags.None);
+
+                    // TASK-008 FIX: Use Present(0, ...) for immediate present without vsync wait
+                    // Windows 11 24H2 has issues with vsync on desktop-parented windows
+                    _swapChain.Present(0, PresentFlags.None);
+
+                    // TASK-008 FIX: Force window invalidation to trigger compositor update on Windows 11 24H2
+                    InvalidateRect(_hwnd, IntPtr.Zero, false);
+
+                    // TASK-008 VERIFICATION: Log every 60 frames to confirm Present() is being called
+                    if (_frameCount % 60 == 0 && _frameCount > 0)
+                    {
+                        _logger?.LogInformation("[D2D-PRESENT] Frame #{Frame} presented to swap chain | Composing: {Composing}",
+                            _frameCount, shouldCompose);
+                    }
                 }
             }
             catch (Exception ex)
@@ -593,6 +633,9 @@ class Program
             // For 10 FPS GIFs: sleep can be longer (e.g., 50-100ms)
             // Using 16ms ensures we check for new frames frequently while not wasting CPU
             Thread.Sleep(16);
+
+            // TASK-008 VERIFICATION: Increment frame counter
+            _frameCount++;
         }
 
         _logger?.LogInformation("Render loop stopped");

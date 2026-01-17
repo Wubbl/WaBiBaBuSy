@@ -48,6 +48,9 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
     private int _loopCounter = 0;                 // Number of loops completed
     private float _estimatedFPS = 30f;            // Estimated frame rate
     private int _totalFrameCount = 0;             // Estimated total frames in animation
+    private long _getFrameCallCount = 0;          // Track how many times GetFrameAtPosition is called
+    private long _lastDisplayCallbackValue = 0;   // Track if _displayCallbackCount is changing
+    private int _lastBitmapHashCode = 0;          // Track if bitmap instance changes
 
     // Legacy frame cache (not used with memory callbacks)
     private Dictionary<long, System.Drawing.Bitmap> _frameCache = new();
@@ -98,6 +101,10 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
 
             // Create media player
             _mediaPlayer = new MediaPlayer(_libVLC);
+
+            // TASK-008 VERIFICATION: Hook EndReached event to detect when media ends
+            _mediaPlayer.EndReached += OnMediaEndReached;
+            _logger.LogInformation("[GIF-INIT] EndReached event handler subscribed");
 
             // Create render window
             await CreateRenderWindowAsync(config);
@@ -308,26 +315,70 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
                 {
                     if (_currentFrameBitmap != null)
                     {
-                        // TASK-008 & TASK-011: Log occasionally to track GetFrameAtPosition calls
-                        var now = DateTime.UtcNow;
-                        if ((now - _lastCallbackLogTime).TotalSeconds >= 5.0)
-                        {
-                            _lastCallbackLogTime = now;
+                        // VERIFICATION: Track every GetFrameAtPosition call
+                        Interlocked.Increment(ref _getFrameCallCount);
 
-                            // Get current position for progress tracking
+                        // TASK-008 DEBUG: Log every 10 calls (~6 times/second at 60 FPS)
+                        if (_getFrameCallCount % 10 == 0)
+                        {
+                            int currentBitmapHash = _currentFrameBitmap.GetHashCode();
+                            bool bitmapChanged = (currentBitmapHash != _lastBitmapHashCode);
+                            _lastBitmapHashCode = currentBitmapHash;
+
+                            string changeStatus = bitmapChanged ? "✅ CHANGED" : "⚠️ SAME";
+                            _logger.LogInformation("[FRAME-REQUEST] GetFrameAtPosition #{Count} | Timestamp: {TimestampMs}ms | DisplayCallbacks: {DisplayCount} | Bitmap: {BitmapStatus}",
+                                _getFrameCallCount, timestampMs, _displayCallbackCount, changeStatus);
+                        }
+
+                        // TASK-008 VERIFICATION: Log every 60 calls (once per second at 60 FPS)
+                        // This verifies D2DPlayer is actually requesting frames
+                        if (_getFrameCallCount % 60 == 0)
+                        {
+                            // Check if DisplayCallback is still being called
+                            bool callbacksStuck = (_displayCallbackCount == _lastDisplayCallbackValue);
+                            _lastDisplayCallbackValue = _displayCallbackCount;
+
                             float currentPosition = 0f;
+                            bool isPlaying = false;
                             if (_mediaPlayer != null)
                             {
-                                try { currentPosition = _mediaPlayer.Position; } catch { }
+                                try
+                                {
+                                    currentPosition = _mediaPlayer.Position;
+                                    isPlaying = _mediaPlayer.IsPlaying;
+                                }
+                                catch { }
                             }
 
                             int currentFrameEstimate = _totalFrameCount > 0
                                 ? (int)(currentPosition * _totalFrameCount)
                                 : 0;
 
-                            _logger.LogInformation("[GIF-DEBUG] GetFrameAtPosition | Frame: {Frame}/{Total} ({Percent:F1}%) | DisplayCallbacks: {DisplayCount} | LockCallbacks: {LockCount} | Loop: {Loop}",
-                                currentFrameEstimate, _totalFrameCount, currentPosition * 100f,
-                                _displayCallbackCount, _lockCallbackCount, _loopCounter);
+                            string status = callbacksStuck ? "⚠️ STUCK" : "✅ OK";
+                            _logger.LogInformation("[VERIFY] GetFrameAtPosition #{GetFrameCount} | DisplayCallbacks: {DisplayCount} {Status} | Frame: {Frame}/{Total} | Pos: {Pos:F3} | IsPlaying: {IsPlaying}",
+                                _getFrameCallCount, _displayCallbackCount, status,
+                                currentFrameEstimate, _totalFrameCount, currentPosition, isPlaying);
+
+                            // TASK-008 CRITICAL FIX: If callbacks are stuck near the end, manually restart playback
+                            if (callbacksStuck && currentPosition > 0.90f && isPlaying && _config?.Loop == true)
+                            {
+                                _logger.LogWarning("[GIF-RESTART] ⚠️ DETECTED STUCK STATE! Callbacks frozen at {Count}, Position={Pos:F3}. Restarting playback...",
+                                    _displayCallbackCount, currentPosition);
+
+                                try
+                                {
+                                    // Stop and restart to force LibVLC to re-decode from start
+                                    _mediaPlayer.Stop();
+                                    Thread.Sleep(50); // Give LibVLC time to stop
+                                    _mediaPlayer.Play();
+                                    _loopCounter++;
+                                    _logger.LogInformation("[GIF-RESTART] ✅ Playback restarted | Loop #{Loop}", _loopCounter);
+                                }
+                                catch (Exception restartEx)
+                                {
+                                    _logger.LogError(restartEx, "[GIF-RESTART] Failed to restart playback");
+                                }
+                            }
                         }
 
                         // Clone to avoid threading issues with composition system
@@ -615,6 +666,31 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
                 _logger.LogTrace("Frame decoded: {Width}x{Height} via memory callback", _videoWidth, _videoHeight);
             }
 
+            // TASK-008 FIX: Manual looping - Check on EVERY frame, not just every 30
+            // CRITICAL: This must be OUTSIDE the logging block to work properly!
+            if (_mediaPlayer != null)
+            {
+                try
+                {
+                    float currentPosition = _mediaPlayer.Position;
+                    bool isPlaying = _mediaPlayer.IsPlaying;
+
+                    // When we reach 95% of the animation, seek back to start to create infinite loop
+                    if (currentPosition > 0.95f && isPlaying)
+                    {
+                        _logger.LogInformation("[GIF-LOOP] Near end detected (Pos: {Pos:F3}, Frame: {Frame}), seeking to start NOW",
+                            currentPosition, _displayCallbackCount);
+                        _mediaPlayer.Time = 0;
+                        _loopCounter++;
+                        _logger.LogInformation("[GIF-LOOP] 🔄 Seeked to start | Loop #{Loop}", _loopCounter);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error in loop check");
+                }
+            }
+
             // TASK-008 & TASK-011: Log every 30 frames (roughly once per second at 30 FPS)
             if (_displayCallbackCount % 30 == 0)
             {
@@ -700,6 +776,42 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
         return bitmap;
     }
 
+    /// <summary>
+    /// TASK-008 VERIFICATION: Handle media end event
+    /// LibVLC's input-repeat=-1 doesn't work in headless/callback mode, so we manually restart
+    /// </summary>
+    private void OnMediaEndReached(object? sender, EventArgs e)
+    {
+        try
+        {
+            _logger.LogWarning("[GIF-END] ⚠️ Media EndReached event fired! Animation reached end at DisplayCallback #{Count}",
+                _displayCallbackCount);
+
+            // Manually restart playback if looping is enabled
+            if (_config?.Loop == true && _mediaPlayer != null)
+            {
+                _logger.LogInformation("[GIF-END] Restarting playback from beginning (Loop #{Loop})",
+                    _loopCounter + 1);
+
+                // Stop and restart the media
+                _mediaPlayer.Stop();
+                Task.Delay(50).Wait(); // Small delay to ensure stop completes
+                _mediaPlayer.Play();
+
+                _loopCounter++;
+                _logger.LogInformation("[GIF-END] ✅ Playback restarted for loop #{Loop}", _loopCounter);
+            }
+            else
+            {
+                _logger.LogWarning("[GIF-END] Loop disabled or player null, playback will stop");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in OnMediaEndReached handler");
+        }
+    }
+
     #endregion
 
     public void Dispose()
@@ -727,6 +839,12 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
             frame?.Dispose();
         }
         _frameCache.Clear();
+
+        // Unsubscribe from events
+        if (_mediaPlayer != null)
+        {
+            _mediaPlayer.EndReached -= OnMediaEndReached;
+        }
 
         _mediaPlayer?.Stop();
         _mediaPlayer?.Dispose();
