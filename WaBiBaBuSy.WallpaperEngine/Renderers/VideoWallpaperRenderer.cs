@@ -36,6 +36,19 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
     private readonly object _frameLock = new object();
     private bool _useMemoryCallbacks = false;  // Enabled for headless mode
 
+    // Diagnostic counters for TASK-008 investigation
+    private long _lockCallbackCount = 0;
+    private long _displayCallbackCount = 0;
+    private DateTime _callbackTrackingStart = DateTime.MinValue;
+    private DateTime _lastCallbackLogTime = DateTime.MinValue;
+
+    // TASK-011: GIF-specific logging fields
+    private long _animationLengthMs = 0;          // Total animation duration
+    private float _lastLoggedPosition = -1f;      // Last position for loop detection
+    private int _loopCounter = 0;                 // Number of loops completed
+    private float _estimatedFPS = 30f;            // Estimated frame rate
+    private int _totalFrameCount = 0;             // Estimated total frames in animation
+
     // Legacy frame cache (not used with memory callbacks)
     private Dictionary<long, System.Drawing.Bitmap> _frameCache = new();
     private long _lastCachedTimestamp = -1;
@@ -161,6 +174,42 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
             // Wait a bit for playback to actually start
             await Task.Delay(100);
 
+            // TASK-008: Log LibVLC player state to verify playback started
+            if (_useMemoryCallbacks)
+            {
+                _callbackTrackingStart = DateTime.UtcNow;
+                _lastCallbackLogTime = DateTime.UtcNow;
+
+                var isPlaying = _mediaPlayer.IsPlaying;
+                var position = _mediaPlayer.Position;
+                var time = _mediaPlayer.Time;
+                var length = _mediaPlayer.Length;
+                var rate = _mediaPlayer.Rate;
+
+                // TASK-011: Capture animation metadata
+                _animationLengthMs = length;
+                _loopCounter = 0;
+                _lastLoggedPosition = 0f;
+
+                // Estimate frame count (assume 30 FPS for GIFs if unknown)
+                if (length > 0)
+                {
+                    _totalFrameCount = (int)((length / 1000.0) * _estimatedFPS);
+                }
+
+                _logger.LogInformation("[GIF-DEBUG] LibVLC playback started | IsPlaying: {IsPlaying} | Position: {Position:F3} | Time: {Time}ms | Length: {Length}ms | Rate: {Rate}",
+                    isPlaying, position, time, length, rate);
+
+                // TASK-011: Log animation metadata
+                _logger.LogInformation("[GIF] Animation Metadata | Duration: {Duration}ms ({Seconds:F1}s) | Est. Total Frames: {Frames} @ {FPS} FPS | Dimensions: {Width}x{Height}",
+                    length, length / 1000.0, _totalFrameCount, _estimatedFPS, _videoWidth, _videoHeight);
+
+                if (!isPlaying)
+                {
+                    _logger.LogWarning("[GIF-DEBUG] WARNING: LibVLC reports IsPlaying=false after Play() call!");
+                }
+            }
+
             State = WallpaperState.Playing;
             _logger.LogInformation("Video playback started");
         }
@@ -259,6 +308,28 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
                 {
                     if (_currentFrameBitmap != null)
                     {
+                        // TASK-008 & TASK-011: Log occasionally to track GetFrameAtPosition calls
+                        var now = DateTime.UtcNow;
+                        if ((now - _lastCallbackLogTime).TotalSeconds >= 5.0)
+                        {
+                            _lastCallbackLogTime = now;
+
+                            // Get current position for progress tracking
+                            float currentPosition = 0f;
+                            if (_mediaPlayer != null)
+                            {
+                                try { currentPosition = _mediaPlayer.Position; } catch { }
+                            }
+
+                            int currentFrameEstimate = _totalFrameCount > 0
+                                ? (int)(currentPosition * _totalFrameCount)
+                                : 0;
+
+                            _logger.LogInformation("[GIF-DEBUG] GetFrameAtPosition | Frame: {Frame}/{Total} ({Percent:F1}%) | DisplayCallbacks: {DisplayCount} | LockCallbacks: {LockCount} | Loop: {Loop}",
+                                currentFrameEstimate, _totalFrameCount, currentPosition * 100f,
+                                _displayCallbackCount, _lockCallbackCount, _loopCounter);
+                        }
+
                         // Clone to avoid threading issues with composition system
                         return new Bitmap(_currentFrameBitmap);
                     }
@@ -494,8 +565,21 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
     {
         try
         {
+            // TASK-008: Track callback frequency
+            Interlocked.Increment(ref _lockCallbackCount);
+
             // Provide buffer pointer to LibVLC via planes parameter
             Marshal.WriteIntPtr(planes, _frameBufferPtr);
+
+            // Log every 30 callbacks (roughly once per second at 30 FPS)
+            if (_lockCallbackCount % 30 == 0)
+            {
+                var elapsed = (DateTime.UtcNow - _callbackTrackingStart).TotalSeconds;
+                var callbacksPerSecond = elapsed > 0 ? _lockCallbackCount / elapsed : 0;
+                _logger.LogInformation("[GIF-DEBUG] VideoLockCallback #{Count} | Callbacks/sec: {Rate:F1}",
+                    _lockCallbackCount, callbacksPerSecond);
+            }
+
             return IntPtr.Zero;
         }
         catch (Exception ex)
@@ -517,6 +601,9 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
             if (_frameBufferPtr == IntPtr.Zero || _videoWidth == 0 || _videoHeight == 0)
                 return;
 
+            // TASK-008: Track callback frequency
+            Interlocked.Increment(ref _displayCallbackCount);
+
             lock (_frameLock)
             {
                 // Dispose old frame
@@ -526,6 +613,50 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
                 _currentFrameBitmap = ConvertRawFrameToBitmap(_frameBufferPtr, _videoWidth, _videoHeight);
 
                 _logger.LogTrace("Frame decoded: {Width}x{Height} via memory callback", _videoWidth, _videoHeight);
+            }
+
+            // TASK-008 & TASK-011: Log every 30 frames (roughly once per second at 30 FPS)
+            if (_displayCallbackCount % 30 == 0)
+            {
+                var elapsed = (DateTime.UtcNow - _callbackTrackingStart).TotalSeconds;
+                var framesPerSecond = elapsed > 0 ? _displayCallbackCount / elapsed : 0;
+
+                // Get current LibVLC player state
+                float currentPosition = 0f;
+                long currentTime = 0;
+                bool isPlaying = false;
+
+                if (_mediaPlayer != null)
+                {
+                    try
+                    {
+                        isPlaying = _mediaPlayer.IsPlaying;
+                        currentPosition = _mediaPlayer.Position;
+                        currentTime = _mediaPlayer.Time;
+
+                        // TASK-011: Detect loop (position went backwards)
+                        if (currentPosition < _lastLoggedPosition && _lastLoggedPosition > 0.8f)
+                        {
+                            _loopCounter++;
+                            _logger.LogInformation("[GIF] 🔄 Loop Completed | Loop #{Loop} | Position reset: {OldPos:F3} → {NewPos:F3}",
+                                _loopCounter, _lastLoggedPosition, currentPosition);
+                        }
+                        _lastLoggedPosition = currentPosition;
+                    }
+                    catch { }
+                }
+
+                // TASK-011: Calculate frame number and progress
+                int currentFrameEstimate = _totalFrameCount > 0
+                    ? (int)(currentPosition * _totalFrameCount)
+                    : (int)_displayCallbackCount;
+
+                float progressPercent = currentPosition * 100f;
+
+                // TASK-011: Enhanced logging with frame tracking
+                _logger.LogInformation("[GIF] Frame {CurrentFrame}/{TotalFrames} ({Progress:F1}%) | Loop: {Loop} | FPS: {Rate:F1} | Time: {Time}ms / {Length}ms | IsPlaying: {IsPlaying}",
+                    currentFrameEstimate, _totalFrameCount, progressPercent, _loopCounter,
+                    framesPerSecond, currentTime, _animationLengthMs, isPlaying);
             }
         }
         catch (Exception ex)

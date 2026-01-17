@@ -407,7 +407,16 @@ dotnet run --project WaBiBaBuSy.UI
 
 ## Recent Updates
 
-**Latest (2025-12-27 - SEPARATE PLAYER PROCESS FOR WINDOWS 11 24H2+):**
+**Latest (2026-01-09 - CRITICAL GIF ANIMATION ISSUES DOCUMENTED):**
+- 🔴 **HIGHEST PRIORITY: GIF animation only showing first frame** (TASK-008)
+- 🔴 **D2DPlayer high CPU usage** - 7% vs <1% target (TASK-009)
+- 🔴 **D2DPlayer RAM leak** - Continuous memory growth (TASK-010)
+- 📝 **5 new tasks added to TODO_ACTIVE.md** - GIF fixes + logging improvements
+- ✅ **LibVLC memory callbacks implemented** - Dynamic dimension detection working
+- ⚠️ **BLOCKER:** TASK-008 must be fixed before testing other GIF functionality
+- **See:** `.docs/2026.01_TODO_ACTIVE.md` for detailed task breakdown and investigation plans
+
+**Previous (2025-12-27 - SEPARATE PLAYER PROCESS FOR WINDOWS 11 24H2+):**
 - ✅ **CRITICAL FIX: Explorer.exe Crash** - DXGI swap chain windows crash explorer when parented to desktop on Windows 11 24H2+
 - ✅ **Separate Player Process** - New `WaBiBaBuSy.Player.D2D` project runs DXGI rendering in isolated process
 - ✅ **IPC Protocol** - stdin/stdout communication for PARENT, COLOR, EXIT commands
