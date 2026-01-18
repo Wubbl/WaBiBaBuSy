@@ -398,7 +398,7 @@ class Program
             BufferUsage = Usage.RenderTargetOutput,
             SampleDescription = new SampleDescription(1, 0),
             Scaling = Scaling.Stretch,
-            SwapEffect = SwapEffect.FlipDiscard,
+            SwapEffect = SwapEffect.FlipSequential, // Changed from FlipDiscard - Test for Win11 24H2 compatibility
             AlphaMode = Vortice.DXGI.AlphaMode.Ignore,
             Flags = SwapChainFlags.None
         };
