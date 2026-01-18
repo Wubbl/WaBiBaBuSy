@@ -440,9 +440,35 @@ class Program
                 var parentHwnd = new IntPtr(long.Parse(parts[0]));
                 var zOrderHwnd = parts.Length >= 2 ? new IntPtr(long.Parse(parts[1])) : IntPtr.Zero;
 
-                // Add WS_EX_TRANSPARENT for mouse pass-through
+                // Windows 11 24H2+ "Raised Desktop" mode detection:
+                // If zOrderHwnd is provided (DefView), we're in layered mode
+                bool isLayeredDesktopMode = zOrderHwnd != IntPtr.Zero;
+
                 var exStyle = GetWindowLong(_hwnd, GWL_EXSTYLE);
-                SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT);
+
+                if (isLayeredDesktopMode)
+                {
+                    // Windows 11 24H2+ approach (Lively's method)
+                    // Use WS_EX_LAYERED with full opacity instead of WS_EX_TRANSPARENT
+                    _logger?.LogInformation("Windows 11 24H2 'Raised Desktop' mode detected - using WS_EX_LAYERED");
+
+                    // Remove WS_EX_TRANSPARENT if present
+                    exStyle &= ~WS_EX_TRANSPARENT;
+                    // Add WS_EX_LAYERED
+                    exStyle |= WS_EX_LAYERED;
+                    SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle);
+
+                    // Set full opacity (255) - allows DX blt presents without performance issues
+                    // Microsoft: "Use SetLayeredWindowAttributes(bAlpha=0xFF) so you can do DX blt presents"
+                    SetLayeredWindowAttributes(_hwnd, 0, 255, LWA_ALPHA);
+                }
+                else
+                {
+                    // Windows 10 / older Windows 11 approach
+                    // Use WS_EX_TRANSPARENT for mouse pass-through
+                    _logger?.LogInformation("Standard desktop mode - using WS_EX_TRANSPARENT");
+                    SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT);
+                }
 
                 // SetParent to make us a child/sibling
                 SetParent(_hwnd, parentHwnd);
@@ -452,6 +478,7 @@ class Program
                 {
                     _zOrderReference = zOrderHwnd;
                     SetWindowPos(_hwnd, zOrderHwnd, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
+                    _logger?.LogInformation("Z-ordered under DefView: {DefView}", zOrderHwnd);
                 }
                 else
                 {
@@ -460,7 +487,8 @@ class Program
                     SetWindowPos(_hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
                 }
 
-                _logger?.LogInformation("Window parented to desktop: parent={Parent}, zOrder={ZOrder}", parentHwnd, zOrderHwnd);
+                _logger?.LogInformation("Window parented to desktop: parent={Parent}, zOrder={ZOrder}, layeredMode={Layered}",
+                    parentHwnd, zOrderHwnd, isLayeredDesktopMode);
                 Console.WriteLine("READY");
                 Console.Out.Flush();
             }
