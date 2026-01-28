@@ -663,6 +663,27 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
                 // Convert raw RGBA buffer to Bitmap
                 _currentFrameBitmap = ConvertRawFrameToBitmap(_frameBufferPtr, _videoWidth, _videoHeight);
 
+                // DIAGNOSTIC: Sample center pixel every 30 frames to verify LibVLC is providing colored frames
+                if (_displayCallbackCount % 30 == 0)
+                {
+                    unsafe
+                    {
+                        byte* buffer = (byte*)_frameBufferPtr.ToPointer();
+                        int centerX = _videoWidth / 2;
+                        int centerY = _videoHeight / 2;
+                        int stride = _videoWidth * 4; // RGBA = 4 bytes per pixel
+                        int centerOffset = (centerY * stride) + (centerX * 4);
+
+                        byte r = buffer[centerOffset + 0];
+                        byte g = buffer[centerOffset + 1];
+                        byte b = buffer[centerOffset + 2];
+                        byte a = buffer[centerOffset + 3];
+
+                        _logger.LogInformation("[LIBVLC-PIXEL] DisplayCallback #{Count} | Center pixel: R={R} G={G} B={B} A={A}",
+                            _displayCallbackCount, r, g, b, a);
+                    }
+                }
+
                 _logger.LogTrace("Frame decoded: {Width}x{Height} via memory callback", _videoWidth, _videoHeight);
             }
 

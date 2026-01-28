@@ -683,6 +683,8 @@ public partial class MainWindowViewModel : ViewModelBase
                 _loggerFactory,
                 _desktopManager);
 
+            d2dService.StaticMode = true;
+
             Debug.WriteLine($"[Direct2D] Initializing D2D composition service for monitor {monitorIndex} (metadata-based)");
 
             // Pass actual monitor bounds from Windows

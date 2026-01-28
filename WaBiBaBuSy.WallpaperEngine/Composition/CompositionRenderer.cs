@@ -20,6 +20,9 @@ public class CompositionRenderer : IDisposable
     // Frame buffer cache to reduce allocations
     private readonly Dictionary<string, Bitmap> _frameBufferCache = new();
 
+    // Diagnostic tracking
+    private long _composeCallCount = 0;
+
     public CompositionRenderer(
         ILogger<CompositionRenderer> logger,
         ILoggerFactory loggerFactory)
@@ -115,6 +118,17 @@ public class CompositionRenderer : IDisposable
         // TASK-012: Disabled noisy log (was LogInformation, now Trace)
         _logger.LogTrace("[Composition] Frame composition complete for screen {Order}: {Width}x{Height}",
             screen.Order, backgroundBitmap.Width, backgroundBitmap.Height);
+
+        // DIAGNOSTIC: Sample center pixel of composed frame every 60 frames
+        if (_composeCallCount % 60 == 0)
+        {
+            var centerX = backgroundBitmap.Width / 2;
+            var centerY = backgroundBitmap.Height / 2;
+            var centerPixel = backgroundBitmap.GetPixel(centerX, centerY);
+            _logger.LogInformation("[COMPOSITION-PIXEL] Frame #{Count} | Center pixel: R={R} G={G} B={B} A={A}",
+                _composeCallCount, centerPixel.R, centerPixel.G, centerPixel.B, centerPixel.A);
+        }
+        _composeCallCount++;
 
         return backgroundBitmap;
     }

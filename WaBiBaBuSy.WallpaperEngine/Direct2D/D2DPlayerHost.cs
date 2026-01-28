@@ -49,6 +49,12 @@ public class D2DPlayerHost : IDisposable
     public IntPtr PlayerHwnd => _playerHwnd;
 
     /// <summary>
+    /// Gets or sets whether to run in static mode (render first frame only, then stop).
+    /// Must be set before calling InitializeAsync.
+    /// </summary>
+    public bool StaticMode { get; set; } = false;
+
+    /// <summary>
     /// Initializes the player process and parents its window to the desktop.
     /// </summary>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -71,6 +77,14 @@ public class D2DPlayerHost : IDisposable
             // Prepare command line arguments using actual monitor bounds
             var bounds = _actualMonitorBounds;
             var args = $"--bounds {bounds.X},{bounds.Y},{bounds.Width},{bounds.Height}";
+
+            // Add --static flag if StaticMode is enabled
+            if (StaticMode)
+            {
+                args += " --static";
+                _logger.LogInformation("Static mode enabled - player will render first frame only");
+            }
+
             _logger.LogInformation("Player window bounds: X={X}, Y={Y}, Width={W}, Height={H}",
                 bounds.X, bounds.Y, bounds.Width, bounds.Height);
 
@@ -470,7 +484,34 @@ public class D2DPlayerHost : IDisposable
     {
         if (!string.IsNullOrEmpty(e.Data))
         {
-            _logger.LogError("Player error: {Error}", e.Data);
+            // Parse log level from .NET logging format (e.g., "info: ...", "warn: ...", "fail: ...")
+            var line = e.Data;
+
+            if (line.StartsWith("info:") || line.StartsWith("dbug:") || line.StartsWith("trce:"))
+            {
+                // Information/Debug/Trace logs - use Information level
+                _logger.LogInformation("[Player] {Message}", line);
+            }
+            else if (line.StartsWith("warn:"))
+            {
+                // Warning logs
+                _logger.LogWarning("[Player] {Message}", line);
+            }
+            else if (line.StartsWith("fail:") || line.StartsWith("crit:"))
+            {
+                // Error/Critical logs
+                _logger.LogError("[Player] {Message}", line);
+            }
+            else if (line.TrimStart().StartsWith("["))
+            {
+                // Custom log format like "[PIXEL-SAMPLE]", "[COMP-STATE]" - use Information
+                _logger.LogInformation("[Player] {Message}", line.TrimStart());
+            }
+            else
+            {
+                // Unknown format - use Debug level to avoid noise
+                _logger.LogDebug("[Player] {Message}", line);
+            }
         }
     }
 

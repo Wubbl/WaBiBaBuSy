@@ -243,6 +243,8 @@ class Program
     private static ID2D1RenderTarget? _d2dRenderTarget;
 
     // State
+    private static int _x; // Window X position on screen
+    private static int _y; // Window Y position on screen
     private static int _width;
     private static int _height;
     private static volatile bool _running = true;
@@ -251,6 +253,7 @@ class Program
     private static volatile bool _windowShown = false;
     private static IntPtr _zOrderReference = IntPtr.Zero;
     private static volatile bool _isLayeredMode = false; // Windows 11 24H2 layered desktop mode
+    private static volatile bool _staticMode = false; // Static mode: render first frame only, then stop
 
     // UpdateLayeredWindow resources (for Windows 11 24H2 compatibility)
     private static IntPtr _hdcScreen = IntPtr.Zero;
@@ -317,9 +320,14 @@ class Program
                         _height = int.Parse(parts[3]);
                     }
                 }
+                else if (args[i] == "--static")
+                {
+                    _staticMode = true;
+                }
             }
 
-            _logger?.LogInformation("D2DPlayer starting: bounds=({X},{Y},{Width},{Height})", x, y, _width, _height);
+            _logger?.LogInformation("D2DPlayer starting: bounds=({X},{Y},{Width},{Height}), staticMode={StaticMode}",
+                x, y, _width, _height, _staticMode);
 
             // Create window
             CreateNativeWindow(x, y, _width, _height);
@@ -432,6 +440,12 @@ class Program
                 var error = Marshal.GetLastWin32Error();
                 throw new Exception($"Failed to create window. Error: {error}");
             }
+
+            // Store window position and size for UpdateLayeredWindow
+            _x = x;
+            _y = y;
+            _width = width;
+            _height = height;
 
             UpdateWindow(_hwnd);
         }
@@ -724,8 +738,8 @@ class Program
                     int srcStride = (int)mappedResource.RowPitch;
                     int dstStride = _width * 4; // 4 bytes per pixel (BGRA)
 
-                    // DIAGNOSTIC: Sample first pixel for logging (only on first frame)
-                    bool isFirstFrame = _frameCount == 0;
+                    // DIAGNOSTIC: Sample center pixel for logging every 60 frames (~once per second at 60fps)
+                    bool shouldSamplePixel = (_frameCount % 60 == 0);
                     byte sampleB = 0, sampleG = 0, sampleR = 0, sampleA = 0;
 
                     for (int y = 0; y < _height; y++)
@@ -738,8 +752,8 @@ class Program
                             int srcIdx = x * 4;
                             int dstIdx = x * 4;
 
-                            // Sample center pixel on first frame
-                            if (isFirstFrame && x == _width / 2 && y == _height / 2)
+                            // Sample center pixel every 60 frames
+                            if (shouldSamplePixel && x == _width / 2 && y == _height / 2)
                             {
                                 sampleB = srcRow[srcIdx + 0];
                                 sampleG = srcRow[srcIdx + 1];
@@ -756,10 +770,10 @@ class Program
                         }
                     }
 
-                    if (isFirstFrame)
+                    if (shouldSamplePixel)
                     {
-                        _logger?.LogInformation("[PIXEL-SAMPLE] Center pixel: B={B} G={G} R={R} A={A} (forced to 255)",
-                            sampleB, sampleG, sampleR, sampleA);
+                        _logger?.LogInformation("[PIXEL-SAMPLE] Frame #{Frame} | Center pixel: B={B} G={G} R={R} A={A} (forced to 255)",
+                            _frameCount, sampleB, sampleG, sampleR, sampleA);
                     }
                 }
 
@@ -774,8 +788,8 @@ class Program
                     AlphaFormat = AC_SRC_ALPHA
                 };
 
-                // CRITICAL FIX: Pass IntPtr.Zero for pptDst to keep current window position
-                // Previously: var ptDst = new POINT { x = 0, y = 0 } moved window to (0,0) every frame!
+                // Use IntPtr.Zero for position - window position was set during CreateWindow
+                // Passing explicit coordinates can cause the window to not update on some systems
                 bool result = UpdateLayeredWindow(_hwnd, IntPtr.Zero, IntPtr.Zero, ref size,
                     _hdcMem, ref ptSrc, 0, ref blend, ULW_ALPHA);
 
@@ -883,9 +897,20 @@ class Program
 
                     // Check if composition is initialized and playing
                     bool shouldCompose = false;
+                    bool compInit = false;
+                    bool isPlay = false;
                     lock (_compositionLock)
                     {
-                        shouldCompose = _compositionInitialized && _isPlaying;
+                        compInit = _compositionInitialized;
+                        isPlay = _isPlaying;
+                        shouldCompose = compInit && isPlay;
+                    }
+
+                    // DIAGNOSTIC: Log composition state every 60 frames
+                    if (_frameCount % 60 == 0)
+                    {
+                        _logger?.LogInformation("[COMP-STATE] Frame #{Frame} | Initialized: {Init} | Playing: {Play} | ShouldCompose: {ShouldCompose}",
+                            _frameCount, compInit, isPlay, shouldCompose);
                     }
 
                     if (shouldCompose && _compositionRenderer != null && _canvasManager != null)
@@ -903,15 +928,33 @@ class Program
                                     _frameCount, currentTimestampMs, _pixelsPerSecond, shouldCompose);
                             }
 
+                            // FIRST FRAME DIAGNOSTICS
+                            bool isFirstComposedFrame = !_windowShown;
+                            if (isFirstComposedFrame)
+                            {
+                                _logger?.LogInformation("[FIRST-FRAME] Step 1/7: Starting first frame composition");
+                                _logger?.LogInformation("[FIRST-FRAME] Window position: ({X},{Y}), Size: ({Width},{Height})",
+                                    _x, _y, _width, _height);
+                            }
+
                             // CRITICAL: Update animation position BEFORE composing
                             _compositionRenderer.UpdateAnimationPosition(currentTimestampMs, _pixelsPerSecond);
+
+                            if (isFirstComposedFrame)
+                                _logger?.LogInformation("[FIRST-FRAME] Step 2/7: Animation position updated (timestamp: {Timestamp}ms)", currentTimestampMs);
 
                             // Compose frame for this screen
                             var screen = _canvasManager.ScreenMappings[0]; // Single screen for this player
                             using var composedFrame = _compositionRenderer.ComposeForScreen(screen);
 
+                            if (isFirstComposedFrame)
+                                _logger?.LogInformation("[FIRST-FRAME] Step 3/7: Frame composed ({Width}x{Height})", composedFrame.Width, composedFrame.Height);
+
                             // Convert System.Drawing.Bitmap to D2D bitmap
                             var d2dBitmap = ConvertBitmapToD2D(composedFrame);
+
+                            if (isFirstComposedFrame)
+                                _logger?.LogInformation("[FIRST-FRAME] Step 4/7: Converted to D2D bitmap (success: {Success})", d2dBitmap != null);
 
                             // Draw the bitmap
                             if (d2dBitmap != null)
@@ -920,35 +963,54 @@ class Program
                                 _d2dRenderTarget.DrawBitmap(d2dBitmap, 1.0f, BitmapInterpolationMode.Linear, destRect);
                                 d2dBitmap.Dispose();
 
+                                if (isFirstComposedFrame)
+                                    _logger?.LogInformation("[FIRST-FRAME] Step 5/7: Bitmap drawn to D2D render target");
+
                                 // Show window on first frame
                                 if (!_windowShown)
                                 {
                                     _windowShown = true;
+                                    _logger?.LogInformation("[FIRST-FRAME] Step 6/7: EndDraw + Present");
+
                                     _d2dRenderTarget.EndDraw(out _, out _);
 
                                     // Windows 11 24H2: Use UpdateLayeredWindow
                                     // Windows 10: Use Present()
                                     if (_isLayeredMode)
                                     {
+                                        _logger?.LogInformation("[FIRST-FRAME] Using UpdateLayeredWindow (Windows 11 24H2 mode)");
                                         PresentToLayeredWindow();
                                     }
                                     else
                                     {
+                                        _logger?.LogInformation("[FIRST-FRAME] Using Present() (Windows 10 mode)");
                                         _swapChain.Present(0, PresentFlags.None);
                                     }
+
+                                    _logger?.LogInformation("[FIRST-FRAME] Step 7/7: Showing window");
 
                                     if (_zOrderReference != IntPtr.Zero)
                                     {
                                         SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0,
                                             SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                                        _logger?.LogInformation("[FIRST-FRAME] Window positioned under DefView (z-order: {ZOrder})", _zOrderReference);
                                     }
                                     else
                                     {
                                         ShowWindow(_hwnd, 5); // SW_SHOW
+                                        _logger?.LogInformation("[FIRST-FRAME] Window shown at BOTTOM z-order");
                                     }
 
                                     UpdateWindow(_hwnd);
-                                    _logger?.LogInformation("Window shown after first frame (layered mode: {Layered})", _isLayeredMode);
+                                    _logger?.LogInformation("[FIRST-FRAME] ✅ COMPLETE! Window shown (layered mode: {Layered})", _isLayeredMode);
+
+                                    // STATIC MODE: Stop render loop after first frame
+                                    if (_staticMode)
+                                    {
+                                        _logger?.LogInformation("[STATIC-MODE] First frame rendered. Stopping render loop. Press Ctrl+C to exit.");
+                                        _running = false;
+                                    }
+
                                     continue;
                                 }
                             }
@@ -967,33 +1029,57 @@ class Program
                         {
                             color = _currentColor;
                         }
+
+                        // DIAGNOSTIC: Log when fallback to solid color (composition not ready)
+                        if (_frameCount == 0)
+                        {
+                            _logger?.LogWarning("[FRAME-0-FALLBACK] Composition not ready, rendering solid color: R={R}, G={G}, B={B}, A={A}",
+                                color.R, color.G, color.B, color.A);
+                        }
+
                         _d2dRenderTarget.Clear(color);
                     }
 
                     _d2dRenderTarget.EndDraw(out _, out _);
 
-                    // Windows 11 24H2 Fix: Use UpdateLayeredWindow instead of Present()
-                    // DXGI swap chain Present() doesn't update on Windows 11 24H2 layered windows
-                    if (_isLayeredMode)
-                    {
-                        PresentToLayeredWindow();
+                    // CRITICAL: Don't show window until composition is ready!
+                    // Showing the window with fallback color would display black/solid color instead of content
+                    // Only present frames when we have actual composed content OR window is already shown
+                    bool shouldPresentFrame = shouldCompose || _windowShown;
 
-                        // Log every 60 frames
-                        if (_frameCount % 60 == 0 && _frameCount > 0)
+                    if (!shouldPresentFrame)
+                    {
+                        // Skip presenting fallback frames before composition is ready
+                        if (_frameCount % 60 == 0)
                         {
-                            _logger?.LogInformation("[ULW-PRESENT] Frame #{Frame} presented via UpdateLayeredWindow | Composing: {Composing}",
-                                _frameCount, shouldCompose);
+                            _logger?.LogInformation("[SKIP-PRESENT] Frame #{Frame} not presented - waiting for composition to initialize", _frameCount);
                         }
                     }
                     else
                     {
-                        // Windows 10 / older Win11: Use normal Present()
-                        _swapChain.Present(0, PresentFlags.None);
-
-                        if (_frameCount % 60 == 0 && _frameCount > 0)
+                        // Windows 11 24H2 Fix: Use UpdateLayeredWindow instead of Present()
+                        // DXGI swap chain Present() doesn't update on Windows 11 24H2 layered windows
+                        if (_isLayeredMode)
                         {
-                            _logger?.LogInformation("[D2D-PRESENT] Frame #{Frame} presented to swap chain | Composing: {Composing}",
-                                _frameCount, shouldCompose);
+                            PresentToLayeredWindow();
+
+                            // Log every 60 frames
+                            if (_frameCount % 60 == 0 && _frameCount > 0)
+                            {
+                                _logger?.LogInformation("[ULW-PRESENT] Frame #{Frame} presented via UpdateLayeredWindow | Composing: {Composing}",
+                                    _frameCount, shouldCompose);
+                            }
+                        }
+                        else
+                        {
+                            // Windows 10 / older Win11: Use normal Present()
+                            _swapChain.Present(0, PresentFlags.None);
+
+                            if (_frameCount % 60 == 0 && _frameCount > 0)
+                            {
+                                _logger?.LogInformation("[D2D-PRESENT] Frame #{Frame} presented to swap chain | Composing: {Composing}",
+                                    _frameCount, shouldCompose);
+                            }
                         }
                     }
                 }

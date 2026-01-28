@@ -43,6 +43,13 @@ public class D2DCompositionService : IDisposable
     public bool IsRunning => _isRunning;
 
     /// <summary>
+    /// Gets or sets whether to run in static mode (render first frame only, then stop).
+    /// Must be set before calling InitializeAsync.
+    /// TESTING MODE: Use this to verify if rendering pipeline works at all.
+    /// </summary>
+    public bool StaticMode { get; set; } = false;
+
+    /// <summary>
     /// Initialize the composition service with canvas layout and layer configurations.
     /// Creates D2DPlayer processes and sends animation metadata to each.
     /// </summary>
@@ -75,6 +82,9 @@ public class D2DCompositionService : IDisposable
                 _loggerFactory.CreateLogger<D2DPlayerHost>(),
                 _desktopWindowManager,
                 actualMonitorBounds);
+
+            // Propagate StaticMode setting to player host
+            playerHost.StaticMode = StaticMode;
 
             await playerHost.InitializeAsync(cancellationToken);
 
