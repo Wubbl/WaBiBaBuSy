@@ -318,6 +318,42 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
                         // VERIFICATION: Track every GetFrameAtPosition call
                         Interlocked.Increment(ref _getFrameCallCount);
 
+                        // CRITICAL FIX: Actually seek to the requested timestamp!
+                        // Previously, this method ignored timestampMs and just returned whatever LibVLC was playing.
+                        // For composition mode, we need to synchronize LibVLC's playback position to the requested timestamp.
+                        if (_animationLengthMs > 0 && _mediaPlayer != null)
+                        {
+                            // Loop the timestamp within animation length
+                            long loopedTimeMs = timestampMs % _animationLengthMs;
+                            long currentTimeMs = _mediaPlayer.Time;
+
+                            // Seek if we're more than 50ms away from the target position
+                            // (small tolerance to avoid excessive seeking for minor drift)
+                            long timeDiff = Math.Abs(currentTimeMs - loopedTimeMs);
+                            if (timeDiff > 50)
+                            {
+                                try
+                                {
+                                    _mediaPlayer.Time = loopedTimeMs;
+
+                                    // Log seeks every 10 calls to track synchronization
+                                    if (_getFrameCallCount % 10 == 0)
+                                    {
+                                        _logger.LogInformation("[FRAME-SEEK] Seeked LibVLC: {CurrentTime}ms → {TargetTime}ms (diff: {Diff}ms) | Requested: {RequestedTime}ms",
+                                            currentTimeMs, loopedTimeMs, timeDiff, timestampMs);
+                                    }
+
+                                    // Give LibVLC a moment to seek and decode the new frame
+                                    // Without this, we might return the old frame before the seek completes
+                                    Thread.Sleep(5);
+                                }
+                                catch (Exception seekEx)
+                                {
+                                    _logger.LogWarning(seekEx, "[FRAME-SEEK] Failed to seek to {TargetTime}ms", loopedTimeMs);
+                                }
+                            }
+                        }
+
                         // TASK-008 DEBUG: Log every 10 calls (~6 times/second at 60 FPS)
                         if (_getFrameCallCount % 10 == 0)
                         {

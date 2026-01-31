@@ -49,6 +49,14 @@
     <Copy SourceFiles="@(PlayerImageFiles)" DestinationFolder="$(OutputPath)\%(RecursiveDir)" SkipUnchangedFiles="true" />
   </Target>
 
+  <!-- Copy Player.D2D executable and dependencies to output directory -->
+  <Target Name="CopyPlayerD2DExecutables" AfterTargets="Build">
+    <ItemGroup>
+      <PlayerD2DFiles Include="..\WaBiBaBuSy.Player.D2D\bin\$(Configuration)\net9.0-windows\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(PlayerD2DFiles)" DestinationFolder="$(OutputPath)\%(RecursiveDir)" SkipUnchangedFiles="true" />
+  </Target>
+
   <!-- Copy FFmpeg binaries if they exist -->
   <Target Name="CopyFFmpegBinaries" AfterTargets="Build">
     <ItemGroup>

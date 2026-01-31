@@ -89,98 +89,6 @@ class Program
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint crKey, byte bAlpha, uint dwFlags);
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool UpdateLayeredWindow(
-        IntPtr hwnd,
-        IntPtr hdcDst,
-        ref POINT pptDst,
-        ref SIZE psize,
-        IntPtr hdcSrc,
-        ref POINT pptSrc,
-        uint crKey,
-        ref BLENDFUNCTION pblend,
-        uint dwFlags);
-
-    // Overload that allows NULL for pptDst (to keep current window position)
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool UpdateLayeredWindow(
-        IntPtr hwnd,
-        IntPtr hdcDst,
-        IntPtr pptDst, // IntPtr.Zero = keep current position
-        ref SIZE psize,
-        IntPtr hdcSrc,
-        ref POINT pptSrc,
-        uint crKey,
-        ref BLENDFUNCTION pblend,
-        uint dwFlags);
-
-    [DllImport("gdi32.dll")]
-    private static extern IntPtr CreateCompatibleDC(IntPtr hdc);
-
-    [DllImport("gdi32.dll")]
-    private static extern bool DeleteDC(IntPtr hdc);
-
-    [DllImport("gdi32.dll")]
-    private static extern IntPtr SelectObject(IntPtr hdc, IntPtr hObject);
-
-    [DllImport("gdi32.dll")]
-    private static extern bool DeleteObject(IntPtr hObject);
-
-    [DllImport("gdi32.dll")]
-    private static extern IntPtr CreateDIBSection(
-        IntPtr hdc,
-        ref BITMAPINFO pbmi,
-        uint usage,
-        out IntPtr ppvBits,
-        IntPtr hSection,
-        uint offset);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetDC(IntPtr hWnd);
-
-    [DllImport("user32.dll")]
-    private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct BLENDFUNCTION
-    {
-        public byte BlendOp;
-        public byte BlendFlags;
-        public byte SourceConstantAlpha;
-        public byte AlphaFormat;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct SIZE
-    {
-        public int cx;
-        public int cy;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct BITMAPINFO
-    {
-        public BITMAPINFOHEADER bmiHeader;
-        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 1)]
-        public uint[] bmiColors;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct BITMAPINFOHEADER
-    {
-        public uint biSize;
-        public int biWidth;
-        public int biHeight;
-        public ushort biPlanes;
-        public ushort biBitCount;
-        public uint biCompression;
-        public uint biSizeImage;
-        public int biXPelsPerMeter;
-        public int biYPelsPerMeter;
-        public uint biClrUsed;
-        public uint biClrImportant;
-    }
-
     private const int GWL_STYLE = -16;
     private const int GWL_EXSTYLE = -20;
     private const uint WS_CHILD = 0x40000000;
@@ -191,11 +99,6 @@ class Program
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_SHOWWINDOW = 0x0040;
-    private const uint ULW_ALPHA = 0x00000002;
-    private const uint BI_RGB = 0;
-    private const uint DIB_RGB_COLORS = 0;
-    private const byte AC_SRC_OVER = 0x00;
-    private const byte AC_SRC_ALPHA = 0x01;
 
     [DllImport("user32.dll")]
     private static extern bool PeekMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
@@ -243,8 +146,6 @@ class Program
     private static ID2D1RenderTarget? _d2dRenderTarget;
 
     // State
-    private static int _x; // Window X position on screen
-    private static int _y; // Window Y position on screen
     private static int _width;
     private static int _height;
     private static volatile bool _running = true;
@@ -252,16 +153,6 @@ class Program
     private static Color4 _currentColor = new(0, 0, 0, 1); // Default black
     private static volatile bool _windowShown = false;
     private static IntPtr _zOrderReference = IntPtr.Zero;
-    private static volatile bool _isLayeredMode = false; // Windows 11 24H2 layered desktop mode
-    private static volatile bool _staticMode = false; // Static mode: render first frame only, then stop
-
-    // UpdateLayeredWindow resources (for Windows 11 24H2 compatibility)
-    private static IntPtr _hdcScreen = IntPtr.Zero;
-    private static IntPtr _hdcMem = IntPtr.Zero;
-    private static IntPtr _hBitmap = IntPtr.Zero;
-    private static IntPtr _pvBits = IntPtr.Zero;
-    private static IntPtr _hOldBitmap = IntPtr.Zero;
-    private static ID3D11Texture2D? _stagingTexture = null; // Staging texture for CPU read
 
     // Pending PARENT command to be processed on main thread
     private static volatile string? _pendingParentCommand = null;
@@ -320,14 +211,9 @@ class Program
                         _height = int.Parse(parts[3]);
                     }
                 }
-                else if (args[i] == "--static")
-                {
-                    _staticMode = true;
-                }
             }
 
-            _logger?.LogInformation("D2DPlayer starting: bounds=({X},{Y},{Width},{Height}), staticMode={StaticMode}",
-                x, y, _width, _height, _staticMode);
+            _logger?.LogInformation("D2DPlayer starting: bounds=({X},{Y},{Width},{Height})", x, y, _width, _height);
 
             // Create window
             CreateNativeWindow(x, y, _width, _height);
@@ -440,12 +326,6 @@ class Program
                 var error = Marshal.GetLastWin32Error();
                 throw new Exception($"Failed to create window. Error: {error}");
             }
-
-            // Store window position and size for UpdateLayeredWindow
-            _x = x;
-            _y = y;
-            _width = width;
-            _height = height;
 
             UpdateWindow(_hwnd);
         }
@@ -560,30 +440,9 @@ class Program
                 var parentHwnd = new IntPtr(long.Parse(parts[0]));
                 var zOrderHwnd = parts.Length >= 2 ? new IntPtr(long.Parse(parts[1])) : IntPtr.Zero;
 
-                // Windows 11 24H2: Use UpdateLayeredWindow to avoid explorer crashes
-                // Present() causes explorer.exe crashes on Windows 11 24H2
-                bool useLayeredWindow = zOrderHwnd != IntPtr.Zero; // If DefView provided, use layered mode
-                _isLayeredMode = useLayeredWindow;
-
+                // Add WS_EX_TRANSPARENT for mouse pass-through
                 var exStyle = GetWindowLong(_hwnd, GWL_EXSTYLE);
-
-                if (useLayeredWindow)
-                {
-                    _logger?.LogInformation("Using UpdateLayeredWindow mode (Windows 11 24H2 safe)");
-
-                    // Add BOTH WS_EX_LAYERED (for UpdateLayeredWindow) and WS_EX_TRANSPARENT (for mouse pass-through)
-                    // This allows the window to be visible AND clickable icons to work
-                    exStyle |= WS_EX_LAYERED | WS_EX_TRANSPARENT;
-                    SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle);
-
-                    // Initialize DIB bitmap for UpdateLayeredWindow
-                    InitializeLayeredWindowBitmap();
-                }
-                else
-                {
-                    _logger?.LogInformation("Using Present() mode (standard)");
-                    SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT);
-                }
+                SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT);
 
                 // SetParent to make us a child/sibling
                 SetParent(_hwnd, parentHwnd);
@@ -593,7 +452,6 @@ class Program
                 {
                     _zOrderReference = zOrderHwnd;
                     SetWindowPos(_hwnd, zOrderHwnd, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
-                    _logger?.LogInformation("Z-ordered under DefView: {DefView}", zOrderHwnd);
                 }
                 else
                 {
@@ -602,8 +460,7 @@ class Program
                     SetWindowPos(_hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
                 }
 
-                _logger?.LogInformation("Window parented to desktop: parent={Parent}, zOrder={ZOrder}, layeredMode={Layered}",
-                    parentHwnd, zOrderHwnd, _isLayeredMode);
+                _logger?.LogInformation("Window parented to desktop: parent={Parent}, zOrder={ZOrder}", parentHwnd, zOrderHwnd);
                 Console.WriteLine("READY");
                 Console.Out.Flush();
             }
@@ -619,226 +476,6 @@ class Program
             Console.WriteLine("ERROR:Invalid PARENT format");
             Console.Out.Flush();
         }
-    }
-
-    private static void InitializeLayeredWindowBitmap()
-    {
-        try
-        {
-            // Get screen DC
-            _hdcScreen = GetDC(IntPtr.Zero);
-            if (_hdcScreen == IntPtr.Zero)
-            {
-                _logger?.LogError("Failed to get screen DC");
-                return;
-            }
-
-            // Create compatible DC for the bitmap
-            _hdcMem = CreateCompatibleDC(_hdcScreen);
-            if (_hdcMem == IntPtr.Zero)
-            {
-                _logger?.LogError("Failed to create memory DC");
-                ReleaseDC(IntPtr.Zero, _hdcScreen);
-                _hdcScreen = IntPtr.Zero;
-                return;
-            }
-
-            // Create DIB section for 32-bit BGRA bitmap
-            var bmi = new BITMAPINFO
-            {
-                bmiHeader = new BITMAPINFOHEADER
-                {
-                    biSize = (uint)Marshal.SizeOf<BITMAPINFOHEADER>(),
-                    biWidth = _width,
-                    biHeight = -_height, // Top-down DIB
-                    biPlanes = 1,
-                    biBitCount = 32,
-                    biCompression = BI_RGB,
-                    biSizeImage = 0
-                },
-                bmiColors = new uint[1]
-            };
-
-            _hBitmap = CreateDIBSection(_hdcMem, ref bmi, DIB_RGB_COLORS, out _pvBits, IntPtr.Zero, 0);
-            if (_hBitmap == IntPtr.Zero)
-            {
-                _logger?.LogError("Failed to create DIB section");
-                DeleteDC(_hdcMem);
-                ReleaseDC(IntPtr.Zero, _hdcScreen);
-                _hdcMem = IntPtr.Zero;
-                _hdcScreen = IntPtr.Zero;
-                return;
-            }
-
-            // Select bitmap into memory DC
-            _hOldBitmap = SelectObject(_hdcMem, _hBitmap);
-
-            // Create staging texture for CPU read access
-            if (_d3dDevice != null)
-            {
-                var stagingDesc = new Texture2DDescription
-                {
-                    Width = (uint)_width,
-                    Height = (uint)_height,
-                    MipLevels = 1,
-                    ArraySize = 1,
-                    Format = Format.B8G8R8A8_UNorm,
-                    SampleDescription = new SampleDescription(1, 0),
-                    Usage = ResourceUsage.Staging,
-                    BindFlags = BindFlags.None,
-                    CPUAccessFlags = CpuAccessFlags.Read,
-                    MiscFlags = ResourceOptionFlags.None
-                };
-
-                _stagingTexture = _d3dDevice.CreateTexture2D(stagingDesc);
-                _logger?.LogInformation("Staging texture created for CPU read access");
-            }
-
-            _logger?.LogInformation("Layered window bitmap initialized: {Width}x{Height}", _width, _height);
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "Failed to initialize layered window bitmap");
-        }
-    }
-
-    private static void PresentToLayeredWindow()
-    {
-        if (_hdcMem == IntPtr.Zero || _pvBits == IntPtr.Zero || _swapChain == null || _stagingTexture == null || _immediateContext == null)
-        {
-            _logger?.LogWarning("Layered window resources not initialized");
-            return;
-        }
-
-        try
-        {
-            // Get the back buffer as a texture
-            using var backBuffer = _swapChain.GetBuffer<ID3D11Texture2D>(0);
-
-            // Copy the back buffer to the staging texture
-            _immediateContext.CopyResource(_stagingTexture, backBuffer);
-
-            // Map the staging texture for CPU read access
-            var mappedResource = _immediateContext.Map(_stagingTexture, 0, MapMode.Read, Vortice.Direct3D11.MapFlags.None);
-
-            try
-            {
-                // Copy pixels from staging texture to DIB and FIX alpha channel
-                // CRITICAL: DXGI surfaces may have alpha=0, making window invisible!
-                unsafe
-                {
-                    byte* src = (byte*)mappedResource.DataPointer.ToPointer();
-                    byte* dst = (byte*)_pvBits.ToPointer();
-                    int srcStride = (int)mappedResource.RowPitch;
-                    int dstStride = _width * 4; // 4 bytes per pixel (BGRA)
-
-                    // DIAGNOSTIC: Sample center pixel for logging every 60 frames (~once per second at 60fps)
-                    bool shouldSamplePixel = (_frameCount % 60 == 0);
-                    byte sampleB = 0, sampleG = 0, sampleR = 0, sampleA = 0;
-
-                    for (int y = 0; y < _height; y++)
-                    {
-                        byte* srcRow = src + (y * srcStride);
-                        byte* dstRow = dst + (y * dstStride);
-
-                        for (int x = 0; x < _width; x++)
-                        {
-                            int srcIdx = x * 4;
-                            int dstIdx = x * 4;
-
-                            // Sample center pixel every 60 frames
-                            if (shouldSamplePixel && x == _width / 2 && y == _height / 2)
-                            {
-                                sampleB = srcRow[srcIdx + 0];
-                                sampleG = srcRow[srcIdx + 1];
-                                sampleR = srcRow[srcIdx + 2];
-                                sampleA = srcRow[srcIdx + 3];
-                            }
-
-                            // Copy B, G, R
-                            dstRow[dstIdx + 0] = srcRow[srcIdx + 0]; // B
-                            dstRow[dstIdx + 1] = srcRow[srcIdx + 1]; // G
-                            dstRow[dstIdx + 2] = srcRow[srcIdx + 2]; // R
-                            // FORCE alpha to 255 (opaque)
-                            dstRow[dstIdx + 3] = 255; // A
-                        }
-                    }
-
-                    if (shouldSamplePixel)
-                    {
-                        _logger?.LogInformation("[PIXEL-SAMPLE] Frame #{Frame} | Center pixel: B={B} G={G} R={R} A={A} (forced to 255)",
-                            _frameCount, sampleB, sampleG, sampleR, sampleA);
-                    }
-                }
-
-                // Update the layered window with the new bitmap
-                var ptSrc = new POINT { x = 0, y = 0 };
-                var size = new SIZE { cx = _width, cy = _height };
-                var blend = new BLENDFUNCTION
-                {
-                    BlendOp = AC_SRC_OVER,
-                    BlendFlags = 0,
-                    SourceConstantAlpha = 255,
-                    AlphaFormat = AC_SRC_ALPHA
-                };
-
-                // Use IntPtr.Zero for position - window position was set during CreateWindow
-                // Passing explicit coordinates can cause the window to not update on some systems
-                bool result = UpdateLayeredWindow(_hwnd, IntPtr.Zero, IntPtr.Zero, ref size,
-                    _hdcMem, ref ptSrc, 0, ref blend, ULW_ALPHA);
-
-                if (!result)
-                {
-                    int error = Marshal.GetLastWin32Error();
-                    _logger?.LogError("UpdateLayeredWindow FAILED with error: {Error}", error);
-                }
-                else if (_frameCount % 60 == 0)
-                {
-                    _logger?.LogInformation("UpdateLayeredWindow SUCCESS - window should be visible");
-                }
-            }
-            finally
-            {
-                // Unmap the staging texture
-                _immediateContext.Unmap(_stagingTexture, 0);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "Failed to present to layered window");
-        }
-    }
-
-    private static void CleanupLayeredWindowResources()
-    {
-        // Dispose staging texture
-        _stagingTexture?.Dispose();
-        _stagingTexture = null;
-
-        if (_hBitmap != IntPtr.Zero)
-        {
-            if (_hOldBitmap != IntPtr.Zero)
-            {
-                SelectObject(_hdcMem, _hOldBitmap);
-                _hOldBitmap = IntPtr.Zero;
-            }
-            DeleteObject(_hBitmap);
-            _hBitmap = IntPtr.Zero;
-        }
-
-        if (_hdcMem != IntPtr.Zero)
-        {
-            DeleteDC(_hdcMem);
-            _hdcMem = IntPtr.Zero;
-        }
-
-        if (_hdcScreen != IntPtr.Zero)
-        {
-            ReleaseDC(IntPtr.Zero, _hdcScreen);
-            _hdcScreen = IntPtr.Zero;
-        }
-
-        _pvBits = IntPtr.Zero;
     }
 
     private static void RenderLoop()
@@ -900,10 +537,10 @@ class Program
                         shouldCompose = compInit && isPlay;
                     }
 
-                    // DIAGNOSTIC: Log composition state every 60 frames
-                    if (_frameCount % 60 == 0)
+                    // DIAGNOSTIC: Log composition state every 10 frames (more frequent for debugging)
+                    if (_frameCount % 10 == 0)
                     {
-                        _logger?.LogInformation("[COMP-STATE] Frame #{Frame} | Initialized: {Init} | Playing: {Play} | ShouldCompose: {ShouldCompose}",
+                        _logger?.LogWarning("[RENDER-LOOP] Frame #{Frame} | Initialized: {Init} | Playing: {Play} | ShouldCompose: {ShouldCompose}",
                             _frameCount, compInit, isPlay, shouldCompose);
                     }
 
@@ -915,40 +552,22 @@ class Program
                             var elapsedMs = (long)(DateTime.UtcNow - _renderLoopStart).TotalMilliseconds;
                             var currentTimestampMs = _startTimestampMs + elapsedMs;
 
-                            // TASK-008 VERIFICATION: Log timestamp every 60 frames (~once per second)
-                            if (_frameCount % 60 == 0)
+                            // DIAGNOSTIC: Log timestamp every 10 frames (more frequent for debugging)
+                            if (_frameCount % 10 == 0)
                             {
-                                _logger?.LogInformation("[D2D-VERIFY] Render loop frame #{Frame} | Timestamp: {Timestamp}ms | PixelsPerSecond: {PPS} | Composing: {Composing}",
-                                    _frameCount, currentTimestampMs, _pixelsPerSecond, shouldCompose);
-                            }
-
-                            // FIRST FRAME DIAGNOSTICS
-                            bool isFirstComposedFrame = !_windowShown;
-                            if (isFirstComposedFrame)
-                            {
-                                _logger?.LogInformation("[FIRST-FRAME] Step 1/7: Starting first frame composition");
-                                _logger?.LogInformation("[FIRST-FRAME] Window position: ({X},{Y}), Size: ({Width},{Height})",
-                                    _x, _y, _width, _height);
+                                _logger?.LogWarning("[TIMESTAMP] Frame #{Frame} | Elapsed: {Elapsed}ms | CurrentTimestamp: {Timestamp}ms | PPS: {PPS}",
+                                    _frameCount, elapsedMs, currentTimestampMs, _pixelsPerSecond);
                             }
 
                             // CRITICAL: Update animation position BEFORE composing
                             _compositionRenderer.UpdateAnimationPosition(currentTimestampMs, _pixelsPerSecond);
 
-                            if (isFirstComposedFrame)
-                                _logger?.LogInformation("[FIRST-FRAME] Step 2/7: Animation position updated (timestamp: {Timestamp}ms)", currentTimestampMs);
-
                             // Compose frame for this screen
                             var screen = _canvasManager.ScreenMappings[0]; // Single screen for this player
                             using var composedFrame = _compositionRenderer.ComposeForScreen(screen);
 
-                            if (isFirstComposedFrame)
-                                _logger?.LogInformation("[FIRST-FRAME] Step 3/7: Frame composed ({Width}x{Height})", composedFrame.Width, composedFrame.Height);
-
                             // Convert System.Drawing.Bitmap to D2D bitmap
                             var d2dBitmap = ConvertBitmapToD2D(composedFrame);
-
-                            if (isFirstComposedFrame)
-                                _logger?.LogInformation("[FIRST-FRAME] Step 4/7: Converted to D2D bitmap (success: {Success})", d2dBitmap != null);
 
                             // Draw the bitmap
                             if (d2dBitmap != null)
@@ -957,28 +576,14 @@ class Program
                                 _d2dRenderTarget.DrawBitmap(d2dBitmap, 1.0f, BitmapInterpolationMode.Linear, destRect);
                                 d2dBitmap.Dispose();
 
-                                if (isFirstComposedFrame)
-                                    _logger?.LogInformation("[FIRST-FRAME] Step 5/7: Bitmap drawn to D2D render target");
-
                                 // Show window on first frame
                                 if (!_windowShown)
                                 {
                                     _windowShown = true;
                                     _d2dRenderTarget.EndDraw(out _, out _);
+                                    // TASK-008 FIX: Use Present(0, ...) - no vsync wait
+                                    _swapChain.Present(0, PresentFlags.None);
 
-                                    // Present the first frame using appropriate method
-                                    if (_isLayeredMode)
-                                    {
-                                        _logger?.LogInformation("[FIRST-FRAME] Using UpdateLayeredWindow");
-                                        PresentToLayeredWindow();
-                                    }
-                                    else
-                                    {
-                                        _logger?.LogInformation("[FIRST-FRAME] Using Present()");
-                                        _swapChain.Present(0, PresentFlags.None);
-                                    }
-
-                                    // Show window
                                     if (_zOrderReference != IntPtr.Zero)
                                     {
                                         SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0,
@@ -990,25 +595,7 @@ class Program
                                     }
 
                                     UpdateWindow(_hwnd);
-                                    _logger?.LogInformation("[FIRST-FRAME] ✅ Window shown (mode: {Mode})",
-                                        _isLayeredMode ? "UpdateLayeredWindow" : "Present");
-
-                                    // STATIC MODE: Keep window visible indefinitely
-                                    if (_staticMode)
-                                    {
-                                        _logger?.LogInformation("[STATIC-MODE] ✅ First frame rendered and FROZEN on screen.");
-                                        _logger?.LogInformation("[STATIC-MODE] Window will stay visible. Press Ctrl+C to exit.");
-
-                                        // Keep the render loop alive but don't render new frames
-                                        // This prevents cleanup and keeps the window showing the first frame
-                                        while (_running)
-                                        {
-                                            Thread.Sleep(1000); // Just sleep, window stays visible
-                                        }
-                                        _logger?.LogInformation("[STATIC-MODE] Exiting.");
-                                        return; // Exit render loop cleanly
-                                    }
-
+                                    _logger?.LogInformation("Window shown after first frame");
                                     continue;
                                 }
                             }
@@ -1027,42 +614,23 @@ class Program
                         {
                             color = _currentColor;
                         }
-
-                        // DIAGNOSTIC: Log when fallback to solid color (composition not ready)
-                        if (_frameCount == 0)
-                        {
-                            _logger?.LogWarning("[FRAME-0-FALLBACK] Composition not ready, rendering solid color: R={R}, G={G}, B={B}, A={A}",
-                                color.R, color.G, color.B, color.A);
-                        }
-
                         _d2dRenderTarget.Clear(color);
                     }
 
                     _d2dRenderTarget.EndDraw(out _, out _);
 
-                    // Choose presentation method based on mode
-                    if (_isLayeredMode)
-                    {
-                        // Windows 11 24H2: Use UpdateLayeredWindow (safe, no crashes)
-                        PresentToLayeredWindow();
+                    // TASK-008 FIX: Use Present(0, ...) for immediate present without vsync wait
+                    // Windows 11 24H2 has issues with vsync on desktop-parented windows
+                    _swapChain.Present(0, PresentFlags.None);
 
-                        if (_frameCount % 60 == 0 && _frameCount > 0)
-                        {
-                            _logger?.LogInformation("[ULW-PRESENT] Frame #{Frame} presented via UpdateLayeredWindow | Composing: {Composing}",
-                                _frameCount, shouldCompose);
-                        }
-                    }
-                    else
-                    {
-                        // Standard: Use Present()
-                        _swapChain.Present(0, PresentFlags.None);
-                        InvalidateRect(_hwnd, IntPtr.Zero, false);
+                    // TASK-008 FIX: Force window invalidation to trigger compositor update on Windows 11 24H2
+                    InvalidateRect(_hwnd, IntPtr.Zero, false);
 
-                        if (_frameCount % 60 == 0 && _frameCount > 0)
-                        {
-                            _logger?.LogInformation("[D2D-PRESENT] Frame #{Frame} presented to swap chain | Composing: {Composing}",
-                                _frameCount, shouldCompose);
-                        }
+                    // TASK-008 VERIFICATION: Log every 60 frames to confirm Present() is being called
+                    if (_frameCount % 60 == 0 && _frameCount > 0)
+                    {
+                        _logger?.LogInformation("[D2D-PRESENT] Frame #{Frame} presented to swap chain | Composing: {Composing}",
+                            _frameCount, shouldCompose);
                     }
                 }
             }
@@ -1353,13 +921,15 @@ class Program
     {
         try
         {
-            _logger?.LogInformation("Starting animation: timestamp={Timestamp}ms, speed={Speed}px/s",
-                cmd.StartTimestampMs, cmd.PixelsPerSecond);
+            _logger?.LogWarning("[START-CMD] RECEIVED START ANIMATION COMMAND");
+            _logger?.LogWarning("[START-CMD] StartTimestamp: {Timestamp}ms", cmd.StartTimestampMs);
+            _logger?.LogWarning("[START-CMD] PixelsPerSecond: {PPS}px/s", cmd.PixelsPerSecond);
 
             lock (_compositionLock)
             {
                 if (!_compositionInitialized || _compositionRenderer == null)
                 {
+                    _logger?.LogError("[START-CMD] FAILED: Composition not initialized!");
                     throw new InvalidOperationException("Composition not initialized. Call LOAD_ANIMATION first.");
                 }
 
@@ -1367,15 +937,17 @@ class Program
                 _pixelsPerSecond = cmd.PixelsPerSecond;
                 _renderLoopStart = DateTime.UtcNow; // Reset render loop timer
                 _isPlaying = true;
+
+                _logger?.LogWarning("[START-CMD] SUCCESS: Set _isPlaying = TRUE, _pixelsPerSecond = {PPS}", _pixelsPerSecond);
             }
 
             Console.WriteLine("READY");
             Console.Out.Flush();
-            _logger?.LogInformation("Animation started");
+            _logger?.LogWarning("[START-CMD] Animation started - render loop should now compose frames!");
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Failed to start animation");
+            _logger?.LogError(ex, "🎬 [START-CMD] EXCEPTION during start animation");
             Console.WriteLine($"ERROR:Start animation failed: {ex.Message}");
             Console.Out.Flush();
         }
@@ -1417,9 +989,6 @@ class Program
             _canvasManager = null;
             _compositionInitialized = false;
         }
-
-        // Cleanup layered window resources (Windows 11 24H2)
-        CleanupLayeredWindowResources();
 
         // Dispose D2D/D3D resources
         _d2dRenderTarget?.Dispose();
