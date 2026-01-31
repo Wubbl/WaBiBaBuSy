@@ -560,34 +560,28 @@ class Program
                 var parentHwnd = new IntPtr(long.Parse(parts[0]));
                 var zOrderHwnd = parts.Length >= 2 ? new IntPtr(long.Parse(parts[1])) : IntPtr.Zero;
 
-                // Windows 11 24H2+ "Raised Desktop" mode detection:
-                // If zOrderHwnd is provided (DefView), we're in layered mode
-                bool isLayeredDesktopMode = zOrderHwnd != IntPtr.Zero;
-                _isLayeredMode = isLayeredDesktopMode; // Store for render loop
+                // Windows 11 24H2: Use UpdateLayeredWindow to avoid explorer crashes
+                // Present() causes explorer.exe crashes on Windows 11 24H2
+                bool useLayeredWindow = zOrderHwnd != IntPtr.Zero; // If DefView provided, use layered mode
+                _isLayeredMode = useLayeredWindow;
 
                 var exStyle = GetWindowLong(_hwnd, GWL_EXSTYLE);
 
-                if (isLayeredDesktopMode)
+                if (useLayeredWindow)
                 {
-                    // Windows 11 24H2+ approach
-                    // Use WS_EX_LAYERED and UpdateLayeredWindow for compatibility
-                    _logger?.LogInformation("Windows 11 24H2 'Raised Desktop' mode detected - using WS_EX_LAYERED + UpdateLayeredWindow");
+                    _logger?.LogInformation("Using UpdateLayeredWindow mode (Windows 11 24H2 safe)");
 
-                    // Remove WS_EX_TRANSPARENT if present
-                    exStyle &= ~WS_EX_TRANSPARENT;
-                    // Add WS_EX_LAYERED
-                    exStyle |= WS_EX_LAYERED;
+                    // Add BOTH WS_EX_LAYERED (for UpdateLayeredWindow) and WS_EX_TRANSPARENT (for mouse pass-through)
+                    // This allows the window to be visible AND clickable icons to work
+                    exStyle |= WS_EX_LAYERED | WS_EX_TRANSPARENT;
                     SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle);
 
-                    // DON'T call SetLayeredWindowAttributes - we'll use UpdateLayeredWindow instead
-                    // Initialize DIB for UpdateLayeredWindow
+                    // Initialize DIB bitmap for UpdateLayeredWindow
                     InitializeLayeredWindowBitmap();
                 }
                 else
                 {
-                    // Windows 10 / older Windows 11 approach
-                    // Use WS_EX_TRANSPARENT for mouse pass-through
-                    _logger?.LogInformation("Standard desktop mode - using WS_EX_TRANSPARENT");
+                    _logger?.LogInformation("Using Present() mode (standard)");
                     SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT);
                 }
 
@@ -609,7 +603,7 @@ class Program
                 }
 
                 _logger?.LogInformation("Window parented to desktop: parent={Parent}, zOrder={ZOrder}, layeredMode={Layered}",
-                    parentHwnd, zOrderHwnd, isLayeredDesktopMode);
+                    parentHwnd, zOrderHwnd, _isLayeredMode);
                 Console.WriteLine("READY");
                 Console.Out.Flush();
             }
@@ -970,45 +964,49 @@ class Program
                                 if (!_windowShown)
                                 {
                                     _windowShown = true;
-                                    _logger?.LogInformation("[FIRST-FRAME] Step 6/7: EndDraw + Present");
-
                                     _d2dRenderTarget.EndDraw(out _, out _);
 
-                                    // Windows 11 24H2: Use UpdateLayeredWindow
-                                    // Windows 10: Use Present()
+                                    // Present the first frame using appropriate method
                                     if (_isLayeredMode)
                                     {
-                                        _logger?.LogInformation("[FIRST-FRAME] Using UpdateLayeredWindow (Windows 11 24H2 mode)");
+                                        _logger?.LogInformation("[FIRST-FRAME] Using UpdateLayeredWindow");
                                         PresentToLayeredWindow();
                                     }
                                     else
                                     {
-                                        _logger?.LogInformation("[FIRST-FRAME] Using Present() (Windows 10 mode)");
+                                        _logger?.LogInformation("[FIRST-FRAME] Using Present()");
                                         _swapChain.Present(0, PresentFlags.None);
                                     }
 
-                                    _logger?.LogInformation("[FIRST-FRAME] Step 7/7: Showing window");
-
+                                    // Show window
                                     if (_zOrderReference != IntPtr.Zero)
                                     {
                                         SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0,
                                             SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-                                        _logger?.LogInformation("[FIRST-FRAME] Window positioned under DefView (z-order: {ZOrder})", _zOrderReference);
                                     }
                                     else
                                     {
                                         ShowWindow(_hwnd, 5); // SW_SHOW
-                                        _logger?.LogInformation("[FIRST-FRAME] Window shown at BOTTOM z-order");
                                     }
 
                                     UpdateWindow(_hwnd);
-                                    _logger?.LogInformation("[FIRST-FRAME] ✅ COMPLETE! Window shown (layered mode: {Layered})", _isLayeredMode);
+                                    _logger?.LogInformation("[FIRST-FRAME] ✅ Window shown (mode: {Mode})",
+                                        _isLayeredMode ? "UpdateLayeredWindow" : "Present");
 
-                                    // STATIC MODE: Stop render loop after first frame
+                                    // STATIC MODE: Keep window visible indefinitely
                                     if (_staticMode)
                                     {
-                                        _logger?.LogInformation("[STATIC-MODE] First frame rendered. Stopping render loop. Press Ctrl+C to exit.");
-                                        _running = false;
+                                        _logger?.LogInformation("[STATIC-MODE] ✅ First frame rendered and FROZEN on screen.");
+                                        _logger?.LogInformation("[STATIC-MODE] Window will stay visible. Press Ctrl+C to exit.");
+
+                                        // Keep the render loop alive but don't render new frames
+                                        // This prevents cleanup and keeps the window showing the first frame
+                                        while (_running)
+                                        {
+                                            Thread.Sleep(1000); // Just sleep, window stays visible
+                                        }
+                                        _logger?.LogInformation("[STATIC-MODE] Exiting.");
+                                        return; // Exit render loop cleanly
                                     }
 
                                     continue;
@@ -1042,44 +1040,28 @@ class Program
 
                     _d2dRenderTarget.EndDraw(out _, out _);
 
-                    // CRITICAL: Don't show window until composition is ready!
-                    // Showing the window with fallback color would display black/solid color instead of content
-                    // Only present frames when we have actual composed content OR window is already shown
-                    bool shouldPresentFrame = shouldCompose || _windowShown;
-
-                    if (!shouldPresentFrame)
+                    // Choose presentation method based on mode
+                    if (_isLayeredMode)
                     {
-                        // Skip presenting fallback frames before composition is ready
-                        if (_frameCount % 60 == 0)
+                        // Windows 11 24H2: Use UpdateLayeredWindow (safe, no crashes)
+                        PresentToLayeredWindow();
+
+                        if (_frameCount % 60 == 0 && _frameCount > 0)
                         {
-                            _logger?.LogInformation("[SKIP-PRESENT] Frame #{Frame} not presented - waiting for composition to initialize", _frameCount);
+                            _logger?.LogInformation("[ULW-PRESENT] Frame #{Frame} presented via UpdateLayeredWindow | Composing: {Composing}",
+                                _frameCount, shouldCompose);
                         }
                     }
                     else
                     {
-                        // Windows 11 24H2 Fix: Use UpdateLayeredWindow instead of Present()
-                        // DXGI swap chain Present() doesn't update on Windows 11 24H2 layered windows
-                        if (_isLayeredMode)
-                        {
-                            PresentToLayeredWindow();
+                        // Standard: Use Present()
+                        _swapChain.Present(0, PresentFlags.None);
+                        InvalidateRect(_hwnd, IntPtr.Zero, false);
 
-                            // Log every 60 frames
-                            if (_frameCount % 60 == 0 && _frameCount > 0)
-                            {
-                                _logger?.LogInformation("[ULW-PRESENT] Frame #{Frame} presented via UpdateLayeredWindow | Composing: {Composing}",
-                                    _frameCount, shouldCompose);
-                            }
-                        }
-                        else
+                        if (_frameCount % 60 == 0 && _frameCount > 0)
                         {
-                            // Windows 10 / older Win11: Use normal Present()
-                            _swapChain.Present(0, PresentFlags.None);
-
-                            if (_frameCount % 60 == 0 && _frameCount > 0)
-                            {
-                                _logger?.LogInformation("[D2D-PRESENT] Frame #{Frame} presented to swap chain | Composing: {Composing}",
-                                    _frameCount, shouldCompose);
-                            }
+                            _logger?.LogInformation("[D2D-PRESENT] Frame #{Frame} presented to swap chain | Composing: {Composing}",
+                                _frameCount, shouldCompose);
                         }
                     }
                 }
