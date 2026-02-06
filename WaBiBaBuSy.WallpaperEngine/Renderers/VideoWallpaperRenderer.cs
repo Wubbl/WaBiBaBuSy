@@ -195,6 +195,13 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
             _mediaPlayer.Play();
             await Task.Delay(100);
 
+            // Apply speed multiplier to LibVLC playback rate (for MP4/video files)
+            if (_config.SpeedMultiplier > 0 && Math.Abs(_config.SpeedMultiplier - 1.0) > 0.01)
+            {
+                _mediaPlayer.SetRate((float)_config.SpeedMultiplier);
+                _logger.LogInformation("[VIDEO] SpeedMultiplier applied: {Rate}x", _config.SpeedMultiplier);
+            }
+
             if (_useMemoryCallbacks)
             {
                 _callbackTrackingStart = DateTime.UtcNow;
@@ -207,8 +214,8 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
                 if (_animationLengthMs > 0)
                     _totalFrameCount = (int)((_animationLengthMs / 1000.0) * _estimatedFPS);
 
-                _logger.LogInformation("[VIDEO] Playback started | Playing: {Playing} | Length: {Length}ms | Dimensions: {W}x{H}",
-                    _mediaPlayer.IsPlaying, _animationLengthMs, _videoWidth, _videoHeight);
+                _logger.LogInformation("[VIDEO] Playback started | Playing: {Playing} | Length: {Length}ms | Rate: {Rate}x | Dimensions: {W}x{H}",
+                    _mediaPlayer.IsPlaying, _animationLengthMs, _mediaPlayer.Rate, _videoWidth, _videoHeight);
             }
 
             State = WallpaperState.Playing;
@@ -376,9 +383,15 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
             {
                 Interlocked.Increment(ref _getFrameCallCount);
 
-                // Calculate which frame to show based on elapsed time
-                long loopedMs = _gifTotalDurationMs > 0 ? (timestampMs % _gifTotalDurationMs) : 0;
-                int frameIndex = 0;
+                // Apply SpeedMultiplier to advance through frames faster
+                // e.g., SpeedMultiplier=2.0 means at real-time 500ms we show the frame at 1000ms
+                double speedMultiplier = _config?.SpeedMultiplier ?? 1.0;
+                long scaledTimestampMs = (long)(timestampMs * speedMultiplier);
+
+                // Calculate which frame to show based on scaled elapsed time
+                // Modulo wraps loopedMs back to 0 at each loop boundary for seamless looping
+                long loopedMs = _gifTotalDurationMs > 0 ? (scaledTimestampMs % _gifTotalDurationMs) : 0;
+                int frameIndex = _gifDelays.Count - 1; // Default to last frame (safety)
                 long accumulated = 0;
                 for (int i = 0; i < _gifDelays.Count; i++)
                 {
@@ -393,8 +406,9 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
                 // Diagnostic: log every 60 calls
                 if (_getFrameCallCount % 60 == 0)
                 {
-                    _logger.LogInformation("[GIF-FRAME] GFP #{Count} | Frame {Index}/{Total} | Elapsed: {Elapsed}ms | Looped: {Looped}ms / {Duration}ms",
-                        _getFrameCallCount, frameIndex, _gifFrameData.Count, timestampMs, loopedMs, _gifTotalDurationMs);
+                    int loopNumber = _gifTotalDurationMs > 0 ? (int)(scaledTimestampMs / _gifTotalDurationMs) : 0;
+                    _logger.LogInformation("[GIF-FRAME] GFP #{Count} | Frame {Index}/{Total} | Loop #{Loop} | Elapsed: {Elapsed}ms | Scaled: {Scaled}ms | Looped: {Looped}ms / {Duration}ms | Speed: {Speed}x",
+                        _getFrameCallCount, frameIndex, _gifFrameData.Count, loopNumber, timestampMs, scaledTimestampMs, loopedMs, _gifTotalDurationMs, speedMultiplier);
                 }
 
                 // Decode from JPEG with single-frame cache (avoids re-decoding same frame)

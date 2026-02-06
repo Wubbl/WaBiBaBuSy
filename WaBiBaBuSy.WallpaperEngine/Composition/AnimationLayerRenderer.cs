@@ -264,7 +264,7 @@ public class AnimationLayerRenderer : IDisposable
             _logger.LogTrace("[AnimLayer] Getting animation frame for drawX={DrawX}, drawY={DrawY}, visibleWidth={VW}, visibleHeight={VH}",
                 drawX, drawY, visibleRegion.Width, visibleRegion.Height);
 
-            var animationFrame = GetAnimationFrame(_currentVirtualX);
+            using var animationFrame = GetAnimationFrame(_currentVirtualX);
 
             if (animationFrame != null)
             {

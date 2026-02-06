@@ -667,14 +667,11 @@ class Program
                             }
 
                             // Convert System.Drawing.Bitmap to D2D bitmap
-                            var d2dBitmap = ConvertBitmapToD2D(composedFrame);
+                            using var d2dBitmap = ConvertBitmapToD2D(composedFrame);
 
                             // Draw the bitmap
                             if (d2dBitmap != null)
                             {
-                                // CRITICAL FIX: Correct parameter order for DrawBitmap
-                                // Signature: DrawBitmap(bitmap, destinationRect, opacity, interpolationMode, sourceRect)
-                                // Previous code had wrong order: (bitmap, opacity, mode, destRect)
                                 var destRect = new System.Drawing.RectangleF(0, 0, _width, _height);
                                 _d2dRenderTarget.DrawBitmap(
                                     d2dBitmap,
@@ -682,7 +679,6 @@ class Program
                                     1.0f,          // opacity
                                     BitmapInterpolationMode.Linear,
                                     null);         // source rectangle (null = entire bitmap)
-                                d2dBitmap.Dispose();
 
                                 // Show window on first frame
                                 if (!_windowShown)
