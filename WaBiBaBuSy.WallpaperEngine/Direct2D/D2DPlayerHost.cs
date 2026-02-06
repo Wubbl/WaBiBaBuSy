@@ -459,6 +459,60 @@ public class D2DPlayerHost : IDisposable
     }
 
     /// <summary>
+    /// Enable test mode: toggles between red and blue every 2 seconds.
+    /// Use this to verify the swap chain is working (displaying different frames).
+    /// </summary>
+    public async Task EnableTestModeAsync()
+    {
+        if (!IsRunning)
+        {
+            _logger.LogWarning("Cannot enable test mode: player not running");
+            return;
+        }
+
+        try
+        {
+            _logger.LogWarning("[TEST MODE] Enabling color toggle test in player");
+            await SendCommandAsync("TEST");
+
+            if (_playerProcess != null)
+            {
+                var response = await _playerProcess.StandardOutput.ReadLineAsync();
+                _logger.LogInformation("[TEST MODE] Response: {Response}", response);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to enable test mode");
+        }
+    }
+
+    /// <summary>
+    /// Disable test mode.
+    /// </summary>
+    public async Task DisableTestModeAsync()
+    {
+        if (!IsRunning)
+            return;
+
+        try
+        {
+            _logger.LogWarning("[TEST MODE] Disabling test mode");
+            await SendCommandAsync("TESTOFF");
+
+            if (_playerProcess != null)
+            {
+                var response = await _playerProcess.StandardOutput.ReadLineAsync();
+                _logger.LogInformation("[TEST MODE] Response: {Response}", response);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to disable test mode");
+        }
+    }
+
+    /// <summary>
     /// Sends a command to the player process.
     /// </summary>
     private async Task SendCommandAsync(string command)
@@ -484,34 +538,42 @@ public class D2DPlayerHost : IDisposable
     {
         if (!string.IsNullOrEmpty(e.Data))
         {
-            // Parse log level from .NET logging format (e.g., "info: ...", "warn: ...", "fail: ...")
             var line = e.Data;
 
-            if (line.StartsWith("info:") || line.StartsWith("dbug:") || line.StartsWith("trce:"))
+            // Extract log level and strip .NET logging prefix
+            // SimpleConsole SingleLine format: "HH:mm:ss info: Category[0] Actual message"
+            // We want just: "[Player] Actual message" with correct host log level
+            LogLevel level = LogLevel.Debug;
+            string message = line;
+
+            // Find and strip the level prefix
+            int levelEnd = line.IndexOf(": ");
+            if (levelEnd > 0 && levelEnd < 20) // Level prefix is short
             {
-                // Information/Debug/Trace logs - use Information level
-                _logger.LogInformation("[Player] {Message}", line);
+                var prefix = line.Substring(0, levelEnd).TrimStart(); // Trim timestamp
+                // Check for level keywords anywhere in the prefix (timestamp may precede)
+                if (prefix.Contains("fail") || prefix.Contains("crit"))
+                    level = LogLevel.Error;
+                else if (prefix.Contains("warn"))
+                    level = LogLevel.Warning;
+                else if (prefix.Contains("info"))
+                    level = LogLevel.Information;
+                else if (prefix.Contains("dbug") || prefix.Contains("trce"))
+                    level = LogLevel.Debug;
+
+                // Strip everything up to the message content
+                // Format after level: "Category[N] The actual message"
+                message = line.Substring(levelEnd + 2);
+
+                // Strip "Category[N] " prefix if present
+                int bracketEnd = message.IndexOf("] ");
+                if (bracketEnd > 0 && bracketEnd < 120)
+                {
+                    message = message.Substring(bracketEnd + 2);
+                }
             }
-            else if (line.StartsWith("warn:"))
-            {
-                // Warning logs
-                _logger.LogWarning("[Player] {Message}", line);
-            }
-            else if (line.StartsWith("fail:") || line.StartsWith("crit:"))
-            {
-                // Error/Critical logs
-                _logger.LogError("[Player] {Message}", line);
-            }
-            else if (line.TrimStart().StartsWith("["))
-            {
-                // Custom log format like "[PIXEL-SAMPLE]", "[COMP-STATE]" - use Information
-                _logger.LogInformation("[Player] {Message}", line.TrimStart());
-            }
-            else
-            {
-                // Unknown format - use Debug level to avoid noise
-                _logger.LogDebug("[Player] {Message}", line);
-            }
+
+            _logger.Log(level, "[Player] {Message}", message);
         }
     }
 

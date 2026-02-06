@@ -52,6 +52,14 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
     private long _lastDisplayCallbackValue = 0;   // Track if _displayCallbackCount is changing
     private int _lastBitmapHashCode = 0;          // Track if bitmap instance changes
 
+    // GIF frame extraction (GDI+ based - LibVLC can't handle animated GIFs in callback mode)
+    private bool _useGifFrameExtraction = false;
+    private List<byte[]>? _gifFrameData; // JPEG-compressed frames (~150KB each vs ~8MB raw)
+    private List<int>? _gifDelays; // Per-frame delay in ms
+    private long _gifTotalDurationMs = 0;
+    private int _cachedGifFrameIndex = -1;
+    private Bitmap? _cachedGifFrame;
+
     // Legacy frame cache (not used with memory callbacks)
     private Dictionary<long, System.Drawing.Bitmap> _frameCache = new();
     private long _lastCachedTimestamp = -1;
@@ -127,30 +135,41 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
             if (_mediaPlayer == null || _config == null)
                 throw new InvalidOperationException("Renderer not initialized");
 
-            _logger.LogInformation("Starting video playback");
+            _logger.LogInformation("Starting video playback for: {File}", Path.GetFileName(_config.FilePath));
 
+            var fileExtension = Path.GetExtension(_config.FilePath).ToLowerInvariant();
+            var isGif = fileExtension == ".gif";
+
+            // GIF files in headless mode: Use GDI+ frame extraction instead of LibVLC.
+            // LibVLC cannot properly handle animated GIFs in memory callback mode -
+            // it treats them as static images and only decodes frame 0.
+            if (isGif && _useMemoryCallbacks)
+            {
+                _logger.LogInformation("[GIF] Using GDI+ frame extraction (LibVLC cannot animate GIFs in callback mode)");
+                ExtractGifFrames(_config.FilePath);
+                State = WallpaperState.Playing;
+                _logger.LogInformation("[GIF] Playback ready - {Frames} frames, {Duration}ms total",
+                    _gifFrameData?.Count ?? 0, _gifTotalDurationMs);
+                return;
+            }
+
+            // Video files: Use LibVLC with memory callbacks
             var media = new Media(_libVLC, _config.FilePath, FromType.FromPath);
 
-            // If using memory callbacks (headless mode), we need to detect video dimensions first
             if (_useMemoryCallbacks)
             {
-                _logger.LogInformation("Parsing media to detect video dimensions for memory callbacks...");
-
-                // Parse media to get track information
+                _logger.LogInformation("Parsing media to detect video dimensions...");
                 await media.Parse(MediaParseOptions.ParseNetwork);
 
-                // Get video track to determine actual dimensions
+                _logger.LogInformation("[MEDIA-INFO] Duration: {Duration}ms | File: {File}",
+                    media.Duration, Path.GetFileName(_config.FilePath));
+
                 var videoTracks = media.Tracks.Where(t => t.TrackType == TrackType.Video).ToArray();
                 if (videoTracks.Length > 0)
                 {
-                    var videoTrack = videoTracks[0];
-                    // Access video track data to get dimensions
-                    _videoWidth = (int)videoTrack.Data.Video.Width;
-                    _videoHeight = (int)videoTrack.Data.Video.Height;
-
+                    _videoWidth = (int)videoTracks[0].Data.Video.Width;
+                    _videoHeight = (int)videoTracks[0].Data.Video.Height;
                     _logger.LogInformation("Detected video dimensions: {Width}x{Height}", _videoWidth, _videoHeight);
-
-                    // Now setup callbacks with correct dimensions
                     SetupVideoCallbacksWithDimensions(_videoWidth, _videoHeight);
                 }
                 else
@@ -160,7 +179,6 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
                 }
             }
 
-            // Configure media options
             if (_config.HardwareAcceleration)
             {
                 media.AddOption(":avcodec-hw=any");
@@ -168,53 +186,29 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
 
             _mediaPlayer.Media = media;
 
-            // Enable looping for GIFs and videos
+            // Looping handled by OnMediaEndReached (ThreadPool restart)
             if (_config.Loop)
             {
-                // Set media to loop - use MediaPlayer's repeat feature
-                _mediaPlayer.Media.AddOption("input-repeat=-1");  // -1 = infinite loop
-                _logger.LogInformation("Looping enabled for media playback");
+                _logger.LogInformation("Looping enabled - handled by OnMediaEndReached");
             }
 
             _mediaPlayer.Play();
-
-            // Wait a bit for playback to actually start
             await Task.Delay(100);
 
-            // TASK-008: Log LibVLC player state to verify playback started
             if (_useMemoryCallbacks)
             {
                 _callbackTrackingStart = DateTime.UtcNow;
                 _lastCallbackLogTime = DateTime.UtcNow;
 
-                var isPlaying = _mediaPlayer.IsPlaying;
-                var position = _mediaPlayer.Position;
-                var time = _mediaPlayer.Time;
-                var length = _mediaPlayer.Length;
-                var rate = _mediaPlayer.Rate;
-
-                // TASK-011: Capture animation metadata
-                _animationLengthMs = length;
+                _animationLengthMs = _mediaPlayer.Length;
                 _loopCounter = 0;
                 _lastLoggedPosition = 0f;
 
-                // Estimate frame count (assume 30 FPS for GIFs if unknown)
-                if (length > 0)
-                {
-                    _totalFrameCount = (int)((length / 1000.0) * _estimatedFPS);
-                }
+                if (_animationLengthMs > 0)
+                    _totalFrameCount = (int)((_animationLengthMs / 1000.0) * _estimatedFPS);
 
-                _logger.LogInformation("[GIF-DEBUG] LibVLC playback started | IsPlaying: {IsPlaying} | Position: {Position:F3} | Time: {Time}ms | Length: {Length}ms | Rate: {Rate}",
-                    isPlaying, position, time, length, rate);
-
-                // TASK-011: Log animation metadata
-                _logger.LogInformation("[GIF] Animation Metadata | Duration: {Duration}ms ({Seconds:F1}s) | Est. Total Frames: {Frames} @ {FPS} FPS | Dimensions: {Width}x{Height}",
-                    length, length / 1000.0, _totalFrameCount, _estimatedFPS, _videoWidth, _videoHeight);
-
-                if (!isPlaying)
-                {
-                    _logger.LogWarning("[GIF-DEBUG] WARNING: LibVLC reports IsPlaying=false after Play() call!");
-                }
+                _logger.LogInformation("[VIDEO] Playback started | Playing: {Playing} | Length: {Length}ms | Dimensions: {W}x{H}",
+                    _mediaPlayer.IsPlaying, _animationLengthMs, _videoWidth, _videoHeight);
             }
 
             State = WallpaperState.Playing;
@@ -226,6 +220,78 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
             State = WallpaperState.Error;
             throw;
         }
+    }
+
+    /// <summary>
+    /// Extract all frames from an animated GIF using GDI+.
+    /// LibVLC cannot handle animated GIFs in memory callback mode, so we pre-extract
+    /// all frames and cycle through them in GetFrameAtPosition based on elapsed time.
+    /// </summary>
+    private void ExtractGifFrames(string filePath)
+    {
+        using var gif = Image.FromFile(filePath);
+
+        var dimension = new FrameDimension(gif.FrameDimensionsList[0]);
+        int frameCount = gif.GetFrameCount(dimension);
+
+        _logger.LogInformation("[GIF] Extracting {Count} frames from {File} ({W}x{H})",
+            frameCount, Path.GetFileName(filePath), gif.Width, gif.Height);
+
+        // Get per-frame delay times from GIF metadata (PropertyTagFrameDelay = 0x5100)
+        int[] delays = new int[frameCount];
+        try
+        {
+            var delayProperty = gif.GetPropertyItem(0x5100);
+            if (delayProperty?.Value != null)
+            {
+                for (int i = 0; i < frameCount && i * 4 < delayProperty.Value.Length; i++)
+                {
+                    delays[i] = BitConverter.ToInt32(delayProperty.Value, i * 4) * 10; // 1/100s → ms
+                    if (delays[i] <= 0) delays[i] = 100; // Default 100ms for 0-delay frames
+                }
+            }
+        }
+        catch
+        {
+            // If no delay property, use 100ms per frame (10 FPS)
+            for (int i = 0; i < frameCount; i++) delays[i] = 100;
+        }
+
+        // Extract all frames sequentially, JPEG-compress to reduce memory
+        // Raw: 500 frames × 1920×1080×4 = ~4 GB → JPEG: 500 × ~150KB = ~75 MB
+        _gifFrameData = new List<byte[]>(frameCount);
+        _gifDelays = delays.ToList();
+        _gifTotalDurationMs = delays.Sum();
+
+        // JPEG encoder with quality setting
+        var jpegCodec = ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
+        var encoderParams = new EncoderParameters(1);
+        encoderParams.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 90L);
+
+        long totalBytes = 0;
+        for (int i = 0; i < frameCount; i++)
+        {
+            gif.SelectActiveFrame(dimension, i);
+            using var frameBitmap = new Bitmap(gif);
+            using var ms = new MemoryStream();
+            frameBitmap.Save(ms, jpegCodec, encoderParams);
+            var jpegBytes = ms.ToArray();
+            _gifFrameData.Add(jpegBytes);
+            totalBytes += jpegBytes.Length;
+        }
+
+        // Store dimensions for compatibility
+        _videoWidth = gif.Width;
+        _videoHeight = gif.Height;
+
+        // Enable the GIF extraction path in GetFrameAtPosition
+        _useGifFrameExtraction = true;
+
+        _logger.LogInformation("[GIF] Extraction complete: {Frames} frames, {Duration}ms total ({FPS:F1} FPS avg), {MemMB:F1} MB compressed (was {RawMB:F0} MB raw)",
+            frameCount, _gifTotalDurationMs,
+            _gifTotalDurationMs > 0 ? frameCount * 1000.0 / _gifTotalDurationMs : 0,
+            totalBytes / (1024.0 * 1024.0),
+            (long)frameCount * gif.Width * gif.Height * 4 / (1024.0 * 1024.0));
     }
 
     public Task PauseAsync()
@@ -305,10 +371,49 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
     {
         try
         {
+            // GIF frame extraction path: cycle through pre-extracted JPEG frames based on elapsed time
+            if (_useGifFrameExtraction && _gifFrameData != null && _gifFrameData.Count > 0 && _gifDelays != null)
+            {
+                Interlocked.Increment(ref _getFrameCallCount);
+
+                // Calculate which frame to show based on elapsed time
+                long loopedMs = _gifTotalDurationMs > 0 ? (timestampMs % _gifTotalDurationMs) : 0;
+                int frameIndex = 0;
+                long accumulated = 0;
+                for (int i = 0; i < _gifDelays.Count; i++)
+                {
+                    accumulated += _gifDelays[i];
+                    if (accumulated > loopedMs)
+                    {
+                        frameIndex = i;
+                        break;
+                    }
+                }
+
+                // Diagnostic: log every 60 calls
+                if (_getFrameCallCount % 60 == 0)
+                {
+                    _logger.LogInformation("[GIF-FRAME] GFP #{Count} | Frame {Index}/{Total} | Elapsed: {Elapsed}ms | Looped: {Looped}ms / {Duration}ms",
+                        _getFrameCallCount, frameIndex, _gifFrameData.Count, timestampMs, loopedMs, _gifTotalDurationMs);
+                }
+
+                // Decode from JPEG with single-frame cache (avoids re-decoding same frame)
+                if (frameIndex == _cachedGifFrameIndex && _cachedGifFrame != null)
+                {
+                    return new Bitmap(_cachedGifFrame);
+                }
+
+                _cachedGifFrame?.Dispose();
+                using var ms = new MemoryStream(_gifFrameData[frameIndex]);
+                _cachedGifFrame = new Bitmap(ms);
+                _cachedGifFrameIndex = frameIndex;
+                return new Bitmap(_cachedGifFrame);
+            }
+
             if (_mediaPlayer == null)
                 return new Bitmap(1, 1);
 
-            // If using memory callbacks (headless mode), return the callback-provided frame
+            // LibVLC memory callback path (for video files)
             if (_useMemoryCallbacks)
             {
                 lock (_frameLock)
@@ -318,107 +423,46 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
                         // VERIFICATION: Track every GetFrameAtPosition call
                         Interlocked.Increment(ref _getFrameCallCount);
 
-                        // CRITICAL FIX: Actually seek to the requested timestamp!
-                        // Previously, this method ignored timestampMs and just returned whatever LibVLC was playing.
-                        // For composition mode, we need to synchronize LibVLC's playback position to the requested timestamp.
-                        if (_animationLengthMs > 0 && _mediaPlayer != null)
-                        {
-                            // Loop the timestamp within animation length
-                            long loopedTimeMs = timestampMs % _animationLengthMs;
-                            long currentTimeMs = _mediaPlayer.Time;
+                        // NO SEEKING: Let LibVLC play naturally at its own pace.
+                        // Previous code seeked LibVLC while holding _frameLock, which caused a deadlock:
+                        // - Seek triggers LibVLC to decode a new frame
+                        // - Display callback needs _frameLock to store the new frame
+                        // - But _frameLock is held by this method → display callback blocks
+                        // - Thread.Sleep(5) was useless → always returned stale frame
+                        // LibVLC's natural playback matches composition timing (both start from 0 at 1x speed).
 
-                            // Seek if we're more than 50ms away from the target position
-                            // (small tolerance to avoid excessive seeking for minor drift)
-                            long timeDiff = Math.Abs(currentTimeMs - loopedTimeMs);
-                            if (timeDiff > 50)
-                            {
-                                try
-                                {
-                                    _mediaPlayer.Time = loopedTimeMs;
-
-                                    // Log seeks every 10 calls to track synchronization
-                                    if (_getFrameCallCount % 10 == 0)
-                                    {
-                                        _logger.LogInformation("[FRAME-SEEK] Seeked LibVLC: {CurrentTime}ms → {TargetTime}ms (diff: {Diff}ms) | Requested: {RequestedTime}ms",
-                                            currentTimeMs, loopedTimeMs, timeDiff, timestampMs);
-                                    }
-
-                                    // Give LibVLC a moment to seek and decode the new frame
-                                    // Without this, we might return the old frame before the seek completes
-                                    Thread.Sleep(5);
-                                }
-                                catch (Exception seekEx)
-                                {
-                                    _logger.LogWarning(seekEx, "[FRAME-SEEK] Failed to seek to {TargetTime}ms", loopedTimeMs);
-                                }
-                            }
-                        }
-
-                        // TASK-008 DEBUG: Log every 10 calls (~6 times/second at 60 FPS)
-                        if (_getFrameCallCount % 10 == 0)
-                        {
-                            int currentBitmapHash = _currentFrameBitmap.GetHashCode();
-                            bool bitmapChanged = (currentBitmapHash != _lastBitmapHashCode);
-                            _lastBitmapHashCode = currentBitmapHash;
-
-                            string changeStatus = bitmapChanged ? "✅ CHANGED" : "⚠️ SAME";
-                            _logger.LogInformation("[FRAME-REQUEST] GetFrameAtPosition #{Count} | Timestamp: {TimestampMs}ms | DisplayCallbacks: {DisplayCount} | Bitmap: {BitmapStatus}",
-                                _getFrameCallCount, timestampMs, _displayCallbackCount, changeStatus);
-                        }
-
-                        // TASK-008 VERIFICATION: Log every 60 calls (once per second at 60 FPS)
-                        // This verifies D2DPlayer is actually requesting frames
+                        // DIAGNOSTIC: Log frame state every 60 calls (~1 second at 60 FPS)
                         if (_getFrameCallCount % 60 == 0)
                         {
-                            // Check if DisplayCallback is still being called
-                            bool callbacksStuck = (_displayCallbackCount == _lastDisplayCallbackValue);
-                            _lastDisplayCallbackValue = _displayCallbackCount;
-
-                            float currentPosition = 0f;
-                            bool isPlaying = false;
-                            if (_mediaPlayer != null)
+                            try
                             {
-                                try
+                                // Check if DisplayCallback is still being called
+                                bool callbacksStuck = (_displayCallbackCount == _lastDisplayCallbackValue);
+                                _lastDisplayCallbackValue = _displayCallbackCount;
+
+                                float currentPosition = 0f;
+                                bool isPlaying = false;
+                                if (_mediaPlayer != null)
                                 {
-                                    currentPosition = _mediaPlayer.Position;
-                                    isPlaying = _mediaPlayer.IsPlaying;
+                                    try
+                                    {
+                                        currentPosition = _mediaPlayer.Position;
+                                        isPlaying = _mediaPlayer.IsPlaying;
+                                    }
+                                    catch { }
                                 }
-                                catch { }
+
+                                string status = callbacksStuck ? "STUCK" : "OK";
+                                _logger.LogInformation("[FRAME-STATUS] GFP #{Count} | DC: {DC} ({Status}) | Pos: {Pos:F3} | Playing: {Playing} | BmpHash: {Hash}",
+                                    _getFrameCallCount, _displayCallbackCount, status,
+                                    currentPosition, isPlaying, _currentFrameBitmap.GetHashCode());
                             }
-
-                            int currentFrameEstimate = _totalFrameCount > 0
-                                ? (int)(currentPosition * _totalFrameCount)
-                                : 0;
-
-                            string status = callbacksStuck ? "⚠️ STUCK" : "✅ OK";
-                            _logger.LogInformation("[VERIFY] GetFrameAtPosition #{GetFrameCount} | DisplayCallbacks: {DisplayCount} {Status} | Frame: {Frame}/{Total} | Pos: {Pos:F3} | IsPlaying: {IsPlaying}",
-                                _getFrameCallCount, _displayCallbackCount, status,
-                                currentFrameEstimate, _totalFrameCount, currentPosition, isPlaying);
-
-                            // TASK-008 CRITICAL FIX: If callbacks are stuck near the end, manually restart playback
-                            if (callbacksStuck && currentPosition > 0.90f && isPlaying && _config?.Loop == true)
-                            {
-                                _logger.LogWarning("[GIF-RESTART] ⚠️ DETECTED STUCK STATE! Callbacks frozen at {Count}, Position={Pos:F3}. Restarting playback...",
-                                    _displayCallbackCount, currentPosition);
-
-                                try
-                                {
-                                    // Stop and restart to force LibVLC to re-decode from start
-                                    _mediaPlayer.Stop();
-                                    Thread.Sleep(50); // Give LibVLC time to stop
-                                    _mediaPlayer.Play();
-                                    _loopCounter++;
-                                    _logger.LogInformation("[GIF-RESTART] ✅ Playback restarted | Loop #{Loop}", _loopCounter);
-                                }
-                                catch (Exception restartEx)
-                                {
-                                    _logger.LogError(restartEx, "[GIF-RESTART] Failed to restart playback");
-                                }
-                            }
+                            catch { }
                         }
 
                         // Clone to avoid threading issues with composition system
-                        return new Bitmap(_currentFrameBitmap);
+                        var clonedBitmap = new Bitmap(_currentFrameBitmap);
+                        return clonedBitmap;
                     }
                 }
 
@@ -699,24 +743,40 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
                 // Convert raw RGBA buffer to Bitmap
                 _currentFrameBitmap = ConvertRawFrameToBitmap(_frameBufferPtr, _videoWidth, _videoHeight);
 
-                // DIAGNOSTIC: Sample center pixel every 30 frames to verify LibVLC is providing colored frames
+                // DIAGNOSTIC: Compute buffer hash + sample pixels every 30 frames
+                // Hash detects ANY frame change (not just center pixel which may be static)
                 if (_displayCallbackCount % 30 == 0)
                 {
                     unsafe
                     {
                         byte* buffer = (byte*)_frameBufferPtr.ToPointer();
+                        int byteCount = _videoWidth * _videoHeight * 4;
+                        int stride = _videoWidth * 4; // BGRA = 4 bytes per pixel
+
+                        // Quick hash: XOR every 4000th byte group across entire frame
+                        uint frameHash = 0;
+                        for (int i = 0; i < byteCount - 3; i += 4000)
+                        {
+                            frameHash ^= *(uint*)(buffer + i);
+                            frameHash = (frameHash << 7) | (frameHash >> 25); // Rotate
+                        }
+
+                        // Sample center pixel (RV32/BGRA byte order: B,G,R,A)
                         int centerX = _videoWidth / 2;
                         int centerY = _videoHeight / 2;
-                        int stride = _videoWidth * 4; // RGBA = 4 bytes per pixel
                         int centerOffset = (centerY * stride) + (centerX * 4);
+                        byte b_val = buffer[centerOffset + 0]; // B in BGRA
+                        byte g_val = buffer[centerOffset + 1]; // G in BGRA
+                        byte r_val = buffer[centerOffset + 2]; // R in BGRA
 
-                        byte r = buffer[centerOffset + 0];
-                        byte g = buffer[centerOffset + 1];
-                        byte b = buffer[centerOffset + 2];
-                        byte a = buffer[centerOffset + 3];
+                        // Sample top-left pixel too (more likely to change in many videos)
+                        int tlOffset = (_videoHeight / 4 * stride) + (_videoWidth / 4 * 4);
+                        byte tl_b = buffer[tlOffset + 0];
+                        byte tl_g = buffer[tlOffset + 1];
+                        byte tl_r = buffer[tlOffset + 2];
 
-                        _logger.LogInformation("[LIBVLC-PIXEL] DisplayCallback #{Count} | Center pixel: R={R} G={G} B={B} A={A}",
-                            _displayCallbackCount, r, g, b, a);
+                        _logger.LogInformation("[LIBVLC-FRAME] DC #{Count} | Hash: {Hash:X8} | Center(RGB): {R},{G},{B} | TopLeft(RGB): {TR},{TG},{TB}",
+                            _displayCallbackCount, frameHash, r_val, g_val, b_val, tl_r, tl_g, tl_b);
                     }
                 }
 
@@ -834,38 +894,38 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
     }
 
     /// <summary>
-    /// TASK-008 VERIFICATION: Handle media end event
-    /// LibVLC's input-repeat=-1 doesn't work in headless/callback mode, so we manually restart
+    /// Handle media end event - restart playback for looping.
+    /// LibVLC's input-repeat=-1 doesn't work in headless/callback mode, so we manually restart.
+    /// CRITICAL: LibVLC callbacks must NOT call Stop/Play synchronously - it causes deadlocks/crashes!
+    /// We offload to ThreadPool to safely restart from a different thread.
     /// </summary>
     private void OnMediaEndReached(object? sender, EventArgs e)
     {
-        try
+        _logger.LogWarning("[GIF-END] Media EndReached at DisplayCallback #{Count}. Queueing restart via ThreadPool...",
+            _displayCallbackCount);
+
+        // CRITICAL: Must NOT call Stop/Play synchronously from LibVLC event thread.
+        // Previous code did that and caused crashes at loop #4-5.
+        // ThreadPool.QueueUserWorkItem runs on a CLR thread pool thread, which is safe.
+        if (_config?.Loop == true && _mediaPlayer != null)
         {
-            _logger.LogWarning("[GIF-END] ⚠️ Media EndReached event fired! Animation reached end at DisplayCallback #{Count}",
-                _displayCallbackCount);
-
-            // Manually restart playback if looping is enabled
-            if (_config?.Loop == true && _mediaPlayer != null)
+            var player = _mediaPlayer; // Capture reference to avoid null race
+            ThreadPool.QueueUserWorkItem(_ =>
             {
-                _logger.LogInformation("[GIF-END] Restarting playback from beginning (Loop #{Loop})",
-                    _loopCounter + 1);
-
-                // Stop and restart the media
-                _mediaPlayer.Stop();
-                Task.Delay(50).Wait(); // Small delay to ensure stop completes
-                _mediaPlayer.Play();
-
-                _loopCounter++;
-                _logger.LogInformation("[GIF-END] ✅ Playback restarted for loop #{Loop}", _loopCounter);
-            }
-            else
-            {
-                _logger.LogWarning("[GIF-END] Loop disabled or player null, playback will stop");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error in OnMediaEndReached handler");
+                try
+                {
+                    Thread.Sleep(50); // Brief pause for LibVLC to fully settle after EndReached
+                    player.Stop();
+                    Thread.Sleep(50); // Brief pause between Stop and Play
+                    player.Play();
+                    _loopCounter++;
+                    _logger.LogInformation("[GIF-END] Restarted playback via ThreadPool | Loop #{Loop}", _loopCounter);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[GIF-END] Failed to restart playback");
+                }
+            });
         }
     }
 
@@ -876,6 +936,13 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
         if (_disposed) return;
 
         _logger.LogInformation("Disposing video wallpaper renderer");
+
+        // Clean up GIF frame extraction resources
+        _cachedGifFrame?.Dispose();
+        _cachedGifFrame = null;
+        _cachedGifFrameIndex = -1;
+        _gifFrameData?.Clear();
+        _gifFrameData = null;
 
         // Clean up memory callback resources
         lock (_frameLock)

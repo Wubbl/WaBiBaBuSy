@@ -144,6 +144,7 @@ class Program
     private static IDXGISwapChain1? _swapChain;
     private static ID2D1Factory1? _d2dFactory;
     private static ID2D1RenderTarget? _d2dRenderTarget;
+    private static RenderTargetProperties _renderTargetProps; // Stored for recreating render target after Present()
 
     // State
     private static int _width;
@@ -174,6 +175,10 @@ class Program
     private static long _frameCount = 0; // TASK-008 VERIFICATION: Track render loop iterations
     private static DateTime _lastLoopLogTime = DateTime.MinValue; // TASK-008: Track when we last logged loop status
 
+    // Test mode: simple color toggle to verify swap chain works
+    private static volatile bool _testModeEnabled = false;
+    private static DateTime _lastColorToggle = DateTime.MinValue;
+
     // Logging
     private static ILogger? _logger;
 
@@ -188,12 +193,18 @@ class Program
                 builder.AddConsole(options =>
                 {
                     options.LogToStandardErrorThreshold = LogLevel.Trace; // ALL logs to stderr
+                    options.FormatterName = "simple";
+                });
+                builder.AddSimpleConsole(options =>
+                {
+                    options.SingleLine = true;       // No multi-line wrapping
+                    options.IncludeScopes = false;
                 });
                 builder.SetMinimumLevel(LogLevel.Information);
             });
             _logger = loggerFactory.CreateLogger<Program>();
 
-            // Parse command line: --bounds x,y,width,height
+            // Parse command line: --bounds x,y,width,height [--test]
             int x = 0, y = 0;
             _width = 800;
             _height = 600;
@@ -210,6 +221,12 @@ class Program
                         _width = int.Parse(parts[2]);
                         _height = int.Parse(parts[3]);
                     }
+                }
+                else if (args[i] == "--test")
+                {
+                    // Start in test mode: toggle red/blue every 2 seconds
+                    _testModeEnabled = true;
+                    _lastColorToggle = DateTime.UtcNow;
                 }
             }
 
@@ -415,9 +432,8 @@ class Program
 
         _d2dFactory = Vortice.Direct2D1.D2D1.D2D1CreateFactory<ID2D1Factory1>(FactoryType.MultiThreaded);
 
-        using var backBuffer = _swapChain.GetBuffer<IDXGISurface>(0);
-
-        var renderTargetProps = new RenderTargetProperties
+        // Store render target properties for recreation after each Present() (flip model buffer rotation)
+        _renderTargetProps = new RenderTargetProperties
         {
             Type = RenderTargetType.Hardware,
             PixelFormat = new Vortice.DCommon.PixelFormat(
@@ -427,7 +443,36 @@ class Program
             DpiY = 96.0f
         };
 
-        _d2dRenderTarget = _d2dFactory.CreateDxgiSurfaceRenderTarget(backBuffer, renderTargetProps);
+        using var backBuffer = _swapChain.GetBuffer<IDXGISurface>(0);
+        _d2dRenderTarget = _d2dFactory.CreateDxgiSurfaceRenderTarget(backBuffer, _renderTargetProps);
+    }
+
+    /// <summary>
+    /// Recreates the D2D render target after Present() to handle DXGI flip model buffer rotation.
+    /// With FlipSequential swap effect, buffers rotate after each Present() call.
+    /// The render target must be recreated to bind to the new back buffer.
+    /// </summary>
+    private static void RecreateD2DRenderTarget()
+    {
+        if (_swapChain == null || _d2dFactory == null)
+            return;
+
+        try
+        {
+            // Dispose old render target
+            _d2dRenderTarget?.Dispose();
+            _d2dRenderTarget = null;
+
+            // Create new render target bound to current back buffer
+            // Note: The surface can be disposed after CreateDxgiSurfaceRenderTarget - D2D keeps its own reference
+            using var backBuffer = _swapChain.GetBuffer<IDXGISurface>(0);
+            _d2dRenderTarget = _d2dFactory.CreateDxgiSurfaceRenderTarget(backBuffer, _renderTargetProps);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "[CRITICAL] RecreateD2DRenderTarget failed!");
+            throw; // Re-throw to see the actual crash
+        }
     }
 
     private static void ProcessParentCommand(string line)
@@ -440,9 +485,13 @@ class Program
                 var parentHwnd = new IntPtr(long.Parse(parts[0]));
                 var zOrderHwnd = parts.Length >= 2 ? new IntPtr(long.Parse(parts[1])) : IntPtr.Zero;
 
-                // Add WS_EX_TRANSPARENT for mouse pass-through
+                // FIX: Use WS_EX_LAYERED instead of WS_EX_TRANSPARENT to prevent Explorer crashes.
+                // WS_EX_TRANSPARENT crashes explorer.exe on Windows 11 24H2+ when used on desktop-parented windows.
+                // WS_EX_LAYERED + SetLayeredWindowAttributes(0xFF) allows DirectX presents without performance issues.
+                // This is the official Microsoft guidance for "raised desktop" compatibility.
                 var exStyle = GetWindowLong(_hwnd, GWL_EXSTYLE);
-                SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT);
+                SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED);
+                SetLayeredWindowAttributes(_hwnd, 0, 255, LWA_ALPHA); // Full opacity
 
                 // SetParent to make us a child/sibling
                 SetParent(_hwnd, parentHwnd);
@@ -460,7 +509,7 @@ class Program
                     SetWindowPos(_hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
                 }
 
-                _logger?.LogInformation("Window parented to desktop: parent={Parent}, zOrder={ZOrder}", parentHwnd, zOrderHwnd);
+                _logger?.LogInformation("Window parented to desktop: parent={Parent}, zOrder={ZOrder}, style=WS_EX_LAYERED", parentHwnd, zOrderHwnd);
                 Console.WriteLine("READY");
                 Console.Out.Flush();
             }
@@ -495,7 +544,7 @@ class Program
                 {
                     composing = _compositionInitialized && _isPlaying;
                 }
-                _logger?.LogWarning("[D2D-LOOP] Render loop alive! Frame #{Count} | Composing: {Composing} | WindowShown: {Shown}",
+                _logger?.LogInformation("[D2D-LOOP] Render loop alive! Frame #{Count} | Composing: {Composing} | WindowShown: {Shown}",
                     _frameCount, composing, _windowShown);
             }
 
@@ -526,6 +575,46 @@ class Program
                 {
                     _d2dRenderTarget.BeginDraw();
 
+                    // TEST MODE: Simple color toggle to verify swap chain works
+                    if (_testModeEnabled)
+                    {
+                        var timeSinceToggle = (DateTime.UtcNow - _lastColorToggle).TotalSeconds;
+                        bool isRed = ((int)(timeSinceToggle / 2.0)) % 2 == 0;
+                        var testColor = isRed ? new Color4(1, 0, 0, 1) : new Color4(0, 0, 1, 1); // Red or Blue
+                        _d2dRenderTarget.Clear(testColor);
+
+                        if (_frameCount % 60 == 0) // Log every 60 frames (~1 second)
+                        {
+                            _logger?.LogInformation("[TEST MODE] Frame #{Frame} | Color: {Color} | TimeSinceToggle: {Time:F1}s",
+                                _frameCount, isRed ? "RED" : "BLUE", timeSinceToggle);
+                        }
+
+                        // Show window if not shown
+                        if (!_windowShown)
+                        {
+                            _windowShown = true;
+                            _d2dRenderTarget.EndDraw(out _, out _);
+                            _swapChain.Present(0, PresentFlags.None);
+                            RecreateD2DRenderTarget();
+
+                            if (_zOrderReference != IntPtr.Zero)
+                                SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                            else
+                                ShowWindow(_hwnd, 5);
+                            UpdateWindow(_hwnd);
+                            _logger?.LogInformation("[TEST MODE] Window shown");
+                            continue;
+                        }
+
+                        _d2dRenderTarget.EndDraw(out _, out _);
+                        _swapChain.Present(0, PresentFlags.None);
+                        RecreateD2DRenderTarget();
+
+                        Thread.Sleep(16);
+                        _frameCount++;
+                        continue; // Skip normal rendering
+                    }
+
                     // Check if composition is initialized and playing
                     bool shouldCompose = false;
                     bool compInit = false;
@@ -538,9 +627,9 @@ class Program
                     }
 
                     // DIAGNOSTIC: Log composition state every 10 frames (more frequent for debugging)
-                    if (_frameCount % 10 == 0)
+                    if (_frameCount % 60 == 0) // Log every 60 frames (~1 second) to reduce noise
                     {
-                        _logger?.LogWarning("[RENDER-LOOP] Frame #{Frame} | Initialized: {Init} | Playing: {Play} | ShouldCompose: {ShouldCompose}",
+                        _logger?.LogInformation("[RENDER-LOOP] Frame #{Frame} | Initialized: {Init} | Playing: {Play} | ShouldCompose: {ShouldCompose}",
                             _frameCount, compInit, isPlay, shouldCompose);
                     }
 
@@ -552,10 +641,10 @@ class Program
                             var elapsedMs = (long)(DateTime.UtcNow - _renderLoopStart).TotalMilliseconds;
                             var currentTimestampMs = _startTimestampMs + elapsedMs;
 
-                            // DIAGNOSTIC: Log timestamp every 10 frames (more frequent for debugging)
-                            if (_frameCount % 10 == 0)
+                            // DIAGNOSTIC: Log timestamp every 60 frames (~1 second) to reduce noise
+                            if (_frameCount % 60 == 0)
                             {
-                                _logger?.LogWarning("[TIMESTAMP] Frame #{Frame} | Elapsed: {Elapsed}ms | CurrentTimestamp: {Timestamp}ms | PPS: {PPS}",
+                                _logger?.LogInformation("[TIMESTAMP] Frame #{Frame} | Elapsed: {Elapsed}ms | CurrentTimestamp: {Timestamp}ms | PPS: {PPS}",
                                     _frameCount, elapsedMs, currentTimestampMs, _pixelsPerSecond);
                             }
 
@@ -566,14 +655,33 @@ class Program
                             var screen = _canvasManager.ScreenMappings[0]; // Single screen for this player
                             using var composedFrame = _compositionRenderer.ComposeForScreen(screen);
 
+                            // DIAGNOSTIC: Log composed frame info every 30 frames
+                            if (_frameCount % 30 == 0)
+                            {
+                                // Sample center pixel of composed frame to verify it's changing
+                                int centerX = composedFrame.Width / 2;
+                                int centerY = composedFrame.Height / 2;
+                                var pixel = composedFrame.GetPixel(centerX, centerY);
+                                _logger?.LogInformation("[COMPOSE] Frame #{Frame} | Size: {W}x{H} | CenterPixel: R={R} G={G} B={B}",
+                                    _frameCount, composedFrame.Width, composedFrame.Height, pixel.R, pixel.G, pixel.B);
+                            }
+
                             // Convert System.Drawing.Bitmap to D2D bitmap
                             var d2dBitmap = ConvertBitmapToD2D(composedFrame);
 
                             // Draw the bitmap
                             if (d2dBitmap != null)
                             {
-                                var destRect = new Vortice.RawRectF(0, 0, _width, _height);
-                                _d2dRenderTarget.DrawBitmap(d2dBitmap, 1.0f, BitmapInterpolationMode.Linear, destRect);
+                                // CRITICAL FIX: Correct parameter order for DrawBitmap
+                                // Signature: DrawBitmap(bitmap, destinationRect, opacity, interpolationMode, sourceRect)
+                                // Previous code had wrong order: (bitmap, opacity, mode, destRect)
+                                var destRect = new System.Drawing.RectangleF(0, 0, _width, _height);
+                                _d2dRenderTarget.DrawBitmap(
+                                    d2dBitmap,
+                                    destRect,      // destination rectangle
+                                    1.0f,          // opacity
+                                    BitmapInterpolationMode.Linear,
+                                    null);         // source rectangle (null = entire bitmap)
                                 d2dBitmap.Dispose();
 
                                 // Show window on first frame
@@ -583,6 +691,9 @@ class Program
                                     _d2dRenderTarget.EndDraw(out _, out _);
                                     // TASK-008 FIX: Use Present(0, ...) - no vsync wait
                                     _swapChain.Present(0, PresentFlags.None);
+
+                                    // CRITICAL FIX: Recreate D2D render target after Present() for DXGI flip model
+                                    RecreateD2DRenderTarget();
 
                                     if (_zOrderReference != IntPtr.Zero)
                                     {
@@ -623,8 +734,12 @@ class Program
                     // Windows 11 24H2 has issues with vsync on desktop-parented windows
                     _swapChain.Present(0, PresentFlags.None);
 
-                    // TASK-008 FIX: Force window invalidation to trigger compositor update on Windows 11 24H2
-                    InvalidateRect(_hwnd, IntPtr.Zero, false);
+                    // CRITICAL FIX: Recreate D2D render target after Present() for DXGI flip model.
+                    // With FlipSequential swap effect, buffers rotate after each Present() call.
+                    // The render target was bound to the old back buffer (now front buffer).
+                    // We must recreate it to bind to the new back buffer.
+                    // Without this, every frame after the first draws to the front buffer (already displayed).
+                    RecreateD2DRenderTarget();
 
                     // TASK-008 VERIFICATION: Log every 60 frames to confirm Present() is being called
                     if (_frameCount % 60 == 0 && _frameCount > 0)
@@ -732,6 +847,22 @@ class Program
                 else if (line == "EXIT")
                 {
                     _running = false;
+                    Console.WriteLine("READY");
+                    Console.Out.Flush();
+                }
+                else if (line == "TEST")
+                {
+                    // Enable test mode: toggle between red and blue every 2 seconds
+                    _testModeEnabled = true;
+                    _lastColorToggle = DateTime.UtcNow;
+                    _logger?.LogInformation("[TEST MODE] Enabled! Will toggle red/blue every 2 seconds");
+                    Console.WriteLine("READY");
+                    Console.Out.Flush();
+                }
+                else if (line == "TESTOFF")
+                {
+                    _testModeEnabled = false;
+                    _logger?.LogInformation("[TEST MODE] Disabled");
                     Console.WriteLine("READY");
                     Console.Out.Flush();
                 }
@@ -885,6 +1016,12 @@ class Program
                     builder.AddConsole(options =>
                     {
                         options.LogToStandardErrorThreshold = LogLevel.Trace; // ALL logs to stderr
+                        options.FormatterName = "simple";
+                    });
+                    builder.AddSimpleConsole(options =>
+                    {
+                        options.SingleLine = true;
+                        options.IncludeScopes = false;
                     });
                     builder.SetMinimumLevel(LogLevel.Information);
                 });
@@ -921,9 +1058,9 @@ class Program
     {
         try
         {
-            _logger?.LogWarning("[START-CMD] RECEIVED START ANIMATION COMMAND");
-            _logger?.LogWarning("[START-CMD] StartTimestamp: {Timestamp}ms", cmd.StartTimestampMs);
-            _logger?.LogWarning("[START-CMD] PixelsPerSecond: {PPS}px/s", cmd.PixelsPerSecond);
+            _logger?.LogInformation("[START-CMD] RECEIVED START ANIMATION COMMAND");
+            _logger?.LogInformation("[START-CMD] StartTimestamp: {Timestamp}ms, PixelsPerSecond: {PPS}px/s",
+                cmd.StartTimestampMs, cmd.PixelsPerSecond);
 
             lock (_compositionLock)
             {
@@ -938,12 +1075,12 @@ class Program
                 _renderLoopStart = DateTime.UtcNow; // Reset render loop timer
                 _isPlaying = true;
 
-                _logger?.LogWarning("[START-CMD] SUCCESS: Set _isPlaying = TRUE, _pixelsPerSecond = {PPS}", _pixelsPerSecond);
+                _logger?.LogInformation("[START-CMD] SUCCESS: _isPlaying = TRUE, _pixelsPerSecond = {PPS}", _pixelsPerSecond);
             }
 
             Console.WriteLine("READY");
             Console.Out.Flush();
-            _logger?.LogWarning("[START-CMD] Animation started - render loop should now compose frames!");
+            _logger?.LogInformation("[START-CMD] Animation started - render loop should now compose frames!");
         }
         catch (Exception ex)
         {
