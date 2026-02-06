@@ -245,7 +245,10 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
             frameCount, Path.GetFileName(filePath), gif.Width, gif.Height);
 
         // Get per-frame delay times from GIF metadata (PropertyTagFrameDelay = 0x5100)
+        // GIF delays are in 1/100th of a second. A delay of 0 means "as fast as possible" -
+        // browsers (Chrome, Firefox) treat this as 10ms. Using 10ms matches browser behavior.
         int[] delays = new int[frameCount];
+        int zeroDelayCount = 0;
         try
         {
             var delayProperty = gif.GetPropertyItem(0x5100);
@@ -254,7 +257,11 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
                 for (int i = 0; i < frameCount && i * 4 < delayProperty.Value.Length; i++)
                 {
                     delays[i] = BitConverter.ToInt32(delayProperty.Value, i * 4) * 10; // 1/100s → ms
-                    if (delays[i] <= 0) delays[i] = 100; // Default 100ms for 0-delay frames
+                    if (delays[i] <= 0)
+                    {
+                        delays[i] = 10; // Match browser behavior: 0-delay = 10ms (100 FPS max)
+                        zeroDelayCount++;
+                    }
                 }
             }
         }
@@ -262,6 +269,41 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
         {
             // If no delay property, use 100ms per frame (10 FPS)
             for (int i = 0; i < frameCount; i++) delays[i] = 100;
+        }
+
+        if (zeroDelayCount > 0)
+        {
+            _logger.LogInformation("[GIF] {Count}/{Total} frames had 0-delay, set to 10ms (browser standard)",
+                zeroDelayCount, frameCount);
+        }
+
+        // Sanitize pathological delays: some "play once" GIFs put a massive delay
+        // on the last frame (e.g., 111 seconds) to simulate stopping. Cap individual
+        // frame delays to prevent one frame from dominating the entire animation.
+        // Strategy: calculate median delay, cap any frame > 10x median (or 500ms max)
+        if (frameCount > 1)
+        {
+            var sorted = delays.OrderBy(d => d).ToArray();
+            int median = sorted[sorted.Length / 2];
+            int maxAllowedDelay = Math.Max(median * 10, 500); // At least 500ms cap
+
+            int cappedCount = 0;
+            for (int i = 0; i < delays.Length; i++)
+            {
+                if (delays[i] > maxAllowedDelay)
+                {
+                    _logger.LogWarning("[GIF] Frame {Index} delay {Original}ms capped to {Max}ms (median={Median}ms)",
+                        i, delays[i], maxAllowedDelay, median);
+                    delays[i] = maxAllowedDelay;
+                    cappedCount++;
+                }
+            }
+
+            if (cappedCount > 0)
+            {
+                _logger.LogInformation("[GIF] Capped {Count} pathological frame delays (median={Median}ms, cap={Cap}ms)",
+                    cappedCount, median, maxAllowedDelay);
+            }
         }
 
         // Extract all frames sequentially, JPEG-compress to reduce memory
@@ -294,11 +336,21 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
         // Enable the GIF extraction path in GetFrameAtPosition
         _useGifFrameExtraction = true;
 
+        // Log delay distribution for debugging speed issues
+        var minDelay = delays.Min();
+        var maxDelay = delays.Max();
+        var avgDelay = delays.Average();
+
         _logger.LogInformation("[GIF] Extraction complete: {Frames} frames, {Duration}ms total ({FPS:F1} FPS avg), {MemMB:F1} MB compressed (was {RawMB:F0} MB raw)",
             frameCount, _gifTotalDurationMs,
             _gifTotalDurationMs > 0 ? frameCount * 1000.0 / _gifTotalDurationMs : 0,
             totalBytes / (1024.0 * 1024.0),
             (long)frameCount * gif.Width * gif.Height * 4 / (1024.0 * 1024.0));
+        _logger.LogInformation("[GIF] Frame delays: min={Min}ms, max={Max}ms, avg={Avg:F1}ms | Playback: {PlaySec:F1}s at 1x, {SpeedSec:F1}s at {Speed}x",
+            minDelay, maxDelay, avgDelay,
+            _gifTotalDurationMs / 1000.0,
+            _gifTotalDurationMs / 1000.0 / (_config?.SpeedMultiplier ?? 1.0),
+            _config?.SpeedMultiplier ?? 1.0);
     }
 
     public Task PauseAsync()
