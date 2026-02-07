@@ -15,6 +15,8 @@
     <PackageReference Include="Vortice.Direct3D11" Version="3.8.1" />
     <PackageReference Include="Vortice.DXGI" Version="3.8.1" />
     <PackageReference Include="Vortice.Direct2D1" Version="3.8.1" />
+    <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="14.10.2" />
+    <PackageReference Include="Magick.NET.SystemDrawing" Version="8.0.15" />
     <PackageReference Include="Vortice.Mathematics" Version="2.0.0" />
   </ItemGroup>
 

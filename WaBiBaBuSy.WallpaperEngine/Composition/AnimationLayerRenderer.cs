@@ -21,6 +21,7 @@ public class AnimationLayerRenderer : IDisposable
 
     private int _animationWidth;
     private int _animationHeight;
+    private int _screenWidth; // Screen width for horizontal centering
     private int _currentVirtualX; // Current X position in virtual canvas
     private int _currentVirtualY; // Current Y position in virtual canvas
     private long _currentElapsedMs; // Current elapsed time in milliseconds (for frame selection)
@@ -122,10 +123,10 @@ public class AnimationLayerRenderer : IDisposable
 
         if (shouldCenter)
         {
-            // Center content on the screen (X=0)
-            _currentVirtualX = 0;
-            _logger.LogInformation("[AnimLayer] Content positioned at X=0 (centered - StaticImage={IsStatic}, CenterFlag={CenterFlag})",
-                isStaticImage, config.CenterInitialPosition);
+            // Center content horizontally on the screen
+            _currentVirtualX = (_screenWidth - _animationWidth) / 2;
+            _logger.LogInformation("[AnimLayer] Content centered at X={X} (screen={ScreenW}, anim={AnimW}, StaticImage={IsStatic}, CenterFlag={CenterFlag})",
+                _currentVirtualX, _screenWidth, _animationWidth, isStaticImage, config.CenterInitialPosition);
         }
         else
         {
@@ -319,11 +320,13 @@ public class AnimationLayerRenderer : IDisposable
                 nativeWidth, nativeHeight);
             _animationHeight = config.TargetHeight;
             _animationWidth = (int)(_animationHeight * 16.0 / 9.0);
+            _screenWidth = _animationWidth;
         }
         else
         {
             int screenWidth = config.TargetHeight > 0 ? (int)(config.TargetHeight * 16.0 / 9.0) : 1920;
             int screenHeight = config.TargetHeight > 0 ? config.TargetHeight : 1080;
+            _screenWidth = screenWidth;
 
             switch (config.FitMode)
             {

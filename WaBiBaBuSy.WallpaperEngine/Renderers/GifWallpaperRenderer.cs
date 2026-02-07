@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Windows.Forms;
+using ImageMagick;
 using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Core.Interfaces;
 using WaBiBaBuSy.Models;
@@ -107,10 +108,8 @@ public class GifWallpaperRenderer : IWallpaperRenderer
 
             _logger.LogInformation("Loaded GIF with {FrameCount} frames", _frameCount);
 
-            // Extract frame delays from GIF metadata
-            ExtractFrameDelays();
-
             // CRITICAL: Extract and cache frames SYNCHRONOUSLY during initialization
+            // Frame delays are also extracted during caching (from Magick.NET metadata)
             // For distributed systems, all clients must have frames cached BEFORE animation starts
             // This ensures timing consistency across all machines
             _logger.LogInformation("Extracting and caching all frames BEFORE initialization completes (blocking for distributed sync)...");
@@ -417,60 +416,70 @@ public class GifWallpaperRenderer : IWallpaperRenderer
     {
         try
         {
-            if (_gifImage == null || _frameDimension == null)
+            if (_config == null || string.IsNullOrEmpty(_config.FilePath))
             {
-                _logger.LogWarning("Cannot extract frames: GIF image or frame dimension not initialized");
+                _logger.LogWarning("Cannot extract frames: config or file path not set");
                 return;
             }
 
             // Only cache small-to-medium GIFs to avoid excessive memory usage
-            // Very large GIFs use on-demand frame selection (slower but less memory)
-            const int MAX_FRAMES_TO_CACHE = 1000; // Increased from 100 to support user's 500-frame GIF
+            const int MAX_FRAMES_TO_CACHE = 1000;
 
             if (_frameCount > MAX_FRAMES_TO_CACHE)
             {
-                var estimatedMemoryMB = (_frameCount * _gifImage.Width * _gifImage.Height * 4) / (1024 * 1024);
+                var estimatedMemoryMB = _gifImage != null
+                    ? (_frameCount * _gifImage.Width * _gifImage.Height * 4) / (1024 * 1024)
+                    : 0;
                 _logger.LogInformation("GIF has {FrameCount} frames (>{Max}), skipping frame cache to save ~{MemoryMB}MB memory. Using on-demand frame selection.",
                     _frameCount, MAX_FRAMES_TO_CACHE, estimatedMemoryMB);
+                // Still need frame delays even without caching
+                ExtractFrameDelays();
                 _frameCache = null;
                 _frameCacheReady = false;
                 return;
             }
 
-            _logger.LogInformation("Caching {FrameCount} frames (BLOCKING - required for distributed sync)...", _frameCount);
+            _logger.LogInformation("Caching {FrameCount} frames using Magick.NET (BLOCKING - required for distributed sync)...", _frameCount);
             var startTime = DateTime.UtcNow;
+
+            // Use Magick.NET for fast single-pass frame extraction
+            // Coalesce() applies GIF disposal methods so each frame is a full image
+            using var collection = new MagickImageCollection(_config.FilePath);
+            collection.Coalesce();
+
+            _frameCount = collection.Count;
             _frameCache = new Bitmap[_frameCount];
+            _frameDelays = new int[_frameCount];
             var lastProgressLog = 0;
 
             for (int i = 0; i < _frameCount; i++)
             {
-                // Check for cancellation (renderer disposed or stopped)
                 if (cancellationToken.IsCancellationRequested)
                 {
                     _logger.LogWarning("Frame caching cancelled - renderer stopped/disposed");
-                    // Clear partially cached frames to avoid null reference issues
                     if (_frameCache != null)
                     {
                         for (int j = 0; j < i; j++)
-                        {
                             _frameCache[j]?.Dispose();
-                        }
                     }
                     _frameCache = null;
                     _frameCacheReady = false;
                     return;
                 }
 
-                // CRITICAL: Lock access to _gifImage (GDI+ not thread-safe!)
-                // Prevents "Object is currently in use elsewhere" errors
-                lock (_gifImageLock)
-                {
-                    _gifImage.SelectActiveFrame(_frameDimension, i);
-                    // Clone the frame to avoid corruption when SelectActiveFrame is called again
-                    _frameCache[i] = (Bitmap)_gifImage.Clone();
-                }
+                var frame = collection[i];
 
-                // Log progress every 10% to show it's working
+                // Extract delay from Magick.NET (AnimationDelay is in 1/100th of a second)
+                int delayMs = (int)(frame.AnimationDelay * 10);
+                if (delayMs <= 0) delayMs = 10; // Browser standard: 0-delay = 10ms
+                if (delayMs > 1000) delayMs = 1000; // Cap "stop" markers
+                // Apply speed multiplier
+                _frameDelays[i] = Math.Max((int)(delayMs / _speedMultiplier), 1);
+
+                // Convert Magick frame to System.Drawing.Bitmap
+                _frameCache[i] = frame.ToBitmap();
+
+                // Log progress every 10%
                 var currentProgress = (i + 1) * 100 / _frameCount;
                 if (currentProgress >= lastProgressLog + 10 || i == _frameCount - 1)
                 {
@@ -484,9 +493,11 @@ public class GifWallpaperRenderer : IWallpaperRenderer
 
             _frameCacheReady = true;
             var elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds;
-            var memoryMB = (_frameCount * _gifImage.Width * _gifImage.Height * 4) / (1024 * 1024);
+            var memoryMB = _gifImage != null
+                ? (_frameCount * _gifImage.Width * _gifImage.Height * 4) / (1024 * 1024)
+                : 0;
 
-            _logger.LogInformation("✓ Frame cache complete: {FrameCount} frames cached in {ElapsedMs}ms (~{MemoryMB}MB). CPU usage will now drop significantly.",
+            _logger.LogInformation("Frame cache complete: {FrameCount} frames cached in {ElapsedMs}ms (~{MemoryMB}MB) using Magick.NET",
                 _frameCount, (int)elapsedMs, memoryMB);
         }
         catch (OperationCanceledException)
@@ -497,7 +508,7 @@ public class GifWallpaperRenderer : IWallpaperRenderer
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error caching GIF frames, falling back to on-demand frame selection");
+            _logger.LogError(ex, "Error caching GIF frames with Magick.NET, falling back to on-demand frame selection");
             _frameCache = null;
             _frameCacheReady = false;
         }

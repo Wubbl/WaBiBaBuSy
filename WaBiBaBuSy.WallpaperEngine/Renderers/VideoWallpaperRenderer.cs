@@ -4,6 +4,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
+using ImageMagick;
 using LibVLCSharp.Shared;
 using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Core.Interfaces;
@@ -52,13 +53,11 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
     private long _lastDisplayCallbackValue = 0;   // Track if _displayCallbackCount is changing
     private int _lastBitmapHashCode = 0;          // Track if bitmap instance changes
 
-    // GIF frame extraction (GDI+ based - LibVLC can't handle animated GIFs in callback mode)
+    // GIF frame extraction (Magick.NET - LibVLC can't handle animated GIFs in callback mode)
     private bool _useGifFrameExtraction = false;
-    private List<byte[]>? _gifFrameData; // JPEG-compressed frames (~150KB each vs ~8MB raw)
+    private Bitmap[]? _gifFrames; // Pre-extracted frames as Bitmap objects
     private List<int>? _gifDelays; // Per-frame delay in ms
     private long _gifTotalDurationMs = 0;
-    private int _cachedGifFrameIndex = -1;
-    private Bitmap? _cachedGifFrame;
 
     // Legacy frame cache (not used with memory callbacks)
     private Dictionary<long, System.Drawing.Bitmap> _frameCache = new();
@@ -101,6 +100,17 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
             _logger.LogInformation("Initializing video wallpaper renderer for {FilePath}", config.FilePath);
             _config = config;
 
+            var isGif = Path.GetExtension(config.FilePath).Equals(".gif", StringComparison.OrdinalIgnoreCase);
+
+            // GIF files in headless mode don't need LibVLC at all - skip the ~10s initialization
+            if (isGif && config.HeadlessMode)
+            {
+                _useMemoryCallbacks = true;
+                State = WallpaperState.Stopped;
+                _logger.LogInformation("GIF in headless mode - skipping LibVLC initialization");
+                return;
+            }
+
             // Initialize LibVLC with optimized options for faster loading
             LibVLCSharp.Shared.Core.Initialize();
             _libVLC = new LibVLC(enableDebugLogs: false,
@@ -113,9 +123,8 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
             // Create media player
             _mediaPlayer = new MediaPlayer(_libVLC);
 
-            // TASK-008 VERIFICATION: Hook EndReached event to detect when media ends
+            // Hook EndReached event to detect when media ends
             _mediaPlayer.EndReached += OnMediaEndReached;
-            _logger.LogInformation("[GIF-INIT] EndReached event handler subscribed");
 
             // Create render window
             await CreateRenderWindowAsync(config);
@@ -148,11 +157,11 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
             // it treats them as static images and only decodes frame 0.
             if (isGif && _useMemoryCallbacks)
             {
-                _logger.LogInformation("[GIF] Using GDI+ frame extraction (LibVLC cannot animate GIFs in callback mode)");
+                _logger.LogInformation("[GIF] Using Magick.NET frame extraction (LibVLC cannot animate GIFs in callback mode)");
                 ExtractGifFrames(_config.FilePath);
                 State = WallpaperState.Playing;
                 _logger.LogInformation("[GIF] Playback ready - {Frames} frames, {Duration}ms total",
-                    _gifFrameData?.Count ?? 0, _gifTotalDurationMs);
+                    _gifFrames?.Length ?? 0, _gifTotalDurationMs);
                 return;
             }
 
@@ -233,46 +242,56 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
     }
 
     /// <summary>
-    /// Extract all frames from an animated GIF using GDI+.
-    /// LibVLC cannot handle animated GIFs in memory callback mode, so we pre-extract
-    /// all frames and cycle through them in GetFrameAtPosition based on elapsed time.
+    /// Extract all frames from an animated GIF using Magick.NET (ImageMagick).
+    /// Magick.NET decodes all frames in a single O(n) pass using native C code.
+    /// Coalesce() correctly handles GIF disposal modes (RestorePrevious, RestoreBackground).
+    /// Frames stored as Bitmap[] for zero-overhead playback (no JPEG encode/decode).
     /// </summary>
     private void ExtractGifFrames(string filePath)
     {
-        using var gif = Image.FromFile(filePath);
+        var startTime = DateTime.UtcNow;
 
-        var dimension = new FrameDimension(gif.FrameDimensionsList[0]);
-        int frameCount = gif.GetFrameCount(dimension);
+        using var collection = new MagickImageCollection(filePath);
 
-        _logger.LogInformation("[GIF] Extracting {Count} frames from {File} ({W}x{H})",
-            frameCount, Path.GetFileName(filePath), gif.Width, gif.Height);
+        _logger.LogInformation("[GIF] Extracting {Count} frames from {File} using Magick.NET",
+            collection.Count, Path.GetFileName(filePath));
 
-        // Get per-frame delay times from GIF metadata (PropertyTagFrameDelay = 0x5100)
-        // GIF delays are in 1/100th of a second. A delay of 0 means "as fast as possible" -
-        // browsers (Chrome, Firefox) treat this as 10ms. Using 10ms matches browser behavior.
-        int[] delays = new int[frameCount];
+        // Coalesce applies GIF disposal methods so each frame becomes a full image.
+        // Without this, frames with RestorePrevious/RestoreBackground disposal would be corrupt.
+        collection.Coalesce();
+
+        int frameCount = collection.Count;
+        _gifFrames = new Bitmap[frameCount];
+        _gifDelays = new List<int>(frameCount);
         int zeroDelayCount = 0;
-        try
+
+        for (int i = 0; i < frameCount; i++)
         {
-            var delayProperty = gif.GetPropertyItem(0x5100);
-            if (delayProperty?.Value != null)
+            var frame = collection[i];
+
+            // Extract delay (AnimationDelay is in 1/100th of a second, same as GIF spec)
+            int delayMs = (int)(frame.AnimationDelay * 10);
+            if (delayMs <= 0)
             {
-                for (int i = 0; i < frameCount && i * 4 < delayProperty.Value.Length; i++)
-                {
-                    delays[i] = BitConverter.ToInt32(delayProperty.Value, i * 4) * 10; // 1/100s → ms
-                    if (delays[i] <= 0)
-                    {
-                        delays[i] = 10; // Match browser behavior: 0-delay = 10ms (100 FPS max)
-                        zeroDelayCount++;
-                    }
-                }
+                delayMs = 10; // Browser standard: 0-delay = 10ms (100 FPS max)
+                zeroDelayCount++;
             }
+            if (delayMs > 1000)
+            {
+                _logger.LogWarning("[GIF] Frame delay {Original}ms capped to 1000ms (likely 'stop' marker)", delayMs);
+                delayMs = 1000; // Cap "stop" markers
+            }
+            _gifDelays.Add(delayMs);
+
+            // Convert directly to Bitmap - no JPEG encode/decode overhead
+            _gifFrames[i] = frame.ToBitmap();
         }
-        catch
-        {
-            // If no delay property, use 100ms per frame (10 FPS)
-            for (int i = 0; i < frameCount; i++) delays[i] = 100;
-        }
+
+        // Store dimensions from first frame
+        _videoWidth = (int)collection[0].Width;
+        _videoHeight = (int)collection[0].Height;
+        _gifTotalDurationMs = _gifDelays.Sum();
+        _useGifFrameExtraction = true;
 
         if (zeroDelayCount > 0)
         {
@@ -280,60 +299,16 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
                 zeroDelayCount, frameCount);
         }
 
-        // Cap obviously broken delays: some "play once" GIFs put massive delays
-        // (e.g., 111 seconds) on the last frame to fake stopping. We force-loop all GIFs,
-        // so just cap any single frame delay to 1 second max.
-        const int maxFrameDelayMs = 1000;
-        for (int i = 0; i < delays.Length; i++)
-        {
-            if (delays[i] > maxFrameDelayMs)
-            {
-                _logger.LogWarning("[GIF] Frame {Index} delay {Original}ms capped to {Max}ms (likely 'stop' marker)",
-                    i, delays[i], maxFrameDelayMs);
-                delays[i] = maxFrameDelayMs;
-            }
-        }
+        var elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds;
+        var minDelay = _gifDelays.Min();
+        var maxDelay = _gifDelays.Max();
+        var avgDelay = _gifDelays.Average();
+        long estimatedMemoryMB = (long)frameCount * _videoWidth * _videoHeight * 4 / (1024 * 1024);
 
-        // Extract all frames sequentially, JPEG-compress to reduce memory
-        // Raw: 500 frames × 1920×1080×4 = ~4 GB → JPEG: 500 × ~150KB = ~75 MB
-        _gifFrameData = new List<byte[]>(frameCount);
-        _gifDelays = delays.ToList();
-        _gifTotalDurationMs = delays.Sum();
-
-        // JPEG encoder with quality setting
-        var jpegCodec = ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
-        var encoderParams = new EncoderParameters(1);
-        encoderParams.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 90L);
-
-        long totalBytes = 0;
-        for (int i = 0; i < frameCount; i++)
-        {
-            gif.SelectActiveFrame(dimension, i);
-            using var frameBitmap = new Bitmap(gif);
-            using var ms = new MemoryStream();
-            frameBitmap.Save(ms, jpegCodec, encoderParams);
-            var jpegBytes = ms.ToArray();
-            _gifFrameData.Add(jpegBytes);
-            totalBytes += jpegBytes.Length;
-        }
-
-        // Store dimensions for compatibility
-        _videoWidth = gif.Width;
-        _videoHeight = gif.Height;
-
-        // Enable the GIF extraction path in GetFrameAtPosition
-        _useGifFrameExtraction = true;
-
-        // Log delay distribution for debugging speed issues
-        var minDelay = delays.Min();
-        var maxDelay = delays.Max();
-        var avgDelay = delays.Average();
-
-        _logger.LogInformation("[GIF] Extraction complete: {Frames} frames, {Duration}ms total ({FPS:F1} FPS avg), {MemMB:F1} MB compressed (was {RawMB:F0} MB raw)",
-            frameCount, _gifTotalDurationMs,
+        _logger.LogInformation("[GIF] Extraction complete in {ElapsedMs}ms: {Frames} frames, {Duration}ms total ({FPS:F1} FPS avg), ~{MemMB} MB in memory",
+            (int)elapsedMs, frameCount, _gifTotalDurationMs,
             _gifTotalDurationMs > 0 ? frameCount * 1000.0 / _gifTotalDurationMs : 0,
-            totalBytes / (1024.0 * 1024.0),
-            (long)frameCount * gif.Width * gif.Height * 4 / (1024.0 * 1024.0));
+            estimatedMemoryMB);
         _logger.LogInformation("[GIF] Frame delays: min={Min}ms, max={Max}ms, avg={Avg:F1}ms | Playback: {PlaySec:F1}s at 1x, {SpeedSec:F1}s at {Speed}x",
             minDelay, maxDelay, avgDelay,
             _gifTotalDurationMs / 1000.0,
@@ -418,10 +393,10 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
     {
         try
         {
-            // GIF frame extraction path: cycle through pre-extracted JPEG frames based on elapsed time
+            // GIF frame extraction path: cycle through pre-extracted Bitmap frames based on elapsed time
             // GIFs always play at their native speed (per-frame delays from GIF metadata).
             // SpeedMultiplier is NOT applied - it's for the cross-screen scrolling system, not frame timing.
-            if (_useGifFrameExtraction && _gifFrameData != null && _gifFrameData.Count > 0 && _gifDelays != null)
+            if (_useGifFrameExtraction && _gifFrames != null && _gifFrames.Length > 0 && _gifDelays != null)
             {
                 Interlocked.Increment(ref _getFrameCallCount);
 
@@ -444,20 +419,11 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
                 {
                     int loopNumber = _gifTotalDurationMs > 0 ? (int)(timestampMs / _gifTotalDurationMs) : 0;
                     _logger.LogInformation("[GIF-FRAME] GFP #{Count} | Frame {Index}/{Total} | Loop #{Loop} | Elapsed: {Elapsed}ms | Looped: {Looped}ms / {Duration}ms",
-                        _getFrameCallCount, frameIndex, _gifFrameData.Count, loopNumber, timestampMs, loopedMs, _gifTotalDurationMs);
+                        _getFrameCallCount, frameIndex, _gifFrames.Length, loopNumber, timestampMs, loopedMs, _gifTotalDurationMs);
                 }
 
-                // Decode from JPEG with single-frame cache (avoids re-decoding same frame)
-                if (frameIndex == _cachedGifFrameIndex && _cachedGifFrame != null)
-                {
-                    return new Bitmap(_cachedGifFrame);
-                }
-
-                _cachedGifFrame?.Dispose();
-                using var ms = new MemoryStream(_gifFrameData[frameIndex]);
-                _cachedGifFrame = new Bitmap(ms);
-                _cachedGifFrameIndex = frameIndex;
-                return new Bitmap(_cachedGifFrame);
+                // Clone from pre-extracted Bitmap array (no JPEG decode needed)
+                return new Bitmap(_gifFrames[frameIndex]);
             }
 
             if (_mediaPlayer == null)
@@ -988,11 +954,12 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
         _logger.LogInformation("Disposing video wallpaper renderer");
 
         // Clean up GIF frame extraction resources
-        _cachedGifFrame?.Dispose();
-        _cachedGifFrame = null;
-        _cachedGifFrameIndex = -1;
-        _gifFrameData?.Clear();
-        _gifFrameData = null;
+        if (_gifFrames != null)
+        {
+            foreach (var frame in _gifFrames)
+                frame?.Dispose();
+            _gifFrames = null;
+        }
 
         // Clean up memory callback resources
         lock (_frameLock)
