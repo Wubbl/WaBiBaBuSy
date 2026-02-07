@@ -30,6 +30,18 @@ public interface IWallpaperRenderer : IDisposable
     WallpaperState State { get; }
 
     /// <summary>
+    /// Gets the native width of the content in pixels.
+    /// Available after StartAsync() has been called.
+    /// </summary>
+    int ContentWidth { get; }
+
+    /// <summary>
+    /// Gets the native height of the content in pixels.
+    /// Available after StartAsync() has been called.
+    /// </summary>
+    int ContentHeight { get; }
+
+    /// <summary>
     /// Gets the current playback position in milliseconds.
     /// </summary>
     long PositionMs { get; }

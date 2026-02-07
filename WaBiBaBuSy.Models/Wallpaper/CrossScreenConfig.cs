@@ -141,6 +141,38 @@ public class AnimationLayerConfig
     /// Default: 2.0 (2x speed, compensates for typical slow GIF frame delays)
     /// </summary>
     public double SpeedMultiplier { get; set; } = 2.0;
+
+    /// <summary>
+    /// How the animation content is fitted to the screen.
+    /// Default: Stretch (fills entire screen, may distort aspect ratio)
+    /// </summary>
+    public ContentFitMode FitMode { get; set; } = ContentFitMode.Stretch;
+}
+
+/// <summary>
+/// How animation content is fitted to the screen
+/// </summary>
+public enum ContentFitMode
+{
+    /// <summary>
+    /// Stretch to fill screen (may distort aspect ratio)
+    /// </summary>
+    Stretch,
+
+    /// <summary>
+    /// Display at native resolution, centered on screen
+    /// </summary>
+    Center,
+
+    /// <summary>
+    /// Scale to fit within screen bounds, preserving aspect ratio (letterboxed)
+    /// </summary>
+    Fit,
+
+    /// <summary>
+    /// Scale to fill screen bounds, preserving aspect ratio (may crop)
+    /// </summary>
+    Fill
 }
 
 /// <summary>

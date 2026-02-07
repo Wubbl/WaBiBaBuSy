@@ -68,6 +68,9 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isCrossScreenRunning;
 
+    [ObservableProperty]
+    private int _selectedFitModeIndex = 0; // 0=Stretch, 1=Center, 2=Fit, 3=Fill
+
     private UI.Services.CrossScreenWallpaperCoordinator? _crossScreenCoordinator;
     private CrossScreenConfig? _crossScreenConfig;
     private string? _currentAnimationScheduleId;  // Track active animation schedule (Phase 3)
@@ -673,7 +676,8 @@ public partial class MainWindowViewModel : ViewModelBase
                 TargetHeight = screen.Bounds.Height,
                 Loop = true,
                 VerticalAlign = VerticalAlignment.Center,
-                CenterInitialPosition = true  // Start centered, not off-screen
+                CenterInitialPosition = true,  // Start centered, not off-screen
+                FitMode = (ContentFitMode)SelectedFitModeIndex
             };
 
             // Create composition renderer

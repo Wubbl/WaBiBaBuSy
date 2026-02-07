@@ -270,13 +270,22 @@ public class AnimationLayerRenderer : IDisposable
             {
                 _logger.LogTrace("[AnimLayer] Got animation frame: {Width}x{Height}, drawing to bitmap", animationFrame.Width, animationFrame.Height);
 
-                // Draw the animation frame on the screen
-                graphics.DrawImage(
-                    animationFrame,
-                    drawX,
-                    drawY,
-                    visibleRegion.Width,
-                    visibleRegion.Height);
+                // Map from the visible region in virtual coords to source rect within the frame.
+                // The animation occupies _animationWidth x _animationHeight in virtual space,
+                // but the actual frame bitmap may be a different size (native resolution).
+                // We need to scale the source rect proportionally.
+                float scaleX = (float)animationFrame.Width / _animationWidth;
+                float scaleY = (float)animationFrame.Height / _animationHeight;
+
+                var srcRect = new RectangleF(
+                    animSourceX * scaleX,
+                    animSourceY * scaleY,
+                    visibleRegion.Width * scaleX,
+                    visibleRegion.Height * scaleY);
+
+                var destRect = new RectangleF(drawX, drawY, visibleRegion.Width, visibleRegion.Height);
+
+                graphics.DrawImage(animationFrame, destRect, srcRect, GraphicsUnit.Pixel);
 
                 _logger.LogTrace("[AnimLayer] Animation frame drawn to bitmap");
             }
@@ -299,15 +308,60 @@ public class AnimationLayerRenderer : IDisposable
 
     private async Task CalculateAnimationDimensionsAsync(AnimationLayerConfig config)
     {
-        // For now, we'll use the target height directly
-        // TODO: Load actual animation and get its native dimensions
+        // Get actual content dimensions from the renderer (available after StartAsync)
+        int nativeWidth = _sourceRenderer?.ContentWidth ?? 0;
+        int nativeHeight = _sourceRenderer?.ContentHeight ?? 0;
 
-        // Assume 16:9 aspect ratio for now
-        _animationHeight = config.TargetHeight;
-        _animationWidth = (int)(_animationHeight * 16.0 / 9.0);
+        if (nativeWidth <= 0 || nativeHeight <= 0)
+        {
+            // Fallback: use TargetHeight with 16:9 aspect ratio
+            _logger.LogWarning("Could not get native content dimensions ({W}x{H}), falling back to TargetHeight with 16:9",
+                nativeWidth, nativeHeight);
+            _animationHeight = config.TargetHeight;
+            _animationWidth = (int)(_animationHeight * 16.0 / 9.0);
+        }
+        else
+        {
+            int screenWidth = config.TargetHeight > 0 ? (int)(config.TargetHeight * 16.0 / 9.0) : 1920;
+            int screenHeight = config.TargetHeight > 0 ? config.TargetHeight : 1080;
 
-        _logger.LogInformation("Animation dimensions calculated: {Width}x{Height} (assumed 16:9)",
-            _animationWidth, _animationHeight);
+            switch (config.FitMode)
+            {
+                case ContentFitMode.Center:
+                    // Native resolution, centered
+                    _animationWidth = nativeWidth;
+                    _animationHeight = nativeHeight;
+                    break;
+
+                case ContentFitMode.Fit:
+                    // Scale to fit within screen, preserve aspect ratio (letterboxed)
+                    double fitScale = Math.Min(
+                        (double)screenWidth / nativeWidth,
+                        (double)screenHeight / nativeHeight);
+                    _animationWidth = (int)(nativeWidth * fitScale);
+                    _animationHeight = (int)(nativeHeight * fitScale);
+                    break;
+
+                case ContentFitMode.Fill:
+                    // Scale to fill screen, preserve aspect ratio (may crop)
+                    double fillScale = Math.Max(
+                        (double)screenWidth / nativeWidth,
+                        (double)screenHeight / nativeHeight);
+                    _animationWidth = (int)(nativeWidth * fillScale);
+                    _animationHeight = (int)(nativeHeight * fillScale);
+                    break;
+
+                case ContentFitMode.Stretch:
+                default:
+                    // Stretch to fill screen (current behavior)
+                    _animationWidth = screenWidth;
+                    _animationHeight = screenHeight;
+                    break;
+            }
+
+            _logger.LogInformation("Animation dimensions: {Width}x{Height} (native: {NW}x{NH}, FitMode: {FitMode}, screen: {SW}x{SH})",
+                _animationWidth, _animationHeight, nativeWidth, nativeHeight, config.FitMode, screenWidth, screenHeight);
+        }
 
         await Task.CompletedTask;
     }

@@ -91,6 +91,9 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
 
     public long PositionMs => _mediaPlayer?.Time ?? 0;
 
+    public int ContentWidth => _videoWidth;
+    public int ContentHeight => _videoHeight;
+
     public async Task InitializeAsync(WallpaperConfig config)
     {
         try
@@ -277,32 +280,17 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
                 zeroDelayCount, frameCount);
         }
 
-        // Sanitize pathological delays: some "play once" GIFs put a massive delay
-        // on the last frame (e.g., 111 seconds) to simulate stopping. Cap individual
-        // frame delays to prevent one frame from dominating the entire animation.
-        // Strategy: calculate median delay, cap any frame > 10x median (or 500ms max)
-        if (frameCount > 1)
+        // Cap obviously broken delays: some "play once" GIFs put massive delays
+        // (e.g., 111 seconds) on the last frame to fake stopping. We force-loop all GIFs,
+        // so just cap any single frame delay to 1 second max.
+        const int maxFrameDelayMs = 1000;
+        for (int i = 0; i < delays.Length; i++)
         {
-            var sorted = delays.OrderBy(d => d).ToArray();
-            int median = sorted[sorted.Length / 2];
-            int maxAllowedDelay = Math.Max(median * 10, 500); // At least 500ms cap
-
-            int cappedCount = 0;
-            for (int i = 0; i < delays.Length; i++)
+            if (delays[i] > maxFrameDelayMs)
             {
-                if (delays[i] > maxAllowedDelay)
-                {
-                    _logger.LogWarning("[GIF] Frame {Index} delay {Original}ms capped to {Max}ms (median={Median}ms)",
-                        i, delays[i], maxAllowedDelay, median);
-                    delays[i] = maxAllowedDelay;
-                    cappedCount++;
-                }
-            }
-
-            if (cappedCount > 0)
-            {
-                _logger.LogInformation("[GIF] Capped {Count} pathological frame delays (median={Median}ms, cap={Cap}ms)",
-                    cappedCount, median, maxAllowedDelay);
+                _logger.LogWarning("[GIF] Frame {Index} delay {Original}ms capped to {Max}ms (likely 'stop' marker)",
+                    i, delays[i], maxFrameDelayMs);
+                delays[i] = maxFrameDelayMs;
             }
         }
 
@@ -431,18 +419,14 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
         try
         {
             // GIF frame extraction path: cycle through pre-extracted JPEG frames based on elapsed time
+            // GIFs always play at their native speed (per-frame delays from GIF metadata).
+            // SpeedMultiplier is NOT applied - it's for the cross-screen scrolling system, not frame timing.
             if (_useGifFrameExtraction && _gifFrameData != null && _gifFrameData.Count > 0 && _gifDelays != null)
             {
                 Interlocked.Increment(ref _getFrameCallCount);
 
-                // Apply SpeedMultiplier to advance through frames faster
-                // e.g., SpeedMultiplier=2.0 means at real-time 500ms we show the frame at 1000ms
-                double speedMultiplier = _config?.SpeedMultiplier ?? 1.0;
-                long scaledTimestampMs = (long)(timestampMs * speedMultiplier);
-
-                // Calculate which frame to show based on scaled elapsed time
-                // Modulo wraps loopedMs back to 0 at each loop boundary for seamless looping
-                long loopedMs = _gifTotalDurationMs > 0 ? (scaledTimestampMs % _gifTotalDurationMs) : 0;
+                // Use native GIF timing - modulo wraps for seamless infinite looping
+                long loopedMs = _gifTotalDurationMs > 0 ? (timestampMs % _gifTotalDurationMs) : 0;
                 int frameIndex = _gifDelays.Count - 1; // Default to last frame (safety)
                 long accumulated = 0;
                 for (int i = 0; i < _gifDelays.Count; i++)
@@ -458,9 +442,9 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
                 // Diagnostic: log every 60 calls
                 if (_getFrameCallCount % 60 == 0)
                 {
-                    int loopNumber = _gifTotalDurationMs > 0 ? (int)(scaledTimestampMs / _gifTotalDurationMs) : 0;
-                    _logger.LogInformation("[GIF-FRAME] GFP #{Count} | Frame {Index}/{Total} | Loop #{Loop} | Elapsed: {Elapsed}ms | Scaled: {Scaled}ms | Looped: {Looped}ms / {Duration}ms | Speed: {Speed}x",
-                        _getFrameCallCount, frameIndex, _gifFrameData.Count, loopNumber, timestampMs, scaledTimestampMs, loopedMs, _gifTotalDurationMs, speedMultiplier);
+                    int loopNumber = _gifTotalDurationMs > 0 ? (int)(timestampMs / _gifTotalDurationMs) : 0;
+                    _logger.LogInformation("[GIF-FRAME] GFP #{Count} | Frame {Index}/{Total} | Loop #{Loop} | Elapsed: {Elapsed}ms | Looped: {Looped}ms / {Duration}ms",
+                        _getFrameCallCount, frameIndex, _gifFrameData.Count, loopNumber, timestampMs, loopedMs, _gifTotalDurationMs);
                 }
 
                 // Decode from JPEG with single-frame cache (avoids re-decoding same frame)

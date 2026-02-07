@@ -56,6 +56,13 @@
                     <Button Content="Apply via LibVLC"
                             Command="{Binding ApplyWallpaperToSelectedCommand}"
                             IsVisible="{Binding !IsCrossScreenMode}"/>
+                    <ComboBox SelectedIndex="{Binding SelectedFitModeIndex}" Width="100"
+                             IsVisible="{Binding !IsCrossScreenMode}" VerticalAlignment="Center">
+                        <ComboBoxItem Content="Stretch"/>
+                        <ComboBoxItem Content="Center"/>
+                        <ComboBoxItem Content="Fit"/>
+                        <ComboBoxItem Content="Fill"/>
+                    </ComboBox>
                     <Button Content="Apply via direct2d"
                             Command="{Binding ApplyWallpaperViaDirect2DCommand}"
                             IsVisible="{Binding !IsCrossScreenMode}"/>

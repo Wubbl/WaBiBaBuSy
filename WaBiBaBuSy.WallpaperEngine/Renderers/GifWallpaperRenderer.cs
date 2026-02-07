@@ -71,6 +71,9 @@ public class GifWallpaperRenderer : IWallpaperRenderer
         }
     }
 
+    public int ContentWidth => _gifImage?.Width ?? 0;
+    public int ContentHeight => _gifImage?.Height ?? 0;
+
     /// <summary>
     /// Set the speed multiplier for GIF playback.
     /// 1.0 = normal speed, 2.0 = 2x faster, 0.5 = half speed.
