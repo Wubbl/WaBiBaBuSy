@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Drawing;
 using System.Drawing.Imaging;
+using ImageMagick;
 using Vortice.Direct2D1;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
@@ -138,13 +139,13 @@ class Program
     private static ushort _classAtom;
     private static GCHandle _wndProcHandle;
 
-    // Direct3D/Direct2D
+    // Direct3D/Direct2D - Stage 1: Modern DeviceContext pattern
     private static ID3D11Device? _d3dDevice;
     private static ID3D11DeviceContext? _immediateContext;
     private static IDXGISwapChain1? _swapChain;
     private static ID2D1Factory1? _d2dFactory;
-    private static ID2D1RenderTarget? _d2dRenderTarget;
-    private static RenderTargetProperties _renderTargetProps; // Stored for recreating render target after Present()
+    private static ID2D1Device? _d2dDevice;
+    private static ID2D1DeviceContext? _d2dContext;
 
     // State
     private static int _width;
@@ -159,7 +160,7 @@ class Program
     private static volatile string? _pendingParentCommand = null;
     private static readonly object _parentLock = new();
 
-    // Composition system
+    // Composition system (video fallback path)
     private static CompositionRenderer? _compositionRenderer;
     private static VirtualCanvasManager? _canvasManager;
     private static AnimationLayerConfig? _animationConfig;
@@ -167,13 +168,32 @@ class Program
     private static readonly object _compositionLock = new();
     private static volatile bool _compositionInitialized = false;
 
+    // Stage 2: Native D2D GIF frame cache
+    private static ID2D1Bitmap[]? _d2dGifFrames;      // GPU-cached frames
+    private static List<int>? _d2dGifDelays;            // Per-frame delay (ms)
+    private static long _d2dGifTotalDurationMs;
+    private static int _gifNativeWidth, _gifNativeHeight;
+    private static double _gifSpeedMultiplier = 1.0;
+    private static volatile bool _useNativeD2DComposition = false;
+
+    // Stage 3: Native D2D background
+    private static ID2D1Bitmap? _backgroundImageBitmap;  // For image backgrounds
+    private static Color4 _backgroundColor;               // For solid color
+    private static BackgroundMode _backgroundMode;
+
+    // Stage 4: Animation positioning (ported from AnimationLayerRenderer)
+    private static int _animWidth, _animHeight;    // Scaled by FitMode
+    private static float _animX, _animY;            // Current position
+    private static ContentFitMode _fitMode;
+    private static bool _centerInitialPosition;
+
     // Animation state
     private static volatile bool _isPlaying = false;
     private static long _startTimestampMs = 0;
     private static int _pixelsPerSecond = 0;
     private static DateTime _renderLoopStart = DateTime.MinValue;
-    private static long _frameCount = 0; // TASK-008 VERIFICATION: Track render loop iterations
-    private static DateTime _lastLoopLogTime = DateTime.MinValue; // TASK-008: Track when we last logged loop status
+    private static long _frameCount = 0;
+    private static DateTime _lastLoopLogTime = DateTime.MinValue;
 
     // Test mode: simple color toggle to verify swap chain works
     private static volatile bool _testModeEnabled = false;
@@ -235,10 +255,10 @@ class Program
             // Create window
             CreateNativeWindow(x, y, _width, _height);
 
-            // Create D3D/D2D resources
+            // Create D3D/D2D resources (Stage 1: DeviceContext pattern)
             CreateD3DDevice();
             CreateSwapChain();
-            CreateD2DRenderTarget();
+            CreateD2DDeviceContext();
 
             // Output HWND for parent process
             Console.WriteLine($"HWND:{_hwnd.ToInt64()}");
@@ -415,7 +435,7 @@ class Program
             BufferUsage = Usage.RenderTargetOutput,
             SampleDescription = new SampleDescription(1, 0),
             Scaling = Scaling.Stretch,
-            SwapEffect = SwapEffect.FlipSequential, // Changed from FlipDiscard - Test for Win11 24H2 compatibility
+            SwapEffect = SwapEffect.FlipSequential,
             AlphaMode = Vortice.DXGI.AlphaMode.Ignore,
             Flags = SwapChainFlags.None
         };
@@ -423,56 +443,25 @@ class Program
         _swapChain = dxgiFactory.CreateSwapChainForHwnd(_d3dDevice, _hwnd, swapChainDesc);
     }
 
-    private static void CreateD2DRenderTarget()
+    /// <summary>
+    /// Stage 1: Create persistent ID2D1DeviceContext instead of legacy ID2D1RenderTarget.
+    /// The DeviceContext persists across frames - only the render target bitmap is swapped per-frame.
+    /// This allows cached ID2D1Bitmaps (GIF frames, background images) to survive across presents.
+    /// </summary>
+    private static void CreateD2DDeviceContext()
     {
-        if (_swapChain == null)
+        if (_swapChain == null || _d3dDevice == null)
         {
-            throw new InvalidOperationException("Swap chain not initialized");
+            throw new InvalidOperationException("Swap chain or D3D device not initialized");
         }
 
         _d2dFactory = Vortice.Direct2D1.D2D1.D2D1CreateFactory<ID2D1Factory1>(FactoryType.MultiThreaded);
 
-        // Store render target properties for recreation after each Present() (flip model buffer rotation)
-        _renderTargetProps = new RenderTargetProperties
-        {
-            Type = RenderTargetType.Hardware,
-            PixelFormat = new Vortice.DCommon.PixelFormat(
-                Format.B8G8R8A8_UNorm,
-                Vortice.DCommon.AlphaMode.Ignore),
-            DpiX = 96.0f,
-            DpiY = 96.0f
-        };
+        using var dxgiDevice = _d3dDevice.QueryInterface<IDXGIDevice>();
+        _d2dDevice = _d2dFactory.CreateDevice(dxgiDevice);
+        _d2dContext = _d2dDevice.CreateDeviceContext(DeviceContextOptions.None);
 
-        using var backBuffer = _swapChain.GetBuffer<IDXGISurface>(0);
-        _d2dRenderTarget = _d2dFactory.CreateDxgiSurfaceRenderTarget(backBuffer, _renderTargetProps);
-    }
-
-    /// <summary>
-    /// Recreates the D2D render target after Present() to handle DXGI flip model buffer rotation.
-    /// With FlipSequential swap effect, buffers rotate after each Present() call.
-    /// The render target must be recreated to bind to the new back buffer.
-    /// </summary>
-    private static void RecreateD2DRenderTarget()
-    {
-        if (_swapChain == null || _d2dFactory == null)
-            return;
-
-        try
-        {
-            // Dispose old render target
-            _d2dRenderTarget?.Dispose();
-            _d2dRenderTarget = null;
-
-            // Create new render target bound to current back buffer
-            // Note: The surface can be disposed after CreateDxgiSurfaceRenderTarget - D2D keeps its own reference
-            using var backBuffer = _swapChain.GetBuffer<IDXGISurface>(0);
-            _d2dRenderTarget = _d2dFactory.CreateDxgiSurfaceRenderTarget(backBuffer, _renderTargetProps);
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "[CRITICAL] RecreateD2DRenderTarget failed!");
-            throw; // Re-throw to see the actual crash
-        }
+        _logger?.LogInformation("D2D DeviceContext created (persistent, no per-frame recreation needed)");
     }
 
     private static void ProcessParentCommand(string line)
@@ -488,7 +477,6 @@ class Program
                 // FIX: Use WS_EX_LAYERED instead of WS_EX_TRANSPARENT to prevent Explorer crashes.
                 // WS_EX_TRANSPARENT crashes explorer.exe on Windows 11 24H2+ when used on desktop-parented windows.
                 // WS_EX_LAYERED + SetLayeredWindowAttributes(0xFF) allows DirectX presents without performance issues.
-                // This is the official Microsoft guidance for "raised desktop" compatibility.
                 var exStyle = GetWindowLong(_hwnd, GWL_EXSTYLE);
                 SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED);
                 SetLayeredWindowAttributes(_hwnd, 0, 255, LWA_ALPHA); // Full opacity
@@ -534,7 +522,7 @@ class Program
 
         while (_running)
         {
-            // TASK-008 DEBUG: Log every second to verify loop is running
+            // Log every second to verify loop is running
             var now = DateTime.UtcNow;
             if ((now - _lastLoopLogTime).TotalSeconds >= 1.0)
             {
@@ -542,10 +530,10 @@ class Program
                 bool composing = false;
                 lock (_compositionLock)
                 {
-                    composing = _compositionInitialized && _isPlaying;
+                    composing = (_compositionInitialized || _useNativeD2DComposition) && _isPlaying;
                 }
-                _logger?.LogInformation("[D2D-LOOP] Render loop alive! Frame #{Count} | Composing: {Composing} | WindowShown: {Shown}",
-                    _frameCount, composing, _windowShown);
+                _logger?.LogInformation("[D2D-LOOP] Frame #{Count} | NativeD2D: {Native} | Composing: {Composing} | WindowShown: {Shown}",
+                    _frameCount, _useNativeD2DComposition, composing, _windowShown);
             }
 
             try
@@ -571,19 +559,33 @@ class Program
                     ProcessParentCommand(parentCmd);
                 }
 
-                if (_d2dRenderTarget != null && _swapChain != null)
+                if (_d2dContext != null && _swapChain != null)
                 {
-                    _d2dRenderTarget.BeginDraw();
+                    // Stage 1: Per-frame pattern - bind DeviceContext to current back buffer
+                    using var backBuffer = _swapChain.GetBuffer<IDXGISurface>(0);
+                    var targetProps = new BitmapProperties1
+                    {
+                        PixelFormat = new Vortice.DCommon.PixelFormat(
+                            Format.B8G8R8A8_UNorm,
+                            Vortice.DCommon.AlphaMode.Ignore),
+                        DpiX = 96.0f,
+                        DpiY = 96.0f,
+                        BitmapOptions = BitmapOptions.Target | BitmapOptions.CannotDraw
+                    };
+
+                    using var targetBitmap = _d2dContext.CreateBitmapFromDxgiSurface(backBuffer, targetProps);
+                    _d2dContext.Target = targetBitmap;
+                    _d2dContext.BeginDraw();
 
                     // TEST MODE: Simple color toggle to verify swap chain works
                     if (_testModeEnabled)
                     {
                         var timeSinceToggle = (DateTime.UtcNow - _lastColorToggle).TotalSeconds;
                         bool isRed = ((int)(timeSinceToggle / 2.0)) % 2 == 0;
-                        var testColor = isRed ? new Color4(1, 0, 0, 1) : new Color4(0, 0, 1, 1); // Red or Blue
-                        _d2dRenderTarget.Clear(testColor);
+                        var testColor = isRed ? new Color4(1, 0, 0, 1) : new Color4(0, 0, 1, 1);
+                        _d2dContext.Clear(testColor);
 
-                        if (_frameCount % 60 == 0) // Log every 60 frames (~1 second)
+                        if (_frameCount % 60 == 0)
                         {
                             _logger?.LogInformation("[TEST MODE] Frame #{Frame} | Color: {Color} | TimeSinceToggle: {Time:F1}s",
                                 _frameCount, isRed ? "RED" : "BLUE", timeSinceToggle);
@@ -593,9 +595,9 @@ class Program
                         if (!_windowShown)
                         {
                             _windowShown = true;
-                            _d2dRenderTarget.EndDraw(out _, out _);
+                            _d2dContext.EndDraw();
+                            _d2dContext.Target = null;
                             _swapChain.Present(0, PresentFlags.None);
-                            RecreateD2DRenderTarget();
 
                             if (_zOrderReference != IntPtr.Zero)
                                 SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
@@ -603,12 +605,13 @@ class Program
                                 ShowWindow(_hwnd, 5);
                             UpdateWindow(_hwnd);
                             _logger?.LogInformation("[TEST MODE] Window shown");
+                            _frameCount++;
                             continue;
                         }
 
-                        _d2dRenderTarget.EndDraw(out _, out _);
+                        _d2dContext.EndDraw();
+                        _d2dContext.Target = null;
                         _swapChain.Present(0, PresentFlags.None);
-                        RecreateD2DRenderTarget();
 
                         Thread.Sleep(16);
                         _frameCount++;
@@ -616,101 +619,130 @@ class Program
                     }
 
                     // Check if composition is initialized and playing
-                    bool shouldCompose = false;
+                    bool shouldComposeNative = false;
+                    bool shouldComposeFallback = false;
                     bool compInit = false;
                     bool isPlay = false;
                     lock (_compositionLock)
                     {
                         compInit = _compositionInitialized;
                         isPlay = _isPlaying;
-                        shouldCompose = compInit && isPlay;
+                        shouldComposeNative = _useNativeD2DComposition && isPlay;
+                        shouldComposeFallback = compInit && isPlay && !_useNativeD2DComposition;
                     }
 
-                    // DIAGNOSTIC: Log composition state every 10 frames (more frequent for debugging)
-                    if (_frameCount % 60 == 0) // Log every 60 frames (~1 second) to reduce noise
+                    if (_frameCount % 60 == 0)
                     {
-                        _logger?.LogInformation("[RENDER-LOOP] Frame #{Frame} | Initialized: {Init} | Playing: {Play} | ShouldCompose: {ShouldCompose}",
-                            _frameCount, compInit, isPlay, shouldCompose);
+                        _logger?.LogInformation("[RENDER-LOOP] Frame #{Frame} | NativeD2D: {Native} | FallbackComp: {Fallback} | Playing: {Play}",
+                            _frameCount, shouldComposeNative, shouldComposeFallback, isPlay);
                     }
 
-                    if (shouldCompose && _compositionRenderer != null && _canvasManager != null)
+                    // Stage 4: Pure D2D render path for GIF animations
+                    if (shouldComposeNative && _d2dGifFrames != null)
                     {
                         try
                         {
-                            // Calculate current timestamp
+                            var elapsedMs = (long)(DateTime.UtcNow - _renderLoopStart).TotalMilliseconds;
+
+                            // Draw background (Stage 3)
+                            DrawBackground();
+
+                            // Update animation position (Stage 4)
+                            UpdateAnimationPosition(elapsedMs);
+
+                            // Get current GIF frame (Stage 2) - zero allocation, GPU blit
+                            int frameIdx = GetCurrentGifFrameIndex(elapsedMs);
+                            var destRect = new System.Drawing.RectangleF(_animX, _animY, _animWidth, _animHeight);
+
+                            _d2dContext.DrawBitmap(
+                                _d2dGifFrames[frameIdx],
+                                destRect,
+                                1.0f,
+                                BitmapInterpolationMode.Linear,
+                                null);
+
+                            if (_frameCount % 60 == 0)
+                            {
+                                _logger?.LogInformation("[D2D-NATIVE] Frame #{Frame} | GifFrame: {GifIdx}/{GifTotal} | Pos: ({X:F0},{Y:F0}) | Size: {W}x{H}",
+                                    _frameCount, frameIdx, _d2dGifFrames.Length, _animX, _animY, _animWidth, _animHeight);
+                            }
+
+                            // Show window on first frame
+                            if (!_windowShown)
+                            {
+                                _windowShown = true;
+                                _d2dContext.EndDraw();
+                                _d2dContext.Target = null;
+                                _swapChain.Present(0, PresentFlags.None);
+
+                                if (_zOrderReference != IntPtr.Zero)
+                                    SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                                else
+                                    ShowWindow(_hwnd, 5);
+                                UpdateWindow(_hwnd);
+                                _logger?.LogInformation("Window shown after first native D2D frame");
+                                _frameCount++;
+                                continue;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger?.LogError(ex, "Native D2D composition error");
+                            // Fall through to color fill below
+                        }
+                    }
+                    // Video fallback path: uses CompositionRenderer + GDI+ ConvertBitmapToD2D
+                    else if (shouldComposeFallback && _compositionRenderer != null && _canvasManager != null)
+                    {
+                        try
+                        {
                             var elapsedMs = (long)(DateTime.UtcNow - _renderLoopStart).TotalMilliseconds;
                             var currentTimestampMs = _startTimestampMs + elapsedMs;
 
-                            // DIAGNOSTIC: Log timestamp every 60 frames (~1 second) to reduce noise
                             if (_frameCount % 60 == 0)
                             {
                                 _logger?.LogInformation("[TIMESTAMP] Frame #{Frame} | Elapsed: {Elapsed}ms | CurrentTimestamp: {Timestamp}ms | PPS: {PPS}",
                                     _frameCount, elapsedMs, currentTimestampMs, _pixelsPerSecond);
                             }
 
-                            // CRITICAL: Update animation position BEFORE composing
                             _compositionRenderer.UpdateAnimationPosition(currentTimestampMs, _pixelsPerSecond);
 
-                            // Compose frame for this screen
-                            var screen = _canvasManager.ScreenMappings[0]; // Single screen for this player
+                            var screen = _canvasManager.ScreenMappings[0];
                             using var composedFrame = _compositionRenderer.ComposeForScreen(screen);
 
-                            // DIAGNOSTIC: Log composed frame info every 30 frames
-                            if (_frameCount % 30 == 0)
-                            {
-                                // Sample center pixel of composed frame to verify it's changing
-                                int centerX = composedFrame.Width / 2;
-                                int centerY = composedFrame.Height / 2;
-                                var pixel = composedFrame.GetPixel(centerX, centerY);
-                                _logger?.LogInformation("[COMPOSE] Frame #{Frame} | Size: {W}x{H} | CenterPixel: R={R} G={G} B={B}",
-                                    _frameCount, composedFrame.Width, composedFrame.Height, pixel.R, pixel.G, pixel.B);
-                            }
-
-                            // Convert System.Drawing.Bitmap to D2D bitmap
                             using var d2dBitmap = ConvertBitmapToD2D(composedFrame);
 
-                            // Draw the bitmap
                             if (d2dBitmap != null)
                             {
                                 var destRect = new System.Drawing.RectangleF(0, 0, _width, _height);
-                                _d2dRenderTarget.DrawBitmap(
+                                _d2dContext.DrawBitmap(
                                     d2dBitmap,
-                                    destRect,      // destination rectangle
-                                    1.0f,          // opacity
+                                    destRect,
+                                    1.0f,
                                     BitmapInterpolationMode.Linear,
-                                    null);         // source rectangle (null = entire bitmap)
+                                    null);
 
-                                // Show window on first frame
                                 if (!_windowShown)
                                 {
                                     _windowShown = true;
-                                    _d2dRenderTarget.EndDraw(out _, out _);
-                                    // TASK-008 FIX: Use Present(0, ...) - no vsync wait
+                                    _d2dContext.EndDraw();
+                                    _d2dContext.Target = null;
                                     _swapChain.Present(0, PresentFlags.None);
 
-                                    // CRITICAL FIX: Recreate D2D render target after Present() for DXGI flip model
-                                    RecreateD2DRenderTarget();
-
                                     if (_zOrderReference != IntPtr.Zero)
-                                    {
-                                        SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0,
-                                            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-                                    }
+                                        SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
                                     else
-                                    {
-                                        ShowWindow(_hwnd, 5); // SW_SHOW
-                                    }
-
+                                        ShowWindow(_hwnd, 5);
                                     UpdateWindow(_hwnd);
-                                    _logger?.LogInformation("Window shown after first frame");
+                                    _logger?.LogInformation("Window shown after first fallback frame");
+                                    _frameCount++;
                                     continue;
                                 }
                             }
                         }
                         catch (Exception ex)
                         {
-                            _logger?.LogError(ex, "Composition error");
-                            // Fall through to color fill
+                            _logger?.LogError(ex, "Composition fallback error");
                         }
                     }
                     else
@@ -721,27 +753,17 @@ class Program
                         {
                             color = _currentColor;
                         }
-                        _d2dRenderTarget.Clear(color);
+                        _d2dContext.Clear(color);
                     }
 
-                    _d2dRenderTarget.EndDraw(out _, out _);
-
-                    // TASK-008 FIX: Use Present(0, ...) for immediate present without vsync wait
-                    // Windows 11 24H2 has issues with vsync on desktop-parented windows
+                    _d2dContext.EndDraw();
+                    _d2dContext.Target = null;
                     _swapChain.Present(0, PresentFlags.None);
 
-                    // CRITICAL FIX: Recreate D2D render target after Present() for DXGI flip model.
-                    // With FlipSequential swap effect, buffers rotate after each Present() call.
-                    // The render target was bound to the old back buffer (now front buffer).
-                    // We must recreate it to bind to the new back buffer.
-                    // Without this, every frame after the first draws to the front buffer (already displayed).
-                    RecreateD2DRenderTarget();
-
-                    // TASK-008 VERIFICATION: Log every 60 frames to confirm Present() is being called
                     if (_frameCount % 60 == 0 && _frameCount > 0)
                     {
-                        _logger?.LogInformation("[D2D-PRESENT] Frame #{Frame} presented to swap chain | Composing: {Composing}",
-                            _frameCount, shouldCompose);
+                        _logger?.LogInformation("[D2D-PRESENT] Frame #{Frame} presented | NativeD2D: {Native}",
+                            _frameCount, shouldComposeNative);
                     }
                 }
             }
@@ -750,22 +772,364 @@ class Program
                 _logger?.LogError(ex, "Render loop error");
             }
 
-            // Adaptive sleep based on content type
-            // For 60 FPS content: sleep 16ms
-            // For 10 FPS GIFs: sleep can be longer (e.g., 50-100ms)
-            // Using 16ms ensures we check for new frames frequently while not wasting CPU
             Thread.Sleep(16);
-
-            // TASK-008 VERIFICATION: Increment frame counter
             _frameCount++;
         }
 
         _logger?.LogInformation("Render loop stopped");
     }
 
+    // ================================
+    // Stage 2: GIF Frame Extraction
+    // ================================
+
+    /// <summary>
+    /// Extract all GIF frames using Magick.NET and upload to GPU as ID2D1Bitmap[].
+    /// One-time cost during load - frames persist in GPU memory for zero-copy rendering.
+    /// </summary>
+    private static void ExtractGifFramesToD2D(string filePath)
+    {
+        if (_d2dContext == null)
+            throw new InvalidOperationException("D2D context not initialized");
+
+        var startTime = DateTime.UtcNow;
+
+        using var collection = new MagickImageCollection(filePath);
+
+        _logger?.LogInformation("[GIF-D2D] Extracting {Count} frames from {File} using Magick.NET",
+            collection.Count, Path.GetFileName(filePath));
+
+        // Coalesce applies GIF disposal methods so each frame becomes a full image
+        collection.Coalesce();
+
+        int frameCount = collection.Count;
+        var frames = new ID2D1Bitmap[frameCount];
+        var delays = new List<int>(frameCount);
+        int zeroDelayCount = 0;
+
+        for (int i = 0; i < frameCount; i++)
+        {
+            var frame = collection[i];
+
+            // Extract delay (AnimationDelay is in 1/100th of a second)
+            int delayMs = (int)(frame.AnimationDelay * 10);
+            if (delayMs <= 0)
+            {
+                delayMs = 10; // Browser standard: 0-delay = 10ms
+                zeroDelayCount++;
+            }
+            if (delayMs > 1000)
+            {
+                _logger?.LogWarning("[GIF-D2D] Frame delay {Original}ms capped to 1000ms", delayMs);
+                delayMs = 1000;
+            }
+            delays.Add(delayMs);
+
+            // Convert Magick frame to GDI+ Bitmap, then upload to D2D
+            using var gdiBitmap = frame.ToBitmap();
+            frames[i] = UploadBitmapToD2D(gdiBitmap);
+        }
+
+        // Store dimensions from first frame
+        _gifNativeWidth = (int)collection[0].Width;
+        _gifNativeHeight = (int)collection[0].Height;
+
+        _d2dGifFrames = frames;
+        _d2dGifDelays = delays;
+        _d2dGifTotalDurationMs = delays.Sum();
+
+        if (zeroDelayCount > 0)
+        {
+            _logger?.LogInformation("[GIF-D2D] {Count}/{Total} frames had 0-delay, set to 10ms",
+                zeroDelayCount, frameCount);
+        }
+
+        var elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds;
+        long estimatedGpuMB = (long)frameCount * _gifNativeWidth * _gifNativeHeight * 4 / (1024 * 1024);
+
+        _logger?.LogInformation("[GIF-D2D] Extraction complete in {ElapsedMs}ms: {Frames} frames, {Duration}ms total ({FPS:F1} FPS avg), ~{GpuMB} MB GPU",
+            (int)elapsedMs, frameCount, _d2dGifTotalDurationMs,
+            _d2dGifTotalDurationMs > 0 ? frameCount * 1000.0 / _d2dGifTotalDurationMs : 0,
+            estimatedGpuMB);
+        _logger?.LogInformation("[GIF-D2D] Frame delays: min={Min}ms, max={Max}ms, avg={Avg:F1}ms | Speed: {Speed}x",
+            delays.Min(), delays.Max(), delays.Average(), _gifSpeedMultiplier);
+    }
+
+    /// <summary>
+    /// Upload a GDI+ Bitmap to GPU as an ID2D1Bitmap (one-time, used during init).
+    /// </summary>
+    private static ID2D1Bitmap UploadBitmapToD2D(Bitmap gdiBitmap)
+    {
+        if (_d2dContext == null)
+            throw new InvalidOperationException("D2D context not initialized");
+
+        var bitmapData = gdiBitmap.LockBits(
+            new Rectangle(0, 0, gdiBitmap.Width, gdiBitmap.Height),
+            ImageLockMode.ReadOnly,
+            System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+
+        try
+        {
+            var bitmapProps = new BitmapProperties
+            {
+                PixelFormat = new Vortice.DCommon.PixelFormat(
+                    Format.B8G8R8A8_UNorm,
+                    Vortice.DCommon.AlphaMode.Premultiplied),
+                DpiX = 96.0f,
+                DpiY = 96.0f
+            };
+
+            return _d2dContext.CreateBitmap(
+                new Vortice.Mathematics.SizeI(gdiBitmap.Width, gdiBitmap.Height),
+                bitmapData.Scan0,
+                (uint)bitmapData.Stride,
+                bitmapProps);
+        }
+        finally
+        {
+            gdiBitmap.UnlockBits(bitmapData);
+        }
+    }
+
+    /// <summary>
+    /// Get current GIF frame index based on elapsed time with SpeedMultiplier applied.
+    /// Fixes ISSUE-004 (GIF too slow) by scaling elapsed time.
+    /// </summary>
+    private static int GetCurrentGifFrameIndex(long elapsedMs)
+    {
+        if (_d2dGifDelays == null || _d2dGifTotalDurationMs <= 0)
+            return 0;
+
+        // Apply SpeedMultiplier to elapsed time (fixes ISSUE-004)
+        long effectiveMs = (long)(elapsedMs * _gifSpeedMultiplier);
+        long loopedMs = effectiveMs % _d2dGifTotalDurationMs;
+
+        int frameIndex = _d2dGifDelays.Count - 1; // Default to last frame
+        long accumulated = 0;
+        for (int i = 0; i < _d2dGifDelays.Count; i++)
+        {
+            accumulated += _d2dGifDelays[i];
+            if (accumulated > loopedMs)
+            {
+                frameIndex = i;
+                break;
+            }
+        }
+
+        return frameIndex;
+    }
+
+    // ================================
+    // Stage 3: D2D Background Rendering
+    // ================================
+
+    /// <summary>
+    /// Initialize background layer from config. Loads image backgrounds as GPU bitmaps.
+    /// </summary>
+    private static void InitializeBackground(BackgroundLayerConfig config)
+    {
+        _backgroundMode = config.Mode;
+
+        // Dispose previous background image
+        _backgroundImageBitmap?.Dispose();
+        _backgroundImageBitmap = null;
+
+        switch (config.Mode)
+        {
+            case BackgroundMode.SolidColor:
+                _backgroundColor = ParseHexColor(config.ColorHex);
+                _logger?.LogInformation("[BG-D2D] Solid color: {Color}", config.ColorHex);
+                break;
+
+            case BackgroundMode.StretchedImage:
+            case BackgroundMode.TiledImage:
+                if (!string.IsNullOrEmpty(config.ImagePath) && File.Exists(config.ImagePath))
+                {
+                    using var gdiBitmap = (Bitmap)Image.FromFile(config.ImagePath);
+                    _backgroundImageBitmap = UploadBitmapToD2D(gdiBitmap);
+                    _logger?.LogInformation("[BG-D2D] Image loaded: {Path} ({W}x{H})", config.ImagePath, gdiBitmap.Width, gdiBitmap.Height);
+                }
+                else
+                {
+                    _logger?.LogWarning("[BG-D2D] Image not found, falling back to solid color: {Path}", config.ImagePath);
+                    _backgroundMode = BackgroundMode.SolidColor;
+                    _backgroundColor = ParseHexColor(config.ColorHex);
+                }
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Draw background using pure D2D calls (no GDI+).
+    /// </summary>
+    private static void DrawBackground()
+    {
+        if (_d2dContext == null) return;
+
+        switch (_backgroundMode)
+        {
+            case BackgroundMode.SolidColor:
+                _d2dContext.Clear(_backgroundColor);
+                break;
+
+            case BackgroundMode.StretchedImage:
+                if (_backgroundImageBitmap != null)
+                {
+                    _d2dContext.Clear(new Color4(0, 0, 0, 1)); // Black behind image
+                    var fullScreen = new System.Drawing.RectangleF(0, 0, _width, _height);
+                    _d2dContext.DrawBitmap(_backgroundImageBitmap, fullScreen, 1.0f, BitmapInterpolationMode.Linear, null);
+                }
+                else
+                {
+                    _d2dContext.Clear(_backgroundColor);
+                }
+                break;
+
+            case BackgroundMode.TiledImage:
+                if (_backgroundImageBitmap != null)
+                {
+                    _d2dContext.Clear(new Color4(0, 0, 0, 1));
+                    var imgSize = _backgroundImageBitmap.Size;
+                    int tileW = (int)imgSize.Width;
+                    int tileH = (int)imgSize.Height;
+                    if (tileW > 0 && tileH > 0)
+                    {
+                        for (int ty = 0; ty < _height; ty += tileH)
+                        {
+                            for (int tx = 0; tx < _width; tx += tileW)
+                            {
+                                var tileRect = new System.Drawing.RectangleF(tx, ty, tileW, tileH);
+                                _d2dContext.DrawBitmap(_backgroundImageBitmap, tileRect, 1.0f, BitmapInterpolationMode.Linear, null);
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    _d2dContext.Clear(_backgroundColor);
+                }
+                break;
+        }
+    }
+
+    private static Color4 ParseHexColor(string hex)
+    {
+        hex = hex.TrimStart('#');
+        if (hex.Length == 6)
+        {
+            int r = Convert.ToInt32(hex.Substring(0, 2), 16);
+            int g = Convert.ToInt32(hex.Substring(2, 2), 16);
+            int b = Convert.ToInt32(hex.Substring(4, 2), 16);
+            return new Color4(r / 255f, g / 255f, b / 255f, 1f);
+        }
+        return new Color4(0, 0, 0, 1); // Default black
+    }
+
+    // ================================
+    // Stage 4: Animation Layout & Position
+    // ================================
+
+    /// <summary>
+    /// Calculate animation dimensions based on FitMode (ported from AnimationLayerRenderer).
+    /// </summary>
+    private static void CalculateAnimationLayout(AnimationLayerConfig config)
+    {
+        int nativeWidth = _gifNativeWidth;
+        int nativeHeight = _gifNativeHeight;
+
+        if (nativeWidth <= 0 || nativeHeight <= 0)
+        {
+            _logger?.LogWarning("[LAYOUT] Invalid native dimensions ({W}x{H}), using screen size", nativeWidth, nativeHeight);
+            _animWidth = _width;
+            _animHeight = _height;
+        }
+        else
+        {
+            switch (config.FitMode)
+            {
+                case ContentFitMode.Center:
+                    _animWidth = nativeWidth;
+                    _animHeight = nativeHeight;
+                    break;
+
+                case ContentFitMode.Fit:
+                    double fitScale = Math.Min(
+                        (double)_width / nativeWidth,
+                        (double)_height / nativeHeight);
+                    _animWidth = (int)(nativeWidth * fitScale);
+                    _animHeight = (int)(nativeHeight * fitScale);
+                    break;
+
+                case ContentFitMode.Fill:
+                    double fillScale = Math.Max(
+                        (double)_width / nativeWidth,
+                        (double)_height / nativeHeight);
+                    _animWidth = (int)(nativeWidth * fillScale);
+                    _animHeight = (int)(nativeHeight * fillScale);
+                    break;
+
+                case ContentFitMode.Stretch:
+                default:
+                    _animWidth = _width;
+                    _animHeight = _height;
+                    break;
+            }
+        }
+
+        _fitMode = config.FitMode;
+        _centerInitialPosition = config.CenterInitialPosition;
+
+        // Calculate initial position
+        if (_centerInitialPosition || _pixelsPerSecond == 0)
+        {
+            // Centered on screen
+            _animX = (_width - _animWidth) / 2f;
+        }
+        else
+        {
+            // Off-screen left for scrolling animations
+            _animX = -_animWidth;
+        }
+
+        // Vertical alignment
+        switch (config.VerticalAlign)
+        {
+            case VerticalAlignment.Top:
+                _animY = 0;
+                break;
+            case VerticalAlignment.Bottom:
+                _animY = _height - _animHeight;
+                break;
+            case VerticalAlignment.Center:
+            default:
+                _animY = (_height - _animHeight) / 2f;
+                break;
+        }
+
+        _logger?.LogInformation("[LAYOUT] Animation: {W}x{H} at ({X:F0},{Y:F0}) | FitMode: {Fit} | Native: {NW}x{NH} | Screen: {SW}x{SH}",
+            _animWidth, _animHeight, _animX, _animY, config.FitMode, nativeWidth, nativeHeight, _width, _height);
+    }
+
+    /// <summary>
+    /// Update animation X position based on elapsed time (ported from AnimationLayerRenderer).
+    /// </summary>
+    private static void UpdateAnimationPosition(long elapsedMs)
+    {
+        if (_pixelsPerSecond > 0)
+        {
+            var elapsedSeconds = elapsedMs / 1000.0;
+            _animX = (float)(-_animWidth + (elapsedSeconds * _pixelsPerSecond));
+        }
+        // For static animations (pixelsPerSecond=0), position stays at initial centered value
+    }
+
+    // ================================
+    // GDI+ to D2D conversion (video fallback)
+    // ================================
+
     private static ID2D1Bitmap? ConvertBitmapToD2D(Bitmap gdiBitmap)
     {
-        if (_d2dRenderTarget == null)
+        if (_d2dContext == null)
             return null;
 
         try
@@ -786,7 +1150,7 @@ class Program
                     DpiY = 96.0f
                 };
 
-                var d2dBitmap = _d2dRenderTarget.CreateBitmap(
+                var d2dBitmap = _d2dContext.CreateBitmap(
                     new Vortice.Mathematics.SizeI(gdiBitmap.Width, gdiBitmap.Height),
                     bitmapData.Scan0,
                     (uint)bitmapData.Stride,
@@ -805,6 +1169,10 @@ class Program
             return null;
         }
     }
+
+    // ================================
+    // Command Processing
+    // ================================
 
     private static void ProcessCommands()
     {
@@ -848,7 +1216,6 @@ class Program
                 }
                 else if (line == "TEST")
                 {
-                    // Enable test mode: toggle between red and blue every 2 seconds
                     _testModeEnabled = true;
                     _lastColorToggle = DateTime.UtcNow;
                     _logger?.LogInformation("[TEST MODE] Enabled! Will toggle red/blue every 2 seconds");
@@ -864,7 +1231,6 @@ class Program
                 }
                 else if (line.StartsWith("{"))
                 {
-                    // JSON message - parse and handle
                     HandleJsonCommand(line);
                 }
                 else
@@ -923,7 +1289,6 @@ class Program
     {
         try
         {
-            // Use MessageTypeWrapper to extract MessageType without deserializing the whole object
             var wrapper = JsonConvert.DeserializeObject<MessageTypeWrapper>(json);
             if (wrapper == null || string.IsNullOrEmpty(wrapper.MessageType))
             {
@@ -934,7 +1299,6 @@ class Program
 
             _logger?.LogDebug("JSON message type: {MessageType}", wrapper.MessageType);
 
-            // Deserialize to the correct concrete type based on MessageType
             switch (wrapper.MessageType)
             {
                 case "cmd_load_animation":
@@ -979,64 +1343,90 @@ class Program
 
             lock (_compositionLock)
             {
-                // Dispose existing composition
+                // Stage 5: Dispose existing native D2D resources
+                DisposeNativeD2DResources();
+
+                // Dispose existing composition fallback
                 _compositionRenderer?.Dispose();
                 _compositionRenderer = null;
                 _canvasManager = null;
                 _compositionInitialized = false;
+                _useNativeD2DComposition = false;
 
                 // Store configuration
                 _animationConfig = cmd.AnimationConfig;
                 _backgroundConfig = cmd.BackgroundConfig;
 
-                // Create virtual canvas for this screen
-                var screenConfig = new ScreenConfiguration
+                var filePath = cmd.AnimationConfig.AnimationPath;
+                var extension = Path.GetExtension(filePath).ToLowerInvariant();
+
+                if (extension == ".gif")
                 {
-                    ClientId = "D2DPlayer",
-                    Order = 0,
-                    Width = _width,
-                    Height = _height,
-                    PhysicalDistanceCm = 0,
-                    Hostname = "localhost",
-                    MonitorIndex = cmd.MonitorIndex
-                };
+                    // Stage 2: Native D2D path for GIFs
+                    _gifSpeedMultiplier = cmd.AnimationConfig.SpeedMultiplier;
+                    _logger?.LogInformation("[LOAD] GIF detected, using native D2D composition (SpeedMultiplier: {Speed}x)", _gifSpeedMultiplier);
 
-                _canvasManager = new VirtualCanvasManager(
-                    Microsoft.Extensions.Logging.Abstractions.NullLogger<VirtualCanvasManager>.Instance);
+                    // Extract GIF frames to GPU
+                    ExtractGifFramesToD2D(filePath);
 
-                _canvasManager.CalculateLayout(new[] { screenConfig });
+                    // Initialize background (Stage 3)
+                    InitializeBackground(cmd.BackgroundConfig);
 
-                // Create composition renderer
-                var loggerFactory = LoggerFactory.Create(builder =>
+                    // Calculate animation layout (Stage 4)
+                    CalculateAnimationLayout(cmd.AnimationConfig);
+
+                    _useNativeD2DComposition = true;
+                    _logger?.LogInformation("[LOAD] Native D2D composition ready: {Frames} frames, {W}x{H}", _d2dGifFrames?.Length, _animWidth, _animHeight);
+                }
+                else
                 {
-                    builder.AddConsole(options =>
+                    // Video files: use existing CompositionRenderer fallback
+                    _logger?.LogInformation("[LOAD] Video detected ({Ext}), using CompositionRenderer fallback", extension);
+
+                    var screenConfig = new ScreenConfiguration
                     {
-                        options.LogToStandardErrorThreshold = LogLevel.Trace; // ALL logs to stderr
-                        options.FormatterName = "simple";
-                    });
-                    builder.AddSimpleConsole(options =>
+                        ClientId = "D2DPlayer",
+                        Order = 0,
+                        Width = _width,
+                        Height = _height,
+                        PhysicalDistanceCm = 0,
+                        Hostname = "localhost",
+                        MonitorIndex = cmd.MonitorIndex
+                    };
+
+                    _canvasManager = new VirtualCanvasManager(
+                        Microsoft.Extensions.Logging.Abstractions.NullLogger<VirtualCanvasManager>.Instance);
+                    _canvasManager.CalculateLayout(new[] { screenConfig });
+
+                    var loggerFactory = LoggerFactory.Create(builder =>
                     {
-                        options.SingleLine = true;
-                        options.IncludeScopes = false;
+                        builder.AddConsole(options =>
+                        {
+                            options.LogToStandardErrorThreshold = LogLevel.Trace;
+                            options.FormatterName = "simple";
+                        });
+                        builder.AddSimpleConsole(options =>
+                        {
+                            options.SingleLine = true;
+                            options.IncludeScopes = false;
+                        });
+                        builder.SetMinimumLevel(LogLevel.Information);
                     });
-                    builder.SetMinimumLevel(LogLevel.Information);
-                });
 
-                _compositionRenderer = new CompositionRenderer(
-                    loggerFactory.CreateLogger<CompositionRenderer>(),
-                    loggerFactory);
+                    _compositionRenderer = new CompositionRenderer(
+                        loggerFactory.CreateLogger<CompositionRenderer>(),
+                        loggerFactory);
 
-                // Initialize composition renderer
-                var initTask = _compositionRenderer.InitializeAsync(
-                    _canvasManager,
-                    cmd.BackgroundConfig,
-                    cmd.AnimationConfig,
-                    cmd.MonitorIndex);
+                    var initTask = _compositionRenderer.InitializeAsync(
+                        _canvasManager,
+                        cmd.BackgroundConfig,
+                        cmd.AnimationConfig,
+                        cmd.MonitorIndex);
+                    initTask.Wait();
 
-                initTask.Wait(); // Synchronous wait on background thread
-
-                _compositionInitialized = true;
-                _logger?.LogInformation("Composition initialized successfully");
+                    _compositionInitialized = true;
+                    _logger?.LogInformation("CompositionRenderer fallback initialized");
+                }
             }
 
             Console.WriteLine("READY");
@@ -1054,33 +1444,40 @@ class Program
     {
         try
         {
-            _logger?.LogInformation("[START-CMD] RECEIVED START ANIMATION COMMAND");
             _logger?.LogInformation("[START-CMD] StartTimestamp: {Timestamp}ms, PixelsPerSecond: {PPS}px/s",
                 cmd.StartTimestampMs, cmd.PixelsPerSecond);
 
             lock (_compositionLock)
             {
-                if (!_compositionInitialized || _compositionRenderer == null)
+                if (!_compositionInitialized && !_useNativeD2DComposition)
                 {
-                    _logger?.LogError("[START-CMD] FAILED: Composition not initialized!");
-                    throw new InvalidOperationException("Composition not initialized. Call LOAD_ANIMATION first.");
+                    _logger?.LogError("[START-CMD] FAILED: Neither native D2D nor composition initialized!");
+                    throw new InvalidOperationException("No composition initialized. Call LOAD_ANIMATION first.");
                 }
 
                 _startTimestampMs = cmd.StartTimestampMs;
                 _pixelsPerSecond = cmd.PixelsPerSecond;
-                _renderLoopStart = DateTime.UtcNow; // Reset render loop timer
+                _renderLoopStart = DateTime.UtcNow;
                 _isPlaying = true;
 
-                _logger?.LogInformation("[START-CMD] SUCCESS: _isPlaying = TRUE, _pixelsPerSecond = {PPS}", _pixelsPerSecond);
+                // Recalculate initial position with updated pixelsPerSecond
+                if (_useNativeD2DComposition && _animationConfig != null)
+                {
+                    if (_centerInitialPosition || _pixelsPerSecond == 0)
+                        _animX = (_width - _animWidth) / 2f;
+                    else
+                        _animX = -_animWidth;
+                }
+
+                _logger?.LogInformation("[START-CMD] SUCCESS: _isPlaying = TRUE, PPS = {PPS}, NativeD2D = {Native}", _pixelsPerSecond, _useNativeD2DComposition);
             }
 
             Console.WriteLine("READY");
             Console.Out.Flush();
-            _logger?.LogInformation("[START-CMD] Animation started - render loop should now compose frames!");
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "🎬 [START-CMD] EXCEPTION during start animation");
+            _logger?.LogError(ex, "[START-CMD] EXCEPTION during start animation");
             Console.WriteLine($"ERROR:Start animation failed: {ex.Message}");
             Console.Out.Flush();
         }
@@ -1109,12 +1506,41 @@ class Program
         }
     }
 
+    // ================================
+    // Stage 5: Cleanup & Disposal
+    // ================================
+
+    /// <summary>
+    /// Dispose native D2D GIF frames and background bitmap.
+    /// Called when loading new animation or during final cleanup.
+    /// </summary>
+    private static void DisposeNativeD2DResources()
+    {
+        if (_d2dGifFrames != null)
+        {
+            for (int i = 0; i < _d2dGifFrames.Length; i++)
+            {
+                _d2dGifFrames[i]?.Dispose();
+            }
+            _d2dGifFrames = null;
+            _logger?.LogInformation("[DISPOSE] D2D GIF frames released");
+        }
+        _d2dGifDelays = null;
+        _d2dGifTotalDurationMs = 0;
+
+        _backgroundImageBitmap?.Dispose();
+        _backgroundImageBitmap = null;
+    }
+
     private static void Cleanup()
     {
         _logger?.LogInformation("Cleanup starting");
         _running = false;
 
-        // Dispose composition
+        // Dispose native D2D resources
+        DisposeNativeD2DResources();
+
+        // Dispose composition fallback
         lock (_compositionLock)
         {
             _compositionRenderer?.Dispose();
@@ -1123,8 +1549,9 @@ class Program
             _compositionInitialized = false;
         }
 
-        // Dispose D2D/D3D resources
-        _d2dRenderTarget?.Dispose();
+        // Dispose D2D/D3D resources (Stage 1 order)
+        _d2dContext?.Dispose();
+        _d2dDevice?.Dispose();
         _swapChain?.Dispose();
         _immediateContext?.Dispose();
         _d3dDevice?.Dispose();
