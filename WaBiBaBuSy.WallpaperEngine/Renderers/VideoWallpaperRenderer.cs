@@ -144,7 +144,7 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
     {
         try
         {
-            if (_mediaPlayer == null || _config == null)
+            if (_config == null)
                 throw new InvalidOperationException("Renderer not initialized");
 
             _logger.LogInformation("Starting video playback for: {File}", Path.GetFileName(_config.FilePath));
@@ -155,6 +155,8 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
             // GIF files in headless mode: Use GDI+ frame extraction instead of LibVLC.
             // LibVLC cannot properly handle animated GIFs in memory callback mode -
             // it treats them as static images and only decodes frame 0.
+            // NOTE: This check must come BEFORE the _mediaPlayer null check because
+            // InitializeAsync skips creating _mediaPlayer for GIFs in headless mode.
             if (isGif && _useMemoryCallbacks)
             {
                 _logger.LogInformation("[GIF] Using Magick.NET frame extraction (LibVLC cannot animate GIFs in callback mode)");
@@ -164,6 +166,9 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
                     _gifFrames?.Length ?? 0, _gifTotalDurationMs);
                 return;
             }
+
+            if (_mediaPlayer == null)
+                throw new InvalidOperationException("Renderer not initialized");
 
             // Video files: Use LibVLC with memory callbacks
             var media = new Media(_libVLC, _config.FilePath, FromType.FromPath);
