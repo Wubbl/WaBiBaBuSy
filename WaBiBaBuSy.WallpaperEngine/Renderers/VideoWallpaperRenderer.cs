@@ -93,6 +93,8 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
     public int ContentWidth => _videoWidth;
     public int ContentHeight => _videoHeight;
 
+    public IntPtr WindowHandle => _renderForm?.Handle ?? IntPtr.Zero;
+
     public async Task InitializeAsync(WallpaperConfig config)
     {
         try

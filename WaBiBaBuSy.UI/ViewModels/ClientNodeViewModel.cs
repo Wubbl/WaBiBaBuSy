@@ -8,6 +8,9 @@ namespace WaBiBaBuSy.UI.ViewModels;
 public partial class ClientNodeViewModel : ObservableObject
 {
     [ObservableProperty]
+    private Avalonia.Media.Imaging.Bitmap? _thumbnailImage;
+
+    [ObservableProperty]
     private string _clientId = string.Empty;
 
     [ObservableProperty]

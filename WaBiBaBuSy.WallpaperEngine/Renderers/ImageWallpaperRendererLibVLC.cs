@@ -56,6 +56,8 @@ public class ImageWallpaperRendererLibVLC : IWallpaperRenderer
     public int ContentWidth => _cachedFrame?.Width ?? 0;
     public int ContentHeight => _cachedFrame?.Height ?? 0;
 
+    public IntPtr WindowHandle => _renderForm?.Handle ?? IntPtr.Zero;
+
     public async Task InitializeAsync(WallpaperConfig config)
     {
         try

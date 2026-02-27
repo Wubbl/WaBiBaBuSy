@@ -312,6 +312,15 @@ public class WaBiBaBuSyService : IDisposable
     }
 
     /// <summary>
+    /// Get the latest thumbnail for a client (when in server mode)
+    /// </summary>
+    public byte[]? GetClientThumbnail(string clientId)
+    {
+        var thumbnail = _serverHost?.SyncService?.GetClientThumbnail(clientId);
+        return thumbnail?.ThumbnailJpeg?.ToByteArray();
+    }
+
+    /// <summary>
     /// Get connected clients (when in server mode)
     /// </summary>
     public IEnumerable<ConnectedClient> GetConnectedClients()

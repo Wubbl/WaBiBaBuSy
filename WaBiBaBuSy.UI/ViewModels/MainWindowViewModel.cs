@@ -38,6 +38,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, IWallpaperRenderer> _localWallpaperRenderers = new();
     // D2D composition services: ConcurrentDictionary<monitorIndex, service> (for Direct2D rendering with separate player process)
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, D2DCompositionService> _d2dCompositionServices = new();
+    // Thumbnail capture services per monitor for live wallpaper preview in topology
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, ThumbnailCaptureService> _thumbnailCaptureServices = new();
     // Debug flag: Enable/disable network topology debug output
     private static bool _enableNetworkTopologyDebugOutput = false;
 
@@ -549,6 +551,9 @@ public partial class MainWindowViewModel : ViewModelBase
             // Store renderer for this monitor
             _localWallpaperRenderers[monitorIndex] = renderer;
 
+            // Set up thumbnail capture for live preview
+            SetupThumbnailCapture(monitorIndex, renderer.WindowHandle, wallpaper.Name);
+
             // Update UI for the specific monitor node
             var localClient = Clients.FirstOrDefault(c => c.ClientId == $"LOCAL_MACHINE_MONITOR_{monitorIndex}");
             if (localClient != null)
@@ -713,6 +718,9 @@ public partial class MainWindowViewModel : ViewModelBase
             // Store the service for later cleanup
             _d2dCompositionServices[monitorIndex] = d2dService;
 
+            // Set up thumbnail capture for live preview
+            SetupThumbnailCapture(monitorIndex, d2dService.PlayerHwnd, wallpaper.Name);
+
             // Update UI
             var localClient = Clients.FirstOrDefault(c => c.ClientId == $"LOCAL_MACHINE_MONITOR_{monitorIndex}");
             if (localClient != null)
@@ -780,6 +788,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
             // Store renderer
             _localWallpaperRenderers[monitorIndex] = renderer;
+
+            // Set up thumbnail capture for live preview
+            SetupThumbnailCapture(monitorIndex, renderer.WindowHandle, wallpaper.Name);
 
             // Update UI
             var localClient = Clients.FirstOrDefault(c => c.ClientId == $"LOCAL_MACHINE_MONITOR_{monitorIndex}");
@@ -1248,6 +1259,9 @@ public partial class MainWindowViewModel : ViewModelBase
                     existing.Status = grpcClient.Status.ToString();
                     existing.Order = grpcClient.OrderPosition;
                     existing.PhysicalDistanceCm = grpcClient.PhysicalDistanceCm;
+
+                    // Update thumbnail if available (server mode only)
+                    UpdateClientThumbnail(existing);
                 }
                 else
                 {
@@ -1318,6 +1332,76 @@ public partial class MainWindowViewModel : ViewModelBase
             Debug.WriteLine($"[UpdateClientList] Complete. Final client count: {Clients.Count}");
             Debug.WriteLine($"[UpdateClientList] Clients in collection: {string.Join(", ", Clients.Select(c => c.Hostname))}");
         });
+    }
+
+    /// <summary>
+    /// Update the thumbnail image for a client node.
+    /// For remote clients: reads from server gRPC thumbnail cache.
+    /// For local monitors: captures directly via ThumbnailCaptureService.
+    /// </summary>
+    private void UpdateClientThumbnail(ClientNodeViewModel client)
+    {
+        try
+        {
+            byte[]? jpegBytes = null;
+
+            if (client.ClientId.StartsWith("LOCAL_MACHINE_MONITOR_"))
+            {
+                // Local monitor: capture thumbnail directly
+                var monitorIndexStr = client.ClientId.Replace("LOCAL_MACHINE_MONITOR_", "");
+                if (int.TryParse(monitorIndexStr, out var monitorIndex) &&
+                    _thumbnailCaptureServices.TryGetValue(monitorIndex, out var captureService))
+                {
+                    jpegBytes = captureService.CaptureCurrentThumbnail();
+                }
+            }
+            else
+            {
+                // Remote client: read from server gRPC thumbnail cache
+                jpegBytes = _service.GetClientThumbnail(client.ClientId);
+            }
+
+            if (jpegBytes == null || jpegBytes.Length == 0)
+            {
+                return;
+            }
+
+            using var ms = new MemoryStream(jpegBytes);
+            client.ThumbnailImage = new Avalonia.Media.Imaging.Bitmap(ms);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[UpdateClientThumbnail] Error for {client.ClientId}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Set up thumbnail capture for a local monitor after a wallpaper is applied.
+    /// </summary>
+    private void SetupThumbnailCapture(int monitorIndex, IntPtr hwnd, string wallpaperName)
+    {
+        if (hwnd == IntPtr.Zero)
+        {
+            Debug.WriteLine($"[Thumbnail] No HWND available for monitor {monitorIndex}, skipping thumbnail setup");
+            return;
+        }
+
+        var captureService = _thumbnailCaptureServices.GetOrAdd(monitorIndex, _ =>
+            new ThumbnailCaptureService(_loggerFactory.CreateLogger<ThumbnailCaptureService>()));
+
+        captureService.SetWallpaperHwnd(hwnd, wallpaperName);
+        Debug.WriteLine($"[Thumbnail] Set up capture for monitor {monitorIndex}: HWND={hwnd}, wallpaper={wallpaperName}");
+    }
+
+    /// <summary>
+    /// Clear thumbnail capture for a local monitor when wallpaper is removed.
+    /// </summary>
+    private void ClearThumbnailCapture(int monitorIndex)
+    {
+        if (_thumbnailCaptureServices.TryGetValue(monitorIndex, out var captureService))
+        {
+            captureService.ClearWallpaperHwnd();
+        }
     }
 
     private void OnRefreshTimerElapsed(object? sender, ElapsedEventArgs e)
@@ -1392,6 +1476,14 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         _localWallpaperRenderers.Clear();
+
+        // Clear all thumbnail capture services
+        foreach (var kvp in _thumbnailCaptureServices)
+        {
+            kvp.Value.ClearWallpaperHwnd();
+        }
+        _thumbnailCaptureServices.Clear();
+
         Debug.WriteLine("[Cleanup] All renderers disposed");
     }
 

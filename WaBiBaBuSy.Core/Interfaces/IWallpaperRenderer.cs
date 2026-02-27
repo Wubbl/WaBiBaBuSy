@@ -30,6 +30,13 @@ public interface IWallpaperRenderer : IDisposable
     WallpaperState State { get; }
 
     /// <summary>
+    /// Gets the native window handle used for rendering.
+    /// Returns IntPtr.Zero if no window is created (e.g., headless mode).
+    /// Used for thumbnail capture via PrintWindow.
+    /// </summary>
+    IntPtr WindowHandle { get; }
+
+    /// <summary>
     /// Gets the native width of the content in pixels.
     /// Available after StartAsync() has been called.
     /// </summary>

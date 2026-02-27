@@ -27,10 +27,22 @@ public class WallpaperSyncClient : IDisposable
     private CancellationTokenSource? _frameStreamCts;
     private Task? _frameStreamTask;
     private AsyncDuplexStreamingCall<FrameAcknowledgment, CrossScreenFrame>? _frameStreamCall;
+    private CancellationTokenSource? _thumbnailCts;
+    private Task? _thumbnailTask;
+    private ThumbnailCaptureService? _thumbnailCaptureService;
 
     public bool IsConnected { get; private set; }
     public bool IsCrossScreenActive { get; private set; }
     public string? ClientId => _clientId;
+
+    /// <summary>
+    /// Set the thumbnail capture service for sending live wallpaper previews to the server.
+    /// </summary>
+    public ThumbnailCaptureService? ThumbnailCaptureService
+    {
+        get => _thumbnailCaptureService;
+        set => _thumbnailCaptureService = value;
+    }
 
     public event EventHandler<ConnectionStatusChangedEventArgs>? ConnectionStatusChanged;
     public event EventHandler<SyncCommandReceivedEventArgs>? SyncCommandReceived;
@@ -88,6 +100,9 @@ public class WallpaperSyncClient : IDisposable
             // Start sync stream to receive commands
             StartSyncStream();
 
+            // Start thumbnail sending
+            StartThumbnailSending();
+
             _logger.LogInformation("Successfully connected to server. Client ID: {ClientId}", _clientId);
             return true;
         }
@@ -116,6 +131,7 @@ public class WallpaperSyncClient : IDisposable
         StopHeartbeat();
         StopSyncStream();
         StopCrossScreenFrameStream();
+        StopThumbnailSending();
 
         IsConnected = false;
         ConnectionStatusChanged?.Invoke(this,
@@ -726,6 +742,80 @@ public class WallpaperSyncClient : IDisposable
             _logger.LogError(ex, "Error sending frame acknowledgment");
         }
     }
+
+    #region Thumbnail Sending
+
+    /// <summary>
+    /// Start periodic thumbnail sending (every ~1 second)
+    /// </summary>
+    private void StartThumbnailSending()
+    {
+        _thumbnailCts = new CancellationTokenSource();
+        _thumbnailTask = Task.Run(async () =>
+        {
+            while (!_thumbnailCts.Token.IsCancellationRequested && IsConnected)
+            {
+                try
+                {
+                    await SendThumbnailAsync();
+                    await Task.Delay(1000, _thumbnailCts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Error sending thumbnail (non-critical)");
+                }
+            }
+        }, _thumbnailCts.Token);
+
+        _logger.LogInformation("Thumbnail sending started");
+    }
+
+    /// <summary>
+    /// Stop thumbnail sending
+    /// </summary>
+    private void StopThumbnailSending()
+    {
+        _thumbnailCts?.Cancel();
+        _thumbnailTask?.Wait(TimeSpan.FromSeconds(2));
+        _thumbnailCts?.Dispose();
+        _thumbnailCts = null;
+        _thumbnailTask = null;
+    }
+
+    /// <summary>
+    /// Capture and send a thumbnail to the server
+    /// </summary>
+    private async Task SendThumbnailAsync()
+    {
+        if (_client == null || string.IsNullOrEmpty(_clientId) || _thumbnailCaptureService == null)
+        {
+            return;
+        }
+
+        var jpegBytes = _thumbnailCaptureService.CaptureCurrentThumbnail();
+        if (jpegBytes == null)
+        {
+            return;
+        }
+
+        var thumbnailData = new ThumbnailData
+        {
+            ClientId = _clientId,
+            ThumbnailJpeg = Google.Protobuf.ByteString.CopyFrom(jpegBytes),
+            Width = 160,
+            Height = 90,
+            WallpaperName = _thumbnailCaptureService.CurrentWallpaperName ?? string.Empty
+        };
+
+        await _client.SendThumbnailAsync(thumbnailData);
+        _logger.LogDebug("Sent thumbnail: {Size} bytes", jpegBytes.Length);
+    }
+
+    #endregion
 
     #region Animation Composition Methods (Phase 3)
 

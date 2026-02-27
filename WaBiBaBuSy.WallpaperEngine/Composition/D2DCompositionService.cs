@@ -43,6 +43,23 @@ public class D2DCompositionService : IDisposable
     public bool IsRunning => _isRunning;
 
     /// <summary>
+    /// Gets the player window handle for the first (or only) player host.
+    /// Used for thumbnail capture via PrintWindow.
+    /// </summary>
+    public IntPtr PlayerHwnd
+    {
+        get
+        {
+            foreach (var playerHost in _playerHosts.Values)
+            {
+                if (playerHost.PlayerHwnd != IntPtr.Zero)
+                    return playerHost.PlayerHwnd;
+            }
+            return IntPtr.Zero;
+        }
+    }
+
+    /// <summary>
     /// Gets or sets whether to run in static mode (render first frame only, then stop).
     /// Must be set before calling InitializeAsync.
     /// TESTING MODE: Use this to verify if rendering pipeline works at all.

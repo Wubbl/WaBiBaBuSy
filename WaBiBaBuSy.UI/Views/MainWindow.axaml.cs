@@ -4,10 +4,12 @@ using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using WaBiBaBuSy.UI.ViewModels;
 using WaBiBaBuSy.WallpaperEngine.Services;
 using System;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using Microsoft.Extensions.Logging;
@@ -101,13 +103,13 @@ public partial class MainWindow : Window
     {
         var border = new Border
         {
-            Width = 150,
-            Height = 100,
+            Width = 180,
+            Height = 150,
             Background = new SolidColorBrush(Color.Parse("#3E3E42")),
             BorderBrush = new SolidColorBrush(Color.Parse("#666666")),
             BorderThickness = new Thickness(2),
             CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(10),
+            Padding = new Thickness(8),
             Cursor = new Cursor(StandardCursorType.Hand),
             DataContext = client
         };
@@ -117,21 +119,18 @@ public partial class MainWindow : Window
         {
             if (client.IsSelected)
             {
-                // Selected state: bright blue border and lighter background
                 border.BorderBrush = new SolidColorBrush(Color.Parse("#0078D4"));
                 border.BorderThickness = new Thickness(3);
                 border.Background = new SolidColorBrush(Color.Parse("#4E5A6E"));
             }
             else
             {
-                // Normal state
                 border.BorderBrush = new SolidColorBrush(Color.Parse("#666666"));
                 border.BorderThickness = new Thickness(2);
                 border.Background = new SolidColorBrush(Color.Parse("#3E3E42"));
             }
         }
 
-        // Subscribe to property changes on the client
         client.PropertyChanged += (s, e) =>
         {
             if (e.PropertyName == nameof(client.IsSelected))
@@ -140,82 +139,134 @@ public partial class MainWindow : Window
             }
         };
 
-        // Set initial state
         UpdateSelectionState();
 
-        var stackPanel = new StackPanel { Spacing = 5 };
+        var stackPanel = new StackPanel { Spacing = 4 };
 
-        // Display Name
+        // Thumbnail area: 160x90 image or "No Preview" placeholder
+        var thumbnailImage = new Image
+        {
+            Width = 160,
+            Height = 90,
+            Stretch = Stretch.UniformToFill,
+            Source = client.ThumbnailImage,
+            IsVisible = client.ThumbnailImage != null
+        };
+
+        var noPreviewText = new TextBlock
+        {
+            Text = "No Preview",
+            Foreground = new SolidColorBrush(Color.Parse("#666666")),
+            FontSize = 11,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            IsVisible = client.ThumbnailImage == null
+        };
+
+        var thumbnailContainer = new Border
+        {
+            Width = 160,
+            Height = 90,
+            Background = new SolidColorBrush(Color.Parse("#2D2D30")),
+            CornerRadius = new CornerRadius(4),
+            ClipToBounds = true,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
+        };
+
+        // Use a Grid to overlay the image and placeholder
+        var thumbnailGrid = new Grid
+        {
+            Width = 160,
+            Height = 90
+        };
+        thumbnailGrid.Children.Add(noPreviewText);
+        thumbnailGrid.Children.Add(thumbnailImage);
+        thumbnailContainer.Child = thumbnailGrid;
+
+        stackPanel.Children.Add(thumbnailContainer);
+
+        // Subscribe to ThumbnailImage changes to swap visibility
+        client.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(client.ThumbnailImage))
+            {
+                thumbnailImage.Source = client.ThumbnailImage;
+                thumbnailImage.IsVisible = client.ThumbnailImage != null;
+                noPreviewText.IsVisible = client.ThumbnailImage == null;
+            }
+        };
+
+        // Display Name (hostname)
         stackPanel.Children.Add(new TextBlock
         {
             Text = client.DisplayName,
             FontWeight = FontWeight.Bold,
             Foreground = Brushes.White,
             FontSize = 12,
-            TextTrimming = TextTrimming.CharacterEllipsis
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
         });
 
-        // IP Address
-        stackPanel.Children.Add(new TextBlock
+        // Status with colored dot
+        var statusColor = client.IsConnected
+            ? Color.Parse("#00FF00")
+            : Color.Parse("#FF4444");
+        var statusPanel = new StackPanel
         {
-            Text = client.IpAddress,
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
+            Spacing = 4,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
+        };
+        var statusDot = new Ellipse
+        {
+            Width = 8,
+            Height = 8,
+            Fill = new SolidColorBrush(statusColor),
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+        var statusText = new TextBlock
+        {
+            Text = client.IsConnected ? "Connected" : "Disconnected",
             Foreground = new SolidColorBrush(Color.Parse("#AAAAAA")),
-            FontSize = 11
-        });
+            FontSize = 10,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+        statusPanel.Children.Add(statusDot);
+        statusPanel.Children.Add(statusText);
+        stackPanel.Children.Add(statusPanel);
 
-        // Status
-        stackPanel.Children.Add(new TextBlock
+        // Update status indicator on property changes
+        client.PropertyChanged += (s, e) =>
         {
-            Text = client.Status,
-            Foreground = new SolidColorBrush(Color.Parse("#00FF00")),
-            FontSize = 10
-        });
-
-        // Current Wallpaper
-        if (!string.IsNullOrEmpty(client.CurrentWallpaper))
-        {
-            stackPanel.Children.Add(new TextBlock
+            if (e.PropertyName == nameof(client.IsConnected))
             {
-                Text = $"WP: {client.CurrentWallpaper}",
-                Foreground = new SolidColorBrush(Color.Parse("#888888")),
-                FontSize = 9,
-                TextTrimming = TextTrimming.CharacterEllipsis
-            });
-        }
-
-        // Physical Distance
-        stackPanel.Children.Add(new TextBlock
-        {
-            Text = $"Distance: {client.PhysicalDistanceCm} cm",
-            Foreground = new SolidColorBrush(Color.Parse("#FFA500")),
-            FontSize = 9
-        });
+                var color = client.IsConnected ? Color.Parse("#00FF00") : Color.Parse("#FF4444");
+                statusDot.Fill = new SolidColorBrush(color);
+                statusText.Text = client.IsConnected ? "Connected" : "Disconnected";
+            }
+        };
 
         border.Child = stackPanel;
 
-        // Add click handler with Ctrl+Click support for multi-select
+        // Click handler with Ctrl+Click support for multi-select
         border.PointerPressed += (s, e) =>
         {
             Debug.WriteLine($"[MainWindow] Client node clicked: {client.DisplayName}");
-            var properties = e.GetCurrentPoint(border).Properties;
 
-            // Check if Ctrl key is pressed
             var ctrlPressed = (e.KeyModifiers & KeyModifiers.Control) == KeyModifiers.Control;
 
             if (ctrlPressed)
             {
-                // Toggle selection without clearing other selections
                 Debug.WriteLine($"[MainWindow] Ctrl+Click: toggling selection for {client.DisplayName}");
                 client.IsSelected = !client.IsSelected;
             }
             else
             {
-                // Normal click: select only this client (deselect others)
                 viewModel.SelectClientCommand.Execute(client);
             }
         };
 
-        // Add hover effect (but respect selection state)
+        // Hover effect
         border.PointerEntered += (s, e) =>
         {
             if (!client.IsSelected)

@@ -15,6 +15,7 @@ public class DesktopWindowManager
     private IntPtr _progman = IntPtr.Zero;
     private IntPtr _shellDLL_DefView = IntPtr.Zero;
     private bool _isRaisedDesktopWithLayeredShellView = false;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<IntPtr, bool> _wallpaperWindows = new();
 
     public DesktopWindowManager(ILogger<DesktopWindowManager> logger)
     {
@@ -41,6 +42,20 @@ public class DesktopWindowManager
     /// Gets the SHELLDLL_DefView window handle (contains desktop icons).
     /// </summary>
     public IntPtr ShellDllDefViewHandle => _shellDLL_DefView;
+
+    /// <summary>
+    /// Gets all tracked wallpaper window handles (set by SetAsWallpaperWindow).
+    /// Used for thumbnail capture.
+    /// </summary>
+    public IEnumerable<IntPtr> WallpaperWindows => _wallpaperWindows.Keys;
+
+    /// <summary>
+    /// Untrack a wallpaper window handle (call when disposing a renderer).
+    /// </summary>
+    public void UntrackWallpaperWindow(IntPtr windowHandle)
+    {
+        _wallpaperWindows.TryRemove(windowHandle, out _);
+    }
 
     /// <summary>
     /// Finds and returns the WorkerW window handle.
@@ -184,18 +199,26 @@ public class DesktopWindowManager
                 useLegacyMode ? "Legacy" : "Layered",
                 _workerW);
 
+            bool result;
             if (!useLegacyMode)
             {
                 // Windows 11 24H2+ Layered Desktop Mode - parent to Progman with WS_EX_LAYERED
                 _logger.LogInformation("Using LAYERED mode (Windows 11 24H2+)");
-                return SetAsWallpaperLayeredMode(windowHandle, screenBounds);
+                result = SetAsWallpaperLayeredMode(windowHandle, screenBounds);
             }
             else
             {
                 // Legacy Mode (Windows 10 / Windows 11 pre-24H2) - parent to WorkerW
                 _logger.LogInformation("Using LEGACY mode (forced or pre-24H2)");
-                return SetAsWallpaperLegacyMode(windowHandle, screenBounds);
+                result = SetAsWallpaperLegacyMode(windowHandle, screenBounds);
             }
+
+            if (result)
+            {
+                _wallpaperWindows[windowHandle] = true;
+            }
+
+            return result;
         }
         catch (Exception ex)
         {

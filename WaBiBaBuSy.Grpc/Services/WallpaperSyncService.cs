@@ -16,6 +16,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     private readonly ServerConfiguration _serverConfig;
     private readonly ConcurrentDictionary<string, ConnectedClient> _connectedClients;
     private readonly ConcurrentDictionary<string, IServerStreamWriter<SyncCommand>> _clientCommandStreams;
+    private readonly ConcurrentDictionary<string, ThumbnailData> _clientThumbnails;
     private int _nextClientOrder = 1;
 
     public WallpaperSyncService(
@@ -26,6 +27,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         _serverConfig = serverConfig;
         _connectedClients = new ConcurrentDictionary<string, ConnectedClient>();
         _clientCommandStreams = new ConcurrentDictionary<string, IServerStreamWriter<SyncCommand>>();
+        _clientThumbnails = new ConcurrentDictionary<string, ThumbnailData>();
 
         // Ensure content directory exists
         Directory.CreateDirectory(_serverConfig.ContentDirectory);
@@ -454,6 +456,29 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     }
 
     /// <summary>
+    /// Handle client thumbnail upload
+    /// </summary>
+    public override Task<ThumbnailResponse> SendThumbnail(
+        ThumbnailData request,
+        ServerCallContext context)
+    {
+        _clientThumbnails.AddOrUpdate(request.ClientId, request, (_, _) => request);
+        _logger.LogDebug("Received thumbnail from client {ClientId}: {Width}x{Height}, {Size} bytes",
+            request.ClientId, request.Width, request.Height, request.ThumbnailJpeg.Length);
+
+        return Task.FromResult(new ThumbnailResponse { Acknowledged = true });
+    }
+
+    /// <summary>
+    /// Get the latest thumbnail for a client
+    /// </summary>
+    public ThumbnailData? GetClientThumbnail(string clientId)
+    {
+        _clientThumbnails.TryGetValue(clientId, out var thumbnail);
+        return thumbnail;
+    }
+
+    /// <summary>
     /// Remove a client from connected clients
     /// </summary>
     public bool RemoveClient(string clientId)
@@ -464,6 +489,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
             _logger.LogInformation("Client {ClientId} removed", clientId);
         }
         _clientCommandStreams.TryRemove(clientId, out _);
+        _clientThumbnails.TryRemove(clientId, out _);
         return removed;
     }
 
