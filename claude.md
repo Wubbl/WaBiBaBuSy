@@ -407,14 +407,18 @@ dotnet run --project WaBiBaBuSy.UI
 
 ## Recent Updates
 
-**Latest (2026-01-09 - CRITICAL GIF ANIMATION ISSUES DOCUMENTED):**
-- 🔴 **HIGHEST PRIORITY: GIF animation only showing first frame** (TASK-008)
-- 🔴 **D2DPlayer high CPU usage** - 7% vs <1% target (TASK-009)
-- 🔴 **D2DPlayer RAM leak** - Continuous memory growth (TASK-010)
-- 📝 **5 new tasks added to TODO_ACTIVE.md** - GIF fixes + logging improvements
-- ✅ **LibVLC memory callbacks implemented** - Dynamic dimension detection working
-- ⚠️ **BLOCKER:** TASK-008 must be fixed before testing other GIF functionality
-- **See:** `.docs/2026.01_TODO_ACTIVE.md` for detailed task breakdown and investigation plans
+**Latest (2026-02-26 - NATIVE D2D COMPOSITION - ALL P0 FIXED):**
+- ✅ **Native D2D Composition** - Replaced GDI+ pipeline with pure Direct2D for GIF rendering in Player.D2D
+- ✅ **ID2D1DeviceContext** - Persistent device context replaces per-frame ID2D1RenderTarget recreation
+- ✅ **GPU-resident GIF frames** - Magick.NET extraction → ID2D1Bitmap[] (zero per-frame allocation)
+- ✅ **ISSUE-004 FIXED: GIF speed** - SpeedMultiplier applied to elapsed time
+- ✅ **ISSUE-005 FIXED: GIF looping** - Modulo-based seamless infinite looping
+- ✅ **ISSUE-007 FIXED: Memory leak** - No GDI+ Bitmap allocation in render loop
+- ✅ **TASK-009 FIXED: High CPU** - No GDI+→D2D conversion per frame
+- ✅ **ISSUE-002 FIXED: UI freeze** - Proper disposal via DisposeNativeD2DResources()
+- 🔒 **Security: Magick.NET upgraded** to 14.10.3 (fixes 36 Dependabot vulnerability alerts)
+- **All P0 tasks complete** - Ready for E2E testing (TASK-004)
+- **See:** `.docs/2026.02_D2D_ISSUES.md` and `.docs/2026.01_TODO_ACTIVE.md`
 
 **Previous (2025-12-27 - SEPARATE PLAYER PROCESS FOR WINDOWS 11 24H2+):**
 - ✅ **CRITICAL FIX: Explorer.exe Crash** - DXGI swap chain windows crash explorer when parented to desktop on Windows 11 24H2+
