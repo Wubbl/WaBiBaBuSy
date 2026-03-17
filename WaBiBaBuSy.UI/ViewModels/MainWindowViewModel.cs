@@ -65,6 +65,12 @@ public partial class MainWindowViewModel : ViewModelBase
     private string _serverStatus = "Stopped";
 
     [ObservableProperty]
+    private int _serverPort;
+
+    [ObservableProperty]
+    private int _connectedClientCount;
+
+    [ObservableProperty]
     private bool _isCrossScreenMode;
 
     [ObservableProperty]
@@ -316,6 +322,8 @@ public partial class MainWindowViewModel : ViewModelBase
     partial void OnSelectedWallpaperChanged(WallpaperItemViewModel? value)
     {
         OnPropertyChanged(nameof(ShowAnimationInfo));
+        ApplyWallpaperToSelectedCommand.NotifyCanExecuteChanged();
+        ApplyWallpaperViaDirect2DCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnIsCrossScreenRunningChanged(bool value)
@@ -325,9 +333,38 @@ public partial class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(ActiveDistributionMode));
         OnPropertyChanged(nameof(ActiveAnimationSpeed));
         OnPropertyChanged(nameof(ActiveBackgroundColor));
+        StartCrossScreenCommand.NotifyCanExecuteChanged();
+        ClearAllWallpapersCommand.NotifyCanExecuteChanged();
     }
 
-    [RelayCommand]
+    partial void OnHasAnimationConfigChanged(bool value)
+    {
+        StartCrossScreenCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>
+    /// Notify CanExecute for commands that depend on client selection.
+    /// Called when a client's IsSelected property changes.
+    /// </summary>
+    private void NotifyClientSelectionCommands()
+    {
+        ApplyWallpaperToSelectedCommand.NotifyCanExecuteChanged();
+        ApplyWallpaperViaDirect2DCommand.NotifyCanExecuteChanged();
+    }
+
+    private bool CanApplyWallpaperToSelected() =>
+        SelectedWallpaper != null && Clients.Any(c => c.IsSelected);
+
+    private bool CanApplyWallpaperViaDirect2D() =>
+        SelectedWallpaper != null && Clients.Any(c => c.IsSelected && c.ClientId.StartsWith("LOCAL_MACHINE"));
+
+    private bool CanStartCrossScreen() =>
+        HasAnimationConfig && !IsCrossScreenRunning;
+
+    private bool CanClearAllWallpapers() =>
+        IsCrossScreenRunning || _d2dCompositionServices.Any() || _localWallpaperRenderers.Any();
+
+    [RelayCommand(CanExecute = nameof(CanClearAllWallpapers))]
     private async Task ClearAllWallpapers()
     {
         Debug.WriteLine("[ClearAll] Stopping animations and clearing wallpapers");
@@ -376,6 +413,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         Debug.WriteLine("[ClearAll] All wallpapers cleared");
+        ClearAllWallpapersCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand]
@@ -406,7 +444,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanApplyWallpaperToSelected))]
     private async Task ApplyWallpaperToSelected()
     {
         if (SelectedWallpaper == null)
@@ -517,7 +555,7 @@ public partial class MainWindowViewModel : ViewModelBase
     /// Uses D2DCompositionService + D2DPlayerHost for Windows 11 24H2+ compatibility.
     /// Only applies to local monitors.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanApplyWallpaperViaDirect2D))]
     private async Task ApplyWallpaperViaDirect2D()
     {
         if (SelectedWallpaper == null)
@@ -1055,13 +1093,18 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Add a wallpaper from a storage file
+    /// Add a wallpaper from a file path (used by drag-and-drop and file picker)
     /// </summary>
-    private Task AddWallpaperFromFile(IStorageFile file)
+    public void AddWallpaperFromPath(string filePath)
     {
         try
         {
-            var filePath = file.Path.LocalPath;
+            if (!File.Exists(filePath)) return;
+
+            // Check if already in gallery
+            if (Wallpapers.Any(w => string.Equals(w.FilePath, filePath, StringComparison.OrdinalIgnoreCase)))
+                return;
+
             var fileName = Path.GetFileNameWithoutExtension(filePath);
             var extension = Path.GetExtension(filePath).ToLowerInvariant();
 
@@ -1078,7 +1121,7 @@ public partial class MainWindowViewModel : ViewModelBase
             else if (new[] { ".jpg", ".jpeg", ".png", ".bmp" }.Contains(extension))
                 type = WallpaperType.Image;
             else
-                return Task.CompletedTask; // Unsupported format
+                return; // Unsupported format
 
             // Get image/video dimensions (simplified - you could use proper video/image libraries for this)
             var resolution = "Unknown";
@@ -1165,9 +1208,16 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"Error adding wallpaper from file: {ex.Message}");
+            Debug.WriteLine($"Error adding wallpaper from path: {ex.Message}");
         }
+    }
 
+    /// <summary>
+    /// Add a wallpaper from a storage file (delegates to AddWallpaperFromPath)
+    /// </summary>
+    private Task AddWallpaperFromFile(IStorageFile file)
+    {
+        AddWallpaperFromPath(file.Path.LocalPath);
         return Task.CompletedTask;
     }
 
@@ -1436,6 +1486,13 @@ public partial class MainWindowViewModel : ViewModelBase
                     Debug.WriteLine($"[UpdateClientList] Position - X: {newClient.X}, Y: {newClient.Y}");
                     Debug.WriteLine($"[UpdateClientList] Status: {newClient.Status}, IsConnected: {newClient.IsConnected}");
 
+                    // Subscribe to IsSelected changes for CanExecute updates
+                    newClient.PropertyChanged += (s, e) =>
+                    {
+                        if (e.PropertyName == nameof(ClientNodeViewModel.IsSelected))
+                            NotifyClientSelectionCommands();
+                    };
+
                     Clients.Add(newClient);
                     Debug.WriteLine($"[UpdateClientList] Client added. Total clients now: {Clients.Count}");
                 }
@@ -1443,6 +1500,7 @@ public partial class MainWindowViewModel : ViewModelBase
             }
 
             ClientCount = Clients.Count;
+            ConnectedClientCount = Clients.Count(c => c.IsConnected);
             Debug.WriteLine($"[UpdateClientList] Complete. Final client count: {Clients.Count}");
             Debug.WriteLine($"[UpdateClientList] Clients in collection: {string.Join(", ", Clients.Select(c => c.Hostname))}");
         });
@@ -1526,7 +1584,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private void OnServerStatusChanged(object? sender, Core.Services.Networking.ServerStatusChangedEventArgs e)
     {
         IsServerMode = e.IsRunning;
-        ServerStatus = e.IsRunning ? $"Running on port {e.Port}" : "Stopped";
+        ServerStatus = e.IsRunning ? "Running" : "Stopped";
+        ServerPort = e.Port;
 
         // Refresh topology when server status changes
         Debug.WriteLine($"[OnServerStatusChanged] Server status changed to: {(e.IsRunning ? "Running" : "Stopped")}");
@@ -1552,9 +1611,9 @@ public partial class MainWindowViewModel : ViewModelBase
             if (_service.IsServerRunning)
             {
                 IsServerMode = true;
-                // Get port from configuration
                 var config = ConfigurationManager.LoadServerConfiguration();
-                ServerStatus = $"Running on port {config.Port}";
+                ServerPort = config.Port;
+                ServerStatus = "Running";
             }
             else
             {
@@ -1690,7 +1749,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanStartCrossScreen))]
     private async Task StartCrossScreen()
     {
         if (IsCrossScreenRunning)

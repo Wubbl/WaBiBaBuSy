@@ -33,6 +33,10 @@ public partial class MainWindow : Window
         var logger = loggerFactory.CreateLogger<MainWindow>();
         _ = LibVLCPreloader.PreloadAsync(logger);
 
+        // Drag-and-drop handlers for gallery
+        AddHandler(DragDrop.DropEvent, OnFileDrop);
+        AddHandler(DragDrop.DragOverEvent, OnFileDragOver);
+
         // Set storage provider on the view model when the window is opened
         Opened += OnWindowOpened;
         Closed += OnWindowClosed;
@@ -460,6 +464,30 @@ public partial class MainWindow : Window
         if (DataContext is MainWindowViewModel viewModel)
         {
             viewModel.StopRefreshTimer();
+        }
+    }
+
+    private void OnFileDragOver(object? sender, DragEventArgs e)
+    {
+#pragma warning disable CS0618 // Avalonia 11.x: Data is deprecated but DataTransfer requires IAsyncDataTransfer
+        e.DragEffects = e.Data.Contains(DataFormats.Files)
+            ? DragDropEffects.Copy
+            : DragDropEffects.None;
+#pragma warning restore CS0618
+    }
+
+    private void OnFileDrop(object? sender, DragEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel vm) return;
+#pragma warning disable CS0618
+        var files = e.Data.GetFiles();
+#pragma warning restore CS0618
+        if (files == null) return;
+        foreach (var item in files)
+        {
+            var path = item.Path?.LocalPath;
+            if (!string.IsNullOrEmpty(path))
+                vm.AddWallpaperFromPath(path);
         }
     }
 }

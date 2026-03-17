@@ -116,6 +116,9 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
 
         HasMultipleMonitors = monitors.Count > 1;
 
+        // If any monitors are selected in topology, use that selection; otherwise default to all
+        var anySelected = monitors.Any(c => c.IsSelected);
+
         foreach (var client in monitors)
         {
             var resolution = $"{client.MonitorWidth}x{client.MonitorHeight}";
@@ -128,7 +131,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                 Hostname = client.Hostname,
                 Resolution = resolution,
                 IpAddress = client.IpAddress,
-                IsSelected = true  // Select all by default
+                IsSelected = anySelected ? client.IsSelected : true
             };
 
             AvailableMonitors.Add(monitorItem);
