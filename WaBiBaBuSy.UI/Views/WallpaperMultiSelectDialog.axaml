@@ -79,25 +79,36 @@
                             </Border.Styles>
 
                             <StackPanel Spacing="8" Cursor="Hand">
-                                <!-- Checkbox and Type -->
+                                <!-- Checkbox and Type Badge -->
                                 <Grid ColumnDefinitions="Auto,*">
                                     <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding TypeName}"
-                                               Foreground="#FFA500" FontSize="10"
-                                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                    <Border Grid.Column="1"
+                                            Background="{Binding TypeBadgeBrush}"
+                                            CornerRadius="3"
+                                            Padding="5,2"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding TypeName}"
+                                                   Foreground="White"
+                                                   FontSize="9"
+                                                   FontWeight="Bold"/>
+                                    </Border>
                                 </Grid>
 
                                 <!-- Wallpaper Name -->
                                 <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold"
                                            Foreground="White" TextTrimming="CharacterEllipsis"/>
 
-                                <!-- File Size -->
-                                <TextBlock Text="{Binding FileSize}" FontSize="10"
-                                           Foreground="#888888"/>
-
-                                <!-- Resolution (if available) -->
-                                <TextBlock Text="{Binding Resolution}" FontSize="9"
-                                           Foreground="#666666" IsVisible="{Binding Resolution}"/>
+                                <!-- Resolution + File Size -->
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0"
+                                               Text="{Binding Resolution}" FontSize="9"
+                                               Foreground="#888888"
+                                               IsVisible="{Binding HasResolution}"/>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding FileSize}" FontSize="10"
+                                               Foreground="#888888"/>
+                                </Grid>
                             </StackPanel>
                         </Border>
                     </DataTemplate>

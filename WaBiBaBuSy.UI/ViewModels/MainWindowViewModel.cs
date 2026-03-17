@@ -985,44 +985,43 @@ public partial class MainWindowViewModel : ViewModelBase
                     // Ignore resolution detection errors
                 }
             }
-            // For videos, generate thumbnail using FFmpeg in background
+            // For videos, generate thumbnail and read resolution using FFmpeg in background
             else if (type == WallpaperType.Video)
             {
-                // Generate thumbnail asynchronously to avoid blocking UI
                 _ = Task.Run(async () =>
                 {
                     try
                     {
                         Debug.WriteLine($"Starting FFmpeg thumbnail generation for: {filePath}");
                         var thumb = await _thumbnailGenerator.GenerateThumbnail(filePath);
+                        var videoRes = await _thumbnailGenerator.GetVideoResolution(filePath);
 
-                        if (!string.IsNullOrEmpty(thumb))
+                        await Dispatcher.UIThread.InvokeAsync(() =>
                         {
-                            Debug.WriteLine($"Thumbnail generated: {thumb}");
-
-                            await Dispatcher.UIThread.InvokeAsync(() =>
+                            var wallpaperItem = Wallpapers.FirstOrDefault(w => w.FilePath == filePath);
+                            if (wallpaperItem != null)
                             {
-                                var wallpaperItem = Wallpapers.FirstOrDefault(w => w.FilePath == filePath);
-                                if (wallpaperItem != null)
+                                if (!string.IsNullOrEmpty(thumb))
                                 {
                                     wallpaperItem.ThumbnailPath = thumb;
                                     wallpaperItem.LoadThumbnail();
                                     Debug.WriteLine($"Thumbnail loaded for: {fileName}");
                                 }
-                            });
-                        }
-                        else
-                        {
-                            Debug.WriteLine($"Thumbnail generation failed for: {filePath}");
-                        }
+                                else
+                                {
+                                    Debug.WriteLine($"Thumbnail generation failed for: {filePath}");
+                                }
+
+                                if (!string.IsNullOrEmpty(videoRes))
+                                    wallpaperItem.Resolution = videoRes;
+                            }
+                        });
                     }
                     catch (Exception ex)
                     {
-                        Debug.WriteLine($"ERROR in thumbnail generation: {ex.Message}");
+                        Debug.WriteLine($"ERROR in thumbnail/resolution task: {ex.Message}");
                     }
                 });
-
-                resolution = "Video";
             }
 
             // Create wallpaper view model

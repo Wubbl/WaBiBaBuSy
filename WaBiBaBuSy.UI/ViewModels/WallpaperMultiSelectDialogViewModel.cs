@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -52,15 +53,31 @@ public partial class WallpaperMultiSelectItem : ViewModelBase
     }
 
     /// <summary>
-    /// Type display name (Video, Image, GIF)
+    /// Type display name (VIDEO, IMG, GIF)
     /// </summary>
     public string TypeName => Type switch
     {
-        WallpaperType.Video => "Video",
-        WallpaperType.Image => "Image",
-        WallpaperType.Gif => "GIF",
-        _ => "Unknown"
+        WallpaperType.Video => "VIDEO",
+        WallpaperType.Image => "IMG",
+        WallpaperType.Gif   => "GIF",
+        _                   => "?"
     };
+
+    /// <summary>
+    /// Colored brush for the type badge (Video=green, Image=blue, GIF=purple)
+    /// </summary>
+    public IBrush TypeBadgeBrush => Type switch
+    {
+        WallpaperType.Video => new SolidColorBrush(Color.Parse("#1A7F37")),
+        WallpaperType.Image => new SolidColorBrush(Color.Parse("#0D6EFD")),
+        WallpaperType.Gif   => new SolidColorBrush(Color.Parse("#7B2FBE")),
+        _                   => Brushes.Gray
+    };
+
+    /// <summary>
+    /// True when a resolution string is available (for conditional visibility)
+    /// </summary>
+    public bool HasResolution => !string.IsNullOrEmpty(Resolution);
 }
 
 /// <summary>

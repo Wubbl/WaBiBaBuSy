@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -36,6 +37,33 @@ public partial class WallpaperItemViewModel : ObservableObject
 
     [ObservableProperty]
     private long _fileSizeBytes;
+
+    /// <summary>
+    /// Short display label for the wallpaper type
+    /// </summary>
+    public string TypeName => Type switch
+    {
+        WallpaperType.Video => "VIDEO",
+        WallpaperType.Image => "IMG",
+        WallpaperType.Gif   => "GIF",
+        _                   => "?"
+    };
+
+    /// <summary>
+    /// Colored brush for the type badge (Video=green, Image=blue, GIF=purple)
+    /// </summary>
+    public IBrush TypeBadgeBrush => Type switch
+    {
+        WallpaperType.Video => new SolidColorBrush(Color.Parse("#1A7F37")),
+        WallpaperType.Image => new SolidColorBrush(Color.Parse("#0D6EFD")),
+        WallpaperType.Gif   => new SolidColorBrush(Color.Parse("#7B2FBE")),
+        _                   => Brushes.Gray
+    };
+
+    /// <summary>
+    /// True when a resolution string is available (for conditional visibility)
+    /// </summary>
+    public bool HasResolution => !string.IsNullOrEmpty(Resolution);
 
     /// <summary>
     /// Human-readable file size

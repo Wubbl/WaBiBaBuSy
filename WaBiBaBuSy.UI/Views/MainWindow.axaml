@@ -204,13 +204,26 @@
                                                            IsVisible="{Binding Thumbnail, Converter={x:Static ObjectConverters.IsNotNull}}"/>
 
                                                     <!-- Fallback to type text if no thumbnail -->
-                                                    <TextBlock Text="{Binding Type}"
+                                                    <TextBlock Text="{Binding TypeName}"
                                                                Foreground="#AAAAAA"
                                                                HorizontalAlignment="Center"
                                                                VerticalAlignment="Center"
                                                                FontSize="11"
                                                                Padding="20"
                                                                IsVisible="{Binding Thumbnail, Converter={x:Static ObjectConverters.IsNull}}"/>
+
+                                                    <!-- Type badge (top-right corner) -->
+                                                    <Border Background="{Binding TypeBadgeBrush}"
+                                                            CornerRadius="3"
+                                                            Padding="4,2"
+                                                            HorizontalAlignment="Right"
+                                                            VerticalAlignment="Top"
+                                                            Margin="0,4,4,0">
+                                                        <TextBlock Text="{Binding TypeName}"
+                                                                   Foreground="White"
+                                                                   FontSize="8"
+                                                                   FontWeight="Bold"/>
+                                                    </Border>
                                                 </Panel>
                                             </Border>
 
@@ -225,7 +238,8 @@
                                                     <TextBlock Grid.Column="0"
                                                                Text="{Binding Resolution}"
                                                                Foreground="#888888"
-                                                               FontSize="9"/>
+                                                               FontSize="9"
+                                                               IsVisible="{Binding HasResolution}"/>
                                                     <TextBlock Grid.Column="1"
                                                                Text="{Binding FileSize}"
                                                                Foreground="#888888"
@@ -268,10 +282,22 @@
 
                             <!-- Wallpaper Details -->
                             <StackPanel Grid.Column="1" Spacing="3">
-                                <TextBlock Text="Selected Wallpaper"
-                                           FontSize="11"
-                                           FontWeight="SemiBold"
-                                           Foreground="White"/>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="Selected Wallpaper"
+                                               FontSize="11"
+                                               FontWeight="SemiBold"
+                                               Foreground="White"
+                                               VerticalAlignment="Center"/>
+                                    <Border Background="{Binding SelectedWallpaper.TypeBadgeBrush}"
+                                            CornerRadius="3"
+                                            Padding="5,2"
+                                            VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding SelectedWallpaper.TypeName}"
+                                                   Foreground="White"
+                                                   FontSize="8"
+                                                   FontWeight="Bold"/>
+                                    </Border>
+                                </StackPanel>
                                 <TextBlock Text="{Binding SelectedWallpaper.Name}"
                                            Foreground="#CCCCCC"
                                            FontSize="11"
@@ -281,7 +307,8 @@
                                                Text="{Binding SelectedWallpaper.Resolution}"
                                                Foreground="#888888"
                                                FontSize="9"
-                                               Margin="0,0,10,0"/>
+                                               Margin="0,0,10,0"
+                                               IsVisible="{Binding SelectedWallpaper.HasResolution}"/>
                                     <TextBlock Grid.Column="1"
                                                Text="{Binding SelectedWallpaper.FileSize}"
                                                Foreground="#888888"

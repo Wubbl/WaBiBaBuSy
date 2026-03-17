@@ -118,6 +118,29 @@ public class VideoThumbnailGenerator : IDisposable
     }
 
     /// <summary>
+    /// Get the resolution (WxH) of a video file using FFProbe
+    /// </summary>
+    public async Task<string?> GetVideoResolution(string videoPath)
+    {
+        if (!File.Exists(videoPath))
+            return null;
+
+        try
+        {
+            var mediaInfo = await FFProbe.AnalyseAsync(videoPath);
+            var stream = mediaInfo.VideoStreams.FirstOrDefault();
+            if (stream != null)
+                return $"{stream.Width}x{stream.Height}";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read resolution for {VideoPath}", videoPath);
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Clear all cached thumbnails
     /// </summary>
     public void ClearCache()
