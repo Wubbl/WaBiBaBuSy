@@ -4,6 +4,8 @@ using Avalonia.Data.Core;
 using Avalonia.Data.Core.Plugins;
 using System.Linq;
 using Avalonia.Markup.Xaml;
+using WaBiBaBuSy.Core.Services.Logging;
+using WaBiBaBuSy.Models.Configuration;
 using WaBiBaBuSy.UI.ViewModels;
 using WaBiBaBuSy.UI.Views;
 
@@ -18,6 +20,10 @@ public partial class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
+        // Initialize logging from persisted config before anything else starts
+        var loggingConfig = ConfigurationManager.LoadLoggingConfiguration();
+        AppLogger.Initialize(loggingConfig);
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             // Avoid duplicate validations from both Avalonia and the CommunityToolkit.

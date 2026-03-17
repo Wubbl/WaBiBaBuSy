@@ -3,12 +3,12 @@
         xmlns:vm="using:WaBiBaBuSy.UI.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="600" d:DesignHeight="500"
+        mc:Ignorable="d" d:DesignWidth="600" d:DesignHeight="750"
         x:Class="WaBiBaBuSy.UI.Views.SettingsWindow"
         x:DataType="vm:SettingsViewModel"
         Title="WaBiBaBuSy Settings"
-        Width="600" Height="500"
-        MinWidth="500" MinHeight="400"
+        Width="600" Height="750"
+        MinWidth="500" MinHeight="500"
         WindowStartupLocation="CenterOwner">
 
     <Design.DataContext>
@@ -73,6 +73,58 @@
                         </Grid>
 
                         <CheckBox Content="Prefer auto-discovery over manual address" IsChecked="{Binding PreferAutoDiscovery}" Foreground="White"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Logging Settings -->
+                <Border Background="#252526" CornerRadius="5" Padding="15">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="Logging Settings" FontSize="16" FontWeight="Bold" Foreground="White"/>
+
+                        <!-- Global Level -->
+                        <TextBlock Text="Global Level:" Foreground="#CCCCCC" Margin="0,5,0,3"/>
+                        <StackPanel Orientation="Horizontal" Spacing="15">
+                            <RadioButton Content="Information" GroupName="LogLevel"
+                                         IsChecked="{Binding LogLevelInfo}" Foreground="White"/>
+                            <RadioButton Content="Debug" GroupName="LogLevel"
+                                         IsChecked="{Binding LogLevelDebug}" Foreground="White"/>
+                            <RadioButton Content="Warning" GroupName="LogLevel"
+                                         IsChecked="{Binding LogLevelWarning}" Foreground="White"/>
+                            <RadioButton Content="Error" GroupName="LogLevel"
+                                         IsChecked="{Binding LogLevelError}" Foreground="White"/>
+                        </StackPanel>
+
+                        <!-- Component Filters -->
+                        <TextBlock Text="Component Filters:" Foreground="#CCCCCC" Margin="0,8,0,3"/>
+                        <CheckBox Content="UI Layer  (ViewModels, TrayViewModel)"
+                                  IsChecked="{Binding LogUI}" Foreground="White"/>
+                        <CheckBox Content="D2D Player  (WaBiBaBuSy.Player.D2D)"
+                                  IsChecked="{Binding LogD2DPlayer}" Foreground="White"/>
+                        <CheckBox Content="Composition System  (CompositionRenderer, AnimationLayer)"
+                                  IsChecked="{Binding LogComposition}" Foreground="White"/>
+                        <CheckBox Content="Renderers  (Video / GIF / Image renderers)"
+                                  IsChecked="{Binding LogRenderers}" Foreground="White"/>
+                        <CheckBox Content="Networking  (gRPC, WallpaperSyncService, mDNS)"
+                                  IsChecked="{Binding LogNetworking}" Foreground="White"/>
+                        <CheckBox Content="Animation System  (Distributor, Timing, Orchestrator)"
+                                  IsChecked="{Binding LogAnimation}" Foreground="White"/>
+                        <CheckBox Content="File Transfer  (UpdateDownloader, UpdateVerifier)"
+                                  IsChecked="{Binding LogFileTransfer}" Foreground="White"/>
+
+                        <!-- Advanced -->
+                        <TextBlock Text="Advanced:" Foreground="#CCCCCC" Margin="0,8,0,3"/>
+                        <CheckBox Content="Log to file  (rolling daily log in Logs directory)"
+                                  IsChecked="{Binding LogToFile}" Foreground="White"/>
+                        <CheckBox Content="Performance metrics  (CPU, RAM, FPS – Debug level)"
+                                  IsChecked="{Binding LogPerformanceMetrics}" Foreground="White"/>
+                        <CheckBox Content="Frame-by-frame logging  (very verbose!)"
+                                  IsChecked="{Binding LogFrameByFrame}" Foreground="White"/>
+
+                        <!-- Log directory (shown only when LogToFile is true) -->
+                        <StackPanel IsVisible="{Binding LogToFile}" Margin="0,5,0,0">
+                            <TextBlock Text="Log Directory:" Foreground="#CCCCCC" Margin="0,0,0,3"/>
+                            <TextBox Text="{Binding LogDirectory}"/>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
             </StackPanel>

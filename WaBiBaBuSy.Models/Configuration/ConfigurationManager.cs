@@ -15,6 +15,7 @@ public class ConfigurationManager
     private static readonly string ServerConfigPath = Path.Combine(ConfigDirectory, "server-config.json");
     private static readonly string ClientConfigPath = Path.Combine(ConfigDirectory, "client-config.json");
     private static readonly string WallpaperGalleryPath = Path.Combine(ConfigDirectory, "wallpaper-gallery.json");
+    private static readonly string LoggingConfigPath = Path.Combine(ConfigDirectory, "logging-config.json");
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -183,6 +184,57 @@ public class ConfigurationManager
     /// Get the path to the wallpaper gallery file
     /// </summary>
     public static string GetWallpaperGalleryPath() => WallpaperGalleryPath;
+
+    /// <summary>
+    /// Load logging configuration from file, or create default if not exists
+    /// </summary>
+    public static LoggingConfiguration LoadLoggingConfiguration()
+    {
+        EnsureConfigDirectoryExists();
+
+        if (File.Exists(LoggingConfigPath))
+        {
+            try
+            {
+                var json = File.ReadAllText(LoggingConfigPath);
+                var config = JsonSerializer.Deserialize<LoggingConfiguration>(json, JsonOptions);
+                return config ?? new LoggingConfiguration();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading logging config: {ex.Message}. Using defaults.");
+                return new LoggingConfiguration();
+            }
+        }
+
+        var defaultConfig = new LoggingConfiguration();
+        SaveLoggingConfiguration(defaultConfig);
+        return defaultConfig;
+    }
+
+    /// <summary>
+    /// Save logging configuration to file
+    /// </summary>
+    public static void SaveLoggingConfiguration(LoggingConfiguration config)
+    {
+        EnsureConfigDirectoryExists();
+
+        try
+        {
+            var json = JsonSerializer.Serialize(config, JsonOptions);
+            File.WriteAllText(LoggingConfigPath, json);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error saving logging config: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Get the path to the logging configuration file
+    /// </summary>
+    public static string GetLoggingConfigPath() => LoggingConfigPath;
 
     /// <summary>
     /// Ensure the configuration directory exists

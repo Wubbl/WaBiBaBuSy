@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WaBiBaBuSy.Models.Configuration;
+using WaBiBaBuSy.Core.Services.Logging;
 using System;
 
 namespace WaBiBaBuSy.UI.ViewModels;
@@ -46,6 +47,26 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty]
     private int _heartbeatIntervalSeconds;
 
+    // ── Logging Settings ─────────────────────────────────────────────────────
+
+    [ObservableProperty] private bool _logLevelInfo = true;
+    [ObservableProperty] private bool _logLevelDebug;
+    [ObservableProperty] private bool _logLevelWarning;
+    [ObservableProperty] private bool _logLevelError;
+
+    [ObservableProperty] private bool _logUI = true;
+    [ObservableProperty] private bool _logD2DPlayer = true;
+    [ObservableProperty] private bool _logComposition = true;
+    [ObservableProperty] private bool _logRenderers = true;
+    [ObservableProperty] private bool _logNetworking = true;
+    [ObservableProperty] private bool _logAnimation;
+    [ObservableProperty] private bool _logFileTransfer;
+
+    [ObservableProperty] private bool _logToFile;
+    [ObservableProperty] private bool _logPerformanceMetrics;
+    [ObservableProperty] private bool _logFrameByFrame;
+    [ObservableProperty] private string _logDirectory = string.Empty;
+
     public event EventHandler? SettingsSaved;
     public event EventHandler? SettingsCancelled;
 
@@ -58,6 +79,7 @@ public partial class SettingsViewModel : ViewModelBase
     {
         var serverConfig = ConfigurationManager.LoadServerConfiguration();
         var clientConfig = ConfigurationManager.LoadClientConfiguration();
+        var loggingConfig = ConfigurationManager.LoadLoggingConfiguration();
 
         // Server settings
         ServerPort = serverConfig.Port;
@@ -74,6 +96,27 @@ public partial class SettingsViewModel : ViewModelBase
         CacheDirectory = clientConfig.CacheDirectory;
         MaxCacheSizeMB = clientConfig.MaxCacheSizeMB;
         HeartbeatIntervalSeconds = clientConfig.HeartbeatIntervalSeconds;
+
+        // Logging settings
+        LogLevelInfo    = loggingConfig.Level == "Information";
+        LogLevelDebug   = loggingConfig.Level == "Debug";
+        LogLevelWarning = loggingConfig.Level == "Warning";
+        LogLevelError   = loggingConfig.Level == "Error";
+        if (!LogLevelInfo && !LogLevelDebug && !LogLevelWarning && !LogLevelError)
+            LogLevelInfo = true; // fallback
+
+        LogUI               = loggingConfig.LogUI;
+        LogD2DPlayer        = loggingConfig.LogD2DPlayer;
+        LogComposition      = loggingConfig.LogComposition;
+        LogRenderers        = loggingConfig.LogRenderers;
+        LogNetworking       = loggingConfig.LogNetworking;
+        LogAnimation        = loggingConfig.LogAnimation;
+        LogFileTransfer     = loggingConfig.LogFileTransfer;
+
+        LogToFile           = loggingConfig.LogToFile;
+        LogPerformanceMetrics = loggingConfig.LogPerformanceMetrics;
+        LogFrameByFrame     = loggingConfig.LogFrameByFrame;
+        LogDirectory        = loggingConfig.LogDirectory;
     }
 
     [RelayCommand]
@@ -102,9 +145,29 @@ public partial class SettingsViewModel : ViewModelBase
                 HeartbeatIntervalSeconds = HeartbeatIntervalSeconds
             };
 
+            var loggingConfig = new LoggingConfiguration
+            {
+                Level           = LogLevelDebug ? "Debug" : LogLevelWarning ? "Warning" : LogLevelError ? "Error" : "Information",
+                LogUI           = LogUI,
+                LogD2DPlayer    = LogD2DPlayer,
+                LogComposition  = LogComposition,
+                LogRenderers    = LogRenderers,
+                LogNetworking   = LogNetworking,
+                LogAnimation    = LogAnimation,
+                LogFileTransfer = LogFileTransfer,
+                LogToFile       = LogToFile,
+                LogPerformanceMetrics = LogPerformanceMetrics,
+                LogFrameByFrame = LogFrameByFrame,
+                LogDirectory    = LogDirectory
+            };
+
             // Save to file
             ConfigurationManager.SaveServerConfiguration(serverConfig);
             ConfigurationManager.SaveClientConfiguration(clientConfig);
+            ConfigurationManager.SaveLoggingConfiguration(loggingConfig);
+
+            // Apply immediately – no restart needed
+            AppLogger.ApplyConfig(loggingConfig);
 
             Console.WriteLine("Settings saved successfully");
             SettingsSaved?.Invoke(this, EventArgs.Empty);
