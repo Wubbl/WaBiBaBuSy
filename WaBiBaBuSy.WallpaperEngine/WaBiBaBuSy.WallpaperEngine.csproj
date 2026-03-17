@@ -9,15 +9,15 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="LibVLCSharp" Version="3.8.5" />
-    <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.21" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.0" />
-    <PackageReference Include="Vortice.Direct3D11" Version="3.8.1" />
-    <PackageReference Include="Vortice.DXGI" Version="3.8.1" />
-    <PackageReference Include="Vortice.Direct2D1" Version="3.8.1" />
-    <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="14.10.3" />
-    <PackageReference Include="Magick.NET.SystemDrawing" Version="8.0.15" />
-    <PackageReference Include="Vortice.Mathematics" Version="2.0.0" />
+    <PackageReference Include="LibVLCSharp" Version="3.9.6" />
+    <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.23" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.5" />
+    <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
+    <PackageReference Include="Vortice.DXGI" Version="3.8.3" />
+    <PackageReference Include="Vortice.Direct2D1" Version="3.8.3" />
+    <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="14.11.0" />
+    <PackageReference Include="Magick.NET.SystemDrawing" Version="8.0.18" />
+    <PackageReference Include="Vortice.Mathematics" Version="2.1.0" />
   </ItemGroup>
 
   <ItemGroup>

@@ -24,55 +24,62 @@ class Program
         Console.WriteLine();
 
         // Define command-line options
-        var updateDirOption = new Option<string>(
-            name: "--update-dir",
-            description: "Directory containing extracted update files")
-        { IsRequired = true };
-
-        var installDirOption = new Option<string>(
-            name: "--install-dir",
-            description: "Application installation directory")
-        { IsRequired = true };
-
-        var backupDirOption = new Option<string>(
-            name: "--backup-dir",
-            description: "Directory to store backup files")
-        { IsRequired = true };
-
-        var processIdOption = new Option<int>(
-            name: "--process-id",
-            description: "Process ID of the main application to wait for")
-        { IsRequired = true };
-
-        var forceOption = new Option<bool>(
-            name: "--force",
-            description: "Force kill the process if it doesn't exit gracefully",
-            getDefaultValue: () => false);
-
-        var noLaunchOption = new Option<bool>(
-            name: "--no-launch",
-            description: "Don't launch the application after update",
-            getDefaultValue: () => false);
-
-        // Create root command
-        var rootCommand = new RootCommand("WaBiBaBuSy Update Installer - Replaces application files safely")
+        var updateDirOption = new Option<string>("--update-dir")
         {
-            updateDirOption,
-            installDirOption,
-            backupDirOption,
-            processIdOption,
-            forceOption,
-            noLaunchOption
+            Description = "Directory containing extracted update files",
+            Required = true
         };
 
-        rootCommand.SetHandler(async (updateDir, installDir, backupDir, processId, force, noLaunch) =>
+        var installDirOption = new Option<string>("--install-dir")
         {
-            var exitCode = await PerformUpdateAsync(updateDir, installDir, backupDir, processId, force, noLaunch);
-            Environment.Exit(exitCode);
-        },
-        updateDirOption, installDirOption, backupDirOption, processIdOption, forceOption, noLaunchOption);
+            Description = "Application installation directory",
+            Required = true
+        };
 
-        return await rootCommand.InvokeAsync(args);
+        var backupDirOption = new Option<string>("--backup-dir")
+        {
+            Description = "Directory to store backup files",
+            Required = true
+        };
+
+        var processIdOption = new Option<int>("--process-id")
+        {
+            Description = "Process ID of the main application to wait for",
+            Required = true
+        };
+
+        var forceOption = new Option<bool>("--force")
+        {
+            Description = "Force kill the process if it doesn't exit gracefully"
+        };
+
+        var noLaunchOption = new Option<bool>("--no-launch")
+        {
+            Description = "Don't launch the application after update"
+        };
+
+        // Create root command
+        var rootCommand = new RootCommand("WaBiBaBuSy Update Installer - Replaces application files safely");
+        rootCommand.Options.Add(updateDirOption);
+        rootCommand.Options.Add(installDirOption);
+        rootCommand.Options.Add(backupDirOption);
+        rootCommand.Options.Add(processIdOption);
+        rootCommand.Options.Add(forceOption);
+        rootCommand.Options.Add(noLaunchOption);
+
+        rootCommand.SetAction(async (parseResult, ct) =>
+        {
+            var updateDir = parseResult.GetValue(updateDirOption)!;
+            var installDir = parseResult.GetValue(installDirOption)!;
+            var backupDir = parseResult.GetValue(backupDirOption)!;
+            var processId = parseResult.GetValue(processIdOption);
+            var force = parseResult.GetValue(forceOption);
+            var noLaunch = parseResult.GetValue(noLaunchOption);
+
+            return await PerformUpdateAsync(updateDir, installDir, backupDir, processId, force, noLaunch);
+        });
+
+        return await rootCommand.Parse(args).InvokeAsync();
     }
 
     /// <summary>
