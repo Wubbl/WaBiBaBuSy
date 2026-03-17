@@ -3,11 +3,13 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WaBiBaBuSy.Models.Wallpaper;
+using WaBiBaBuSy.WallpaperEngine.Services;
 
 namespace WaBiBaBuSy.UI.ViewModels;
 
@@ -36,6 +38,11 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
 {
     private IStorageProvider? _storageProvider;
     private Action? _closeAction;
+
+    /// <summary>
+    /// Pre-selected wallpaper from main gallery, used to auto-populate paths
+    /// </summary>
+    public WallpaperItemViewModel? PreSelectedWallpaper { get; set; }
 
     [ObservableProperty]
     private int _backgroundModeIndex = 0;
@@ -270,53 +277,46 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Set the list of available wallpapers from the gallery
+    /// Apply pre-selected wallpaper from main gallery to populate paths.
+    /// Call after setting PreSelectedWallpaper and before showing the dialog.
+    /// Only fills empty fields (won't overwrite existing config).
     /// </summary>
-    public void SetAvailableWallpapers(IEnumerable<WallpaperItemViewModel> wallpapers)
+    public void ApplyPreSelectedWallpaper()
     {
-        _availableWallpapers = wallpapers.ToList();
+        if (PreSelectedWallpaper == null) return;
+
+        // Auto-populate animation path for Video/GIF types
+        if ((PreSelectedWallpaper.Type == WallpaperType.Video || PreSelectedWallpaper.Type == WallpaperType.Gif)
+            && string.IsNullOrEmpty(AnimationPath))
+        {
+            AnimationPath = PreSelectedWallpaper.FilePath;
+        }
+
+        // Auto-populate background image path for Image types
+        if (PreSelectedWallpaper.Type == WallpaperType.Image && string.IsNullOrEmpty(BackgroundImagePath))
+        {
+            BackgroundImagePath = PreSelectedWallpaper.FilePath;
+            if (BackgroundModeIndex == 0) // Switch from solid color to stretched image
+                BackgroundModeIndex = 1;
+        }
     }
 
-    private List<WallpaperItemViewModel> _availableWallpapers = new();
-
-    /// <summary>
-    /// Browse animations from the wallpaper gallery with multi-select
-    /// </summary>
     [RelayCommand]
-    public async Task BrowseAnimationGallery()
+    private async Task AutoDetectBackgroundColor()
     {
-        if (_availableWallpapers.Count == 0) return;
+        // Detect from animation file if available
+        var filePath = !string.IsNullOrEmpty(AnimationPath) ? AnimationPath : BackgroundImagePath;
+        if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return;
 
-        // Filter to only animations (videos and GIFs)
-        var animations = _availableWallpapers
-            .Where(w => w.Type == WallpaperType.Video || w.Type == WallpaperType.Gif)
-            .ToList();
-
-        if (animations.Count == 0) return;
-
-        // This will be called from the view - pass null for now
-        // In Phase 2, we'll integrate with the main window to show the dialog
-        // For now, just implement the basic file browser approach
-    }
-
-    /// <summary>
-    /// Browse background images from the wallpaper gallery with multi-select
-    /// </summary>
-    [RelayCommand]
-    public async Task BrowseBackgroundGallery()
-    {
-        if (_availableWallpapers.Count == 0) return;
-
-        // Filter to only background images
-        var backgrounds = _availableWallpapers
-            .Where(w => w.Type == WallpaperType.Image)
-            .ToList();
-
-        if (backgrounds.Count == 0) return;
-
-        // This will be called from the view - pass null for now
-        // In Phase 3, we'll integrate with the main window to show the dialog with preview
-        // For now, just implement the basic file browser approach
+        try
+        {
+            var color = await BackgroundColorDetector.DetectDominantEdgeColorAsync(filePath);
+            BackgroundColor = color;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[AutoDetect] Error: {ex.Message}");
+        }
     }
 
     [RelayCommand]

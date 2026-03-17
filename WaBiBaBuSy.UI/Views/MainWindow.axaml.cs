@@ -114,10 +114,22 @@ public partial class MainWindow : Window
             DataContext = client
         };
 
-        // Update styling based on selection state
-        void UpdateSelectionState()
+        // Update styling based on selection and animation state
+        void UpdateNodeAppearance()
         {
-            if (client.IsSelected)
+            if (client.IsCurrentAnimationTarget)
+            {
+                border.BorderBrush = new SolidColorBrush(Color.Parse("#FFD700"));
+                border.BorderThickness = new Thickness(3);
+                border.Background = new SolidColorBrush(Color.Parse("#4E4A2E"));
+            }
+            else if (client.IsAnimating)
+            {
+                border.BorderBrush = new SolidColorBrush(Color.Parse("#00AA44"));
+                border.BorderThickness = new Thickness(3);
+                border.Background = new SolidColorBrush(Color.Parse("#2E4A3E"));
+            }
+            else if (client.IsSelected)
             {
                 border.BorderBrush = new SolidColorBrush(Color.Parse("#0078D4"));
                 border.BorderThickness = new Thickness(3);
@@ -133,13 +145,13 @@ public partial class MainWindow : Window
 
         client.PropertyChanged += (s, e) =>
         {
-            if (e.PropertyName == nameof(client.IsSelected))
+            if (e.PropertyName is nameof(client.IsSelected) or nameof(client.IsAnimating) or nameof(client.IsCurrentAnimationTarget))
             {
-                UpdateSelectionState();
+                UpdateNodeAppearance();
             }
         };
 
-        UpdateSelectionState();
+        UpdateNodeAppearance();
 
         var stackPanel = new StackPanel { Spacing = 4 };
 
@@ -235,7 +247,19 @@ public partial class MainWindow : Window
         statusPanel.Children.Add(statusText);
         stackPanel.Children.Add(statusPanel);
 
-        // Update status indicator on property changes
+        // Animation name indicator (shown when animating)
+        var animNameText = new TextBlock
+        {
+            Text = client.ActiveAnimationName ?? string.Empty,
+            Foreground = new SolidColorBrush(Color.Parse("#00CC66")),
+            FontSize = 8,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+            IsVisible = client.IsAnimating
+        };
+        stackPanel.Children.Add(animNameText);
+
+        // Update status indicator and animation info on property changes
         client.PropertyChanged += (s, e) =>
         {
             if (e.PropertyName == nameof(client.IsConnected))
@@ -243,6 +267,14 @@ public partial class MainWindow : Window
                 var color = client.IsConnected ? Color.Parse("#00FF00") : Color.Parse("#FF4444");
                 statusDot.Fill = new SolidColorBrush(color);
                 statusText.Text = client.IsConnected ? "Connected" : "Disconnected";
+            }
+            else if (e.PropertyName == nameof(client.IsAnimating))
+            {
+                animNameText.IsVisible = client.IsAnimating;
+            }
+            else if (e.PropertyName == nameof(client.ActiveAnimationName))
+            {
+                animNameText.Text = client.ActiveAnimationName ?? string.Empty;
             }
         };
 

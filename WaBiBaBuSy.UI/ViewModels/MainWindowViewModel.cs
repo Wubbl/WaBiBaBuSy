@@ -71,6 +71,15 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool _isCrossScreenRunning;
 
     [ObservableProperty]
+    private bool _hasAnimationConfig;
+
+    [ObservableProperty]
+    private string _d2dBackgroundColor = "#000000";
+
+    [ObservableProperty]
+    private bool _isAutoDetectBackground = true;
+
+    [ObservableProperty]
     private int _selectedFitModeIndex = 0; // 0=Stretch, 1=Center, 2=Fit, 3=Fill
 
     private UI.Services.CrossScreenWallpaperCoordinator? _crossScreenCoordinator;
@@ -285,10 +294,116 @@ public partial class MainWindowViewModel : ViewModelBase
             c.IsSelected = true;
     }
 
+    /// <summary>
+    /// True when no wallpaper is selected but a cross-screen animation is running
+    /// </summary>
+    public bool ShowAnimationInfo => SelectedWallpaper == null && IsCrossScreenRunning && _crossScreenConfig != null;
+
+    public string ActiveAnimationFileName => _crossScreenConfig?.Animation.AnimationPath != null
+        ? Path.GetFileName(_crossScreenConfig.Animation.AnimationPath) : string.Empty;
+
+    public string ActiveDistributionMode => _crossScreenConfig?.DistributionMode switch
+    {
+        WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Sequential => "Sequential",
+        WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Simultaneous => "Simultaneous",
+        _ => "Unknown"
+    };
+
+    public int ActiveAnimationSpeed => _crossScreenConfig?.AnimationSpeedPxPerSecond ?? 0;
+
+    public string ActiveBackgroundColor => _crossScreenConfig?.Background.ColorHex ?? "#000000";
+
+    partial void OnSelectedWallpaperChanged(WallpaperItemViewModel? value)
+    {
+        OnPropertyChanged(nameof(ShowAnimationInfo));
+    }
+
+    partial void OnIsCrossScreenRunningChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowAnimationInfo));
+        OnPropertyChanged(nameof(ActiveAnimationFileName));
+        OnPropertyChanged(nameof(ActiveDistributionMode));
+        OnPropertyChanged(nameof(ActiveAnimationSpeed));
+        OnPropertyChanged(nameof(ActiveBackgroundColor));
+    }
+
+    [RelayCommand]
+    private async Task ClearAllWallpapers()
+    {
+        Debug.WriteLine("[ClearAll] Stopping animations and clearing wallpapers");
+
+        // Stop cross-screen animation if running
+        if (IsCrossScreenRunning)
+        {
+            await StopCrossScreen();
+        }
+
+        // Dispose all D2D composition services
+        foreach (var kvp in _d2dCompositionServices)
+        {
+            try
+            {
+                kvp.Value.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ClearAll] Error disposing D2D service for monitor {kvp.Key}: {ex.Message}");
+            }
+        }
+        _d2dCompositionServices.Clear();
+
+        // Dispose all LibVLC renderers
+        foreach (var kvp in _localWallpaperRenderers)
+        {
+            try
+            {
+                if (kvp.Value is IDisposable disposable)
+                    disposable.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ClearAll] Error disposing renderer for monitor {kvp.Key}: {ex.Message}");
+            }
+        }
+        _localWallpaperRenderers.Clear();
+
+        // Reset animation indicators on clients
+        foreach (var client in Clients)
+        {
+            client.IsAnimating = false;
+            client.IsCurrentAnimationTarget = false;
+            client.ActiveAnimationName = null;
+        }
+
+        Debug.WriteLine("[ClearAll] All wallpapers cleared");
+    }
+
     [RelayCommand]
     private void SelectWallpaper(WallpaperItemViewModel wallpaper)
     {
+        // Clear previous selection highlighting
+        foreach (var w in Wallpapers)
+            w.IsSelected = false;
+
+        wallpaper.IsSelected = true;
         SelectedWallpaper = wallpaper;
+
+        // Auto-detect background color if enabled
+        if (IsAutoDetectBackground)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var color = await BackgroundColorDetector.DetectDominantEdgeColorAsync(wallpaper.FilePath);
+                    await Dispatcher.UIThread.InvokeAsync(() => D2dBackgroundColor = color);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[AutoDetect] Error detecting background color: {ex.Message}");
+                }
+            });
+        }
     }
 
     [RelayCommand]
@@ -666,11 +781,11 @@ public partial class MainWindowViewModel : ViewModelBase
                 _loggerFactory.CreateLogger<VirtualCanvasManager>());
             canvasManager.CalculateLayout(new WaBiBaBuSy.WallpaperEngine.Composition.ScreenConfiguration[] { screenConfig });
 
-            // Create background configuration
+            // Create background configuration (use auto-detected or user-specified color)
             var backgroundConfig = new BackgroundLayerConfig
             {
                 Mode = BackgroundMode.SolidColor,
-                ColorHex = "#000000"
+                ColorHex = D2dBackgroundColor
             };
 
             // Create animation configuration
@@ -1507,6 +1622,9 @@ public partial class MainWindowViewModel : ViewModelBase
             // Set available monitors/clients for selection
             viewModel.SetAvailableMonitors(Clients);
 
+            // Pre-populate from selected wallpaper in gallery
+            viewModel.PreSelectedWallpaper = SelectedWallpaper;
+
             // Load existing configuration or create default
             if (_crossScreenConfig != null)
             {
@@ -1534,6 +1652,9 @@ public partial class MainWindowViewModel : ViewModelBase
                 viewModel.LoadFromConfig(_crossScreenConfig);
             }
 
+            // Apply pre-selected wallpaper to auto-populate empty fields
+            viewModel.ApplyPreSelectedWallpaper();
+
             dialog.DataContext = viewModel;
 
             // Set close action so ViewModel can close the dialog
@@ -1549,6 +1670,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 if (viewModel.DialogResult)
                 {
                     _crossScreenConfig = viewModel.BuildConfig();
+                    HasAnimationConfig = !string.IsNullOrEmpty(_crossScreenConfig.Animation.AnimationPath);
                     Debug.WriteLine("[CrossScreen] Configuration saved");
                 }
                 else
@@ -1654,6 +1776,20 @@ public partial class MainWindowViewModel : ViewModelBase
             }
 
             IsCrossScreenRunning = true;
+            HasAnimationConfig = true;
+
+            // Set animation indicators on participating clients
+            var animFileName = Path.GetFileName(_crossScreenConfig?.Animation.AnimationPath ?? string.Empty);
+            var selectedIds = new HashSet<string>(_crossScreenConfig?.SelectedMonitorIds ?? new List<string>());
+            foreach (var client in Clients)
+            {
+                if (selectedIds.Count == 0 || selectedIds.Contains(client.ClientId))
+                {
+                    client.IsAnimating = true;
+                    client.ActiveAnimationName = animFileName;
+                }
+            }
+
             Debug.WriteLine("[CrossScreen] Animation started successfully");
         }
         catch (Exception ex)
@@ -1759,6 +1895,15 @@ public partial class MainWindowViewModel : ViewModelBase
             }
 
             IsCrossScreenRunning = false;
+
+            // Reset animation indicators on all clients
+            foreach (var client in Clients)
+            {
+                client.IsAnimating = false;
+                client.IsCurrentAnimationTarget = false;
+                client.ActiveAnimationName = null;
+            }
+
             Debug.WriteLine("[CrossScreen] Animation stopped");
         }
         catch (Exception ex)

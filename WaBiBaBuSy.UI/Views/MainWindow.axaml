@@ -3,6 +3,7 @@
         xmlns:vm="using:WaBiBaBuSy.UI.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:views="using:WaBiBaBuSy.UI.Views"
         mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="700"
         x:Class="WaBiBaBuSy.UI.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
@@ -14,6 +15,10 @@
     <Design.DataContext>
         <vm:MainWindowViewModel/>
     </Design.DataContext>
+
+    <Window.Resources>
+        <views:HexToColorConverter x:Key="HexToColor"/>
+    </Window.Resources>
 
     <Grid RowDefinitions="Auto,*">
         <!-- Top Bar with Server Controls -->
@@ -27,45 +32,53 @@
                     </Border>
                 </StackPanel>
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10">
-                    <!-- Animation Mode Toggle -->
-                    <Border Background="#252526" CornerRadius="5" Padding="10,5" VerticalAlignment="Center">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Text="Animation:" Foreground="#CCCCCC" VerticalAlignment="Center" FontSize="12"/>
-                            <ToggleButton IsChecked="{Binding IsCrossScreenMode}" MinWidth="60"/>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Animation Controls (visible when enabled) -->
-                    <Button Content="Configure..."
-                            Command="{Binding ConfigureCrossScreenCommand}"
-                            IsVisible="{Binding IsCrossScreenMode}"/>
-                    <Button Content="Start Animation"
-                            Command="{Binding StartCrossScreenCommand}"
-                            IsVisible="{Binding IsCrossScreenMode}"
-                            IsEnabled="{Binding !IsCrossScreenRunning}"/>
-                    <Button Content="Stop Animation"
-                            Command="{Binding StopCrossScreenCommand}"
-                            IsVisible="{Binding IsCrossScreenMode}"
-                            IsEnabled="{Binding IsCrossScreenRunning}"/>
-
-                    <!-- Standard Wallpaper Controls (visible when cross-screen disabled) -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+                    <!-- Standard Wallpaper Controls (always visible) -->
                     <Button Content="Add Wallpaper"
-                            Command="{Binding AddWallpaperCommand}"
-                            IsVisible="{Binding !IsCrossScreenMode}"/>
+                            Command="{Binding AddWallpaperCommand}"/>
                     <Button Content="Apply via LibVLC"
-                            Command="{Binding ApplyWallpaperToSelectedCommand}"
-                            IsVisible="{Binding !IsCrossScreenMode}"/>
+                            Command="{Binding ApplyWallpaperToSelectedCommand}"/>
                     <ComboBox SelectedIndex="{Binding SelectedFitModeIndex}" Width="100"
-                             IsVisible="{Binding !IsCrossScreenMode}" VerticalAlignment="Center">
+                             VerticalAlignment="Center">
                         <ComboBoxItem Content="Stretch"/>
                         <ComboBoxItem Content="Center"/>
                         <ComboBoxItem Content="Fit"/>
                         <ComboBoxItem Content="Fill"/>
                     </ComboBox>
+
+                    <!-- D2D Apply with background color control -->
                     <Button Content="Apply via direct2d"
-                            Command="{Binding ApplyWallpaperViaDirect2DCommand}"
-                            IsVisible="{Binding !IsCrossScreenMode}"/>
+                            Command="{Binding ApplyWallpaperViaDirect2DCommand}"/>
+                    <Border Background="#252526" CornerRadius="3" Padding="4,2" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <Border Width="16" Height="16" CornerRadius="2"
+                                    BorderBrush="#666666" BorderThickness="1">
+                                <Border.Background>
+                                    <SolidColorBrush Color="{Binding D2dBackgroundColor, Converter={StaticResource HexToColor}}"/>
+                                </Border.Background>
+                            </Border>
+                            <TextBox Text="{Binding D2dBackgroundColor}" Width="72" FontSize="10"
+                                     Padding="2" VerticalAlignment="Center"/>
+                            <CheckBox IsChecked="{Binding IsAutoDetectBackground}" Content="Auto"
+                                      FontSize="10" VerticalAlignment="Center" Padding="2,0"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Separator -->
+                    <Border Width="1" Height="24" Background="#555555" VerticalAlignment="Center"/>
+
+                    <!-- Multi-Monitor Animation Controls -->
+                    <Button Content="Multi Monitor Animation"
+                            Command="{Binding ConfigureCrossScreenCommand}"/>
+                    <Button Content="Start Animation"
+                            Command="{Binding StartCrossScreenCommand}"
+                            IsVisible="{Binding HasAnimationConfig}"
+                            IsEnabled="{Binding !IsCrossScreenRunning}"/>
+                    <Button Content="Stop Animation"
+                            Command="{Binding StopCrossScreenCommand}"
+                            IsVisible="{Binding IsCrossScreenRunning}"/>
+                    <Button Content="Clear Wallpaper"
+                            Command="{Binding ClearAllWallpapersCommand}"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -99,6 +112,22 @@
                             </Canvas>
                         </ScrollViewer>
                     </Border>
+
+                    <!-- Animation Controls in Topology Panel -->
+                    <StackPanel Grid.Row="1"
+                                Orientation="Horizontal"
+                                Spacing="8"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Top"
+                                Margin="0,5,5,0"
+                                IsVisible="{Binding IsCrossScreenRunning}">
+                        <Button Content="Stop Animation"
+                                Command="{Binding StopCrossScreenCommand}"
+                                Padding="8,4" FontSize="11"/>
+                        <Button Content="Clear Wallpaper"
+                                Command="{Binding ClearAllWallpapersCommand}"
+                                Padding="8,4" FontSize="11"/>
+                    </StackPanel>
 
                     <!-- Selected Client Details -->
                     <Border Grid.Row="2"
@@ -167,6 +196,7 @@
                                     <Button Width="180" Height="140"
                                             Margin="5"
                                             CornerRadius="5"
+                                            Classes.selected="{Binding IsSelected}"
                                             Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).SelectWallpaperCommand}"
                                             CommandParameter="{Binding}"
                                             HorizontalContentAlignment="Stretch"
@@ -187,6 +217,11 @@
                                             </Style>
                                             <Style Selector="Button:pointerover /template/ ContentPresenter">
                                                 <Setter Property="Background" Value="#3E3E42"/>
+                                            </Style>
+                                            <Style Selector="Button.selected">
+                                                <Setter Property="BorderBrush" Value="#0078D4"/>
+                                                <Setter Property="BorderThickness" Value="3"/>
+                                                <Setter Property="Background" Value="#3A4A5E"/>
                                             </Style>
                                         </Button.Styles>
 
@@ -252,6 +287,46 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </ScrollViewer>
+
+                    <!-- Active Animation Info (shown when no wallpaper selected but animation running) -->
+                    <Border Grid.Row="2"
+                            Background="#252526"
+                            CornerRadius="5"
+                            Padding="15"
+                            Margin="0,10,0,0"
+                            IsVisible="{Binding ShowAnimationInfo}">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Active Animation"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       Foreground="#00CC66"/>
+                            <StackPanel Spacing="3">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="File:" Foreground="#888888" FontSize="11"/>
+                                    <TextBlock Text="{Binding ActiveAnimationFileName}" Foreground="#CCCCCC" FontSize="11"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="Mode:" Foreground="#888888" FontSize="11"/>
+                                    <TextBlock Text="{Binding ActiveDistributionMode}" Foreground="#CCCCCC" FontSize="11"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="Speed:" Foreground="#888888" FontSize="11"/>
+                                    <TextBlock Text="{Binding ActiveAnimationSpeed, StringFormat='{}{0} px/s'}" Foreground="#CCCCCC" FontSize="11"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="Background:" Foreground="#888888" FontSize="11"/>
+                                    <Border Width="12" Height="12" CornerRadius="2" VerticalAlignment="Center"
+                                            BorderBrush="#666666" BorderThickness="1">
+                                        <Border.Background>
+                                            <SolidColorBrush Color="{Binding ActiveBackgroundColor, Converter={StaticResource HexToColor}}"/>
+                                        </Border.Background>
+                                    </Border>
+                                    <TextBlock Text="{Binding ActiveBackgroundColor}" Foreground="#CCCCCC" FontSize="11"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
 
                     <!-- Selected Wallpaper Preview -->
                     <Border Grid.Row="2"

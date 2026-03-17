@@ -33,6 +33,9 @@ public partial class WallpaperItemViewModel : ObservableObject
     private bool _isActive;
 
     [ObservableProperty]
+    private bool _isSelected;
+
+    [ObservableProperty]
     private string _resolution = string.Empty;
 
     [ObservableProperty]

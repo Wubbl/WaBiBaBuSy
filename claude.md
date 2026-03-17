@@ -2,7 +2,7 @@
 
 **Project Name:** WallpaperBiBaBuSync (BiBaBu = our club name)
 **Version:** 2.0 | **Framework:** .NET 8.0 | **Status:** ✅ MVP ~99% Complete
-**Last Updated:** 2025-12-27 | **Next:** E2E Multi-Client Testing, Direct2D integration with main UI
+**Last Updated:** 2026-03-17 | **Next:** E2E Multi-Client Testing, runtime validation of UI redesign
 
 WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5% server CPU, ±50ms drift tolerance, and distributed client-side rendering. Supports images (JPG/PNG/BMP), videos (MP4/AVI/MKV), and GIFs across multi-monitor setups.
 
@@ -189,10 +189,13 @@ WaBiBaBuSy/
 
 ### User Interface ✅
 - **System Tray**: Minimized operation with context menu (Start/Stop Server, Connect, Settings, Exit)
-- **Server Control Panel**: Visual network topology with drag-and-drop client ordering
+- **Server Control Panel**: Visual network topology with drag-and-drop client ordering, animation indicators (green=animating, gold=current target)
 - **Client Connection Dialog**: Manual IP entry or auto-discovery browsing
 - **Settings Window**: Configuration for server/client mode, ports, directories
 - **Avalonia-Based**: Cross-platform UI framework with Fluent theme
+- **Gallery Selection Highlighting**: Blue border on selected wallpaper item
+- **Background Color Auto-Detect**: Edge pixel sampling for D2D background color with manual override
+- **Active Animation Info Panel**: Shows running animation details (file, mode, speed, color)
 
 ### Configuration System ✅
 - **JSON Persistence**: Configuration stored in `%APPDATA%\WaBiBaBuSy\config.json`
@@ -407,7 +410,18 @@ dotnet run --project WaBiBaBuSy.UI
 
 ## Recent Updates
 
-**Latest (2026-02-26 - NATIVE D2D COMPOSITION - ALL P0 FIXED):**
+**Latest (2026-03-17 - UI REDESIGN: ANIMATION CONTROLS & GALLERY):**
+- ✅ **ISSUE-011 FIXED: Background color** - `BackgroundColorDetector` auto-detects dominant edge color from GIF/image/video; manual hex override with inline color preview
+- ✅ **Gallery selection highlighting** - Blue border (`#0078D4`) on selected wallpaper via `Classes.selected` binding + `HexToColorConverter`
+- ✅ **Removed confusing Animation toggle** - Standard wallpaper controls always visible; added "Multi Monitor Animation" button
+- ✅ **"From Gallery..." stubs replaced** - Dialog auto-populates from `PreSelectedWallpaper` (animation path for Video/GIF, background for Image)
+- ✅ **Topology animation indicators** - Green border (`#00AA44`) for animating clients, gold (`#FFD700`) for current target; animation file name shown
+- ✅ **Active Animation Info Panel** - Shows file name, distribution mode, speed, background color when animation running
+- ✅ **Clear Wallpaper command** - Stops animations, disposes all D2D/LibVLC renderers, resets client indicators
+- ✅ **Logging UI** - TASK-012 complete (see previous update)
+- **See:** `.docs/2026.02_D2D_ISSUES.md` for ISSUE-011 fix details
+
+**Previous (2026-02-26 - NATIVE D2D COMPOSITION - ALL P0 FIXED):**
 - ✅ **Native D2D Composition** - Replaced GDI+ pipeline with pure Direct2D for GIF rendering in Player.D2D
 - ✅ **ID2D1DeviceContext** - Persistent device context replaces per-frame ID2D1RenderTarget recreation
 - ✅ **GPU-resident GIF frames** - Magick.NET extraction → ID2D1Bitmap[] (zero per-frame allocation)
@@ -461,8 +475,9 @@ dotnet run --project WaBiBaBuSy.UI
 
 **Current Work (Priority Order):**
 1. **🟢 TESTING: Direct2D Animation Support** - Runtime validation with real GIF and video files
-   - Test GIF: Load .gif → Click "Apply Via Direct2D" → Verify animation renders on desktop
+   - Test GIF: Load .gif → Click "Apply Via Direct2D" → Verify animation renders with auto-detected background color
    - Test Video: Load .mp4 → Click "Apply Via Direct2D" → Verify frame caching (frames will be placeholders in MVP)
+   - Test UI: Gallery selection highlighting, Multi Monitor Animation button, topology indicators
    - Monitor: CPU usage, memory, frame rate
 2. **E2E Multi-Client Testing** - Test Sequential/Simultaneous modes with 1-3 real clients
 3. **Issue #1 Resolution** - Multi-monitor selection for cross-screen animations

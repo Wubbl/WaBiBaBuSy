@@ -58,6 +58,15 @@ public partial class ClientNodeViewModel : ObservableObject
     [ObservableProperty]
     private bool _isPrimaryMonitor;
 
+    [ObservableProperty]
+    private bool _isAnimating;
+
+    [ObservableProperty]
+    private bool _isCurrentAnimationTarget;
+
+    [ObservableProperty]
+    private string? _activeAnimationName;
+
     /// <summary>
     /// Display name for the client
     /// </summary>
