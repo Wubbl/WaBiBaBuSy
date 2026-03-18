@@ -112,11 +112,11 @@
                                 FontSize="12"/>
                     </StackPanel>
 
-                    <Border Grid.Row="1" Background="#252526" CornerRadius="5" Padding="10">
+                    <Border Grid.Row="1" Background="#1A1A1A" CornerRadius="5" ClipToBounds="True"
+                            Name="TopologyBorder">
                         <ScrollViewer HorizontalScrollBarVisibility="Auto"
                                       VerticalScrollBarVisibility="Auto">
-                            <!-- GPU Optimization: ClipToBounds reduces overdraw, RenderOptions improves caching -->
-                            <Canvas Width="800" Height="400" Background="#1A1A1A" Name="TopologyCanvas"
+                            <Canvas Name="TopologyCanvas" Background="#1A1A1A"
                                     ClipToBounds="True">
                                 <!-- Client nodes will be added programmatically in code-behind -->
                             </Canvas>
@@ -198,7 +198,7 @@
                     </StackPanel>
 
                     <!-- Wallpaper Grid -->
-                    <ScrollViewer Grid.Row="1">
+                    <ScrollViewer Grid.Row="1" Name="GalleryScrollViewer">
                         <ItemsControl ItemsSource="{Binding Wallpapers}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>

@@ -434,10 +434,21 @@ public class D2DPlayerHost : IDisposable
             // Send JSON command
             await SendCommandAsync(json);
 
-            // Wait for response
+            // Wait for response with timeout to avoid hanging if player is unresponsive
             if (_playerProcess != null)
             {
-                var response = await _playerProcess.StandardOutput.ReadLineAsync();
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                string? response;
+                try
+                {
+                    response = await _playerProcess.StandardOutput.ReadLineAsync(cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    _logger.LogWarning("Timed out waiting for STOP_ANIMATION response from player");
+                    return;
+                }
+
                 if (response?.StartsWith("ERROR:") == true)
                 {
                     _logger.LogError("Player failed to stop animation: {Error}", response);

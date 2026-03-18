@@ -223,13 +223,10 @@ public class D2DCompositionService : IDisposable
 
         _logger.LogInformation("Disposing D2D composition service");
 
-        // Stop animation if running
-        if (_isRunning)
-        {
-            StopAsync().GetAwaiter().GetResult();
-        }
+        // Mark as not running (StopAsync should have been awaited by the caller)
+        _isRunning = false;
 
-        // Dispose all player hosts
+        // Dispose all player hosts (sends EXIT command and kills process)
         foreach (var playerHost in _playerHosts.Values)
         {
             playerHost.Dispose();

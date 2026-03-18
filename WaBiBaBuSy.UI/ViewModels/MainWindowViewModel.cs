@@ -375,9 +375,19 @@ public partial class MainWindowViewModel : ViewModelBase
             await StopCrossScreen();
         }
 
-        // Dispose all D2D composition services
+        // Stop and dispose all D2D composition services
+        // Must await StopAsync before Dispose to avoid sync-over-async deadlock
         foreach (var kvp in _d2dCompositionServices)
         {
+            try
+            {
+                await kvp.Value.StopAsync();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ClearAll] Error stopping D2D service for monitor {kvp.Key}: {ex.Message}");
+            }
+
             try
             {
                 kvp.Value.Dispose();
@@ -703,6 +713,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
             // Store renderer for this monitor
             _localWallpaperRenderers[monitorIndex] = renderer;
+            ClearAllWallpapersCommand.NotifyCanExecuteChanged();
 
             // Set up thumbnail capture for live preview
             SetupThumbnailCapture(monitorIndex, renderer.WindowHandle, wallpaper.Name);
@@ -870,6 +881,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
             // Store the service for later cleanup
             _d2dCompositionServices[monitorIndex] = d2dService;
+            ClearAllWallpapersCommand.NotifyCanExecuteChanged();
 
             // Set up thumbnail capture for live preview
             SetupThumbnailCapture(monitorIndex, d2dService.PlayerHwnd, wallpaper.Name);
@@ -941,6 +953,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
             // Store renderer
             _localWallpaperRenderers[monitorIndex] = renderer;
+            ClearAllWallpapersCommand.NotifyCanExecuteChanged();
 
             // Set up thumbnail capture for live preview
             SetupThumbnailCapture(monitorIndex, renderer.WindowHandle, wallpaper.Name);

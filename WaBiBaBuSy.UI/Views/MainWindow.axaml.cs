@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -62,6 +63,20 @@ public partial class MainWindow : Window
                 _topologyCanvas.PointerMoved += OnCanvasPointerMoved;
                 _topologyCanvas.PointerReleased += OnCanvasPointerReleased;
             }
+
+            // Make canvas fill its parent border (at minimum), allowing scroll when nodes overflow
+            var topologyBorder = this.FindControl<Border>("TopologyBorder");
+            if (topologyBorder != null && _topologyCanvas != null)
+            {
+                topologyBorder.SizeChanged += (s, e) => UpdateCanvasSize(e.NewSize);
+            }
+
+            // Click on empty gallery area deselects wallpaper
+            var galleryScrollViewer = this.FindControl<ScrollViewer>("GalleryScrollViewer");
+            if (galleryScrollViewer != null)
+            {
+                galleryScrollViewer.PointerPressed += OnGalleryPointerPressed;
+            }
         }
     }
 
@@ -100,6 +115,13 @@ public partial class MainWindow : Window
             canvas.Children.Add(border);
 
             Debug.WriteLine($"[MainWindow] Added node for {client.DisplayName} at ({client.X}, {client.Y})");
+        }
+
+        // Update canvas size to accommodate all nodes
+        var topologyBorder = this.FindControl<Border>("TopologyBorder");
+        if (topologyBorder != null)
+        {
+            UpdateCanvasSize(topologyBorder.Bounds.Size);
         }
     }
 
@@ -342,13 +364,14 @@ public partial class MainWindow : Window
             var ctrlPressed = (e.KeyModifiers & KeyModifiers.Control) == KeyModifiers.Control;
             if (!ctrlPressed)
             {
-                // Deselect all clients when starting new selection without Ctrl
+                // Deselect all clients and clear selected client when clicking empty canvas
                 if (DataContext is MainWindowViewModel viewModel)
                 {
                     foreach (var client in viewModel.Clients)
                     {
                         client.IsSelected = false;
                     }
+                    viewModel.SelectedClient = null;
                 }
             }
 
@@ -442,6 +465,46 @@ public partial class MainWindow : Window
         _selectionRectangle = null;
 
         Debug.WriteLine("[MainWindow] Finished rectangle selection");
+    }
+
+    /// <summary>
+    /// Handle click on gallery background to deselect wallpaper
+    /// </summary>
+    private void OnGalleryPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        // Only deselect when clicking directly on the ScrollViewer or ItemsControl background,
+        // not when clicking on a wallpaper button
+        if (e.Source is ScrollViewer or ScrollContentPresenter or ItemsControl or WrapPanel or Border { Name: "GalleryScrollViewer" })
+        {
+            if (DataContext is MainWindowViewModel viewModel)
+            {
+                foreach (var w in viewModel.Wallpapers)
+                    w.IsSelected = false;
+                viewModel.SelectedWallpaper = null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Updates the canvas size to fill its container at minimum, but grows when nodes overflow.
+    /// </summary>
+    private void UpdateCanvasSize(Size containerSize)
+    {
+        if (_topologyCanvas == null) return;
+
+        // Calculate the required extent from node positions
+        double maxRight = 0, maxBottom = 0;
+        if (DataContext is MainWindowViewModel viewModel)
+        {
+            foreach (var client in viewModel.Clients)
+            {
+                maxRight = Math.Max(maxRight, client.X + 200); // node width ~180 + margin
+                maxBottom = Math.Max(maxBottom, client.Y + 170); // node height ~150 + margin
+            }
+        }
+
+        _topologyCanvas.Width = Math.Max(containerSize.Width, maxRight);
+        _topologyCanvas.Height = Math.Max(containerSize.Height, maxBottom);
     }
 
     private void OnWindowOpened(object? sender, System.EventArgs e)
