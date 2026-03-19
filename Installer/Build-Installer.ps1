@@ -18,9 +18,12 @@ $InstallerOutputDir = Join-Path $PublishDir "installer"
 if (-not $Version) {
     $CsprojPath = Join-Path $SolutionRoot "WaBiBaBuSy.UI\WaBiBaBuSy.UI.csproj"
     [xml]$Csproj = Get-Content $CsprojPath
-    $Major = $Csproj.Project.PropertyGroup[0].MajorVersion
-    $Minor = $Csproj.Project.PropertyGroup[0].MinorVersion
-    $Patch = $Csproj.Project.PropertyGroup[0].PatchVersion
+    # Access PropertyGroup directly - PowerShell returns XmlElement (not array) when there's only one
+    $pg = $Csproj.Project.PropertyGroup
+    if ($pg -is [array]) { $pg = $pg[0] }
+    $Major = $pg.MajorVersion
+    $Minor = $pg.MinorVersion
+    $Patch = $pg.PatchVersion
     try {
         $BuildNum = (git -C $SolutionRoot rev-list --count HEAD 2>$null).Trim()
     } catch {
@@ -109,8 +112,7 @@ Write-Host "[4/4] Building installer..." -ForegroundColor Yellow
 $IssPath = Join-Path $ScriptDir "WaBiBaBuSy.iss"
 
 Write-Host "  Version: $Version, Build: $BuildNum" -ForegroundColor Gray
-# ISPP /D values must be quoted as strings to avoid numeric expression parsing (e.g., "2.3.1" has two dots)
-& $InnoSetupPath "/DMyAppVersion=`"$Version`"" "/DMyBuildNumber=`"$BuildNum`"" $IssPath
+& $InnoSetupPath "/DMyAppVersion=$Version" "/DMyBuildNumber=$BuildNum" $IssPath
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "  Failed to build installer!" -ForegroundColor Red
