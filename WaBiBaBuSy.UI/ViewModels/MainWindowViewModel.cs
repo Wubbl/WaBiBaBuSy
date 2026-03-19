@@ -1272,31 +1272,58 @@ public partial class MainWindowViewModel : ViewModelBase
             // Always show at least the local machine
             if (_service.IsServerRunning)
             {
-                // Server mode - get connected clients and add localhost as server node
+                // Server mode - get connected clients and add localhost monitors as server nodes
                 var connectedClients = _service.GetConnectedClients().ToList();
                 if (_enableNetworkTopologyDebugOutput)
                     Debug.WriteLine($"Server mode: Got {connectedClients.Count} connected clients");
 
-                // Create a list that includes the server (localhost) as the first node
+                // Create a list that includes the server's local monitors as the first nodes
                 var allNodes = new List<WaBiBaBuSy.Grpc.ConnectedClient>();
 
-                // Add localhost server node
-                var serverNode = new WaBiBaBuSy.Grpc.ConnectedClient
+                // Enumerate local monitors for the server machine
+                var screens = System.Windows.Forms.Screen.AllScreens;
+                var serverScreenConfig = new WaBiBaBuSy.Grpc.ScreenConfiguration
                 {
-                    ClientId = "SERVER_LOCALHOST",
-                    Hostname = Environment.MachineName,
-                    IpAddress = "127.0.0.1 (Server)",
-                    Status = WaBiBaBuSy.Grpc.ClientStatusEnum.ClientConnected,
-                    OrderPosition = 0,
-                    PhysicalDistanceCm = 0,
-                    ScreenConfig = new WaBiBaBuSy.Grpc.ScreenConfiguration()
+                    MonitorCount = screens.Length,
+                    TotalWidth = System.Windows.Forms.SystemInformation.VirtualScreen.Width,
+                    TotalHeight = System.Windows.Forms.SystemInformation.VirtualScreen.Height
                 };
+                for (int i = 0; i < screens.Length; i++)
+                {
+                    var screen = screens[i];
+                    serverScreenConfig.Monitors.Add(new WaBiBaBuSy.Grpc.MonitorInfo
+                    {
+                        Index = i,
+                        Width = screen.Bounds.Width,
+                        Height = screen.Bounds.Height,
+                        X = screen.Bounds.X,
+                        Y = screen.Bounds.Y,
+                        IsPrimary = screen.Primary,
+                        DeviceName = screen.DeviceName
+                    });
+                }
 
-                allNodes.Add(serverNode);
-                if (_enableNetworkTopologyDebugOutput)
-                    Debug.WriteLine($"Added server node: {serverNode.Hostname} at position {serverNode.OrderPosition}");
+                // Add one server node per local monitor
+                for (int i = 0; i < screens.Length; i++)
+                {
+                    var screen = screens[i];
+                    var serverNode = new WaBiBaBuSy.Grpc.ConnectedClient
+                    {
+                        ClientId = $"SERVER_LOCALHOST_MONITOR_{i}",
+                        Hostname = $"{Environment.MachineName} - Monitor {i + 1} (Server)",
+                        IpAddress = screen.Primary ? "Primary Monitor (Server)" : $"Monitor {i + 1} (Server)",
+                        Status = WaBiBaBuSy.Grpc.ClientStatusEnum.ClientConnected,
+                        OrderPosition = i,
+                        PhysicalDistanceCm = 0,
+                        ScreenConfig = serverScreenConfig
+                    };
+                    allNodes.Add(serverNode);
+                    if (_enableNetworkTopologyDebugOutput)
+                        Debug.WriteLine($"Added server monitor node: {serverNode.Hostname} at position {serverNode.OrderPosition}");
+                }
 
                 // Add all connected clients with adjusted order positions
+                int serverMonitorCount = screens.Length;
                 foreach (var client in connectedClients)
                 {
                     allNodes.Add(new WaBiBaBuSy.Grpc.ConnectedClient
@@ -1305,7 +1332,7 @@ public partial class MainWindowViewModel : ViewModelBase
                         Hostname = client.Hostname,
                         IpAddress = client.IpAddress,
                         Status = client.Status,
-                        OrderPosition = client.OrderPosition + 1, // Offset by 1 since server is position 0
+                        OrderPosition = client.OrderPosition + serverMonitorCount, // Offset by server monitor count
                         PhysicalDistanceCm = client.PhysicalDistanceCm,
                         ScreenConfig = client.ScreenConfig
                     });

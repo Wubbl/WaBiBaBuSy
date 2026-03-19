@@ -9,7 +9,7 @@
 
     <!-- Version Information -->
     <BuildNumber Condition="'$(BuildNumber)' == ''">1</BuildNumber>
-    <Version>2.0.0</Version>
+    <Version>2.1.0</Version>
     <AssemblyVersion>2.0.0.$(BuildNumber)</AssemblyVersion>
     <FileVersion>2.0.0.$(BuildNumber)</FileVersion>
     <InformationalVersion>2.0.0+build.$(BuildNumber)</InformationalVersion>
