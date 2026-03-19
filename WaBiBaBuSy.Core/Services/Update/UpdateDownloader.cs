@@ -72,13 +72,16 @@ public class UpdateDownloader
                 totalBytesReceived += chunk.Data.Length;
                 chunksReceived++;
 
-                // Report progress
-                var progressPercent = (int)((totalBytesReceived * 100) / updateInfo.PackageSize);
+                // Use chunk.TotalSize as fallback when PackageSize is unknown (0)
+                var totalSize = updateInfo.PackageSize > 0 ? updateInfo.PackageSize : chunk.TotalSize;
+                var progressPercent = totalSize > 0
+                    ? (int)((totalBytesReceived * 100) / totalSize)
+                    : 0;
                 ProgressChanged?.Invoke(this, new UpdateProgressEventArgs
                 {
                     ProgressPercent = progressPercent,
                     BytesReceived = totalBytesReceived,
-                    TotalBytes = updateInfo.PackageSize,
+                    TotalBytes = totalSize,
                     ChunksReceived = chunksReceived
                 });
 

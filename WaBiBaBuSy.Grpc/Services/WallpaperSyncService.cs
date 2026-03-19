@@ -41,7 +41,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     /// <summary>
     /// Register a new client connection
     /// </summary>
-    public override Task<RegistrationResponse> RegisterClient(
+    public override async Task<RegistrationResponse> RegisterClient(
         ClientInfo request,
         ServerCallContext context)
     {
@@ -78,12 +78,19 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
 
                     updateDescription = $"Update to {serverVersion}";
 
-                    // Try to get package size from Updates directory
-                    var updatePackagePath = Path.Combine(_serverConfig.UpdateManagement.UpdatesDirectory,
-                        $"UpdatePackage_{serverVersion}.zip");
-                    if (File.Exists(updatePackagePath))
+                    // Build the update package if needed and get its size
+                    // This ensures the package is ready before any client tries to download
+                    try
                     {
-                        updatePackageSize = new FileInfo(updatePackagePath).Length;
+                        var updatePackagePath = await EnsureUpdatePackageExistsAsync();
+                        if (File.Exists(updatePackagePath))
+                        {
+                            updatePackageSize = new FileInfo(updatePackagePath).Length;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to pre-build update package during registration. Package will be built on download.");
                     }
                 }
 
@@ -97,7 +104,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                     _logger.LogWarning("Client {ClientId} version {Version} is below minimum {MinVersion}. Rejecting connection.",
                         clientId, request.AppVersion, _serverConfig.UpdateManagement.MinimumCompatibleVersion);
 
-                    return Task.FromResult(new RegistrationResponse
+                    return new RegistrationResponse
                     {
                         Success = false,
                         Message = $"Client version {request.AppVersion} is too old. Minimum version required: {_serverConfig.UpdateManagement.MinimumCompatibleVersion}. Please update.",
@@ -106,7 +113,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                         RequiredBuildNumber = serverBuild,
                         UpdatePackageSize = updatePackageSize,
                         UpdateDescription = "Mandatory update required"
-                    });
+                    };
                 }
             }
 
@@ -129,7 +136,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
             _logger.LogInformation("Client {ClientId} registered successfully. Order position: {OrderPosition}",
                 clientId, connectedClient.OrderPosition);
 
-            return Task.FromResult(new RegistrationResponse
+            return new RegistrationResponse
             {
                 Success = true,
                 Message = "Registration successful",
@@ -140,16 +147,16 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                 RequiredBuildNumber = serverBuild,
                 UpdatePackageSize = updatePackageSize,
                 UpdateDescription = updateDescription
-            });
+            };
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error registering client");
-            return Task.FromResult(new RegistrationResponse
+            return new RegistrationResponse
             {
                 Success = false,
                 Message = $"Registration failed: {ex.Message}"
-            });
+            };
         }
     }
 
@@ -579,7 +586,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
 
     // Cached path to auto-generated update package (built from server's own binaries)
     private string? _cachedUpdatePackagePath;
-    private readonly object _packageBuildLock = new();
+    private readonly SemaphoreSlim _packageBuildSemaphore = new(1, 1);
 
     /// <summary>
     /// Handle client checking for available updates
@@ -757,9 +764,10 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         }
 
         // Build package from server's own installation directory
-        lock (_packageBuildLock)
+        await _packageBuildSemaphore.WaitAsync();
+        try
         {
-            // Double-check after acquiring lock
+            // Double-check after acquiring semaphore
             if (File.Exists(packagePath))
             {
                 _cachedUpdatePackagePath = packagePath;
@@ -864,6 +872,10 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                 try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); }
                 catch { /* best effort */ }
             }
+        }
+        finally
+        {
+            _packageBuildSemaphore.Release();
         }
 
         return packagePath;
