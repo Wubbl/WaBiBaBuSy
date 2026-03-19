@@ -109,7 +109,8 @@ Write-Host "[4/4] Building installer..." -ForegroundColor Yellow
 $IssPath = Join-Path $ScriptDir "WaBiBaBuSy.iss"
 
 Write-Host "  Version: $Version, Build: $BuildNum" -ForegroundColor Gray
-& $InnoSetupPath "/DMyAppVersion=$Version" "/DMyBuildNumber=$BuildNum" $IssPath
+# ISPP /D values must be quoted as strings to avoid numeric expression parsing (e.g., "2.3.1" has two dots)
+& $InnoSetupPath "/DMyAppVersion=`"$Version`"" "/DMyBuildNumber=`"$BuildNum`"" $IssPath
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "  Failed to build installer!" -ForegroundColor Red
@@ -117,7 +118,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # Find the generated installer
-$InstallerFile = Get-ChildItem $InstallerOutputDir -Filter "WaBiBaBuSy-Setup-*.exe" | Select-Object -First 1
+$InstallerFile = Get-ChildItem $InstallerOutputDir -Filter "WaBiBaBuSy-v*-Setup.exe" | Select-Object -First 1
 
 if ($InstallerFile) {
     Write-Host "  Installer built successfully!" -ForegroundColor Green
