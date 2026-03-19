@@ -220,15 +220,24 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                 }
             }
         }
+        catch (IOException)
+        {
+            // Client disconnected abruptly (reset stream) — this is normal
+            _logger.LogWarning("Client {ClientId} disconnected (stream reset)", clientId);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("SyncStream cancelled for client {ClientId}", clientId);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error in SyncStream for client {ClientId}", clientId);
         }
         finally
         {
-            // Remove client stream when disconnected
-            _clientCommandStreams.TryRemove(clientId, out _);
-            _logger.LogInformation("SyncStream ended for client {ClientId}", clientId);
+            // Remove client completely on disconnect
+            RemoveClient(clientId);
+            _logger.LogInformation("Client {ClientId} removed from topology after disconnect", clientId);
         }
     }
 

@@ -22,19 +22,28 @@ if (-not $Version) {
     $Minor = $Csproj.Project.PropertyGroup[0].MinorVersion
     $Patch = $Csproj.Project.PropertyGroup[0].PatchVersion
     try {
-        $BuildNumber = (git -C $SolutionRoot rev-list --count HEAD 2>$null).Trim()
+        $BuildNum = (git -C $SolutionRoot rev-list --count HEAD 2>$null).Trim()
     } catch {
-        $BuildNumber = "0"
+        $BuildNum = "0"
     }
-    if (-not $BuildNumber) { $BuildNumber = "0" }
-    $Version = "$Major.$Minor.$Patch.$BuildNumber"
+    if (-not $BuildNum) { $BuildNum = "0" }
+    $Version = "$Major.$Minor.$Patch"
+} else {
+    # If user passed a 4-part version like 2.1.0.165, split into version + build
+    $parts = $Version.Split('.')
+    if ($parts.Length -ge 4) {
+        $BuildNum = $parts[3]
+        $Version = "$($parts[0]).$($parts[1]).$($parts[2])"
+    } else {
+        $BuildNum = "0"
+    }
 }
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host " WaBiBaBuSy Installer Build Script" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Version: $Version" -ForegroundColor Cyan
+Write-Host "Version: $Version  Build: $BuildNum" -ForegroundColor Cyan
 Write-Host "Solution Root: $SolutionRoot" -ForegroundColor Gray
 Write-Host "Publish Directory: $PublishDir" -ForegroundColor Gray
 Write-Host ""
@@ -59,7 +68,7 @@ dotnet publish $ProjectPath `
     /p:PublishSingleFile=false `
     /p:DebugType=None `
     /p:DebugSymbols=false `
-    /p:BuildNumber=$($Version.Split('.')[-1])
+    /p:BuildNumber=$BuildNum
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "  Failed to publish application!" -ForegroundColor Red
@@ -99,7 +108,8 @@ Write-Host ""
 Write-Host "[4/4] Building installer..." -ForegroundColor Yellow
 $IssPath = Join-Path $ScriptDir "WaBiBaBuSy.iss"
 
-& $InnoSetupPath "/DMyAppVersion=$Version" $IssPath
+Write-Host "  Version: $Version, Build: $BuildNum" -ForegroundColor Gray
+& $InnoSetupPath "/DMyAppVersion=$Version" "/DMyBuildNumber=$BuildNum" $IssPath
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "  Failed to build installer!" -ForegroundColor Red

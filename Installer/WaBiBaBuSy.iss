@@ -6,6 +6,10 @@
 #ifndef MyAppVersion
   #define MyAppVersion "2.1.0"
 #endif
+; MyBuildNumber is passed from Build-Installer.ps1 via /D flag
+#ifndef MyBuildNumber
+  #define MyBuildNumber "0"
+#endif
 #define MyAppPublisher "BiBaBu"
 #define MyAppURL "https://github.com/pfnetsch/WaBiBaBuSy"
 #define MyAppExeName "WaBiBaBuSy.UI.exe"
@@ -27,13 +31,20 @@ LicenseFile=..\LICENSE.txt
 ;PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir=..\publish\installer
-OutputBaseFilename=WaBiBaBuSy-Setup-{#MyAppVersion}
+OutputBaseFilename=WaBiBaBuSy-v{#MyAppVersion}-build{#MyBuildNumber}-Setup
 SetupIconFile=..\WaBiBaBuSy.UI\Assets\BiBaBuColorIcon.ico
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64
 ArchitecturesAllowed=x64
+; File version metadata shown in Explorer properties
+VersionInfoVersion={#MyAppVersion}.{#MyBuildNumber}
+VersionInfoCompany={#MyAppPublisher}
+VersionInfoDescription={#MyAppName} - Wallpaper Synchronization System
+VersionInfoProductName={#MyAppName}
+VersionInfoProductVersion={#MyAppVersion}
+VersionInfoCopyright=Copyright (c) 2025-2026 {#MyAppPublisher}
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

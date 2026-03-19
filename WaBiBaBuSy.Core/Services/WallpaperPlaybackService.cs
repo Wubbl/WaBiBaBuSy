@@ -217,7 +217,19 @@ public class WallpaperPlaybackService : IDisposable
                 await renderer.InitializeAsync(config);
                 _logger.LogInformation("Wallpaper loaded successfully: {ContentId} on monitor {Monitor}",
                     command.ContentId, monitorIndex);
+
+                // Auto-start playback — the PLAY command may have already arrived and been
+                // discarded while we were still downloading/initializing
+                await renderer.StartAsync();
+                _logger.LogInformation("Wallpaper auto-started after load: {ContentId} on monitor {Monitor}",
+                    command.ContentId, monitorIndex);
             }
+
+            // Start drift monitoring
+            _activeContentId = command.ContentId;
+            _playbackStartTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            _initialPositionMs = 0;
+            StartDriftMonitoring();
         }
         catch (Exception ex)
         {

@@ -6,6 +6,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
+using WaBiBaBuSy.Common.Version;
 using WaBiBaBuSy.Core.Interfaces;
 using WaBiBaBuSy.Core.Services;
 using WaBiBaBuSy.Models.Configuration;
@@ -30,6 +31,8 @@ public partial class TrayViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _isClientConnected;
+
+    public string VersionText => $"v{VersionInfo.AppVersion} (build {VersionInfo.BuildNumber})";
 
     public TrayViewModel(IClassicDesktopStyleApplicationLifetime desktop)
     {

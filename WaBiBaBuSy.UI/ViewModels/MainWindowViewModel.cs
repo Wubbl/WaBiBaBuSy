@@ -375,11 +375,23 @@ public partial class MainWindowViewModel : ViewModelBase
         ApplyWallpaperViaDirect2DCommand.NotifyCanExecuteChanged();
     }
 
+    /// <summary>
+    /// Check if a client ID represents a local monitor (either local-only or server mode)
+    /// </summary>
+    private static bool IsLocalMonitor(string clientId) =>
+        clientId.StartsWith("LOCAL_MACHINE_MONITOR_") || clientId.StartsWith("SERVER_LOCALHOST_MONITOR_");
+
+    /// <summary>
+    /// Extract monitor index from a local monitor client ID
+    /// </summary>
+    private static int GetMonitorIndex(string clientId) =>
+        int.Parse(clientId.Replace("LOCAL_MACHINE_MONITOR_", "").Replace("SERVER_LOCALHOST_MONITOR_", ""));
+
     private bool CanApplyWallpaperToSelected() =>
         SelectedWallpaper != null && Clients.Any(c => c.IsSelected);
 
     private bool CanApplyWallpaperViaDirect2D() =>
-        SelectedWallpaper != null && Clients.Any(c => c.IsSelected && c.ClientId.StartsWith("LOCAL_MACHINE"));
+        SelectedWallpaper != null && Clients.Any(c => c.IsSelected && IsLocalMonitor(c.ClientId));
 
     private bool CanStartCrossScreen() =>
         HasAnimationConfig && !IsCrossScreenRunning;
@@ -504,11 +516,10 @@ public partial class MainWindowViewModel : ViewModelBase
             {
                 Debug.WriteLine($"[ApplyWallpaperToSelected] Sending wallpaper to '{client.Hostname}'");
 
-                // Check if this is a local client (LOCAL_MACHINE)
-                if (client.ClientId.StartsWith("LOCAL_MACHINE"))
+                // Check if this is a local monitor (local-only mode or server's own monitors)
+                if (IsLocalMonitor(client.ClientId))
                 {
-                    // Apply using unified method
-                    await ApplyWallpaperAsync(SelectedWallpaper, client.ClientId);
+                    await ApplyWallpaperLocallyInternal(SelectedWallpaper, GetMonitorIndex(client.ClientId));
                 }
                 else if (_service.IsServerRunning && _service.SyncCoordinator != null)
                 {
@@ -603,14 +614,14 @@ public partial class MainWindowViewModel : ViewModelBase
 
             // Get all selected local clients
             var selectedLocalClients = Clients
-                .Where(c => c.IsSelected && c.ClientId.StartsWith("LOCAL_MACHINE_MONITOR_"))
+                .Where(c => c.IsSelected && IsLocalMonitor(c.ClientId))
                 .ToList();
 
             if (selectedLocalClients.Count == 0)
             {
                 // If no local client selected, apply to first available local monitor
                 var localClients = Clients
-                    .Where(c => c.ClientId.StartsWith("LOCAL_MACHINE_MONITOR_"))
+                    .Where(c => IsLocalMonitor(c.ClientId))
                     .ToList();
 
                 if (localClients.Count == 0)
@@ -626,7 +637,7 @@ public partial class MainWindowViewModel : ViewModelBase
             // Apply via Direct2D to each selected local monitor
             foreach (var client in selectedLocalClients)
             {
-                var monitorIndex = int.Parse(client.ClientId.Replace("LOCAL_MACHINE_MONITOR_", ""));
+                var monitorIndex = GetMonitorIndex(client.ClientId);
                 Debug.WriteLine($"[Direct2D] Applying to monitor {monitorIndex}");
                 await ApplyWallpaperWithDirect2DAsync(SelectedWallpaper, monitorIndex);
             }
@@ -651,8 +662,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            var isLocal = targetClientId.StartsWith("LOCAL_MACHINE_MONITOR_");
-            var monitorIndex = isLocal ? int.Parse(targetClientId.Replace("LOCAL_MACHINE_MONITOR_", "")) : 0;
+            var isLocal = IsLocalMonitor(targetClientId);
+            var monitorIndex = isLocal ? GetMonitorIndex(targetClientId) : 0;
 
             Debug.WriteLine($"[ApplyWallpaperAsync] Applying '{wallpaper.Name}' to {targetClientId}");
 
@@ -2048,7 +2059,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
             foreach (var client in localClients)
             {
-                var monitorIndex = int.Parse(client.ClientId.Replace("LOCAL_MACHINE_MONITOR_", ""));
+                var monitorIndex = GetMonitorIndex(client.ClientId);
 
                 // Clean up existing D2D service for this monitor if any
                 if (_d2dCompositionServices.TryRemove(monitorIndex, out var existingService))

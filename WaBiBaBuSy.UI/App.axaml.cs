@@ -41,6 +41,14 @@ public partial class App : Application
         base.OnFrameworkInitializationCompleted();
     }
 
+    private void TrayIcon_OnClicked(object? sender, System.EventArgs e)
+    {
+        if (DataContext is TrayViewModel trayVm)
+        {
+            trayVm.ShowWindowCommand.Execute(null);
+        }
+    }
+
     private void DisableAvaloniaDataAnnotationValidation()
     {
         // Get an array of plugins to remove
