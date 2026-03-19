@@ -59,17 +59,19 @@ var
   ResultCode: Integer;
   DotNetInstalled: Boolean;
 begin
-  // Check if .NET 8.0 Desktop Runtime is installed
+  // Check if .NET 9.0 runtimes are installed (need both Desktop and ASP.NET Core for gRPC)
   DotNetInstalled := RegKeyExists(HKLM, 'SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedhost') or
                       RegKeyExists(HKLM, 'SOFTWARE\dotnet\Setup\InstalledVersions\x86\sharedhost');
 
   if not DotNetInstalled then
   begin
-    if MsgBox('.NET 8.0 Desktop Runtime is required but not installed.' + #13#10 + #13#10 +
-              'Would you like to download it now?', mbConfirmation, MB_YESNO) = IDYES then
+    if MsgBox('.NET 9.0 is required but not installed.' + #13#10 + #13#10 +
+              'WaBiBaBuSy requires both the .NET Desktop Runtime AND the ASP.NET Core Runtime (for networking).' + #13#10 + #13#10 +
+              'The easiest option is to install the .NET 9.0 SDK which includes everything.' + #13#10 + #13#10 +
+              'Would you like to open the download page now?', mbConfirmation, MB_YESNO) = IDYES then
     begin
       ShellExec('open',
-        'https://dotnet.microsoft.com/download/dotnet/8.0/runtime',
+        'https://dotnet.microsoft.com/download/dotnet/9.0',
         '', '', SW_SHOW, ewNoWait, ResultCode);
     end;
     Result := False;
