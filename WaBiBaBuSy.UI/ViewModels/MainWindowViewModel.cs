@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
 using Avalonia.Controls;
@@ -111,6 +112,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private CrossScreenConfig? _crossScreenConfig;
     private string? _currentAnimationScheduleId;  // Track active animation schedule (Phase 3)
+    private CancellationTokenSource? _sequentialAnimationCts;  // Cancel sequential D2D animation loop
 
     // Storage provider for file picker dialogs
     private IStorageProvider? _storageProvider;
@@ -2099,44 +2101,105 @@ public partial class MainWindowViewModel : ViewModelBase
             // Brief pause to let all players finish loading
             await Task.Delay(200);
 
-            // Phase 2: Start ALL players with same shared timestamp for sync
-            var sharedStartTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            // Register all services before starting
+            foreach (var (monitorIndex, d2dService) in newServices)
+            {
+                _d2dCompositionServices[monitorIndex] = d2dService;
+            }
+
             var pixelsPerSecond = _crossScreenConfig.Movement.Type == MovementType.Static
                 ? 0
                 : (int)_crossScreenConfig.Movement.SpeedPixelsPerSecond;
 
-            Debug.WriteLine($"[CrossScreen] Starting all {newServices.Count} players with shared timestamp {sharedStartTimestamp}ms, speed={pixelsPerSecond}px/s");
+            var isSequential = _crossScreenConfig.DistributionMode == AnimationDistributionMode.Sequential;
 
-            foreach (var (monitorIndex, d2dService) in newServices)
+            if (isSequential && newServices.Count > 1)
             {
-                await d2dService.StartAsync(startTimestampMs: sharedStartTimestamp, pixelsPerSecond: pixelsPerSecond);
-                _d2dCompositionServices[monitorIndex] = d2dService;
-            }
+                // Phase 2a: SEQUENTIAL - start monitors one at a time
+                Debug.WriteLine($"[CrossScreen] Starting SEQUENTIAL animation on {newServices.Count} monitors, speed={pixelsPerSecond}px/s");
 
-            // Set up thumbnail capture for live preview in topology nodes
-            var animName = Path.GetFileName(_crossScreenConfig.Animation.AnimationPath) ?? "Animation";
-            foreach (var (monitorIndex, d2dService) in newServices)
-            {
-                SetupThumbnailCapture(monitorIndex, d2dService.PlayerHwnd, animName);
-            }
+                IsCrossScreenRunning = true;
+                HasAnimationConfig = true;
+                ClearAllWallpapersCommand.NotifyCanExecuteChanged();
 
-            IsCrossScreenRunning = true;
-            HasAnimationConfig = true;
-            ClearAllWallpapersCommand.NotifyCanExecuteChanged();
-
-            // Set animation indicators on participating clients
-            var animFileName = Path.GetFileName(_crossScreenConfig?.Animation.AnimationPath ?? string.Empty);
-            var selectedIds = new HashSet<string>(_crossScreenConfig?.SelectedMonitorIds ?? new List<string>());
-            foreach (var client in Clients)
-            {
-                if (selectedIds.Count == 0 || selectedIds.Contains(client.ClientId))
+                // Set animation indicators
+                var animFileNameSeq = Path.GetFileName(_crossScreenConfig?.Animation.AnimationPath ?? string.Empty);
+                var selectedIdsSeq = new HashSet<string>(_crossScreenConfig?.SelectedMonitorIds ?? new List<string>());
+                foreach (var client in Clients)
                 {
-                    client.IsAnimating = true;
-                    client.ActiveAnimationName = animFileName;
+                    if (selectedIdsSeq.Count == 0 || selectedIdsSeq.Contains(client.ClientId))
+                    {
+                        client.IsAnimating = true;
+                        client.ActiveAnimationName = animFileNameSeq;
+                    }
                 }
-            }
 
-            Debug.WriteLine("[CrossScreen] D2D animation started successfully on all monitors");
+                // Set up thumbnail capture
+                var animNameSeq = Path.GetFileName(_crossScreenConfig.Animation.AnimationPath) ?? "Animation";
+                foreach (var (monitorIndex, d2dService) in newServices)
+                {
+                    SetupThumbnailCapture(monitorIndex, d2dService.PlayerHwnd, animNameSeq);
+                }
+
+                // Launch sequential orchestration as background task
+                _sequentialAnimationCts?.Cancel();
+                _sequentialAnimationCts = new CancellationTokenSource();
+                var cts = _sequentialAnimationCts;
+                var loop = _crossScreenConfig.Animation.Loop;
+                var servicesOrdered = newServices.OrderBy(s => s.monitorIndex).ToList();
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await RunSequentialD2DAnimationAsync(servicesOrdered, pixelsPerSecond, loop, screens, cts.Token);
+                    }
+                    catch (OperationCanceledException) { }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[CrossScreen] Sequential animation error: {ex.Message}");
+                    }
+                });
+
+                Debug.WriteLine("[CrossScreen] Sequential D2D animation started");
+            }
+            else
+            {
+                // Phase 2b: SIMULTANEOUS - start ALL players with same shared timestamp
+                var sharedStartTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+                Debug.WriteLine($"[CrossScreen] Starting SIMULTANEOUS animation on {newServices.Count} monitors, timestamp={sharedStartTimestamp}ms, speed={pixelsPerSecond}px/s");
+
+                foreach (var (monitorIndex, d2dService) in newServices)
+                {
+                    await d2dService.StartAsync(startTimestampMs: sharedStartTimestamp, pixelsPerSecond: pixelsPerSecond);
+                }
+
+                // Set up thumbnail capture for live preview in topology nodes
+                var animName = Path.GetFileName(_crossScreenConfig.Animation.AnimationPath) ?? "Animation";
+                foreach (var (monitorIndex, d2dService) in newServices)
+                {
+                    SetupThumbnailCapture(monitorIndex, d2dService.PlayerHwnd, animName);
+                }
+
+                IsCrossScreenRunning = true;
+                HasAnimationConfig = true;
+                ClearAllWallpapersCommand.NotifyCanExecuteChanged();
+
+                // Set animation indicators on participating clients
+                var animFileName = Path.GetFileName(_crossScreenConfig?.Animation.AnimationPath ?? string.Empty);
+                var selectedIds = new HashSet<string>(_crossScreenConfig?.SelectedMonitorIds ?? new List<string>());
+                foreach (var client in Clients)
+                {
+                    if (selectedIds.Count == 0 || selectedIds.Contains(client.ClientId))
+                    {
+                        client.IsAnimating = true;
+                        client.ActiveAnimationName = animFileName;
+                    }
+                }
+
+                Debug.WriteLine("[CrossScreen] Simultaneous D2D animation started successfully on all monitors");
+            }
         }
         catch (Exception ex)
         {
@@ -2226,6 +2289,10 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             Debug.WriteLine("[CrossScreen] Stopping cross-screen animation...");
 
+            // Cancel sequential animation background task if running
+            _sequentialAnimationCts?.Cancel();
+            _sequentialAnimationCts = null;
+
             // Stop orchestrator animation if active
             if (!string.IsNullOrEmpty(_currentAnimationScheduleId) && _service.IsServerMode)
             {
@@ -2259,6 +2326,78 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             Debug.WriteLine($"[CrossScreen] Error stopping: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Run sequential D2D animation: start each monitor's player one at a time,
+    /// waiting for the animation to cross each screen before handing off to the next.
+    /// Duration per monitor = screenWidth / pixelsPerSecond (or 5s for static).
+    /// </summary>
+    private async Task RunSequentialD2DAnimationAsync(
+        List<(int monitorIndex, D2DCompositionService service)> services,
+        int pixelsPerSecond,
+        bool loop,
+        System.Windows.Forms.Screen[] screens,
+        CancellationToken ct)
+    {
+        do
+        {
+            for (int i = 0; i < services.Count; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                var (monitorIndex, d2dService) = services[i];
+                var screen = monitorIndex < screens.Length ? screens[monitorIndex] : screens[0];
+
+                // Calculate how long the animation should play on this monitor
+                int durationMs;
+                if (pixelsPerSecond > 0)
+                {
+                    durationMs = (int)(screen.Bounds.Width / (float)pixelsPerSecond * 1000);
+                }
+                else
+                {
+                    durationMs = 5000; // 5 seconds for static animations
+                }
+
+                Debug.WriteLine($"[Sequential] Starting monitor {monitorIndex} (duration={durationMs}ms, width={screen.Bounds.Width}px)");
+
+                // Update topology indicators on UI thread
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    foreach (var client in Clients)
+                    {
+                        var idx = GetMonitorIndex(client.ClientId);
+                        client.IsCurrentAnimationTarget = idx == monitorIndex;
+                    }
+                });
+
+                var startTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                await d2dService.StartAsync(startTimestampMs: startTimestamp, pixelsPerSecond: pixelsPerSecond);
+
+                // Wait for this monitor's animation duration
+                await Task.Delay(durationMs, ct);
+
+                // Stop this monitor before moving to next
+                await d2dService.StopAsync();
+
+                Debug.WriteLine($"[Sequential] Monitor {monitorIndex} done, moving to next");
+            }
+        }
+        while (loop && !ct.IsCancellationRequested);
+
+        // Sequential animation complete (non-looping)
+        Debug.WriteLine("[Sequential] Animation sequence completed");
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            IsCrossScreenRunning = false;
+            foreach (var client in Clients)
+            {
+                client.IsAnimating = false;
+                client.IsCurrentAnimationTarget = false;
+                client.ActiveAnimationName = null;
+            }
+        });
     }
 
     /// <summary>
