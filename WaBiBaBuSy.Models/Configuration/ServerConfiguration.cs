@@ -61,16 +61,6 @@ public class UpdateManagementConfiguration
         "WaBiBaBuSy", "Updates");
 
     /// <summary>
-    /// Current server version
-    /// </summary>
-    public string CurrentVersion { get; set; } = "2.0.0";
-
-    /// <summary>
-    /// Current server build number
-    /// </summary>
-    public int CurrentBuildNumber { get; set; } = 1;
-
-    /// <summary>
     /// Minimum compatible client version that can connect
     /// </summary>
     public string MinimumCompatibleVersion { get; set; } = "2.0.0";

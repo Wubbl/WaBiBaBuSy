@@ -59,26 +59,28 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
             bool updateAvailable = false;
             string updateDescription = string.Empty;
             long updatePackageSize = 0;
+            var serverVersion = WaBiBaBuSy.Common.Version.VersionInfo.AppVersion;
+            var serverBuild = WaBiBaBuSy.Common.Version.VersionInfo.BuildNumber;
 
             if (_serverConfig.UpdateManagement.EnableUpdates)
             {
+
                 // Check if client version is older than server version
                 updateAvailable = WaBiBaBuSy.Common.Version.VersionInfo.IsNewerVersion(
                     request.AppVersion, request.BuildNumber,
-                    _serverConfig.UpdateManagement.CurrentVersion,
-                    _serverConfig.UpdateManagement.CurrentBuildNumber);
+                    serverVersion, serverBuild);
 
                 if (updateAvailable)
                 {
                     _logger.LogInformation("Update available for client {ClientId}. Client: {ClientVer} build {ClientBuild}, Server: {ServerVer} build {ServerBuild}",
                         clientId, request.AppVersion, request.BuildNumber,
-                        _serverConfig.UpdateManagement.CurrentVersion, _serverConfig.UpdateManagement.CurrentBuildNumber);
+                        serverVersion, serverBuild);
 
-                    updateDescription = $"Update to {_serverConfig.UpdateManagement.CurrentVersion}";
+                    updateDescription = $"Update to {serverVersion}";
 
                     // Try to get package size from Updates directory
                     var updatePackagePath = Path.Combine(_serverConfig.UpdateManagement.UpdatesDirectory,
-                        $"UpdatePackage_{_serverConfig.UpdateManagement.CurrentVersion}.zip");
+                        $"UpdatePackage_{serverVersion}.zip");
                     if (File.Exists(updatePackagePath))
                     {
                         updatePackageSize = new FileInfo(updatePackagePath).Length;
@@ -100,8 +102,8 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                         Success = false,
                         Message = $"Client version {request.AppVersion} is too old. Minimum version required: {_serverConfig.UpdateManagement.MinimumCompatibleVersion}. Please update.",
                         UpdateAvailable = true,
-                        RequiredVersion = _serverConfig.UpdateManagement.CurrentVersion,
-                        RequiredBuildNumber = _serverConfig.UpdateManagement.CurrentBuildNumber,
+                        RequiredVersion = serverVersion,
+                        RequiredBuildNumber = serverBuild,
                         UpdatePackageSize = updatePackageSize,
                         UpdateDescription = "Mandatory update required"
                     });
@@ -134,8 +136,8 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                 AssignedClientId = clientId,
                 OrderPosition = connectedClient.OrderPosition,
                 UpdateAvailable = updateAvailable,
-                RequiredVersion = _serverConfig.UpdateManagement.CurrentVersion,
-                RequiredBuildNumber = _serverConfig.UpdateManagement.CurrentBuildNumber,
+                RequiredVersion = serverVersion,
+                RequiredBuildNumber = serverBuild,
                 UpdatePackageSize = updatePackageSize,
                 UpdateDescription = updateDescription
             });
