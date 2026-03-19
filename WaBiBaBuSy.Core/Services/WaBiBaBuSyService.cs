@@ -103,6 +103,13 @@ public class WaBiBaBuSyService : IDisposable
 
             await _serverHost.StartAsync();
 
+            // Wire log events
+            if (_serverHost.SyncService != null)
+            {
+                _serverHost.SyncService.ClientLogsReceived += (s, e) =>
+                    ClientLogsReceived?.Invoke(this, e);
+            }
+
             // Create sync coordinator
             var coordinatorLogger = LoggerFactory.Create(builder => builder.AddConsole())
                 .CreateLogger<WallpaperSyncCoordinator>();
@@ -197,7 +204,7 @@ public class WaBiBaBuSyService : IDisposable
                 // Create and initialize wallpaper playback service
                 var playbackLogger = LoggerFactory.Create(builder => builder.AddConsole())
                     .CreateLogger<WallpaperPlaybackService>();
-                _playbackService = new WallpaperPlaybackService(playbackLogger, _client, _rendererFactory);
+                _playbackService = new WallpaperPlaybackService(playbackLogger, _client, _rendererFactory, _clientConfig.CacheDirectory);
 
                 IsClientMode = true;
                 _logger.LogInformation("Client mode started successfully");
@@ -374,6 +381,33 @@ public class WaBiBaBuSyService : IDisposable
 
         _playbackService.RegisterContent(contentId, localFilePath);
     }
+
+    /// <summary>
+    /// Request logs from a remote client (server mode only)
+    /// </summary>
+    public async Task RequestClientLogsAsync(string clientId)
+    {
+        if (_serverHost?.SyncService == null)
+        {
+            _logger.LogWarning("Cannot request logs - server not running");
+            return;
+        }
+
+        await _serverHost.SyncService.RequestClientLogsAsync(clientId);
+    }
+
+    /// <summary>
+    /// Get stored logs for a client (server mode only)
+    /// </summary>
+    public string? GetClientLogs(string clientId)
+    {
+        return _serverHost?.SyncService?.GetClientLogs(clientId);
+    }
+
+    /// <summary>
+    /// Event raised when client logs are received on the server
+    /// </summary>
+    public event EventHandler<WaBiBaBuSy.Grpc.Services.ClientLogsReceivedEventArgs>? ClientLogsReceived;
 
     private void OnServerStatusChanged(object? sender, ServerStatusChangedEventArgs e)
     {

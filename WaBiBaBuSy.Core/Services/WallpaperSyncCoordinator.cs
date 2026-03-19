@@ -55,6 +55,9 @@ public class WallpaperSyncCoordinator
         _logger.LogInformation("Broadcasting LOAD command for content {ContentId} to {Count} clients with animation speed {Speed} cm/s",
             contentId, clients.Count, animationSpeed);
 
+        // Register content so clients can download it
+        _syncService.RegisterContent(contentId, filePath);
+
         var baseTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var sequenceNum = System.Threading.Interlocked.Increment(ref _sequenceNumber);
 
@@ -264,6 +267,9 @@ public class WallpaperSyncCoordinator
                 Loop = true
             }
         };
+
+        // Register content so client can download it
+        _syncService.RegisterContent(contentId, filePath);
 
         _logger.LogInformation("Loading wallpaper {ContentId} on client {ClientId}", contentId, clientId);
 

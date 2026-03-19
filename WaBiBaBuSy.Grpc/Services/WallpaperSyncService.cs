@@ -17,6 +17,8 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     private readonly ConcurrentDictionary<string, ConnectedClient> _connectedClients;
     private readonly ConcurrentDictionary<string, IServerStreamWriter<SyncCommand>> _clientCommandStreams;
     private readonly ConcurrentDictionary<string, ThumbnailData> _clientThumbnails;
+    private readonly ConcurrentDictionary<string, string> _contentRegistry; // contentId -> server file path
+    private readonly ConcurrentDictionary<string, ClientLogData> _clientLogs; // clientId -> latest logs
     private int _nextClientOrder = 1;
 
     public WallpaperSyncService(
@@ -28,6 +30,8 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         _connectedClients = new ConcurrentDictionary<string, ConnectedClient>();
         _clientCommandStreams = new ConcurrentDictionary<string, IServerStreamWriter<SyncCommand>>();
         _clientThumbnails = new ConcurrentDictionary<string, ThumbnailData>();
+        _contentRegistry = new ConcurrentDictionary<string, string>();
+        _clientLogs = new ConcurrentDictionary<string, ClientLogData>();
 
         // Ensure content directory exists
         Directory.CreateDirectory(_serverConfig.ContentDirectory);
@@ -559,6 +563,151 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
     }
 
+    #region Content Download (Server → Client)
+
+    /// <summary>
+    /// Register a content file so clients can download it by content ID
+    /// </summary>
+    public void RegisterContent(string contentId, string filePath)
+    {
+        _contentRegistry[contentId] = filePath;
+        _logger.LogInformation("Registered content {ContentId} at {FilePath}", contentId, filePath);
+    }
+
+    /// <summary>
+    /// Stream content file to client (server-streaming RPC)
+    /// </summary>
+    public override async Task DownloadContent(
+        ContentDownloadRequest request,
+        IServerStreamWriter<ContentChunk> responseStream,
+        ServerCallContext context)
+    {
+        _logger.LogInformation("Content download requested: {ContentId}", request.ContentId);
+
+        if (!_contentRegistry.TryGetValue(request.ContentId, out var filePath))
+        {
+            _logger.LogError("Content {ContentId} not found in registry", request.ContentId);
+            throw new RpcException(new Status(StatusCode.NotFound, $"Content '{request.ContentId}' not found"));
+        }
+
+        if (!File.Exists(filePath))
+        {
+            _logger.LogError("Content file not found on disk: {FilePath}", filePath);
+            throw new RpcException(new Status(StatusCode.NotFound, $"File not found: {filePath}"));
+        }
+
+        try
+        {
+            var fileInfo = new FileInfo(filePath);
+            var filename = fileInfo.Name;
+            var fileSize = fileInfo.Length;
+            const int chunkSize = 1024 * 1024; // 1 MB chunks
+            var totalChunks = (int)Math.Ceiling((double)fileSize / chunkSize);
+
+            // Compute file hash
+            var fileHash = await ComputeFileHashAsync(filePath);
+
+            _logger.LogInformation("Streaming content {ContentId}: {Filename} ({FileSize} bytes, {TotalChunks} chunks)",
+                request.ContentId, filename, fileSize, totalChunks);
+
+            await using var fileStream = File.OpenRead(filePath);
+            var buffer = new byte[chunkSize];
+            int chunkIndex = 0;
+
+            while (true)
+            {
+                var bytesRead = await fileStream.ReadAsync(buffer, context.CancellationToken);
+                if (bytesRead == 0) break;
+
+                var chunk = new ContentChunk
+                {
+                    ContentId = request.ContentId,
+                    Filename = filename,
+                    TotalSize = fileSize,
+                    ChunkIndex = chunkIndex,
+                    TotalChunks = totalChunks,
+                    Data = Google.Protobuf.ByteString.CopyFrom(buffer, 0, bytesRead),
+                    Hash = fileHash
+                };
+
+                await responseStream.WriteAsync(chunk);
+                chunkIndex++;
+            }
+
+            _logger.LogInformation("Content download complete: {ContentId} ({TotalChunks} chunks sent)", request.ContentId, totalChunks);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Content download cancelled: {ContentId}", request.ContentId);
+        }
+        catch (RpcException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error streaming content {ContentId}", request.ContentId);
+            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+        }
+    }
+
+    #endregion
+
+    #region Remote Log Fetch
+
+    /// <summary>
+    /// Receive log data from a client
+    /// </summary>
+    public override Task<LogReceiveResponse> SendClientLogs(
+        ClientLogData request,
+        ServerCallContext context)
+    {
+        _logger.LogInformation("Received logs from client {ClientId}: {Length} chars",
+            request.ClientId, request.LogContent.Length);
+
+        _clientLogs[request.ClientId] = request;
+
+        // Raise event for UI
+        ClientLogsReceived?.Invoke(this, new ClientLogsReceivedEventArgs(request.ClientId, request.LogContent));
+
+        return Task.FromResult(new LogReceiveResponse
+        {
+            Success = true,
+            Message = "Logs received"
+        });
+    }
+
+    /// <summary>
+    /// Request a client to send its logs by sending FETCH_LOGS command
+    /// </summary>
+    public async Task RequestClientLogsAsync(string clientId)
+    {
+        var command = new SyncCommand
+        {
+            Type = CommandType.FetchLogs,
+            TimestampUtc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            ContentId = clientId
+        };
+
+        await SendCommandToClientAsync(clientId, command);
+        _logger.LogInformation("Requested logs from client {ClientId}", clientId);
+    }
+
+    /// <summary>
+    /// Get the latest logs received from a client
+    /// </summary>
+    public string? GetClientLogs(string clientId)
+    {
+        return _clientLogs.TryGetValue(clientId, out var logData) ? logData.LogContent : null;
+    }
+
+    /// <summary>
+    /// Event raised when client logs are received
+    /// </summary>
+    public event EventHandler<ClientLogsReceivedEventArgs>? ClientLogsReceived;
+
+    #endregion
+
     #region Distributed Animation Composition (Phase 3)
 
     /// <summary>
@@ -896,4 +1045,16 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     }
 
     #endregion
+}
+
+public class ClientLogsReceivedEventArgs : EventArgs
+{
+    public string ClientId { get; }
+    public string LogContent { get; }
+
+    public ClientLogsReceivedEventArgs(string clientId, string logContent)
+    {
+        ClientId = clientId;
+        LogContent = logContent;
+    }
 }

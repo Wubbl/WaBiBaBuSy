@@ -88,6 +88,12 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private int _selectedFitModeIndex = 0; // 0=Stretch, 1=Center, 2=Fit, 3=Fill
 
+    [ObservableProperty]
+    private string _remoteClientLogs = string.Empty;
+
+    [ObservableProperty]
+    private bool _isClientLogsVisible;
+
     private CrossScreenConfig? _crossScreenConfig;
     private string? _currentAnimationScheduleId;  // Track active animation schedule (Phase 3)
 
@@ -109,6 +115,7 @@ public partial class MainWindowViewModel : ViewModelBase
         // Subscribe to service events
         _service.ServerStatusChanged += OnServerStatusChanged;
         _service.ClientConnectionStatusChanged += OnClientConnectionStatusChanged;
+        _service.ClientLogsReceived += OnClientLogsReceived;
 
         // Setup refresh timer for topology updates (but don't start it yet - window will start it)
         _refreshTimer = new System.Timers.Timer(2000); // Refresh every 2 seconds
@@ -1049,6 +1056,52 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private async Task FetchClientLogs()
+    {
+        // Find the first selected remote client
+        var selectedRemote = Clients.FirstOrDefault(c => c.IsSelected
+            && !c.ClientId.StartsWith("SERVER_LOCALHOST_MONITOR_")
+            && !c.ClientId.StartsWith("LOCAL_MACHINE_MONITOR_"));
+
+        if (selectedRemote == null)
+        {
+            Debug.WriteLine("[FetchClientLogs] No remote client selected");
+            RemoteClientLogs = "No remote client selected. Select a remote client node first.";
+            IsClientLogsVisible = true;
+            return;
+        }
+
+        try
+        {
+            RemoteClientLogs = $"Requesting logs from {selectedRemote.Hostname}...";
+            IsClientLogsVisible = true;
+
+            await _service.RequestClientLogsAsync(selectedRemote.ClientId);
+        }
+        catch (Exception ex)
+        {
+            RemoteClientLogs = $"Error requesting logs: {ex.Message}";
+            Debug.WriteLine($"[FetchClientLogs] Error: {ex.Message}");
+        }
+    }
+
+    [RelayCommand]
+    private void CloseClientLogs()
+    {
+        IsClientLogsVisible = false;
+        RemoteClientLogs = string.Empty;
+    }
+
+    private void OnClientLogsReceived(object? sender, WaBiBaBuSy.Grpc.Services.ClientLogsReceivedEventArgs e)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            RemoteClientLogs = $"=== Logs from {e.ClientId} ===\n{e.LogContent}";
+            IsClientLogsVisible = true;
+        });
+    }
+
+    [RelayCommand]
     private async Task AddWallpaper()
     {
         if (_storageProvider == null)
@@ -1539,7 +1592,9 @@ public partial class MainWindowViewModel : ViewModelBase
             }
 
             ClientCount = Clients.Count;
-            ConnectedClientCount = Clients.Count(c => c.IsConnected);
+            ConnectedClientCount = Clients.Count(c => c.IsConnected
+                && !c.ClientId.StartsWith("SERVER_LOCALHOST_MONITOR_")
+                && !c.ClientId.StartsWith("LOCAL_MACHINE_MONITOR_"));
             Debug.WriteLine($"[UpdateClientList] Complete. Final client count: {Clients.Count}");
             Debug.WriteLine($"[UpdateClientList] Clients in collection: {string.Join(", ", Clients.Select(c => c.Hostname))}");
         });

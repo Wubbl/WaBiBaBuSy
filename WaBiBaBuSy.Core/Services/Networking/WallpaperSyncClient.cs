@@ -432,6 +432,135 @@ public class WallpaperSyncClient : IDisposable
     }
 
     /// <summary>
+    /// Download content from server by content ID.
+    /// Saves to the specified cache directory and returns the local file path.
+    /// </summary>
+    public async Task<string?> DownloadContentAsync(string contentId, string cacheDirectory)
+    {
+        if (_client == null || !IsConnected)
+        {
+            _logger.LogWarning("Cannot download content - not connected");
+            return null;
+        }
+
+        try
+        {
+            _logger.LogInformation("Downloading content {ContentId} from server", contentId);
+
+            Directory.CreateDirectory(cacheDirectory);
+
+            var request = new ContentDownloadRequest { ContentId = contentId };
+            using var call = _client.DownloadContent(request);
+
+            string? filename = null;
+            string? fileHash = null;
+            var chunks = new List<ContentChunk>();
+
+            await foreach (var chunk in call.ResponseStream.ReadAllAsync())
+            {
+                filename ??= chunk.Filename;
+                fileHash ??= chunk.Hash;
+                chunks.Add(chunk);
+
+                _logger.LogDebug("Received chunk {ChunkIndex}/{TotalChunks} for {ContentId}",
+                    chunk.ChunkIndex, chunk.TotalChunks, contentId);
+            }
+
+            if (chunks.Count == 0 || filename == null)
+            {
+                _logger.LogError("No data received for content {ContentId}", contentId);
+                return null;
+            }
+
+            // Sort chunks and write to file
+            var sortedChunks = chunks.OrderBy(c => c.ChunkIndex).ToList();
+            var filePath = Path.Combine(cacheDirectory, filename);
+
+            await using (var fileStream = File.Create(filePath))
+            {
+                foreach (var chunk in sortedChunks)
+                {
+                    await fileStream.WriteAsync(chunk.Data.ToByteArray());
+                }
+            }
+
+            // Verify hash
+            if (!string.IsNullOrEmpty(fileHash))
+            {
+                var actualHash = await ComputeFileHashAsync(filePath);
+                if (!actualHash.Equals(fileHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogError("Hash mismatch for content {ContentId}. Expected: {Expected}, Actual: {Actual}",
+                        contentId, fileHash, actualHash);
+                    File.Delete(filePath);
+                    return null;
+                }
+            }
+
+            _logger.LogInformation("Content {ContentId} downloaded successfully: {FilePath} ({Chunks} chunks)",
+                contentId, filePath, chunks.Count);
+            return filePath;
+        }
+        catch (RpcException ex) when (ex.StatusCode == StatusCode.NotFound)
+        {
+            _logger.LogError("Content {ContentId} not found on server", contentId);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error downloading content {ContentId}", contentId);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Upload local log file to the server (triggered by FETCH_LOGS command)
+    /// </summary>
+    public async Task SendLogsToServerAsync(string logDirectory)
+    {
+        if (_client == null || string.IsNullOrEmpty(_clientId))
+        {
+            _logger.LogWarning("Cannot send logs - not connected");
+            return;
+        }
+
+        try
+        {
+            // Find today's log file
+            var logDate = DateTime.Today.ToString("yyyy-MM-dd");
+            var logPath = Path.Combine(logDirectory, $"wabibabusy-{logDate}.log");
+
+            string logContent;
+            if (File.Exists(logPath))
+            {
+                // Read last 500 lines (avoid sending huge files)
+                var lines = await File.ReadAllLinesAsync(logPath);
+                var lastLines = lines.Length > 500 ? lines[^500..] : lines;
+                logContent = string.Join(Environment.NewLine, lastLines);
+            }
+            else
+            {
+                logContent = $"[No log file found at {logPath}]";
+            }
+
+            var logData = new ClientLogData
+            {
+                ClientId = _clientId,
+                LogContent = logContent,
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                LogDate = logDate
+            };
+
+            var response = await _client.SendClientLogsAsync(logData);
+            _logger.LogInformation("Logs sent to server: {Success}", response.Success);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error sending logs to server");
+        }
+    }
+
+    /// <summary>
     /// Compute SHA-256 hash of a file
     /// </summary>
     private async Task<string> ComputeFileHashAsync(string filePath)
@@ -504,6 +633,17 @@ public class WallpaperSyncClient : IDisposable
                     {
                         _logger.LogInformation("Cross-screen mode stopped - terminating frame stream");
                         StopCrossScreenFrameStream();
+                    }
+
+                    // Handle FETCH_LOGS command directly (don't pass to playback service)
+                    if (command.Type == CommandType.FetchLogs)
+                    {
+                        _logger.LogInformation("Server requested logs - sending log file");
+                        var logDir = Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                            "WaBiBaBuSy", "Logs");
+                        _ = Task.Run(() => SendLogsToServerAsync(logDir));
+                        continue;
                     }
 
                     // Raise event for command processing

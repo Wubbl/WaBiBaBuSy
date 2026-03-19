@@ -21,6 +21,7 @@ public class WallpaperPlaybackService : IDisposable
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<int, IWallpaperRenderer>> _renderers;
     private readonly ConcurrentDictionary<string, string> _contentCache; // contentId -> local file path (thread-safe)
     private readonly Func<string, int, IWallpaperRenderer?>? _rendererFactory; // Updated to take monitorIndex
+    private readonly string _cacheDirectory;
 
     // Drift detection state
     private CancellationTokenSource? _driftMonitorCts;
@@ -32,11 +33,15 @@ public class WallpaperPlaybackService : IDisposable
     public WallpaperPlaybackService(
         ILogger<WallpaperPlaybackService> logger,
         WallpaperSyncClient syncClient,
-        Func<string, int, IWallpaperRenderer?>? rendererFactory = null)
+        Func<string, int, IWallpaperRenderer?>? rendererFactory = null,
+        string? cacheDirectory = null)
     {
         _logger = logger;
         _syncClient = syncClient;
         _rendererFactory = rendererFactory;
+        _cacheDirectory = cacheDirectory ?? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "WaBiBaBuSy", "Cache");
         _renderers = new ConcurrentDictionary<string, ConcurrentDictionary<int, IWallpaperRenderer>>();
         _contentCache = new ConcurrentDictionary<string, string>();
 
@@ -144,11 +149,22 @@ public class WallpaperPlaybackService : IDisposable
     {
         try
         {
-            // Check if content is in cache
+            // Check if content is in cache, auto-download if not
             if (!_contentCache.TryGetValue(command.ContentId, out var filePath))
             {
-                _logger.LogError("Content {ContentId} not found in cache", command.ContentId);
-                return;
+                _logger.LogInformation("Content {ContentId} not in cache, downloading from server...", command.ContentId);
+
+                var downloadedPath = await _syncClient.DownloadContentAsync(command.ContentId, _cacheDirectory);
+                if (downloadedPath == null)
+                {
+                    _logger.LogError("Failed to download content {ContentId} from server", command.ContentId);
+                    return;
+                }
+
+                // Register in cache
+                _contentCache[command.ContentId] = downloadedPath;
+                filePath = downloadedPath;
+                _logger.LogInformation("Content {ContentId} downloaded and cached at {FilePath}", command.ContentId, filePath);
             }
 
             _logger.LogInformation("Loading wallpaper: {FilePath}", filePath);

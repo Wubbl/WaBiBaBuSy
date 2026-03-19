@@ -60,6 +60,12 @@ service WallpaperSync {
 
   // Live thumbnail preview (client pushes thumbnail to server periodically)
   rpc SendThumbnail(ThumbnailData) returns (ThumbnailResponse);
+
+  // Content download (server streams content to client on demand)
+  rpc DownloadContent(ContentDownloadRequest) returns (stream ContentChunk);
+
+  // Client sends logs to server (triggered by FETCH_LOGS command)
+  rpc SendClientLogs(ClientLogData) returns (LogReceiveResponse);
 }
 
 // Client information message
@@ -138,6 +144,7 @@ enum CommandType {
   SYNC_FRAME = 5;
   CROSSSCREEN_START = 6;  // Start cross-screen mode
   CROSSSCREEN_STOP = 7;   // Stop cross-screen mode
+  FETCH_LOGS = 8;         // Request client to upload its log file
 }
 
 // Sync parameters
@@ -465,4 +472,31 @@ message ThumbnailData {
 // Thumbnail response from server
 message ThumbnailResponse {
   bool acknowledged = 1;
+}
+
+// ============================================================================
+// Content Download Messages (Server → Client)
+// ============================================================================
+
+// Request to download content from server
+message ContentDownloadRequest {
+  string content_id = 1;           // Content identifier
+}
+
+// ============================================================================
+// Remote Log Fetch Messages
+// ============================================================================
+
+// Client log data sent to server
+message ClientLogData {
+  string client_id = 1;
+  string log_content = 2;          // Log file text content (last N lines)
+  int64 timestamp = 3;             // When logs were captured
+  string log_date = 4;             // Which log file date (yyyy-MM-dd)
+}
+
+// Server response to log upload
+message LogReceiveResponse {
+  bool success = 1;
+  string message = 2;
 }
