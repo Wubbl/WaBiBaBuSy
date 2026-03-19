@@ -2,9 +2,11 @@ using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Core.Interfaces;
 using WaBiBaBuSy.Core.Services.Animation;
 using WaBiBaBuSy.Core.Services.Networking;
+using WaBiBaBuSy.Core.Services.Update;
 using WaBiBaBuSy.Grpc;
 using WaBiBaBuSy.Models.Animation;
 using WaBiBaBuSy.Models.Configuration;
+using WaBiBaBuSy.Models.Update;
 using UpdateAvailableEventArgs = WaBiBaBuSy.Core.Services.Networking.UpdateAvailableEventArgs;
 
 namespace WaBiBaBuSy.Core.Services;
@@ -27,6 +29,10 @@ public class WaBiBaBuSyService : IDisposable
     private WallpaperPlaybackService? _playbackService;
     private AnimationDistributor? _animationDistributor;
     private AnimationOrchestrator? _animationOrchestrator;
+    private UpdateManager? _updateManager;
+    private UpdateDownloader? _updateDownloader;
+    private UpdateVerifier? _updateVerifier;
+    private UpdateApplicator? _updateApplicator;
 
     public bool IsServerMode { get; private set; }
     public bool IsClientMode { get; private set; }
@@ -206,6 +212,29 @@ public class WaBiBaBuSyService : IDisposable
                     .CreateLogger<WallpaperPlaybackService>();
                 _playbackService = new WallpaperPlaybackService(playbackLogger, _client, _rendererFactory, _clientConfig.CacheDirectory);
 
+                // Initialize update services
+                var verifierLogger = LoggerFactory.Create(builder => builder.AddConsole())
+                    .CreateLogger<UpdateVerifier>();
+                _updateVerifier = new UpdateVerifier(verifierLogger);
+
+                var downloaderLogger = LoggerFactory.Create(builder => builder.AddConsole())
+                    .CreateLogger<UpdateDownloader>();
+                _updateDownloader = new UpdateDownloader(downloaderLogger, _updateVerifier);
+
+                var managerLogger = LoggerFactory.Create(builder => builder.AddConsole())
+                    .CreateLogger<UpdateManager>();
+                _updateManager = new UpdateManager(
+                    managerLogger, _updateDownloader, _updateVerifier,
+                    _clientConfig.UpdateSettings.DownloadDirectory,
+                    _clientConfig.UpdateSettings.BackupDirectory);
+
+                var applicatorLogger = LoggerFactory.Create(builder => builder.AddConsole())
+                    .CreateLogger<UpdateApplicator>();
+                _updateApplicator = new UpdateApplicator(applicatorLogger);
+
+                // Forward update status events
+                _updateManager.StatusChanged += (s, e) => UpdateStatusChanged?.Invoke(this, e);
+
                 IsClientMode = true;
                 _logger.LogInformation("Client mode started successfully");
             }
@@ -381,6 +410,75 @@ public class WaBiBaBuSyService : IDisposable
 
         _playbackService.RegisterContent(contentId, localFilePath);
     }
+
+    #region Update System (Client Mode)
+
+    /// <summary>
+    /// Event raised when update status changes
+    /// </summary>
+    public event EventHandler<UpdateStatusInfo>? UpdateStatusChanged;
+
+    /// <summary>
+    /// Check for available updates from the server (client mode only)
+    /// </summary>
+    public async Task<UpdateInfo?> CheckForUpdateAsync(CancellationToken cancellationToken = default)
+    {
+        if (_client?.GrpcClient == null || _updateManager == null)
+        {
+            _logger.LogWarning("Cannot check for updates - client or update manager not initialized");
+            return null;
+        }
+
+        return await _updateManager.CheckForUpdatesAsync(
+            _client.GrpcClient, _client.ClientId ?? "unknown", cancellationToken);
+    }
+
+    /// <summary>
+    /// Download and prepare an update (client mode only)
+    /// </summary>
+    public async Task<string?> DownloadUpdateAsync(UpdateInfo updateInfo, CancellationToken cancellationToken = default)
+    {
+        if (_client?.GrpcClient == null || _updateManager == null)
+        {
+            _logger.LogWarning("Cannot download update - client or update manager not initialized");
+            return null;
+        }
+
+        return await _updateManager.DownloadAndPrepareUpdateAsync(
+            _client.GrpcClient, updateInfo, cancellationToken);
+    }
+
+    /// <summary>
+    /// Apply a downloaded update (launches external updater and exits app)
+    /// </summary>
+    public bool ApplyUpdate(string updateDirectory)
+    {
+        if (_updateApplicator == null)
+        {
+            _logger.LogWarning("Cannot apply update - applicator not initialized");
+            return false;
+        }
+
+        var installDir = AppDomain.CurrentDomain.BaseDirectory;
+        var backupDir = _clientConfig.UpdateSettings.BackupDirectory;
+
+        _logger.LogInformation("Applying update from {UpdateDir} to {InstallDir}", updateDirectory, installDir);
+
+        // Validate package before applying
+        if (!_updateApplicator.ValidateUpdatePackage(updateDirectory))
+        {
+            _logger.LogError("Update package validation failed");
+            return false;
+        }
+
+        // Create backup first
+        _ = _updateManager?.CreateBackupAsync(installDir);
+
+        // Launch updater (this will exit the application)
+        return _updateApplicator.LaunchUpdaterAndExit(updateDirectory, installDir, backupDir);
+    }
+
+    #endregion
 
     /// <summary>
     /// Request logs from a remote client (server mode only)

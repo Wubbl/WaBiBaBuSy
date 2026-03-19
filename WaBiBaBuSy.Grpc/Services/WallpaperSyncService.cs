@@ -1,6 +1,7 @@
 using Grpc.Core;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using System.IO.Compression;
 using System.Security.Cryptography;
 using WaBiBaBuSy.Models.Configuration;
 using WaBiBaBuSy.Common.Version;
@@ -562,6 +563,320 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         var hashBytes = await sha256.ComputeHashAsync(fileStream);
         return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
     }
+
+    #region Update Distribution
+
+    // Cached path to auto-generated update package (built from server's own binaries)
+    private string? _cachedUpdatePackagePath;
+    private readonly object _packageBuildLock = new();
+
+    /// <summary>
+    /// Handle client checking for available updates
+    /// </summary>
+    public override async Task<UpdateCheckResponse> CheckForUpdates(
+        UpdateCheckRequest request,
+        ServerCallContext context)
+    {
+        _logger.LogInformation("Update check from client {ClientId}: version {Version} build {Build}",
+            request.ClientId, request.CurrentVersion, request.CurrentBuild);
+
+        try
+        {
+            if (!_serverConfig.UpdateManagement.EnableUpdates)
+            {
+                return new UpdateCheckResponse { UpdateAvailable = false };
+            }
+
+            // Compare using the ACTUAL running server version, not config
+            var serverVersion = WaBiBaBuSy.Common.Version.VersionInfo.AppVersion;
+            var serverBuild = WaBiBaBuSy.Common.Version.VersionInfo.BuildNumber;
+
+            bool updateAvailable = WaBiBaBuSy.Common.Version.VersionInfo.IsNewerVersion(
+                request.CurrentVersion, request.CurrentBuild,
+                serverVersion, serverBuild);
+
+            if (!updateAvailable)
+            {
+                _logger.LogInformation("Client {ClientId} is up to date (both at {Version} build {Build})",
+                    request.ClientId, request.CurrentVersion, request.CurrentBuild);
+                return new UpdateCheckResponse { UpdateAvailable = false };
+            }
+
+            // Auto-build update package from server's own binaries
+            var packagePath = await EnsureUpdatePackageExistsAsync();
+            long packageSize = File.Exists(packagePath) ? new FileInfo(packagePath).Length : 0;
+
+            bool isMandatory = _serverConfig.UpdateManagement.EnforceMandatoryUpdates &&
+                WaBiBaBuSy.Common.Version.VersionInfo.IsUpdateRequired(
+                    request.CurrentVersion,
+                    _serverConfig.UpdateManagement.MinimumCompatibleVersion);
+
+            var response = new UpdateCheckResponse
+            {
+                UpdateAvailable = true,
+                NewVersion = serverVersion,
+                NewBuild = serverBuild,
+                PackageSize = packageSize,
+                PackageHash = string.Empty, // Computed during download
+                ReleaseNotes = $"Update from {request.CurrentVersion} to {serverVersion}",
+                IsMandatory = isMandatory
+            };
+
+            _logger.LogInformation("Update available for client {ClientId}: {ClientVer} → {ServerVer} ({Size:N0} bytes)",
+                request.ClientId, request.CurrentVersion, serverVersion, packageSize);
+
+            return response;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking for updates");
+            return new UpdateCheckResponse { UpdateAvailable = false };
+        }
+    }
+
+    /// <summary>
+    /// Stream update package to client
+    /// </summary>
+    public override async Task DownloadUpdate(
+        UpdateDownloadRequest request,
+        IServerStreamWriter<UpdateChunk> responseStream,
+        ServerCallContext context)
+    {
+        _logger.LogInformation("Update download requested by client {ClientId}: version {Version}",
+            request.ClientId, request.RequestedVersion);
+
+        // Auto-build package from server's own binaries if needed
+        var packagePath = await EnsureUpdatePackageExistsAsync();
+
+        if (!File.Exists(packagePath))
+        {
+            _logger.LogError("Failed to create update package");
+            throw new RpcException(new Status(StatusCode.Internal, "Failed to create update package"));
+        }
+
+        try
+        {
+            var fileInfo = new FileInfo(packagePath);
+            var filename = fileInfo.Name;
+            var fileSize = fileInfo.Length;
+            const int chunkSize = 1024 * 1024; // 1 MB chunks
+            var totalChunks = (int)Math.Ceiling((double)fileSize / chunkSize);
+
+            var packageHash = await ComputeFileHashAsync(packagePath);
+
+            _logger.LogInformation("Streaming update package: {Filename} ({FileSize:N0} bytes, {TotalChunks} chunks)",
+                filename, fileSize, totalChunks);
+
+            await using var fileStream = File.OpenRead(packagePath);
+            var buffer = new byte[chunkSize];
+            int chunkIndex = 0;
+
+            while (true)
+            {
+                var bytesRead = await fileStream.ReadAsync(buffer, context.CancellationToken);
+                if (bytesRead == 0) break;
+
+                var chunk = new UpdateChunk
+                {
+                    UpdateId = request.RequestedVersion,
+                    Filename = filename,
+                    TotalSize = fileSize,
+                    ChunkIndex = chunkIndex,
+                    TotalChunks = totalChunks,
+                    Data = Google.Protobuf.ByteString.CopyFrom(buffer, 0, bytesRead),
+                    FileHash = string.Empty,
+                    PackageHash = packageHash
+                };
+
+                await responseStream.WriteAsync(chunk);
+                chunkIndex++;
+            }
+
+            _logger.LogInformation("Update download complete for client {ClientId}: {TotalChunks} chunks sent",
+                request.ClientId, totalChunks);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Update download cancelled for client {ClientId}", request.ClientId);
+        }
+        catch (RpcException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error streaming update to client {ClientId}", request.ClientId);
+            throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+        }
+    }
+
+    /// <summary>
+    /// Receive update status report from client
+    /// </summary>
+    public override Task<UpdateStatusResponse> ReportUpdateStatus(
+        UpdateStatusReport request,
+        ServerCallContext context)
+    {
+        _logger.LogInformation("Update status from client {ClientId}: {Status} ({Progress}%) - {Error}",
+            request.ClientId, request.Status, request.ProgressPercent, request.ErrorMessage);
+
+        return Task.FromResult(new UpdateStatusResponse { Acknowledged = true });
+    }
+
+    /// <summary>
+    /// Auto-generate update package from the server's own running binaries.
+    /// The server IS the newest version — it packages itself for outdated clients.
+    /// </summary>
+    private async Task<string> EnsureUpdatePackageExistsAsync()
+    {
+        var serverVersion = WaBiBaBuSy.Common.Version.VersionInfo.AppVersion;
+        var updatesDir = _serverConfig.UpdateManagement.UpdatesDirectory;
+        Directory.CreateDirectory(updatesDir);
+
+        var packagePath = Path.Combine(updatesDir, $"UpdatePackage_{serverVersion}.zip");
+
+        // Return cached path if package already exists and matches current version
+        if (_cachedUpdatePackagePath != null && File.Exists(_cachedUpdatePackagePath))
+            return _cachedUpdatePackagePath;
+
+        if (File.Exists(packagePath))
+        {
+            _cachedUpdatePackagePath = packagePath;
+            return packagePath;
+        }
+
+        // Build package from server's own installation directory
+        lock (_packageBuildLock)
+        {
+            // Double-check after acquiring lock
+            if (File.Exists(packagePath))
+            {
+                _cachedUpdatePackagePath = packagePath;
+                return packagePath;
+            }
+
+            _logger.LogInformation("Auto-generating update package from server binaries for version {Version}", serverVersion);
+
+            var serverInstallDir = AppDomain.CurrentDomain.BaseDirectory;
+            var tempDir = Path.Combine(updatesDir, $"_build_{serverVersion}");
+
+            try
+            {
+                // Clean temp dir
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, true);
+
+                var binariesDir = Path.Combine(tempDir, "binaries");
+                var updaterDir = Path.Combine(tempDir, "updater");
+                Directory.CreateDirectory(binariesDir);
+                Directory.CreateDirectory(updaterDir);
+
+                // Copy all application files to binaries/
+                var extensions = new[] { "*.exe", "*.dll", "*.json", "*.pdb", "*.deps.json", "*.runtimeconfig.json" };
+                var manifestFiles = new List<(string relativePath, string fullPath)>();
+
+                foreach (var ext in extensions)
+                {
+                    foreach (var file in Directory.GetFiles(serverInstallDir, ext, SearchOption.TopDirectoryOnly))
+                    {
+                        var fileName = Path.GetFileName(file);
+                        // Skip config files that are machine-specific
+                        if (fileName.Equals("appsettings.json", StringComparison.OrdinalIgnoreCase) ||
+                            fileName.Equals("appsettings.Development.json", StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        var destPath = Path.Combine(binariesDir, fileName);
+                        File.Copy(file, destPath, overwrite: true);
+                        manifestFiles.Add(($"binaries/{fileName}", destPath));
+                    }
+                }
+
+                // Copy native libraries (libvlc, etc.) if they exist in subdirectories
+                foreach (var subDir in new[] { "libvlc", "runtimes" })
+                {
+                    var sourceSubDir = Path.Combine(serverInstallDir, subDir);
+                    if (Directory.Exists(sourceSubDir))
+                    {
+                        CopyDirectoryRecursive(sourceSubDir, Path.Combine(binariesDir, subDir));
+                    }
+                }
+
+                // Copy updater exe if available
+                var updaterExe = Path.Combine(serverInstallDir, "WaBiBaBuSy.Updater.exe");
+                if (File.Exists(updaterExe))
+                {
+                    File.Copy(updaterExe, Path.Combine(updaterDir, "WaBiBaBuSy.Updater.exe"), overwrite: true);
+
+                    // Also copy updater dependencies
+                    foreach (var file in Directory.GetFiles(serverInstallDir, "WaBiBaBuSy.Updater.*"))
+                    {
+                        var fileName = Path.GetFileName(file);
+                        File.Copy(file, Path.Combine(updaterDir, fileName), overwrite: true);
+                    }
+                }
+
+                // Generate manifest.json with SHA-256 hashes
+                var manifest = new
+                {
+                    Version = serverVersion,
+                    BuildNumber = WaBiBaBuSy.Common.Version.VersionInfo.BuildNumber,
+                    ReleaseDate = DateTime.UtcNow.ToString("o"),
+                    MinimumCompatibleVersion = _serverConfig.UpdateManagement.MinimumCompatibleVersion,
+                    ReleaseNotes = $"Auto-generated update package from server v{serverVersion}",
+                    Files = manifestFiles.Select(f =>
+                    {
+                        using var sha = System.Security.Cryptography.SHA256.Create();
+                        using var stream = File.OpenRead(f.fullPath);
+                        var hash = BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
+                        return new { Path = f.relativePath, Size = new FileInfo(f.fullPath).Length, Sha256 = hash, Action = "Replace" };
+                    }).ToList()
+                };
+
+                var manifestJson = System.Text.Json.JsonSerializer.Serialize(manifest,
+                    new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(Path.Combine(tempDir, "manifest.json"), manifestJson);
+
+                // Create ZIP
+                if (File.Exists(packagePath))
+                    File.Delete(packagePath);
+
+                System.IO.Compression.ZipFile.CreateFromDirectory(tempDir, packagePath);
+
+                _logger.LogInformation("Update package created: {PackagePath} ({Size:N0} bytes, {FileCount} files)",
+                    packagePath, new FileInfo(packagePath).Length, manifestFiles.Count);
+
+                _cachedUpdatePackagePath = packagePath;
+            }
+            finally
+            {
+                // Clean up temp build directory
+                try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); }
+                catch { /* best effort */ }
+            }
+        }
+
+        return packagePath;
+    }
+
+    /// <summary>
+    /// Recursively copy a directory
+    /// </summary>
+    private static void CopyDirectoryRecursive(string sourceDir, string destDir)
+    {
+        Directory.CreateDirectory(destDir);
+
+        foreach (var file in Directory.GetFiles(sourceDir))
+        {
+            File.Copy(file, Path.Combine(destDir, Path.GetFileName(file)), overwrite: true);
+        }
+
+        foreach (var dir in Directory.GetDirectories(sourceDir))
+        {
+            CopyDirectoryRecursive(dir, Path.Combine(destDir, Path.GetFileName(dir)));
+        }
+    }
+
+    #endregion
 
     #region Content Download (Server → Client)
 

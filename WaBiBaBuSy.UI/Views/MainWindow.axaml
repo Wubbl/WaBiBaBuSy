@@ -20,7 +20,7 @@
         <views:HexToColorConverter x:Key="HexToColor"/>
     </Window.Resources>
 
-    <Grid RowDefinitions="Auto,*">
+    <Grid RowDefinitions="Auto,Auto,*">
         <!-- Top Bar with Server Controls -->
         <Border Grid.Row="0" Background="#2D2D30" Padding="15,10">
             <Grid ColumnDefinitions="Auto,*,Auto">
@@ -94,8 +94,33 @@
             </Grid>
         </Border>
 
+        <!-- Update Notification Bar -->
+        <Border Grid.Row="1" Background="#1A3A5C" Padding="10,6"
+                IsVisible="{Binding IsUpdateAvailable}">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+                <TextBlock Grid.Column="0" Text="UPDATE" Foreground="#4FC3F7"
+                           FontSize="11" FontWeight="Bold" VerticalAlignment="Center"
+                           Margin="0,0,10,0"/>
+                <TextBlock Grid.Column="1" Text="{Binding UpdateStatusText}"
+                           Foreground="White" FontSize="11" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"/>
+                <ProgressBar Grid.Column="2" Value="{Binding UpdateProgressPercent}"
+                             Width="120" Height="14" Margin="10,0"
+                             VerticalAlignment="Center"
+                             IsVisible="{Binding IsUpdateInProgress}"/>
+                <Button Grid.Column="3" Content="Download &amp; Apply"
+                        Command="{Binding DownloadAndApplyUpdateCommand}"
+                        Padding="8,3" FontSize="11" Margin="5,0"
+                        IsEnabled="{Binding !IsUpdateInProgress}"/>
+                <Button Grid.Column="4" Content="Dismiss"
+                        Command="{Binding DismissUpdateCommand}"
+                        Padding="8,3" FontSize="11"
+                        IsEnabled="{Binding !IsUpdateInProgress}"/>
+            </Grid>
+        </Border>
+
         <!-- Main Split View: Client Graph (Left) | Wallpaper Gallery (Right) -->
-        <Grid Grid.Row="1" ColumnDefinitions="*,5,*">
+        <Grid Grid.Row="2" ColumnDefinitions="*,5,*">
 
             <!-- Left Panel: Client Network Graph -->
             <Border Grid.Column="0" Background="#1E1E1E" Padding="15">

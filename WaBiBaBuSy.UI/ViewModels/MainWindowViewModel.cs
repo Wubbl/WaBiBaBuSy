@@ -94,6 +94,21 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isClientLogsVisible;
 
+    [ObservableProperty]
+    private bool _isUpdateAvailable;
+
+    [ObservableProperty]
+    private string _updateStatusText = string.Empty;
+
+    [ObservableProperty]
+    private int _updateProgressPercent;
+
+    [ObservableProperty]
+    private bool _isUpdateInProgress;
+
+    private WaBiBaBuSy.Models.Update.UpdateInfo? _pendingUpdateInfo;
+    private string? _downloadedUpdatePath;
+
     private CrossScreenConfig? _crossScreenConfig;
     private string? _currentAnimationScheduleId;  // Track active animation schedule (Phase 3)
 
@@ -116,6 +131,8 @@ public partial class MainWindowViewModel : ViewModelBase
         _service.ServerStatusChanged += OnServerStatusChanged;
         _service.ClientConnectionStatusChanged += OnClientConnectionStatusChanged;
         _service.ClientLogsReceived += OnClientLogsReceived;
+        _service.UpdateAvailable += OnUpdateAvailableFromServer;
+        _service.UpdateStatusChanged += OnUpdateStatusChanged;
 
         // Setup refresh timer for topology updates (but don't start it yet - window will start it)
         _refreshTimer = new System.Timers.Timer(2000); // Refresh every 2 seconds
@@ -1090,6 +1107,122 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         IsClientLogsVisible = false;
         RemoteClientLogs = string.Empty;
+    }
+
+    [RelayCommand]
+    private async Task CheckForUpdate()
+    {
+        try
+        {
+            UpdateStatusText = "Checking for updates...";
+            IsUpdateInProgress = true;
+
+            var updateInfo = await _service.CheckForUpdateAsync();
+            if (updateInfo != null)
+            {
+                _pendingUpdateInfo = updateInfo;
+                IsUpdateAvailable = true;
+                UpdateStatusText = $"Update available: v{updateInfo.Version} ({updateInfo.PackageSize / 1024 / 1024} MB)" +
+                    (updateInfo.IsMandatory ? " [MANDATORY]" : "");
+            }
+            else
+            {
+                UpdateStatusText = "You are running the latest version.";
+                IsUpdateAvailable = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            UpdateStatusText = $"Update check failed: {ex.Message}";
+            Debug.WriteLine($"[CheckForUpdate] Error: {ex.Message}");
+        }
+        finally
+        {
+            IsUpdateInProgress = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task DownloadAndApplyUpdate()
+    {
+        if (_pendingUpdateInfo == null)
+        {
+            UpdateStatusText = "No update available to download.";
+            return;
+        }
+
+        try
+        {
+            IsUpdateInProgress = true;
+            UpdateStatusText = "Downloading update...";
+
+            var updatePath = await _service.DownloadUpdateAsync(_pendingUpdateInfo);
+            if (updatePath == null)
+            {
+                UpdateStatusText = "Download failed.";
+                return;
+            }
+
+            _downloadedUpdatePath = updatePath;
+            UpdateStatusText = $"Update v{_pendingUpdateInfo.Version} downloaded. Ready to apply.";
+
+            // Ask user confirmation then apply
+            UpdateStatusText = "Applying update... Application will restart.";
+            _service.ApplyUpdate(updatePath);
+            // If we get here, the apply failed (it normally calls Environment.Exit)
+            UpdateStatusText = "Update apply failed. Please restart manually.";
+        }
+        catch (Exception ex)
+        {
+            UpdateStatusText = $"Update failed: {ex.Message}";
+            Debug.WriteLine($"[DownloadAndApplyUpdate] Error: {ex.Message}");
+        }
+        finally
+        {
+            IsUpdateInProgress = false;
+        }
+    }
+
+    [RelayCommand]
+    private void DismissUpdate()
+    {
+        IsUpdateAvailable = false;
+        UpdateStatusText = string.Empty;
+    }
+
+    private void OnUpdateAvailableFromServer(object? sender, WaBiBaBuSy.Core.Services.Networking.UpdateAvailableEventArgs e)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            _pendingUpdateInfo = new WaBiBaBuSy.Models.Update.UpdateInfo
+            {
+                Version = e.ServerVersion,
+                BuildNumber = e.ServerBuildNumber,
+                PackageSize = e.PackageSize,
+                ReleaseNotes = e.Description
+            };
+            IsUpdateAvailable = true;
+            UpdateStatusText = $"Update available: v{e.ServerVersion} - {e.Description}";
+        });
+    }
+
+    private void OnUpdateStatusChanged(object? sender, WaBiBaBuSy.Models.Update.UpdateStatusInfo e)
+    {
+        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            UpdateProgressPercent = e.ProgressPercent;
+            UpdateStatusText = e.Status switch
+            {
+                WaBiBaBuSy.Models.Update.UpdateStatusType.Checking => "Checking for updates...",
+                WaBiBaBuSy.Models.Update.UpdateStatusType.Downloading => $"Downloading... {e.ProgressPercent}%",
+                WaBiBaBuSy.Models.Update.UpdateStatusType.Downloaded => "Download complete. Verifying...",
+                WaBiBaBuSy.Models.Update.UpdateStatusType.Verifying => "Verifying package integrity...",
+                WaBiBaBuSy.Models.Update.UpdateStatusType.Applying => "Applying update...",
+                WaBiBaBuSy.Models.Update.UpdateStatusType.Applied => "Update applied successfully!",
+                WaBiBaBuSy.Models.Update.UpdateStatusType.Failed => $"Update failed: {e.ErrorMessage}",
+                _ => UpdateStatusText
+            };
+        });
     }
 
     private void OnClientLogsReceived(object? sender, WaBiBaBuSy.Grpc.Services.ClientLogsReceivedEventArgs e)

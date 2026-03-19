@@ -36,6 +36,11 @@ public class WallpaperSyncClient : IDisposable
     public string? ClientId => _clientId;
 
     /// <summary>
+    /// Get the raw gRPC client stub for direct RPC calls (used by UpdateManager/UpdateDownloader)
+    /// </summary>
+    public WallpaperSync.WallpaperSyncClient? GrpcClient => _client;
+
+    /// <summary>
     /// Set the thumbnail capture service for sending live wallpaper previews to the server.
     /// </summary>
     public ThumbnailCaptureService? ThumbnailCaptureService
