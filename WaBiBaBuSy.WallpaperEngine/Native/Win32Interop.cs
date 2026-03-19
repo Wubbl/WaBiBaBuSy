@@ -259,4 +259,72 @@ internal static class Win32Interop
     // Mouse activate return values
     public const int MA_NOACTIVATE = 3;
     public const int MA_NOACTIVATEANDEAT = 4;
+
+    // Monitor enumeration (replaces System.Windows.Forms.Screen to avoid WinForms dependency)
+    public delegate bool MonitorEnumProc(IntPtr hMonitor, IntPtr hdcMonitor, ref RECT lprcMonitor, IntPtr dwData);
+
+    [DllImport("user32.dll")]
+    public static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr lprcClip, MonitorEnumProc lpfnEnum, IntPtr dwData);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFOEX lpmi);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct MONITORINFOEX
+    {
+        public int cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string szDevice;
+    }
+
+    public const uint MONITORINFOF_PRIMARY = 1;
+}
+
+/// <summary>
+/// Native monitor information, replacing System.Windows.Forms.Screen
+/// </summary>
+public class NativeMonitorInfo
+{
+    public System.Drawing.Rectangle Bounds { get; init; }
+    public System.Drawing.Rectangle WorkingArea { get; init; }
+    public string DeviceName { get; init; } = string.Empty;
+    public bool IsPrimary { get; init; }
+
+    /// <summary>
+    /// Get all monitors using native Win32 API (no WinForms dependency).
+    /// Sorted left-to-right by X position.
+    /// </summary>
+    public static NativeMonitorInfo[] GetAllMonitors()
+    {
+        var monitors = new List<NativeMonitorInfo>();
+
+        Win32Interop.EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (IntPtr hMonitor, IntPtr hdcMonitor, ref Win32Interop.RECT lprcMonitor, IntPtr dwData) =>
+        {
+            var info = new Win32Interop.MONITORINFOEX();
+            info.cbSize = Marshal.SizeOf<Win32Interop.MONITORINFOEX>();
+
+            if (Win32Interop.GetMonitorInfo(hMonitor, ref info))
+            {
+                monitors.Add(new NativeMonitorInfo
+                {
+                    Bounds = new System.Drawing.Rectangle(
+                        info.rcMonitor.Left, info.rcMonitor.Top,
+                        info.rcMonitor.Right - info.rcMonitor.Left,
+                        info.rcMonitor.Bottom - info.rcMonitor.Top),
+                    WorkingArea = new System.Drawing.Rectangle(
+                        info.rcWork.Left, info.rcWork.Top,
+                        info.rcWork.Right - info.rcWork.Left,
+                        info.rcWork.Bottom - info.rcWork.Top),
+                    DeviceName = info.szDevice,
+                    IsPrimary = (info.dwFlags & Win32Interop.MONITORINFOF_PRIMARY) != 0
+                });
+            }
+            return true;
+        }, IntPtr.Zero);
+
+        return monitors.OrderBy(m => m.Bounds.X).ToArray();
+    }
 }

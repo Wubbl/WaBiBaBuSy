@@ -50,6 +50,17 @@ public class WaBiBaBuSyService : IDisposable
     public WallpaperPlaybackService? PlaybackService => _playbackService;
 
     /// <summary>
+    /// Set the D2D apply delegate on the playback service.
+    /// Call this after ConnectToServerAsync to enable D2D rendering on this client.
+    /// Signature: (filePath, monitorIndex, backgroundColor, fitMode) → Task
+    /// </summary>
+    public void SetD2DApplyDelegate(Func<string, int, string, int, Task>? d2dApply)
+    {
+        if (_playbackService != null)
+            _playbackService.D2DApplyDelegate = d2dApply;
+    }
+
+    /// <summary>
     /// Get the wallpaper sync client (only available in client mode)
     /// </summary>
     public WallpaperSyncClient? Client => _client;

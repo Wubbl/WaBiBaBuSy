@@ -563,16 +563,17 @@ public class GifWallpaperRenderer : IWallpaperRenderer
             MinimizeBox = false
         };
 
-        // Validate monitor index
-        if (config.MonitorIndex < 0 || config.MonitorIndex >= Screen.AllScreens.Length)
+        // Validate monitor index using native API (avoids WinForms dependency)
+        var monitors = Native.NativeMonitorInfo.GetAllMonitors();
+        if (config.MonitorIndex < 0 || config.MonitorIndex >= monitors.Length)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(config.MonitorIndex),
-                $"Invalid monitor index {config.MonitorIndex}. Must be between 0 and {Screen.AllScreens.Length - 1}. Total monitors: {Screen.AllScreens.Length}");
+                $"Invalid monitor index {config.MonitorIndex}. Must be between 0 and {monitors.Length - 1}. Total monitors: {monitors.Length}");
         }
 
         // Set window bounds for the specific monitor
-        var screen = Screen.AllScreens[config.MonitorIndex];
+        var screen = monitors[config.MonitorIndex];
         _renderForm.Bounds = screen.Bounds;
 
         _logger.LogInformation("GIF renderer set to monitor {Index}: {Bounds} (Device: {Device})",

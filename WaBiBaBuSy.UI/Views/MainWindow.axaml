@@ -24,13 +24,19 @@
         <!-- Top Bar with Server Controls -->
         <Border Grid.Row="0" Background="#2D2D30" Padding="15,10">
             <Grid ColumnDefinitions="Auto,*,Auto">
-                <!-- Server Status Badges -->
+                <!-- Server Status + Toggle -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Button Command="{Binding ToggleServerModeCommand}"
+                            Padding="8,4" FontSize="11" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="{Binding IsServerMode, StringFormat={}{0}}"
+                                       IsVisible="False"/>
+                            <TextBlock Text="&#9654; Start Server" IsVisible="{Binding !IsServerMode}"/>
+                            <TextBlock Text="&#9632; Stop Server" IsVisible="{Binding IsServerMode}"/>
+                        </StackPanel>
+                    </Button>
                     <Border Background="#00AA44" CornerRadius="3" Padding="8,4" IsVisible="{Binding IsServerMode}">
-                        <TextBlock Text="Server Running" Foreground="White" FontSize="11" FontWeight="SemiBold"/>
-                    </Border>
-                    <Border Background="#CC4444" CornerRadius="3" Padding="8,4" IsVisible="{Binding !IsServerMode}">
-                        <TextBlock Text="Server Stopped" Foreground="White" FontSize="11"/>
+                        <TextBlock Text="Running" Foreground="White" FontSize="11" FontWeight="SemiBold"/>
                     </Border>
                     <Border Background="#0078D4" CornerRadius="3" Padding="6,4" IsVisible="{Binding IsServerMode}">
                         <TextBlock Text="{Binding ServerPort, StringFormat='Port: {0}'}" Foreground="White" FontSize="11"/>

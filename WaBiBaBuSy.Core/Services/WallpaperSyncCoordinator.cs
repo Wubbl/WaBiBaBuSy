@@ -321,6 +321,53 @@ public class WallpaperSyncCoordinator
     }
 
     /// <summary>
+    /// Load wallpaper on a specific client using D2D renderer
+    /// </summary>
+    public async Task LoadWallpaperD2DOnClientAsync(
+        string clientId,
+        string contentId,
+        string filePath,
+        string backgroundColor,
+        int fitMode)
+    {
+        if (_syncService == null)
+        {
+            _logger.LogWarning("Cannot load D2D wallpaper: sync service not initialized");
+            return;
+        }
+
+        // Register content so client can download it
+        _syncService.RegisterContent(contentId, filePath);
+
+        var command = new SyncCommand
+        {
+            Type = CommandType.Load,
+            TimestampUtc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            SequenceNumber = System.Threading.Interlocked.Increment(ref _sequenceNumber),
+            ContentId = contentId,
+            Params = new SyncParameters
+            {
+                Loop = true,
+                RendererType = "d2d",
+                BackgroundColor = backgroundColor,
+                FitMode = fitMode
+            }
+        };
+
+        _logger.LogInformation("Loading D2D wallpaper {ContentId} on client {ClientId} (bg={BgColor}, fit={FitMode})",
+            contentId, clientId, backgroundColor, fitMode);
+
+        try
+        {
+            await _syncService.SendCommandToClientAsync(clientId, command);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading D2D wallpaper on client {ClientId}", clientId);
+        }
+    }
+
+    /// <summary>
     /// Send a cross-screen frame to a specific client
     /// </summary>
     public async Task SendCrossScreenFrameAsync(

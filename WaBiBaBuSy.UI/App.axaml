@@ -4,8 +4,8 @@
              xmlns:local="using:WaBiBaBuSy.UI"
              xmlns:vm="using:WaBiBaBuSy.UI.ViewModels"
              x:DataType="vm:TrayViewModel"
-             RequestedThemeVariant="Default">
-             <!-- "Default" ThemeVariant follows system theme variant. "Dark" or "Light" are other available options. -->
+             RequestedThemeVariant="Dark">
+             <!-- Force Dark theme so custom dark backgrounds (#1E1E1E, #2D2D30) match button/text colors -->
 
     <Application.DataTemplates>
         <local:ViewLocator/>

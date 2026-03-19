@@ -23,6 +23,12 @@ public class WallpaperPlaybackService : IDisposable
     private readonly Func<string, int, IWallpaperRenderer?>? _rendererFactory; // Updated to take monitorIndex
     private readonly string _cacheDirectory;
 
+    /// <summary>
+    /// Delegate for D2D rendering: (filePath, monitorIndex, backgroundColor, fitMode) → Task
+    /// Set by the UI layer to enable D2D composition rendering on this client.
+    /// </summary>
+    public Func<string, int, string, int, Task>? D2DApplyDelegate { get; set; }
+
     // Drift detection state
     private CancellationTokenSource? _driftMonitorCts;
     private Task? _driftMonitorTask;
@@ -141,9 +147,7 @@ public class WallpaperPlaybackService : IDisposable
     }
 
     /// <summary>
-    /// Handle LOAD command - initialize wallpaper renderer(s)
-    /// If monitorIndex is specified in params, load on that monitor only.
-    /// Otherwise, load on all available monitors.
+    /// Handle LOAD command - download content if needed, then render via D2D or LibVLC
     /// </summary>
     private async Task HandleLoadCommandAsync(SyncCommand command)
     {
@@ -161,71 +165,60 @@ public class WallpaperPlaybackService : IDisposable
                     return;
                 }
 
-                // Register in cache
                 _contentCache[command.ContentId] = downloadedPath;
                 filePath = downloadedPath;
                 _logger.LogInformation("Content {ContentId} downloaded and cached at {FilePath}", command.ContentId, filePath);
             }
 
-            _logger.LogInformation("Loading wallpaper: {FilePath}", filePath);
+            var rendererType = command.Params?.RendererType ?? string.Empty;
+            var bgColor = command.Params?.BackgroundColor ?? "#000000";
+            var fitMode = command.Params?.FitMode ?? 0;
+            int monitorIndex = 0; // Default to primary monitor
 
-            // Determine which monitors to load on
-            var monitorIndices = new List<int>();
+            _logger.LogInformation("Loading wallpaper: {FilePath} (renderer={Renderer})", filePath, rendererType);
 
-            // Check if specific monitor index is provided (TODO: Add MonitorIndex to SyncParameters)
-            // For now, detect monitors from system
-            var monitorCount = System.Windows.Forms.Screen.AllScreens.Length;
-
-            // If params exist and has a monitor index (future enhancement), use that
-            // For now, default to monitor 0 (primary monitor)
-            if (monitorCount > 0)
+            // Use D2D renderer if requested and delegate is available
+            if (rendererType == "d2d" && D2DApplyDelegate != null)
             {
-                monitorIndices.Add(0); // Default to primary monitor for now
+                _logger.LogInformation("Applying via D2D composition on monitor {Monitor} (bg={BgColor}, fit={FitMode})",
+                    monitorIndex, bgColor, fitMode);
+                await D2DApplyDelegate(filePath, monitorIndex, bgColor, fitMode);
+                _logger.LogInformation("D2D wallpaper applied successfully: {ContentId}", command.ContentId);
+                return;
             }
 
-            // Thread-safe: GetOrAdd ensures only one thread creates the nested dictionary
+            // Fallback: LibVLC renderer
+            _logger.LogInformation("Applying via LibVLC renderer on monitor {Monitor}", monitorIndex);
+
             _renderers.GetOrAdd(command.ContentId, new ConcurrentDictionary<int, IWallpaperRenderer>());
 
-            // Create renderers for each specified monitor
-            foreach (var monitorIndex in monitorIndices)
+            IWallpaperRenderer? renderer = null;
+            if (_rendererFactory != null)
             {
-                // Create renderer using factory if provided
-                IWallpaperRenderer? renderer = null;
-                if (_rendererFactory != null)
-                {
-                    renderer = _rendererFactory(filePath, monitorIndex);
-                }
-
-                if (renderer == null)
-                {
-                    _logger.LogWarning("No renderer factory configured or factory returned null for {FilePath} on monitor {Monitor}",
-                        filePath, monitorIndex);
-                    continue;
-                }
-
-                // Store renderer for this content and monitor
-                _renderers[command.ContentId][monitorIndex] = renderer;
-
-                // Initialize renderer with monitor-specific config
-                var config = new WallpaperConfig
-                {
-                    FilePath = filePath,
-                    Loop = true,
-                    MonitorIndex = monitorIndex
-                };
-
-                await renderer.InitializeAsync(config);
-                _logger.LogInformation("Wallpaper loaded successfully: {ContentId} on monitor {Monitor}",
-                    command.ContentId, monitorIndex);
-
-                // Auto-start playback — the PLAY command may have already arrived and been
-                // discarded while we were still downloading/initializing
-                await renderer.StartAsync();
-                _logger.LogInformation("Wallpaper auto-started after load: {ContentId} on monitor {Monitor}",
-                    command.ContentId, monitorIndex);
+                renderer = _rendererFactory(filePath, monitorIndex);
             }
 
-            // Start drift monitoring
+            if (renderer == null)
+            {
+                _logger.LogWarning("No renderer factory configured or factory returned null for {FilePath} on monitor {Monitor}",
+                    filePath, monitorIndex);
+                return;
+            }
+
+            _renderers[command.ContentId][monitorIndex] = renderer;
+
+            var config = new WallpaperConfig
+            {
+                FilePath = filePath,
+                Loop = true,
+                MonitorIndex = monitorIndex
+            };
+
+            await renderer.InitializeAsync(config);
+            await renderer.StartAsync();
+            _logger.LogInformation("LibVLC wallpaper loaded and started: {ContentId} on monitor {Monitor}",
+                command.ContentId, monitorIndex);
+
             _activeContentId = command.ContentId;
             _playbackStartTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             _initialPositionMs = 0;

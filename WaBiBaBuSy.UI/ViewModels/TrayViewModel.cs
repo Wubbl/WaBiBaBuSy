@@ -10,7 +10,9 @@ using WaBiBaBuSy.Common.Version;
 using WaBiBaBuSy.Core.Interfaces;
 using WaBiBaBuSy.Core.Services;
 using WaBiBaBuSy.Models.Configuration;
+using WaBiBaBuSy.Models.Wallpaper;
 using WaBiBaBuSy.UI.Views;
+using WaBiBaBuSy.WallpaperEngine.Composition;
 using WaBiBaBuSy.WallpaperEngine.Native;
 using WaBiBaBuSy.WallpaperEngine.Renderers;
 
@@ -24,7 +26,10 @@ public partial class TrayViewModel : ObservableObject
     private readonly IClassicDesktopStyleApplicationLifetime _desktop;
     private readonly WaBiBaBuSyService _service;
     private readonly DesktopWindowManager _desktopManager;
+    private readonly ILoggerFactory _loggerFactory;
     private MainWindow? _mainWindow;
+    // D2D services for remote-triggered rendering on this client
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, D2DCompositionService> _clientD2DServices = new();
 
     [ObservableProperty]
     private bool _isServerRunning;
@@ -45,15 +50,15 @@ public partial class TrayViewModel : ObservableObject
         Console.WriteLine($"Loaded server config from: {ConfigurationManager.GetServerConfigPath()}");
         Console.WriteLine($"Loaded client config from: {ConfigurationManager.GetClientConfigPath()}");
 
-        var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
-        var logger = loggerFactory.CreateLogger<WaBiBaBuSyService>();
+        _loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+        var logger = _loggerFactory.CreateLogger<WaBiBaBuSyService>();
 
         // Create desktop window manager (will be used for wallpaper restoration on exit)
-        var desktopManagerLogger = loggerFactory.CreateLogger<DesktopWindowManager>();
+        var desktopManagerLogger = _loggerFactory.CreateLogger<DesktopWindowManager>();
         _desktopManager = new DesktopWindowManager(desktopManagerLogger);
 
         // Create renderer factory for wallpaper playback
-        var rendererFactory = CreateRendererFactory(loggerFactory, _desktopManager);
+        var rendererFactory = CreateRendererFactory(_loggerFactory, _desktopManager);
 
         _service = new WaBiBaBuSyService(logger, serverConfig, clientConfig, rendererFactory);
 
@@ -150,19 +155,94 @@ public partial class TrayViewModel : ObservableObject
         Task.Delay(2000).ContinueWith(async _ =>
         {
             var servers = _service.GetDiscoveredServers();
+            bool connected;
             if (servers.Any())
             {
                 var firstServer = servers.First();
-                await _service.ConnectToServerAsync(firstServer.IpAddress, firstServer.Port);
+                connected = await _service.ConnectToServerAsync(firstServer.IpAddress, firstServer.Port);
             }
             else
             {
                 // No servers found, try default
-                await _service.ConnectToServerAsync("localhost", 50051);
+                connected = await _service.ConnectToServerAsync("localhost", 50051);
+            }
+
+            if (connected)
+            {
+                // Wire D2D rendering delegate so remote server can trigger D2D on this client
+                _service.SetD2DApplyDelegate(ApplyD2DFromRemoteAsync);
             }
 
             _service.StopServerDiscovery();
         });
+    }
+
+    /// <summary>
+    /// D2D apply delegate called when the server sends a D2D LOAD command to this client.
+    /// Creates a local D2DCompositionService and renders on this machine's desktop.
+    /// </summary>
+    private async Task ApplyD2DFromRemoteAsync(string filePath, int monitorIndex, string backgroundColor, int fitMode)
+    {
+        // Dispose previous service for this monitor
+        if (_clientD2DServices.TryRemove(monitorIndex, out var existing))
+        {
+            existing.Dispose();
+            await Task.Delay(300);
+        }
+
+        var monitors = WaBiBaBuSy.WallpaperEngine.Native.NativeMonitorInfo.GetAllMonitors();
+        if (monitorIndex < 0 || monitorIndex >= monitors.Length)
+        {
+            Console.WriteLine($"[D2D-Remote] Invalid monitor index {monitorIndex}");
+            return;
+        }
+
+        var screen = monitors[monitorIndex];
+
+        var screenConfig = new ScreenConfiguration
+        {
+            ClientId = $"REMOTE_CLIENT_MONITOR_{monitorIndex}",
+            Order = monitorIndex,
+            Width = screen.Bounds.Width,
+            Height = screen.Bounds.Height,
+            PhysicalDistanceCm = 0
+        };
+
+        var canvasManager = new VirtualCanvasManager(
+            _loggerFactory.CreateLogger<VirtualCanvasManager>());
+        canvasManager.CalculateLayout(new[] { screenConfig });
+
+        var backgroundConfig = new BackgroundLayerConfig
+        {
+            Mode = BackgroundMode.SolidColor,
+            ColorHex = backgroundColor
+        };
+
+        var animationConfig = new AnimationLayerConfig
+        {
+            AnimationPath = filePath,
+            TargetHeight = screen.Bounds.Height,
+            Loop = true,
+            VerticalAlign = VerticalAlignment.Center,
+            CenterInitialPosition = true,
+            FitMode = (ContentFitMode)fitMode
+        };
+
+        var d2dService = new D2DCompositionService(
+            _loggerFactory.CreateLogger<D2DCompositionService>(),
+            _loggerFactory,
+            _desktopManager);
+
+        var actualBounds = new System.Drawing.Rectangle(
+            screen.Bounds.X, screen.Bounds.Y,
+            screen.Bounds.Width, screen.Bounds.Height);
+
+        await d2dService.InitializeAsync(canvasManager, backgroundConfig, animationConfig, actualBounds, monitorIndex);
+        await Task.Delay(100);
+        await d2dService.StartAsync(startTimestampMs: 0, pixelsPerSecond: 0);
+
+        _clientD2DServices[monitorIndex] = d2dService;
+        Console.WriteLine($"[D2D-Remote] Applied D2D wallpaper '{Path.GetFileName(filePath)}' on monitor {monitorIndex}");
     }
 
     [RelayCommand]

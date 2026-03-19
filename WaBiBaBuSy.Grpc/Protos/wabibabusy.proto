@@ -155,6 +155,9 @@ message SyncParameters {
   string transition_effect = 4;
   int32 animation_speed_cm_per_sec = 5; // Speed of animation travel (cm/s)
   int64 calculated_delay_ms = 6; // Calculated delay based on distance and speed
+  string renderer_type = 7;       // "d2d" (default) or "libvlc"
+  string background_color = 8;    // Hex color for D2D background (e.g., "#000000")
+  int32 fit_mode = 9;             // 0=Stretch, 1=Center, 2=Fit, 3=Fill
 }
 
 // Sync response (client acknowledgment)

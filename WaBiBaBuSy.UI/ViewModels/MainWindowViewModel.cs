@@ -391,7 +391,7 @@ public partial class MainWindowViewModel : ViewModelBase
         SelectedWallpaper != null && Clients.Any(c => c.IsSelected);
 
     private bool CanApplyWallpaperViaDirect2D() =>
-        SelectedWallpaper != null && Clients.Any(c => c.IsSelected && IsLocalMonitor(c.ClientId));
+        SelectedWallpaper != null && Clients.Any(c => c.IsSelected);
 
     private bool CanStartCrossScreen() =>
         HasAnimationConfig && !IsCrossScreenRunning;
@@ -595,9 +595,9 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Apply wallpaper using the Direct2D composition pipeline (separate player process).
-    /// Uses D2DCompositionService + D2DPlayerHost for Windows 11 24H2+ compatibility.
-    /// Only applies to local monitors.
+    /// Apply wallpaper using the Direct2D composition pipeline.
+    /// Local monitors: direct D2DCompositionService.
+    /// Remote clients: sends D2D LOAD command via gRPC, client renders locally with its own Player.D2D.
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanApplyWallpaperViaDirect2D))]
     private async Task ApplyWallpaperViaDirect2D()
@@ -610,39 +610,40 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            Debug.WriteLine($"[Direct2D] TEST: Applying '{SelectedWallpaper.Name}' via Direct2D");
-
-            // Get all selected local clients
-            var selectedLocalClients = Clients
-                .Where(c => c.IsSelected && IsLocalMonitor(c.ClientId))
-                .ToList();
-
-            if (selectedLocalClients.Count == 0)
+            var selectedClients = Clients.Where(c => c.IsSelected).ToList();
+            if (selectedClients.Count == 0)
             {
-                // If no local client selected, apply to first available local monitor
-                var localClients = Clients
-                    .Where(c => IsLocalMonitor(c.ClientId))
-                    .ToList();
+                Debug.WriteLine("[Direct2D] No clients selected");
+                return;
+            }
 
-                if (localClients.Count == 0)
+            Debug.WriteLine($"[Direct2D] Applying '{SelectedWallpaper.Name}' via D2D to {selectedClients.Count} node(s)");
+
+            foreach (var client in selectedClients)
+            {
+                if (IsLocalMonitor(client.ClientId))
                 {
-                    Debug.WriteLine("[Direct2D] No local monitors available");
-                    return;
+                    // LOCAL: Direct D2D rendering on this machine
+                    var monitorIndex = GetMonitorIndex(client.ClientId);
+                    Debug.WriteLine($"[Direct2D] Local monitor {monitorIndex}");
+                    await ApplyWallpaperWithDirect2DAsync(SelectedWallpaper, monitorIndex);
+                }
+                else if (_service.IsServerRunning && _service.SyncCoordinator != null)
+                {
+                    // REMOTE: Send D2D LOAD command — client renders with its own Player.D2D
+                    Debug.WriteLine($"[Direct2D] Remote client {client.Hostname}");
+                    await _service.SyncCoordinator.LoadWallpaperD2DOnClientAsync(
+                        client.ClientId,
+                        SelectedWallpaper.WallpaperId,
+                        SelectedWallpaper.FilePath,
+                        D2dBackgroundColor,
+                        SelectedFitModeIndex);
                 }
 
-                selectedLocalClients = new List<ClientNodeViewModel> { localClients[0] };
-                Debug.WriteLine($"[Direct2D] No local client selected, using first available: {localClients[0].Hostname}");
+                client.CurrentWallpaper = $"{SelectedWallpaper.Name} (D2D)";
             }
 
-            // Apply via Direct2D to each selected local monitor
-            foreach (var client in selectedLocalClients)
-            {
-                var monitorIndex = GetMonitorIndex(client.ClientId);
-                Debug.WriteLine($"[Direct2D] Applying to monitor {monitorIndex}");
-                await ApplyWallpaperWithDirect2DAsync(SelectedWallpaper, monitorIndex);
-            }
-
-            Debug.WriteLine($"[Direct2D] Successfully applied to {selectedLocalClients.Count} local monitor(s)");
+            Debug.WriteLine($"[Direct2D] Successfully applied to {selectedClients.Count} node(s)");
         }
         catch (Exception ex)
         {
@@ -801,8 +802,8 @@ public partial class MainWindowViewModel : ViewModelBase
                 }
             }
 
-            // Validate monitor index
-            var screens = System.Windows.Forms.Screen.AllScreens;
+            // Validate monitor index using native API (avoids WinForms Screen.AllScreens issue on .NET 9)
+            var screens = WaBiBaBuSy.WallpaperEngine.Native.NativeMonitorInfo.GetAllMonitors();
             if (monitorIndex < 0 || monitorIndex >= screens.Length)
             {
                 Debug.WriteLine($"[Direct2D] Invalid monitor index {monitorIndex}. Available monitors: {screens.Length}");
@@ -847,7 +848,7 @@ public partial class MainWindowViewModel : ViewModelBase
             var screen = screens[monitorIndex];
 
             Debug.WriteLine($"[Direct2D] Selected monitor {monitorIndex}: Position=({screen.Bounds.X},{screen.Bounds.Y}), Size={screen.Bounds.Width}x{screen.Bounds.Height}");
-            Debug.WriteLine($"[Direct2D] IsPrimary={screen.Primary}, DeviceName={screen.DeviceName}");
+            Debug.WriteLine($"[Direct2D] IsPrimary={screen.IsPrimary}, DeviceName={screen.DeviceName}");
 
             // Create screen configuration for the virtual canvas manager
             var screenConfig = new WaBiBaBuSy.WallpaperEngine.Composition.ScreenConfiguration
