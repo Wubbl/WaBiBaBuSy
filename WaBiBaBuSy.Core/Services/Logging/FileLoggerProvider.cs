@@ -26,6 +26,8 @@ internal sealed class FileLoggerProvider : ILoggerProvider
         if (!_isEnabled()) return null;
 
         var dir = _getLogDirectory();
+        if (string.IsNullOrWhiteSpace(dir)) return null;
+
         var path = Path.Combine(dir, $"wabibabusy-{DateTime.Today:yyyy-MM-dd}.log");
 
         if (_writer == null || _currentPath != path)
@@ -35,15 +37,19 @@ internal sealed class FileLoggerProvider : ILoggerProvider
                 if (_writer == null || _currentPath != path)
                 {
                     _writer?.Dispose();
+                    _writer = null;
                     try
                     {
                         Directory.CreateDirectory(dir);
                         _writer = new StreamWriter(path, append: true) { AutoFlush = true };
                         _currentPath = path;
+                        _writer.WriteLine($"[{DateTime.Now:HH:mm:ss.fff} INF] [FileLogger] Log file opened: {path}");
                     }
-                    catch
+                    catch (Exception ex)
                     {
                         _writer = null;
+                        _lastError = $"Failed to create log file at '{path}': {ex.Message}";
+                        Console.Error.WriteLine($"[FileLogger] {_lastError}");
                     }
                 }
             }
@@ -51,6 +57,10 @@ internal sealed class FileLoggerProvider : ILoggerProvider
 
         return _writer;
     }
+
+    /// <summary>Last error encountered when trying to create the log file (for diagnostics).</summary>
+    internal string? LastError => _lastError;
+    private volatile string? _lastError;
 
     public ILogger CreateLogger(string categoryName) =>
         new FileLogger(categoryName, GetWriter, _writeLock);

@@ -52,6 +52,22 @@ public static class AppLogger
     public static void ApplyConfig(LoggingConfiguration config)
     {
         _config = config; // atomic volatile write
+
+        if (config.LogToFile)
+        {
+            // Force an immediate write attempt so errors surface right away
+            var writer = _fileProvider.GetWriter();
+            if (writer == null)
+            {
+                var err = _fileProvider.LastError ?? "unknown reason";
+                Console.Error.WriteLine($"[AppLogger] WARNING: LogToFile is enabled but file logging failed: {err}");
+                Console.Error.WriteLine($"[AppLogger] LogDirectory = '{config.LogDirectory}'");
+            }
+            else
+            {
+                Console.WriteLine($"[AppLogger] File logging active → {config.LogDirectory}");
+            }
+        }
     }
 
     /// <summary>
