@@ -111,7 +111,7 @@ public static class AppLogger
     private static bool IsCompositionCategory(string c) =>
         c.Contains("Composition") || c.Contains("AnimationLayer") ||
         c.Contains("BackgroundLayer") || c.Contains("VirtualCanvas") ||
-        c.Contains("ComposerService");
+        c.Contains("D2DComposition");
 
     private static bool IsRendererCategory(string c) =>
         c.Contains("Renderer") && !IsCompositionCategory(c) && !IsD2DCategory(c);

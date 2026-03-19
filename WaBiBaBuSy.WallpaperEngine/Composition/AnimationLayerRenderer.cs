@@ -28,6 +28,8 @@ public class AnimationLayerRenderer : IDisposable
 
     private long _animationStartTime;
     private int _virtualCanvasHeight;
+    private int _virtualCanvasWidth;
+    private MovementConfig? _movementConfig;
     private bool _disposed;
 
     public AnimationLayerRenderer(
@@ -145,7 +147,18 @@ public class AnimationLayerRenderer : IDisposable
     }
 
     /// <summary>
-    /// Update the animation position based on elapsed time and speed
+    /// Set the movement configuration and virtual canvas width for this renderer.
+    /// Call after InitializeAsync and before UpdatePosition.
+    /// </summary>
+    public void SetMovementConfig(MovementConfig? movementConfig, int virtualCanvasWidth)
+    {
+        _movementConfig = movementConfig;
+        _virtualCanvasWidth = virtualCanvasWidth;
+    }
+
+    /// <summary>
+    /// Update the animation position based on elapsed time and speed.
+    /// Uses MovementCalculator when available, falls back to legacy linear scroll.
     /// </summary>
     public void UpdatePosition(long timestampMs, int pixelsPerSecond)
     {
@@ -153,25 +166,37 @@ public class AnimationLayerRenderer : IDisposable
             throw new InvalidOperationException("Renderer not initialized");
 
         // timestampMs is the elapsed time from render loop start, NOT Unix time
-        // So we use it directly
         var elapsedMs = timestampMs;
-        var elapsedSeconds = elapsedMs / 1000.0;
 
         // Store elapsed time for use by GetAnimationFrame()
         _currentElapsedMs = elapsedMs;
 
-        // Only update position for moving animations
-        // Static images should remain at their initial position (X=0)
-        if (pixelsPerSecond > 0)
+        if (_movementConfig != null && _movementConfig.Type != MovementType.Static)
         {
-            // Calculate new X position for moving animations
+            int canvasW = _virtualCanvasWidth > 0 ? _virtualCanvasWidth : _screenWidth;
+            var (vx, vy) = MovementCalculator.Calculate(
+                _movementConfig, elapsedMs,
+                _animationWidth, _animationHeight,
+                canvasW, _virtualCanvasHeight);
+
+            var prevX = _currentVirtualX;
+            _currentVirtualX = (int)vx;
+            _currentVirtualY = (int)vy;
+
+            _logger.LogInformation("[AnimLayer-Detail] Movement({Type}): X={X} Y={Y} (was X={PrevX}), elapsed={Elapsed}ms",
+                _movementConfig.Type, _currentVirtualX, _currentVirtualY, prevX, elapsedMs);
+        }
+        else if (pixelsPerSecond > 0)
+        {
+            // Legacy backward compat: simple left-to-right scroll
+            var elapsedSeconds = elapsedMs / 1000.0;
             var prevX = _currentVirtualX;
             _currentVirtualX = (int)(-_animationWidth + (elapsedSeconds * pixelsPerSecond));
 
             _logger.LogInformation("[AnimLayer-Detail] Position updated: X={X} (was {PrevX}), elapsed={Elapsed}s, pixelsPerSecond={PPS}, AnimWidth={AnimW}",
                 _currentVirtualX, prevX, elapsedSeconds, pixelsPerSecond, _animationWidth);
         }
-        // For static images (pixelsPerSecond=0), X position remains unchanged at 0
+        // For static (pixelsPerSecond=0 and no movement config), position remains unchanged
     }
 
     /// <summary>

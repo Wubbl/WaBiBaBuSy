@@ -23,6 +23,11 @@ public class CompositionRenderer : IDisposable
     // Diagnostic tracking
     private long _composeCallCount = 0;
 
+    /// <summary>
+    /// Provides access to the animation layer renderer for movement configuration.
+    /// </summary>
+    public AnimationLayerRenderer? AnimationRenderer => _animationRenderer;
+
     public CompositionRenderer(
         ILogger<CompositionRenderer> logger,
         ILoggerFactory loggerFactory)

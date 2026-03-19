@@ -187,6 +187,11 @@ class Program
     private static ContentFitMode _fitMode;
     private static bool _centerInitialPosition;
 
+    // Movement system
+    private static MovementConfig? _movementConfig;
+    private static int _virtualCanvasWidth = 1920;
+    private static int _monitorOffsetX = 0;
+
     // Animation state
     private static volatile bool _isPlaying = false;
     private static long _startTimestampMs = 0;
@@ -1111,16 +1116,27 @@ class Program
     }
 
     /// <summary>
-    /// Update animation X position based on elapsed time (ported from AnimationLayerRenderer).
+    /// Update animation position based on elapsed time.
+    /// Uses MovementCalculator when available, falls back to legacy linear scroll.
     /// </summary>
     private static void UpdateAnimationPosition(long elapsedMs)
     {
-        if (_pixelsPerSecond > 0)
+        if (_movementConfig != null && _movementConfig.Type != MovementType.Static)
         {
+            var (vx, vy) = MovementCalculator.Calculate(
+                _movementConfig, elapsedMs,
+                _animWidth, _animHeight,
+                _virtualCanvasWidth, _height);
+            _animX = vx - _monitorOffsetX;
+            _animY = vy;
+        }
+        else if (_pixelsPerSecond > 0)
+        {
+            // Legacy backward compat: simple left-to-right scroll
             var elapsedSeconds = elapsedMs / 1000.0;
             _animX = (float)(-_animWidth + (elapsedSeconds * _pixelsPerSecond));
         }
-        // For static animations (pixelsPerSecond=0), position stays at initial centered value
+        // For static animations (pixelsPerSecond=0 and no movement config), position stays at initial centered value
     }
 
     // ================================
@@ -1356,6 +1372,9 @@ class Program
                 // Store configuration
                 _animationConfig = cmd.AnimationConfig;
                 _backgroundConfig = cmd.BackgroundConfig;
+                _movementConfig = cmd.MovementConfig;
+                _virtualCanvasWidth = cmd.VirtualCanvasWidth;
+                _monitorOffsetX = cmd.MonitorOffsetX;
 
                 var filePath = cmd.AnimationConfig.AnimationPath;
                 var extension = Path.GetExtension(filePath).ToLowerInvariant();

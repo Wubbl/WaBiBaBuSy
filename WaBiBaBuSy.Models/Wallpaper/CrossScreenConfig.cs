@@ -43,6 +43,11 @@ public class CrossScreenConfig
     /// Default: Sequential
     /// </summary>
     public AnimationDistributionMode DistributionMode { get; set; } = AnimationDistributionMode.Sequential;
+
+    /// <summary>
+    /// Movement configuration for animation positioning across the virtual canvas
+    /// </summary>
+    public MovementConfig Movement { get; set; } = new();
 }
 
 /// <summary>
@@ -183,4 +188,124 @@ public enum VerticalAlignment
     Top,
     Center,
     Bottom
+}
+
+/// <summary>
+/// Movement pattern types for animation layer
+/// </summary>
+public enum MovementType
+{
+    /// <summary>
+    /// No movement - animation stays centered
+    /// </summary>
+    Static,
+
+    /// <summary>
+    /// Straight line from start to end point
+    /// </summary>
+    Linear,
+
+    /// <summary>
+    /// Bounces off virtual canvas edges infinitely
+    /// </summary>
+    Bounce,
+
+    /// <summary>
+    /// Horizontal travel with vertical sine wave oscillation
+    /// </summary>
+    SineWave,
+
+    /// <summary>
+    /// Circular orbit around a center point
+    /// </summary>
+    Circular,
+
+    /// <summary>
+    /// Deterministic pseudo-random wandering (seeded for multi-monitor sync)
+    /// </summary>
+    RandomWalk
+}
+
+/// <summary>
+/// Configuration for animation movement across the virtual canvas.
+/// All movement is computed as pure math from elapsed time, making it deterministic
+/// so all Player.D2D processes compute the same position independently.
+/// </summary>
+public class MovementConfig
+{
+    /// <summary>
+    /// Movement pattern type
+    /// </summary>
+    public MovementType Type { get; set; } = MovementType.Static;
+
+    /// <summary>
+    /// Movement speed in pixels per second
+    /// </summary>
+    public float SpeedPixelsPerSecond { get; set; } = 500f;
+
+    /// <summary>
+    /// Start X position in virtual canvas coordinates (null = auto-calculate based on movement type)
+    /// </summary>
+    public float? StartX { get; set; }
+
+    /// <summary>
+    /// Start Y position in virtual canvas coordinates (null = auto-calculate)
+    /// </summary>
+    public float? StartY { get; set; }
+
+    /// <summary>
+    /// End X position in virtual canvas coordinates (null = auto-calculate)
+    /// </summary>
+    public float? EndX { get; set; }
+
+    /// <summary>
+    /// End Y position in virtual canvas coordinates (null = auto-calculate)
+    /// </summary>
+    public float? EndY { get; set; }
+
+    /// <summary>
+    /// Initial direction angle in degrees for Bounce/Linear movement.
+    /// 0 = right, 90 = down, 45 = diagonal down-right, etc.
+    /// </summary>
+    public float DirectionAngleDegrees { get; set; } = 30f;
+
+    /// <summary>
+    /// Orbit center X in virtual canvas coordinates (null = canvas center)
+    /// </summary>
+    public float? OrbitCenterX { get; set; }
+
+    /// <summary>
+    /// Orbit center Y in virtual canvas coordinates (null = canvas center)
+    /// </summary>
+    public float? OrbitCenterY { get; set; }
+
+    /// <summary>
+    /// Orbit radius in pixels for Circular movement
+    /// </summary>
+    public float OrbitRadiusPixels { get; set; } = 500f;
+
+    /// <summary>
+    /// Vertical oscillation amplitude in pixels for SineWave movement
+    /// </summary>
+    public float WaveAmplitudePixels { get; set; } = 200f;
+
+    /// <summary>
+    /// Vertical oscillation frequency in Hz for SineWave movement
+    /// </summary>
+    public float WaveFrequencyHz { get; set; } = 0.5f;
+
+    /// <summary>
+    /// Random seed for deterministic RandomWalk (same seed = same path on all monitors)
+    /// </summary>
+    public int RandomSeed { get; set; } = 42;
+
+    /// <summary>
+    /// Interval in ms between random walk waypoints
+    /// </summary>
+    public float RandomStepIntervalMs { get; set; } = 1000f;
+
+    /// <summary>
+    /// Whether movement loops when reaching the end (Linear) or continues indefinitely (Bounce/Circular/RandomWalk)
+    /// </summary>
+    public bool Loop { get; set; } = true;
 }

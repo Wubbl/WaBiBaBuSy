@@ -22,6 +22,7 @@ public class D2DCompositionService : IDisposable
     private VirtualCanvasManager? _canvasManager;
     private BackgroundLayerConfig? _backgroundConfig;
     private AnimationLayerConfig? _animationConfig;
+    private MovementConfig? _movementConfig;
     private readonly Dictionary<int, D2DPlayerHost> _playerHosts = new();
     private bool _disposed;
     private bool _isRunning;
@@ -76,17 +77,19 @@ public class D2DCompositionService : IDisposable
         AnimationLayerConfig animationConfig,
         Rectangle actualMonitorBounds,
         int monitorIndex = 0,
+        MovementConfig? movementConfig = null,
         CancellationToken cancellationToken = default)
     {
         if (_disposed)
             throw new ObjectDisposedException(nameof(D2DCompositionService));
 
-        _logger.LogInformation("Initializing D2D composition service for {ScreenCount} screens (metadata-based)",
-            canvasManager.ScreenMappings.Count);
+        _logger.LogInformation("Initializing D2D composition service for {ScreenCount} screens (metadata-based), movement={MovementType}",
+            canvasManager.ScreenMappings.Count, movementConfig?.Type.ToString() ?? "None");
 
         _canvasManager = canvasManager ?? throw new ArgumentNullException(nameof(canvasManager));
         _backgroundConfig = backgroundConfig ?? throw new ArgumentNullException(nameof(backgroundConfig));
         _animationConfig = animationConfig ?? throw new ArgumentNullException(nameof(animationConfig));
+        _movementConfig = movementConfig;
         _monitorIndex = monitorIndex;
 
         // Create D2D player hosts for each screen
@@ -115,7 +118,10 @@ public class D2DCompositionService : IDisposable
                 AnimationConfig = animationConfig,
                 BackgroundConfig = backgroundConfig,
                 MonitorIndex = monitorIndex,
-                VirtualCanvasHeight = actualMonitorBounds.Height
+                VirtualCanvasHeight = actualMonitorBounds.Height,
+                VirtualCanvasWidth = canvasManager.VirtualBounds.Width > 0 ? canvasManager.VirtualBounds.Width : actualMonitorBounds.Width,
+                MonitorOffsetX = screen.VirtualBounds.X,
+                MovementConfig = _movementConfig
             };
 
             await playerHost.SendLoadAnimationAsync(loadCmd);

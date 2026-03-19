@@ -8,7 +8,7 @@
         x:DataType="vm:CrossScreenConfigViewModel"
         Icon="/Assets/BiBaBuColorIcon.ico"
         Title="Animation Configuration"
-        Width="600" Height="550"
+        Width="600" Height="750"
         WindowStartupLocation="CenterOwner"
         CanResize="False">
 
@@ -111,22 +111,74 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Speed Configuration -->
+                <!-- Movement Configuration -->
                 <Border Background="#2D2D30" CornerRadius="5" Padding="15">
                     <StackPanel Spacing="10">
-                        <TextBlock Text="Animation Speed" FontSize="14" FontWeight="SemiBold"/>
+                        <TextBlock Text="Movement Pattern" FontSize="14" FontWeight="SemiBold"/>
+                        <TextBlock Text="How the animation moves across screens:" FontSize="11" Foreground="#AAAAAA"/>
 
                         <StackPanel Spacing="5">
+                            <TextBlock Text="Pattern:" FontSize="12"/>
+                            <ComboBox SelectedIndex="{Binding MovementTypeIndex}" Width="250" HorizontalAlignment="Left">
+                                <ComboBoxItem Content="Static (Centered)"/>
+                                <ComboBoxItem Content="Linear (A to B)"/>
+                                <ComboBoxItem Content="Bounce (Off Edges)"/>
+                                <ComboBoxItem Content="Sine Wave"/>
+                                <ComboBoxItem Content="Circular (Orbit)"/>
+                                <ComboBoxItem Content="Random Walk"/>
+                            </ComboBox>
+                        </StackPanel>
+
+                        <!-- Speed (visible for all non-static types) -->
+                        <StackPanel Spacing="5" IsVisible="{Binding IsMovementActive}">
                             <Grid ColumnDefinitions="Auto,*">
                                 <TextBlock Grid.Column="0" Text="Speed (pixels/second):" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                 <TextBlock Grid.Column="1" Text="{Binding AnimationSpeed}" FontWeight="Bold" VerticalAlignment="Center"/>
                             </Grid>
                             <Slider Value="{Binding AnimationSpeed}"
-                                    Minimum="100" Maximum="2000"
-                                    TickFrequency="100"
+                                    Minimum="50" Maximum="2000"
+                                    TickFrequency="50"
                                     IsSnapToTickEnabled="True"/>
                             <TextBlock Text="Slower ← → Faster" FontSize="10" Foreground="#888888" HorizontalAlignment="Center"/>
                         </StackPanel>
+
+                        <!-- Direction angle (for Linear/Bounce) -->
+                        <StackPanel Spacing="5" IsVisible="{Binding IsDirectionVisible}">
+                            <TextBlock Text="Direction (degrees: 0=right, 90=down, 45=diagonal):" FontSize="12"/>
+                            <NumericUpDown Value="{Binding MovementAngle}"
+                                           Minimum="0" Maximum="360"
+                                           Increment="15"
+                                           Width="150" HorizontalAlignment="Left"/>
+                        </StackPanel>
+
+                        <!-- Wave params (for SineWave) -->
+                        <StackPanel Spacing="5" IsVisible="{Binding IsSineWaveMode}">
+                            <TextBlock Text="Wave Amplitude (px):" FontSize="12"/>
+                            <NumericUpDown Value="{Binding WaveAmplitude}"
+                                           Minimum="50" Maximum="1000"
+                                           Increment="25"
+                                           Width="150" HorizontalAlignment="Left"/>
+                            <TextBlock Text="Wave Frequency (Hz):" FontSize="12"/>
+                            <NumericUpDown Value="{Binding WaveFrequency}"
+                                           Minimum="0.1" Maximum="5.0"
+                                           Increment="0.1"
+                                           FormatString="F1"
+                                           Width="150" HorizontalAlignment="Left"/>
+                        </StackPanel>
+
+                        <!-- Orbit params (for Circular) -->
+                        <StackPanel Spacing="5" IsVisible="{Binding IsCircularMode}">
+                            <TextBlock Text="Orbit Radius (px):" FontSize="12"/>
+                            <NumericUpDown Value="{Binding OrbitRadius}"
+                                           Minimum="100" Maximum="2000"
+                                           Increment="50"
+                                           Width="150" HorizontalAlignment="Left"/>
+                        </StackPanel>
+
+                        <!-- RandomWalk info -->
+                        <TextBlock IsVisible="{Binding IsRandomWalkMode}"
+                                   Text="Animation will wander randomly across all screens. Movement is deterministic (same on all monitors for sync)."
+                                   FontSize="10" Foreground="#888888" TextWrapping="Wrap"/>
                     </StackPanel>
                 </Border>
 

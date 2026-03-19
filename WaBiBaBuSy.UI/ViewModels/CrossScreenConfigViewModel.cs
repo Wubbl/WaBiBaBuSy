@@ -77,8 +77,29 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     [ObservableProperty]
     private int _animationDistributionModeIndex = 0; // 0 = Sequential, 1 = Simultaneous
 
+    [ObservableProperty]
+    private int _movementTypeIndex = 0; // Maps to MovementType enum
+
+    [ObservableProperty]
+    private float _movementAngle = 30f;
+
+    [ObservableProperty]
+    private float _waveAmplitude = 200f;
+
+    [ObservableProperty]
+    private float _waveFrequency = 0.5f;
+
+    [ObservableProperty]
+    private float _orbitRadius = 500f;
+
     public bool IsSolidColorMode => BackgroundModeIndex == 0;
     public bool IsImageMode => BackgroundModeIndex == 1 || BackgroundModeIndex == 2;
+
+    public bool IsMovementActive => MovementTypeIndex > 0;
+    public bool IsDirectionVisible => MovementTypeIndex == 1 || MovementTypeIndex == 2; // Linear or Bounce
+    public bool IsSineWaveMode => MovementTypeIndex == 3;
+    public bool IsCircularMode => MovementTypeIndex == 4;
+    public bool IsRandomWalkMode => MovementTypeIndex == 5;
 
     public bool DialogResult { get; private set; }
 
@@ -90,6 +111,15 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(IsSolidColorMode));
         OnPropertyChanged(nameof(IsImageMode));
+    }
+
+    partial void OnMovementTypeIndexChanged(int value)
+    {
+        OnPropertyChanged(nameof(IsMovementActive));
+        OnPropertyChanged(nameof(IsDirectionVisible));
+        OnPropertyChanged(nameof(IsSineWaveMode));
+        OnPropertyChanged(nameof(IsCircularMode));
+        OnPropertyChanged(nameof(IsRandomWalkMode));
     }
 
     public void SetStorageProvider(IStorageProvider storageProvider)
@@ -170,6 +200,15 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             _ => 0
         };
 
+        // Restore movement configuration
+        var movement = config.Movement;
+        MovementTypeIndex = (int)movement.Type;
+        AnimationSpeed = (int)movement.SpeedPixelsPerSecond;
+        MovementAngle = movement.DirectionAngleDegrees;
+        WaveAmplitude = movement.WaveAmplitudePixels;
+        WaveFrequency = movement.WaveFrequencyHz;
+        OrbitRadius = movement.OrbitRadiusPixels;
+
         // Restore monitor selection from config
         var selectedIds = new HashSet<string>(config.SelectedMonitorIds);
         foreach (var monitor in AvailableMonitors)
@@ -209,6 +248,8 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             .Select(m => m.ClientId)
             .ToList();
 
+        var movementType = (MovementType)MovementTypeIndex;
+
         return new CrossScreenConfig
         {
             Background = new BackgroundLayerConfig
@@ -226,7 +267,17 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             },
             AnimationSpeedPxPerSecond = AnimationSpeed,
             SelectedMonitorIds = selectedMonitorIds,
-            DistributionMode = distributionMode
+            DistributionMode = distributionMode,
+            Movement = new MovementConfig
+            {
+                Type = movementType,
+                SpeedPixelsPerSecond = AnimationSpeed,
+                DirectionAngleDegrees = MovementAngle,
+                WaveAmplitudePixels = WaveAmplitude,
+                WaveFrequencyHz = WaveFrequency,
+                OrbitRadiusPixels = OrbitRadius,
+                Loop = AnimationLoop
+            }
         };
     }
 

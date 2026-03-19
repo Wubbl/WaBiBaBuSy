@@ -88,7 +88,6 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private int _selectedFitModeIndex = 0; // 0=Stretch, 1=Center, 2=Fit, 3=Fill
 
-    private UI.Services.CrossScreenWallpaperCoordinator? _crossScreenCoordinator;
     private CrossScreenConfig? _crossScreenConfig;
     private string? _currentAnimationScheduleId;  // Track active animation schedule (Phase 3)
 
@@ -1785,23 +1784,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            Debug.WriteLine("[CrossScreen] Starting cross-screen animation...");
-
-            // Create coordinator if needed
-            if (_crossScreenCoordinator == null)
-            {
-                _crossScreenCoordinator = new UI.Services.CrossScreenWallpaperCoordinator(
-                    _loggerFactory.CreateLogger<UI.Services.CrossScreenWallpaperCoordinator>(),
-                    _loggerFactory,
-                    _service.SyncCoordinator);
-
-                _crossScreenCoordinator.StatusChanged += OnCrossScreenStatusChanged;
-            }
-
-            // Always ensure frame rendering handler is subscribed (in case it was unsubscribed on previous stop)
-            _crossScreenCoordinator.LocalFrameRendered -= OnLocalFrameRendered;  // Remove first to avoid duplicate subscriptions
-            _crossScreenCoordinator.LocalFrameRendered += OnLocalFrameRendered;  // Then re-subscribe
-            Debug.WriteLine("[CrossScreen] LocalFrameRendered event subscribed successfully");
+            Debug.WriteLine("[CrossScreen] Starting cross-screen animation via D2D...");
 
             // Convert clients to screen configurations, filtering by selected monitors if configured
             var selectedMonitorIds = new HashSet<string>(_crossScreenConfig.SelectedMonitorIds);
@@ -1809,10 +1792,25 @@ public partial class MainWindowViewModel : ViewModelBase
                 ? Clients.Where(c => selectedMonitorIds.Contains(c.ClientId))
                 : Clients;
 
-            var screenConfigs = clientsToUse.Select(c => new WallpaperEngine.Composition.ScreenConfiguration
+            // Only use local monitors for D2D (remote clients use orchestration)
+            var localClients = clientsToUse
+                .Where(c => c.ClientId.StartsWith("LOCAL_MACHINE_MONITOR_"))
+                .OrderBy(c => c.Order)
+                .ToList();
+
+            if (localClients.Count == 0)
+            {
+                Debug.WriteLine("[CrossScreen] No local monitors selected");
+                return;
+            }
+
+            Debug.WriteLine($"[CrossScreen] Starting D2D animation on {localClients.Count} local monitor(s)");
+
+            // Build screen configurations for virtual canvas
+            var screenConfigs = localClients.Select(c => new WallpaperEngine.Composition.ScreenConfiguration
             {
                 ClientId = c.ClientId,
-                Width = c.MonitorWidth > 0 ? c.MonitorWidth : 1920,  // Default if not set
+                Width = c.MonitorWidth > 0 ? c.MonitorWidth : 1920,
                 Height = c.MonitorHeight > 0 ? c.MonitorHeight : 1080,
                 Order = c.Order,
                 PhysicalDistanceCm = c.PhysicalDistanceCm,
@@ -1820,35 +1818,67 @@ public partial class MainWindowViewModel : ViewModelBase
                 MonitorIndex = c.MonitorIndex
             }).ToList();
 
-            if (screenConfigs.Count == 0)
-            {
-                Debug.WriteLine("[CrossScreen] No clients connected or selected");
-                return;
-            }
+            // Create virtual canvas spanning all selected monitors
+            var canvasManager = new VirtualCanvasManager(
+                _loggerFactory.CreateLogger<VirtualCanvasManager>());
+            canvasManager.CalculateLayout(screenConfigs);
 
-            Debug.WriteLine($"[CrossScreen] Starting animation on {screenConfigs.Count} selected monitor(s)");
+            Debug.WriteLine($"[CrossScreen] Virtual canvas: {canvasManager.VirtualBounds.Width}x{canvasManager.VirtualBounds.Height}");
 
-            // Check if we should use Phase 3 orchestrator (when server mode is active)
-            if (_service.IsServerMode && _crossScreenConfig?.DistributionMode == WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Sequential)
+            // Get actual monitor bounds from Windows
+            var screens = System.Windows.Forms.Screen.AllScreens;
+
+            // Create a D2DCompositionService for each local monitor
+            foreach (var client in localClients)
             {
-                Debug.WriteLine("[CrossScreen] Using Phase 3 orchestrator for sequential animation");
-                await StartOrchestrationAnimation(screenConfigs);
-            }
-            else if (_service.IsServerMode && _crossScreenConfig?.DistributionMode == WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Simultaneous)
-            {
-                Debug.WriteLine("[CrossScreen] Using Phase 3 orchestrator for simultaneous animation");
-                await StartOrchestrationAnimation(screenConfigs);
-            }
-            else
-            {
-                Debug.WriteLine("[CrossScreen] Using traditional cross-screen coordinator");
-                // Initialize and start using traditional method
-                await _crossScreenCoordinator.InitializeAsync(screenConfigs, _crossScreenConfig);
-                await _crossScreenCoordinator.StartAsync();
+                var monitorIndex = int.Parse(client.ClientId.Replace("LOCAL_MACHINE_MONITOR_", ""));
+
+                // Clean up existing D2D service for this monitor if any
+                if (_d2dCompositionServices.TryRemove(monitorIndex, out var existingService))
+                {
+                    try { await existingService.StopAsync(); } catch { }
+                    existingService.Dispose();
+                }
+
+                // Find actual screen bounds
+                var screen = monitorIndex < screens.Length ? screens[monitorIndex] : screens[0];
+                var actualBounds = new System.Drawing.Rectangle(
+                    screen.Bounds.X, screen.Bounds.Y,
+                    screen.Bounds.Width, screen.Bounds.Height);
+
+                Debug.WriteLine($"[CrossScreen] Monitor {monitorIndex}: {actualBounds.Width}x{actualBounds.Height} at ({actualBounds.X},{actualBounds.Y})");
+
+                // Create D2D service
+                var d2dService = new D2DCompositionService(
+                    _loggerFactory.CreateLogger<D2DCompositionService>(),
+                    _loggerFactory,
+                    _desktopManager);
+
+                // Initialize with cross-screen config
+                await d2dService.InitializeAsync(
+                    canvasManager,
+                    _crossScreenConfig.Background,
+                    _crossScreenConfig.Animation,
+                    actualBounds,
+                    monitorIndex,
+                    _crossScreenConfig.Movement);
+
+                await Task.Delay(100); // Let player load
+
+                // Start playback - movement is driven by MovementConfig inside the player
+                var pixelsPerSecond = _crossScreenConfig.Movement.Type == MovementType.Static
+                    ? 0
+                    : (int)_crossScreenConfig.Movement.SpeedPixelsPerSecond;
+                await d2dService.StartAsync(startTimestampMs: 0, pixelsPerSecond: pixelsPerSecond);
+
+                _d2dCompositionServices[monitorIndex] = d2dService;
+
+                Debug.WriteLine($"[CrossScreen] D2D service started for monitor {monitorIndex}");
             }
 
             IsCrossScreenRunning = true;
             HasAnimationConfig = true;
+            ClearAllWallpapersCommand.NotifyCanExecuteChanged();
 
             // Set animation indicators on participating clients
             var animFileName = Path.GetFileName(_crossScreenConfig?.Animation.AnimationPath ?? string.Empty);
@@ -1862,11 +1892,11 @@ public partial class MainWindowViewModel : ViewModelBase
                 }
             }
 
-            Debug.WriteLine("[CrossScreen] Animation started successfully");
+            Debug.WriteLine("[CrossScreen] D2D animation started successfully on all monitors");
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[CrossScreen] Error starting: {ex.Message}");
+            Debug.WriteLine($"[CrossScreen] Error starting: {ex.Message}\n{ex.StackTrace}");
             IsCrossScreenRunning = false;
         }
     }
@@ -1960,13 +1990,16 @@ public partial class MainWindowViewModel : ViewModelBase
                 _currentAnimationScheduleId = null;
             }
 
-            // Stop coordinator animation if active
-            if (_crossScreenCoordinator != null)
+            // Stop and dispose all D2D composition services
+            foreach (var kvp in _d2dCompositionServices)
             {
-                await _crossScreenCoordinator.StopAsync();
+                try { await kvp.Value.StopAsync(); } catch { }
+                try { kvp.Value.Dispose(); } catch { }
             }
+            _d2dCompositionServices.Clear();
 
             IsCrossScreenRunning = false;
+            ClearAllWallpapersCommand.NotifyCanExecuteChanged();
 
             // Reset animation indicators on all clients
             foreach (var client in Clients)
@@ -1981,53 +2014,6 @@ public partial class MainWindowViewModel : ViewModelBase
         catch (Exception ex)
         {
             Debug.WriteLine($"[CrossScreen] Error stopping: {ex.Message}");
-        }
-    }
-
-    private void OnCrossScreenStatusChanged(object? sender, UI.Services.CrossScreenStatusEventArgs e)
-    {
-        Debug.WriteLine($"[CrossScreen] Status changed: {e.Status} - {e.Message}");
-
-        Dispatcher.UIThread.Post(() =>
-        {
-            IsCrossScreenRunning = e.Status == UI.Services.CrossScreenStatus.Running;
-        });
-    }
-
-    /// <summary>
-    /// Handle frame rendering for local wallpaper display (cross-screen mode).
-    /// Confirms that composed frames are being received and processed correctly.
-    /// </summary>
-    private async Task OnLocalFrameRendered(Dictionary<string, System.Drawing.Bitmap> frames, long timestamp)
-    {
-        try
-        {
-            if (frames == null || frames.Count == 0)
-            {
-                return;
-            }
-
-            var logger = _loggerFactory.CreateLogger<MainWindowViewModel>();
-
-            // Log frame rendering for debugging - confirms event subscription is working!
-            if (timestamp % 3000 == 0)  // Every ~3 seconds (less spam)
-            {
-                logger.LogInformation("[LocalFrame] ✓ Event subscription working! Received {FrameCount} frames at {Timestamp}ms",
-                    frames.Count, timestamp);
-            }
-
-            // Dispose frames properly
-            foreach (var (clientId, frameBitmap) in frames)
-            {
-                frameBitmap?.Dispose();
-            }
-
-            await Task.CompletedTask;
-        }
-        catch (Exception ex)
-        {
-            _loggerFactory.CreateLogger<MainWindowViewModel>()
-                .LogError(ex, "[LocalFrame] Error in OnLocalFrameRendered");
         }
     }
 

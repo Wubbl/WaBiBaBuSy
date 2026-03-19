@@ -34,4 +34,20 @@ public class PlayerCommandLoadAnimation : PlayerMessageBase
     /// Virtual canvas height for composition calculations
     /// </summary>
     public int VirtualCanvasHeight { get; set; } = 1080;
+
+    /// <summary>
+    /// Total virtual canvas width (all monitors combined) for movement calculations
+    /// </summary>
+    public int VirtualCanvasWidth { get; set; } = 1920;
+
+    /// <summary>
+    /// This monitor's X offset in the virtual canvas (for multi-monitor positioning)
+    /// </summary>
+    public int MonitorOffsetX { get; set; } = 0;
+
+    /// <summary>
+    /// Movement configuration for animation positioning.
+    /// When null, falls back to legacy PixelsPerSecond-based linear movement.
+    /// </summary>
+    public MovementConfig? MovementConfig { get; set; }
 }
