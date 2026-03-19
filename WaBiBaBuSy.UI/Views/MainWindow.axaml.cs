@@ -130,12 +130,13 @@ public partial class MainWindow : Window
         var border = new Border
         {
             Width = 180,
-            Height = 150,
+            MinHeight = 150,
             Background = new SolidColorBrush(Color.Parse("#3E3E42")),
             BorderBrush = new SolidColorBrush(Color.Parse("#666666")),
             BorderThickness = new Thickness(2),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(8),
+            ClipToBounds = true,
             Cursor = new Cursor(StandardCursorType.Hand),
             DataContext = client
         };
@@ -278,7 +279,8 @@ public partial class MainWindow : Window
         {
             Text = client.ActiveAnimationName ?? string.Empty,
             Foreground = new SolidColorBrush(Color.Parse("#00CC66")),
-            FontSize = 8,
+            FontSize = 9,
+            MaxWidth = 160,
             TextTrimming = TextTrimming.CharacterEllipsis,
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
             IsVisible = client.IsAnimating

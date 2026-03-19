@@ -1476,7 +1476,21 @@ class Program
 
                 _startTimestampMs = cmd.StartTimestampMs;
                 _pixelsPerSecond = cmd.PixelsPerSecond;
-                _renderLoopStart = DateTime.UtcNow;
+
+                // Use shared UTC timestamp if provided (> 0) for multi-monitor sync,
+                // otherwise fall back to local time for single-monitor mode
+                if (cmd.StartTimestampMs > 0)
+                {
+                    // Convert UTC ms timestamp to DateTime for consistent elapsed calculation
+                    _renderLoopStart = DateTime.UtcNow.AddMilliseconds(
+                        -(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - cmd.StartTimestampMs));
+                    _logger?.LogInformation("[START-CMD] Using shared timestamp: {Ts}ms, offset from now: {Offset}ms",
+                        cmd.StartTimestampMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - cmd.StartTimestampMs);
+                }
+                else
+                {
+                    _renderLoopStart = DateTime.UtcNow;
+                }
                 _isPlaying = true;
 
                 // Recalculate initial position with updated pixelsPerSecond

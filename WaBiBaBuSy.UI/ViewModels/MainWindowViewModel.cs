@@ -1828,7 +1828,9 @@ public partial class MainWindowViewModel : ViewModelBase
             // Get actual monitor bounds from Windows
             var screens = System.Windows.Forms.Screen.AllScreens;
 
-            // Create a D2DCompositionService for each local monitor
+            // Phase 1: Initialize all D2D players (load animation, extract GIF frames)
+            var newServices = new List<(int monitorIndex, D2DCompositionService service)>();
+
             foreach (var client in localClients)
             {
                 var monitorIndex = int.Parse(client.ClientId.Replace("LOCAL_MACHINE_MONITOR_", ""));
@@ -1854,7 +1856,7 @@ public partial class MainWindowViewModel : ViewModelBase
                     _loggerFactory,
                     _desktopManager);
 
-                // Initialize with cross-screen config
+                // Initialize (sends LOAD_ANIMATION to player process)
                 await d2dService.InitializeAsync(
                     canvasManager,
                     _crossScreenConfig.Background,
@@ -1863,17 +1865,32 @@ public partial class MainWindowViewModel : ViewModelBase
                     monitorIndex,
                     _crossScreenConfig.Movement);
 
-                await Task.Delay(100); // Let player load
+                newServices.Add((monitorIndex, d2dService));
+                Debug.WriteLine($"[CrossScreen] Monitor {monitorIndex} initialized");
+            }
 
-                // Start playback - movement is driven by MovementConfig inside the player
-                var pixelsPerSecond = _crossScreenConfig.Movement.Type == MovementType.Static
-                    ? 0
-                    : (int)_crossScreenConfig.Movement.SpeedPixelsPerSecond;
-                await d2dService.StartAsync(startTimestampMs: 0, pixelsPerSecond: pixelsPerSecond);
+            // Brief pause to let all players finish loading
+            await Task.Delay(200);
 
+            // Phase 2: Start ALL players with same shared timestamp for sync
+            var sharedStartTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var pixelsPerSecond = _crossScreenConfig.Movement.Type == MovementType.Static
+                ? 0
+                : (int)_crossScreenConfig.Movement.SpeedPixelsPerSecond;
+
+            Debug.WriteLine($"[CrossScreen] Starting all {newServices.Count} players with shared timestamp {sharedStartTimestamp}ms, speed={pixelsPerSecond}px/s");
+
+            foreach (var (monitorIndex, d2dService) in newServices)
+            {
+                await d2dService.StartAsync(startTimestampMs: sharedStartTimestamp, pixelsPerSecond: pixelsPerSecond);
                 _d2dCompositionServices[monitorIndex] = d2dService;
+            }
 
-                Debug.WriteLine($"[CrossScreen] D2D service started for monitor {monitorIndex}");
+            // Set up thumbnail capture for live preview in topology nodes
+            var animName = Path.GetFileName(_crossScreenConfig.Animation.AnimationPath) ?? "Animation";
+            foreach (var (monitorIndex, d2dService) in newServices)
+            {
+                SetupThumbnailCapture(monitorIndex, d2dService.PlayerHwnd, animName);
             }
 
             IsCrossScreenRunning = true;
