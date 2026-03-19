@@ -3,15 +3,10 @@
 
 param(
     [string]$Configuration = "Release",
-    [string]$Version = "2.0.0"
+    [string]$Version = ""
 )
 
 $ErrorActionPreference = "Stop"
-
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host " WaBiBaBuSy Installer Build Script" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host ""
 
 # Get script directory and solution root
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -19,6 +14,27 @@ $SolutionRoot = Split-Path -Parent $ScriptDir
 $PublishDir = Join-Path $SolutionRoot "publish"
 $InstallerOutputDir = Join-Path $PublishDir "installer"
 
+# Auto-detect version from csproj and git commit count
+if (-not $Version) {
+    $CsprojPath = Join-Path $SolutionRoot "WaBiBaBuSy.UI\WaBiBaBuSy.UI.csproj"
+    [xml]$Csproj = Get-Content $CsprojPath
+    $Major = $Csproj.Project.PropertyGroup[0].MajorVersion
+    $Minor = $Csproj.Project.PropertyGroup[0].MinorVersion
+    $Patch = $Csproj.Project.PropertyGroup[0].PatchVersion
+    try {
+        $BuildNumber = (git -C $SolutionRoot rev-list --count HEAD 2>$null).Trim()
+    } catch {
+        $BuildNumber = "0"
+    }
+    if (-not $BuildNumber) { $BuildNumber = "0" }
+    $Version = "$Major.$Minor.$Patch.$BuildNumber"
+}
+
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host " WaBiBaBuSy Installer Build Script" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Version: $Version" -ForegroundColor Cyan
 Write-Host "Solution Root: $SolutionRoot" -ForegroundColor Gray
 Write-Host "Publish Directory: $PublishDir" -ForegroundColor Gray
 Write-Host ""
@@ -42,7 +58,8 @@ dotnet publish $ProjectPath `
     --self-contained false `
     /p:PublishSingleFile=false `
     /p:DebugType=None `
-    /p:DebugSymbols=false
+    /p:DebugSymbols=false `
+    /p:BuildNumber=$($Version.Split('.')[-1])
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "  Failed to publish application!" -ForegroundColor Red
@@ -82,7 +99,7 @@ Write-Host ""
 Write-Host "[4/4] Building installer..." -ForegroundColor Yellow
 $IssPath = Join-Path $ScriptDir "WaBiBaBuSy.iss"
 
-& $InnoSetupPath $IssPath
+& $InnoSetupPath "/DMyAppVersion=$Version" $IssPath
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "  Failed to build installer!" -ForegroundColor Red

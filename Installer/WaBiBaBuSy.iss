@@ -2,7 +2,10 @@
 ; Requires Inno Setup 6.0 or later: https://jrsoftware.org/isinfo.php
 
 #define MyAppName "WaBiBaBuSy"
-#define MyAppVersion "2.0.0"
+; MyAppVersion is passed from Build-Installer.ps1 via /D flag; fallback if building manually
+#ifndef MyAppVersion
+  #define MyAppVersion "2.1.0"
+#endif
 #define MyAppPublisher "BiBaBu"
 #define MyAppURL "https://github.com/pfnetsch/WaBiBaBuSy"
 #define MyAppExeName "WaBiBaBuSy.UI.exe"
