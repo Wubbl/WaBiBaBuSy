@@ -7,12 +7,14 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
 
-    <!-- Version Information -->
-    <BuildNumber Condition="'$(BuildNumber)' == ''">1</BuildNumber>
-    <Version>2.1.0</Version>
-    <AssemblyVersion>2.0.0.$(BuildNumber)</AssemblyVersion>
-    <FileVersion>2.0.0.$(BuildNumber)</FileVersion>
-    <InformationalVersion>2.0.0+build.$(BuildNumber)</InformationalVersion>
+    <!-- Version Information: Major.Minor.Patch set manually, BuildNumber auto-set from git commit count -->
+    <MajorVersion>2</MajorVersion>
+    <MinorVersion>1</MinorVersion>
+    <PatchVersion>0</PatchVersion>
+    <Version>$(MajorVersion).$(MinorVersion).$(PatchVersion)</Version>
+    <AssemblyVersion>$(MajorVersion).$(MinorVersion).$(PatchVersion).$(BuildNumber)</AssemblyVersion>
+    <FileVersion>$(MajorVersion).$(MinorVersion).$(PatchVersion).$(BuildNumber)</FileVersion>
+    <InformationalVersion>$(MajorVersion).$(MinorVersion).$(PatchVersion)+build.$(BuildNumber)</InformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -41,6 +43,19 @@
     <ProjectReference Include="..\WaBiBaBuSy.Models\WaBiBaBuSy.Models.csproj" />
     <ProjectReference Include="..\WaBiBaBuSy.WallpaperEngine\WaBiBaBuSy.WallpaperEngine.csproj" />
   </ItemGroup>
+
+  <!-- Auto-set BuildNumber from git commit count (can be overridden via /p:BuildNumber=N) -->
+  <Target Name="SetBuildNumber" BeforeTargets="GetAssemblyVersion;GenerateNuspec;BeforeBuild" Condition="'$(BuildNumber)' == ''">
+    <Exec Command="git rev-list --count HEAD" ConsoleToMSBuild="true" StandardOutputImportance="low" IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="BuildNumber" />
+    </Exec>
+    <PropertyGroup>
+      <BuildNumber Condition="'$(BuildNumber)' == ''">0</BuildNumber>
+      <AssemblyVersion>$(MajorVersion).$(MinorVersion).$(PatchVersion).$(BuildNumber)</AssemblyVersion>
+      <FileVersion>$(MajorVersion).$(MinorVersion).$(PatchVersion).$(BuildNumber)</FileVersion>
+      <InformationalVersion>$(MajorVersion).$(MinorVersion).$(PatchVersion)+build.$(BuildNumber)</InformationalVersion>
+    </PropertyGroup>
+  </Target>
 
   <!-- Copy Player.Image executable and dependencies to output directory -->
   <Target Name="CopyPlayerExecutables" AfterTargets="Build">
