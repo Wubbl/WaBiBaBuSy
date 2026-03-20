@@ -71,6 +71,10 @@ public class D2DCompositionService : IDisposable
     /// Initialize the composition service with canvas layout and layer configurations.
     /// Creates D2DPlayer processes and sends animation metadata to each.
     /// </summary>
+    /// <param name="perMonitorMode">
+    /// When true (Simultaneous mode), each player treats its own monitor as the entire canvas.
+    /// When false (Sequential/spanning mode), animation spans across the full virtual canvas.
+    /// </param>
     public async Task InitializeAsync(
         VirtualCanvasManager canvasManager,
         BackgroundLayerConfig backgroundConfig,
@@ -78,13 +82,14 @@ public class D2DCompositionService : IDisposable
         Rectangle actualMonitorBounds,
         int monitorIndex = 0,
         MovementConfig? movementConfig = null,
+        bool perMonitorMode = false,
         CancellationToken cancellationToken = default)
     {
         if (_disposed)
             throw new ObjectDisposedException(nameof(D2DCompositionService));
 
-        _logger.LogInformation("Initializing D2D composition service for {ScreenCount} screens (metadata-based), movement={MovementType}",
-            canvasManager.ScreenMappings.Count, movementConfig?.Type.ToString() ?? "None");
+        _logger.LogInformation("Initializing D2D composition service for {ScreenCount} screens (metadata-based), movement={MovementType}, perMonitor={PerMonitor}",
+            canvasManager.ScreenMappings.Count, movementConfig?.Type.ToString() ?? "None", perMonitorMode);
 
         _canvasManager = canvasManager ?? throw new ArgumentNullException(nameof(canvasManager));
         _backgroundConfig = backgroundConfig ?? throw new ArgumentNullException(nameof(backgroundConfig));
@@ -113,14 +118,18 @@ public class D2DCompositionService : IDisposable
             _logger.LogInformation("Sending animation metadata to player {Order}", screen.Order);
 
             // Send LOAD_ANIMATION command with metadata
+            // In per-monitor (simultaneous) mode: each player is its own independent canvas
+            // In spanning (sequential) mode: players share a virtual canvas with offset
             var loadCmd = new PlayerCommandLoadAnimation
             {
                 AnimationConfig = animationConfig,
                 BackgroundConfig = backgroundConfig,
                 MonitorIndex = monitorIndex,
                 VirtualCanvasHeight = actualMonitorBounds.Height,
-                VirtualCanvasWidth = canvasManager.VirtualBounds.Width > 0 ? canvasManager.VirtualBounds.Width : actualMonitorBounds.Width,
-                MonitorOffsetX = screen.VirtualBounds.X,
+                VirtualCanvasWidth = perMonitorMode
+                    ? actualMonitorBounds.Width
+                    : (canvasManager.VirtualBounds.Width > 0 ? canvasManager.VirtualBounds.Width : actualMonitorBounds.Width),
+                MonitorOffsetX = perMonitorMode ? 0 : screen.VirtualBounds.X,
                 MovementConfig = _movementConfig
             };
 

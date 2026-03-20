@@ -2,7 +2,7 @@
 
 **Project Name:** WallpaperBiBaBuSync (BiBaBu = our club name)
 **Version:** 2.0 | **Framework:** .NET 8.0 | **Status:** ✅ MVP ~99% Complete
-**Last Updated:** 2026-03-17 | **Next:** E2E Multi-Client Testing, runtime validation of UI redesign
+**Last Updated:** 2026-03-20 | **Next:** E2E Multi-Client Testing, file logging validation
 
 WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5% server CPU, ±50ms drift tolerance, and distributed client-side rendering. Supports images (JPG/PNG/BMP), videos (MP4/AVI/MKV), and GIFs across multi-monitor setups.
 
@@ -226,6 +226,41 @@ WaBiBaBuSy/
 - Explain architectural decisions and trade-offs
 - Ensure zero compilation errors before delivery
 
+## Architectural Invariants (DO NOT BREAK)
+
+> **READ THIS SECTION BEFORE making any changes to the animation, rendering, or D2D pipeline.**
+
+### D2D Player Architecture
+- **Separate process**: `WaBiBaBuSy.Player.D2D.exe` runs in its own process. DXGI swap chain windows in the main process crash `explorer.exe` on Windows 11 24H2+. NEVER move DXGI rendering back into the main process.
+- **Metadata-based IPC**: Main process sends animation metadata (file path, canvas size, offsets, movement config) to player processes via stdin/stdout JSON. Players render locally. Main process does NOT compose or send frames.
+- **Deterministic positioning**: All player processes independently calculate animation position from `elapsedTime + MovementCalculator`. No per-frame position IPC. This is what enables multi-monitor sync.
+
+### Animation Distribution Modes
+**There are exactly two modes. Their meaning is precise:**
+
+| Mode | UI Name | What it means | Virtual canvas | MonitorOffsetX |
+|------|---------|---------------|----------------|----------------|
+| **Sequential** | "Sequential" | Animation **spans across all monitors** as one big canvas. The animation moves across monitor 1, then continues onto monitor 2, etc. | `VirtualCanvasWidth = total width of all monitors combined` | `= this monitor's X offset in virtual space` |
+| **Simultaneous** | "Simultaneous" | Animation plays **independently on each monitor**. Every monitor shows the same animation at the same time, each on its own. | `VirtualCanvasWidth = this monitor's width only` | `= 0` |
+
+**Implementation path:**
+1. `CrossScreenConfigDialog` → user picks mode → stored in `CrossScreenConfig.DistributionMode`
+2. `MainWindowViewModel.StartCrossScreen()` → converts to `perMonitorMode = (mode == Simultaneous)`
+3. `D2DCompositionService.InitializeAsync(perMonitorMode)` → adjusts `VirtualCanvasWidth` and `MonitorOffsetX` in `PlayerCommandLoadAnimation`
+4. `Player.D2D` receives IPC message → uses `MovementCalculator` with the canvas size → subtracts `MonitorOffsetX` from virtual position
+
+**CRITICAL:** Both modes start ALL D2D players simultaneously with the same timestamp. The background always renders on all monitors. The difference is ONLY in how `VirtualCanvasWidth` and `MonitorOffsetX` are set.
+
+### Logging Architecture
+- **`AppLogger`** is a static factory using volatile `LoggingConfiguration`. `ApplyConfig()` takes effect immediately.
+- **`FileLoggerProvider`** creates rolling daily files in `LogDirectory`. Errors during file creation are written to `Console.Error` (not silently swallowed).
+- **Config persistence**: `%APPDATA%\WaBiBaBuSy\logging-config.json` (separate from main config).
+
+### Windows Desktop Integration
+- **WorkerW technique**: Wallpaper windows are parented to the desktop behind icons.
+- **WS_EX_LAYERED + SetLayeredWindowAttributes**: NOT `WS_EX_TRANSPARENT` (which crashes explorer on 24H2+).
+- **Z-order**: `SetParent` first, then `SetWindowPos` with DefView reference.
+
 ## Testing Strategy (Planned)
 
 | Test Type | Focus |
@@ -410,7 +445,14 @@ dotnet run --project WaBiBaBuSy.UI
 
 ## Recent Updates
 
-**Latest (2026-03-17 - UI REDESIGN: ANIMATION CONTROLS & GALLERY):**
+**Latest (2026-03-20 - ANIMATION MODE FIX + LOGGING DIAGNOSTICS):**
+- ✅ **FIXED: Distribution mode ignored** - `StartCrossScreen()` was always starting all monitors in spanning mode (regression from D2D architecture refactor). Now checks `DistributionMode` and passes `perMonitorMode` flag to `D2DCompositionService.InitializeAsync()`.
+- ✅ **FIXED: File logging silent failure** - `FileLoggerProvider.GetWriter()` had empty `catch` block that swallowed all file creation errors. Now logs errors to `Console.Error` with path details.
+- ✅ **Added: Logging diagnostics** - `AppLogger.ApplyConfig()` immediately attempts file creation when `LogToFile=true` and reports success/failure to console.
+- ✅ **FIXED: CrossScreenConfigDialog PlatformImpl null** - Added input event guards for Avalonia timing issue.
+- 📄 **Added: Architectural Invariants section** in `CLAUDE.md` — documents distribution mode semantics, D2D player architecture, and other rules that must not be broken.
+
+**Previous (2026-03-17 - UI REDESIGN: ANIMATION CONTROLS & GALLERY):**
 - ✅ **ISSUE-011 FIXED: Background color** - `BackgroundColorDetector` auto-detects dominant edge color from GIF/image/video; manual hex override with inline color preview
 - ✅ **Gallery selection highlighting** - Blue border (`#0078D4`) on selected wallpaper via `Classes.selected` binding + `HexToColorConverter`
 - ✅ **Removed confusing Animation toggle** - Standard wallpaper controls always visible; added "Multi Monitor Animation" button
@@ -474,13 +516,9 @@ dotnet run --project WaBiBaBuSy.UI
 - ✅ **Network topology visualization** - Rectangle drag + Ctrl+Click multi-select for client management
 
 **Current Work (Priority Order):**
-1. **🟢 TESTING: Direct2D Animation Support** - Runtime validation with real GIF and video files
-   - Test GIF: Load .gif → Click "Apply Via Direct2D" → Verify animation renders with auto-detected background color
-   - Test Video: Load .mp4 → Click "Apply Via Direct2D" → Verify frame caching (frames will be placeholders in MVP)
-   - Test UI: Gallery selection highlighting, Multi Monitor Animation button, topology indicators
-   - Monitor: CPU usage, memory, frame rate
-2. **E2E Multi-Client Testing** - Test Sequential/Simultaneous modes with 1-3 real clients
-3. **Issue #1 Resolution** - Multi-monitor selection for cross-screen animations
+1. **🟡 VALIDATE: File logging** - Enable LogToFile on test machines, verify log files appear at `%LOCALAPPDATA%\WaBiBaBuSy\Logs\`. Check console for diagnostic messages.
+2. **🟡 VALIDATE: Distribution modes** - Test Sequential (spanning) and Simultaneous (per-monitor) with 2+ monitors. Verify Sequential makes animation traverse across monitors, Simultaneous shows same animation on each.
+3. **E2E Multi-Client Testing** - Test with 1-3 real clients over network
 4. **Installer Testing** - Validate existing Windows installer on clean systems
 5. **Phase 2 Enhancement** - Replace video placeholder frames with actual LibVLC frame capture
 

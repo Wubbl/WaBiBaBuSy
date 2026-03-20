@@ -1,5 +1,8 @@
 # Animation Movement System
 
+**Status:** ✅ IMPLEMENTED (2026-03-19)
+**Key files:** `MovementCalculator.cs`, `MovementConfig` in `CrossScreenConfig.cs`, `CrossScreenConfigDialog.axaml`
+
 ## Context
 The animation system currently only supports left-to-right linear scrolling (`_animX = -animWidth + elapsed * pxPerSec`). The user has 2x1920x1080 monitors and wants a small (e.g. 200x200) animation to wander across screens with various movement patterns. Transparency is deferred. Background color from main window already works.
 
