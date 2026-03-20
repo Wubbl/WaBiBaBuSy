@@ -179,12 +179,25 @@
                             Margin="0,10,0,0"
                             IsVisible="{Binding SelectedClient, Converter={x:Static ObjectConverters.IsNotNull}}">
                         <Grid RowDefinitions="Auto,Auto,Auto">
-                            <TextBlock Grid.Row="0"
-                                       Text="{Binding SelectedClient.DisplayName, StringFormat='Client: {0}'}"
-                                       FontSize="14"
-                                       FontWeight="SemiBold"
-                                       Foreground="White"
-                                       Margin="0,0,0,10"/>
+                            <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,10">
+                                <TextBlock Grid.Column="0"
+                                           Text="{Binding SelectedClient.DisplayName, StringFormat='Client: {0}'}"
+                                           FontSize="14"
+                                           FontWeight="SemiBold"
+                                           Foreground="White"
+                                           VerticalAlignment="Center"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="{Binding SelectedClient.Order, StringFormat='Order: {0}'}"
+                                               Foreground="#AAAAAA" FontSize="11"
+                                               VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <Button Content="&#9650;" FontSize="10" Padding="6,3"
+                                            Command="{Binding MoveClientUpCommand}"
+                                            ToolTip.Tip="Move up in animation order"/>
+                                    <Button Content="&#9660;" FontSize="10" Padding="6,3"
+                                            Command="{Binding MoveClientDownCommand}"
+                                            ToolTip.Tip="Move down in animation order"/>
+                                </StackPanel>
+                            </Grid>
 
                             <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,10">
                                 <TextBlock Grid.Column="0"

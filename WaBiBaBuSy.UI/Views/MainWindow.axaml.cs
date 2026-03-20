@@ -235,6 +235,35 @@ public partial class MainWindow : Window
             }
         };
 
+        // Order badge (top-right corner of thumbnail)
+        var orderBadge = new Border
+        {
+            Background = new SolidColorBrush(Color.Parse("#0078D4")),
+            CornerRadius = new CornerRadius(3),
+            Padding = new Thickness(5, 1),
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top,
+            Margin = new Thickness(0, -94, 0, 0) // Overlap onto thumbnail
+        };
+        var orderText = new TextBlock
+        {
+            Text = $"#{client.Order}",
+            Foreground = Brushes.White,
+            FontSize = 9,
+            FontWeight = FontWeight.Bold
+        };
+        orderBadge.Child = orderText;
+        stackPanel.Children.Add(orderBadge);
+
+        // Update order badge on Order changes
+        client.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(client.Order))
+            {
+                orderText.Text = $"#{client.Order}";
+            }
+        };
+
         // Display Name (hostname)
         stackPanel.Children.Add(new TextBlock
         {
@@ -431,7 +460,7 @@ public partial class MainWindow : Window
                 {
                     var clientX = Canvas.GetLeft(clientBorder);
                     var clientY = Canvas.GetTop(clientBorder);
-                    var clientRect = new Rect(clientX, clientY, clientBorder.Width, clientBorder.Height);
+                    var clientRect = new Rect(clientX, clientY, clientBorder.Bounds.Width, clientBorder.Bounds.Height);
 
                     // Check if client node intersects with selection rectangle
                     if (selectionBounds.Intersects(clientRect))

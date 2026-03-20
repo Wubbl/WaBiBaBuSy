@@ -78,20 +78,8 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
 
                     updateDescription = $"Update to {serverVersion}";
 
-                    // Build the update package if needed and get its size
-                    // This ensures the package is ready before any client tries to download
-                    try
-                    {
-                        var updatePackagePath = await EnsureUpdatePackageExistsAsync();
-                        if (File.Exists(updatePackagePath))
-                        {
-                            updatePackageSize = new FileInfo(updatePackagePath).Length;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to pre-build update package during registration. Package will be built on download.");
-                    }
+                    // Package size will be determined when the client actually requests the download.
+                    // We no longer pre-build the package on registration to avoid unnecessary work.
                 }
 
                 // Check if client version is below minimum compatible version
@@ -620,9 +608,13 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                 return new UpdateCheckResponse { UpdateAvailable = false };
             }
 
-            // Auto-build update package from server's own binaries
-            var packagePath = await EnsureUpdatePackageExistsAsync();
-            long packageSize = File.Exists(packagePath) ? new FileInfo(packagePath).Length : 0;
+            // Package will be built on-demand when the client requests the download.
+            // Check if a cached package already exists for the size info.
+            long packageSize = 0;
+            if (_cachedUpdatePackagePath != null && File.Exists(_cachedUpdatePackagePath))
+            {
+                packageSize = new FileInfo(_cachedUpdatePackagePath).Length;
+            }
 
             bool isMandatory = _serverConfig.UpdateManagement.EnforceMandatoryUpdates &&
                 WaBiBaBuSy.Common.Version.VersionInfo.IsUpdateRequired(
@@ -685,7 +677,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
             _logger.LogInformation("Streaming update package: {Filename} ({FileSize:N0} bytes, {TotalChunks} chunks)",
                 filename, fileSize, totalChunks);
 
-            await using var fileStream = File.OpenRead(packagePath);
+            await using var fileStream = new FileStream(packagePath, FileMode.Open, FileAccess.Read, FileShare.Read);
             var buffer = new byte[chunkSize];
             int chunkIndex = 0;
 

@@ -323,6 +323,36 @@ public partial class MainWindowViewModel : ViewModelBase
             c.IsSelected = true;
     }
 
+    [RelayCommand]
+    private void MoveClientUp()
+    {
+        if (SelectedClient == null) return;
+        var sorted = Clients.OrderBy(c => c.Order).ToList();
+        var idx = sorted.IndexOf(SelectedClient);
+        if (idx > 0)
+        {
+            // Swap order values with the previous client
+            var prev = sorted[idx - 1];
+            (SelectedClient.Order, prev.Order) = (prev.Order, SelectedClient.Order);
+            Debug.WriteLine($"[Topology] Moved {SelectedClient.DisplayName} up: Order={SelectedClient.Order}");
+        }
+    }
+
+    [RelayCommand]
+    private void MoveClientDown()
+    {
+        if (SelectedClient == null) return;
+        var sorted = Clients.OrderBy(c => c.Order).ToList();
+        var idx = sorted.IndexOf(SelectedClient);
+        if (idx >= 0 && idx < sorted.Count - 1)
+        {
+            // Swap order values with the next client
+            var next = sorted[idx + 1];
+            (SelectedClient.Order, next.Order) = (next.Order, SelectedClient.Order);
+            Debug.WriteLine($"[Topology] Moved {SelectedClient.DisplayName} down: Order={SelectedClient.Order}");
+        }
+    }
+
     /// <summary>
     /// True when no wallpaper is selected but a cross-screen animation is running
     /// </summary>
@@ -2020,10 +2050,28 @@ public partial class MainWindowViewModel : ViewModelBase
                 : Clients;
 
             // Only use local monitors for D2D (remote clients use orchestration)
-            var localClients = clientsToUse
+            // Respect SelectedMonitorIds order if set (user may have reordered in config dialog)
+            var localClientsUnordered = clientsToUse
                 .Where(c => c.ClientId.StartsWith("LOCAL_MACHINE_MONITOR_"))
-                .OrderBy(c => c.Order)
                 .ToList();
+
+            List<ClientNodeViewModel> localClients;
+            if (selectedMonitorIds.Count > 0)
+            {
+                // Order by position in SelectedMonitorIds list (preserves user's custom order)
+                var orderMap = _crossScreenConfig.SelectedMonitorIds
+                    .Select((id, idx) => (id, idx))
+                    .ToDictionary(x => x.id, x => x.idx);
+                localClients = localClientsUnordered
+                    .OrderBy(c => orderMap.GetValueOrDefault(c.ClientId, int.MaxValue))
+                    .ToList();
+            }
+            else
+            {
+                localClients = localClientsUnordered
+                    .OrderBy(c => c.Order)
+                    .ToList();
+            }
 
             if (localClients.Count == 0)
             {

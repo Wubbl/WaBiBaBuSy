@@ -198,7 +198,7 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <Border Background="#3E3E42" CornerRadius="3" Padding="10" Margin="0,5,0,0">
-                                        <Grid ColumnDefinitions="Auto,*">
+                                        <Grid ColumnDefinitions="Auto,*,Auto">
                                             <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                             <StackPanel Grid.Column="1" Spacing="2">
                                                 <TextBlock Text="{Binding Hostname}" FontWeight="SemiBold" FontSize="11"/>
@@ -206,6 +206,16 @@
                                                     <TextBlock Text="{Binding Resolution, StringFormat='Resolution: {0}'}" FontSize="10" Foreground="#CCCCCC"/>
                                                     <TextBlock Text="{Binding IpAddress, StringFormat='IP: {0}'}" FontSize="10" Foreground="#CCCCCC"/>
                                                 </StackPanel>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2" Orientation="Vertical" Spacing="2" VerticalAlignment="Center">
+                                                <Button Content="&#9650;" FontSize="10" Padding="6,2"
+                                                        Command="{Binding $parent[Window].((vm:CrossScreenConfigViewModel)DataContext).MoveMonitorUpCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="Move up in animation order"/>
+                                                <Button Content="&#9660;" FontSize="10" Padding="6,2"
+                                                        Command="{Binding $parent[Window].((vm:CrossScreenConfigViewModel)DataContext).MoveMonitorDownCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip.Tip="Move down in animation order"/>
                                             </StackPanel>
                                         </Grid>
                                     </Border>

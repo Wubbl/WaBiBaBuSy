@@ -374,6 +374,28 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private void MoveMonitorUp(MonitorSelectionItem? monitor)
+    {
+        if (monitor == null) return;
+        var index = AvailableMonitors.IndexOf(monitor);
+        if (index > 0)
+        {
+            AvailableMonitors.Move(index, index - 1);
+        }
+    }
+
+    [RelayCommand]
+    private void MoveMonitorDown(MonitorSelectionItem? monitor)
+    {
+        if (monitor == null) return;
+        var index = AvailableMonitors.IndexOf(monitor);
+        if (index >= 0 && index < AvailableMonitors.Count - 1)
+        {
+            AvailableMonitors.Move(index, index + 1);
+        }
+    }
+
+    [RelayCommand]
     private void Ok()
     {
         // Validate configuration

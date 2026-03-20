@@ -51,6 +51,22 @@ public class UpdateDownloader
 
         try
         {
+            // Clean up any leftover file from a previous download attempt
+            if (File.Exists(packagePath))
+            {
+                try
+                {
+                    File.Delete(packagePath);
+                    _logger.LogInformation("Deleted existing package file: {Path}", packagePath);
+                }
+                catch (IOException ex)
+                {
+                    // File is locked — use a unique filename instead
+                    _logger.LogWarning(ex, "Could not delete existing package file (in use), using alternate filename");
+                    packagePath = Path.Combine(downloadDirectory, $"UpdatePackage_{updateInfo.Version}_{Guid.NewGuid():N}.zip");
+                }
+            }
+
             // Request update download from server
             var request = new UpdateDownloadRequest
             {
@@ -59,7 +75,7 @@ public class UpdateDownloader
             };
 
             using var call = grpcClient.DownloadUpdate(request, cancellationToken: cancellationToken);
-            using var fileStream = new FileStream(packagePath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 8192, useAsync: true);
+            using var fileStream = new FileStream(packagePath, FileMode.Create, FileAccess.Write, FileShare.Read, bufferSize: 8192, useAsync: true);
 
             long totalBytesReceived = 0;
             int chunksReceived = 0;
