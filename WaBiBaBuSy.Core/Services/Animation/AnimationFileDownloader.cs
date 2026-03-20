@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System.Security.Cryptography;
+using WaBiBaBuSy.Models.Configuration;
 
 namespace WaBiBaBuSy.Core.Services.Animation;
 
@@ -79,6 +80,7 @@ public class AnimationFileDownloader
         if (File.Exists(cachedFile) && VerifyCacheFile(cachedFile, fileHash, fileSize))
         {
             _logger.LogInformation("Using cached animation file: {CachedFile}", cachedFile);
+            AddToGallery(cachedFile);
             return cachedFile;
         }
 
@@ -94,6 +96,9 @@ public class AnimationFileDownloader
 
         // Update cache metadata
         UpdateCacheMetadata(serverFilePath, fileHash, fileSize);
+
+        // Add to wallpaper gallery so it shows up in the client's UI
+        AddToGallery(cachedFile);
 
         _logger.LogInformation("Successfully downloaded and cached animation file: {File}", downloadedFile);
         return downloadedFile;
@@ -363,6 +368,24 @@ public class AnimationFileDownloader
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error saving cache metadata");
+        }
+    }
+
+    /// <summary>
+    /// Add a downloaded file to the wallpaper gallery (non-critical, won't throw)
+    /// </summary>
+    private void AddToGallery(string filePath)
+    {
+        try
+        {
+            if (ConfigurationManager.AddToGalleryIfMissing(filePath))
+            {
+                _logger.LogInformation("Added animation file to wallpaper gallery: {FilePath}", filePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to add animation file to gallery (non-critical)");
         }
     }
 

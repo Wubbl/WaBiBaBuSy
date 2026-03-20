@@ -186,6 +186,52 @@ public class ConfigurationManager
     public static string GetWallpaperGalleryPath() => WallpaperGalleryPath;
 
     /// <summary>
+    /// Add a wallpaper file to the gallery if it's not already present (by file path).
+    /// Determines the wallpaper type from the file extension.
+    /// Returns true if the item was added, false if it already existed or the type is unsupported.
+    /// </summary>
+    public static bool AddToGalleryIfMissing(string filePath)
+    {
+        if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
+            return false;
+
+        var extension = Path.GetExtension(filePath).ToLowerInvariant();
+        string type;
+        if (new[] { ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".webm", ".flv" }.Contains(extension))
+            type = "Video";
+        else if (extension == ".gif")
+            type = "Gif";
+        else if (new[] { ".jpg", ".jpeg", ".png", ".bmp" }.Contains(extension))
+            type = "Image";
+        else
+            return false; // Unsupported format
+
+        var gallery = LoadWallpaperGallery();
+
+        // Check for duplicate by file path (case-insensitive on Windows)
+        if (gallery.Wallpapers.Any(w =>
+            string.Equals(w.FilePath, filePath, StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        var fileInfo = new FileInfo(filePath);
+        var item = new WallpaperGalleryItem
+        {
+            WallpaperId = Guid.NewGuid().ToString(),
+            Name = Path.GetFileNameWithoutExtension(filePath),
+            FilePath = filePath,
+            Type = type,
+            FileSizeBytes = fileInfo.Length,
+            AddedDate = DateTime.UtcNow
+        };
+
+        gallery.Wallpapers.Add(item);
+        SaveWallpaperGallery(gallery);
+        return true;
+    }
+
+    /// <summary>
     /// Load logging configuration from file, or create default if not exists
     /// </summary>
     public static LoggingConfiguration LoadLoggingConfiguration()

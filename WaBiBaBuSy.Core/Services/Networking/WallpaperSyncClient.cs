@@ -504,6 +504,20 @@ public class WallpaperSyncClient : IDisposable
 
             _logger.LogInformation("Content {ContentId} downloaded successfully: {FilePath} ({Chunks} chunks)",
                 contentId, filePath, chunks.Count);
+
+            // Add to local wallpaper gallery so it appears in the UI
+            try
+            {
+                if (ConfigurationManager.AddToGalleryIfMissing(filePath))
+                {
+                    _logger.LogInformation("Added downloaded content to wallpaper gallery: {FilePath}", filePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to add downloaded content to gallery (non-critical)");
+            }
+
             return filePath;
         }
         catch (RpcException ex) when (ex.StatusCode == StatusCode.NotFound)
