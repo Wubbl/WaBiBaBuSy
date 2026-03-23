@@ -143,7 +143,11 @@ public class UpdateManager
             var extractPath = Path.Combine(_downloadDirectory, $"Extract_{updateInfo.Version}");
             Directory.CreateDirectory(extractPath);
 
-            ZipFile.ExtractToDirectory(packagePath, extractPath, overwriteFiles: true);
+            using (var zipStream = new FileStream(packagePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var archive = new ZipArchive(zipStream, ZipArchiveMode.Read))
+            {
+                archive.ExtractToDirectory(extractPath, overwriteFiles: true);
+            }
             _logger.LogInformation("Package extracted to: {Path}", extractPath);
 
             // Load and verify manifest

@@ -847,11 +847,19 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                     new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(Path.Combine(tempDir, "manifest.json"), manifestJson);
 
-                // Create ZIP
+                // Create ZIP - use explicit ZipArchive to ensure file handle is released
                 if (File.Exists(packagePath))
                     File.Delete(packagePath);
 
-                System.IO.Compression.ZipFile.CreateFromDirectory(tempDir, packagePath);
+                using (var zipStream = new FileStream(packagePath, FileMode.Create, FileAccess.Write, FileShare.None))
+                using (var archive = new System.IO.Compression.ZipArchive(zipStream, System.IO.Compression.ZipArchiveMode.Create))
+                {
+                    foreach (var filePath in Directory.GetFiles(tempDir, "*", SearchOption.AllDirectories))
+                    {
+                        var entryName = Path.GetRelativePath(tempDir, filePath).Replace('\\', '/');
+                        archive.CreateEntryFromFile(filePath, entryName, System.IO.Compression.CompressionLevel.Optimal);
+                    }
+                }
 
                 _logger.LogInformation("Update package created: {PackagePath} ({Size:N0} bytes, {FileCount} files)",
                     packagePath, new FileInfo(packagePath).Length, manifestFiles.Count);

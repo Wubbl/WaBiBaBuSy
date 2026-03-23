@@ -34,7 +34,12 @@
       "Bash(dotnet run:*)",
       "Bash(timeout /t 5 /nobreak)",
       "WebFetch(domain:github.com)",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Bash(grep -r \"UpdateClientOrder\\\\|ClientNodeViewModel\" /c/Users/Patrick/Documents/GitHub/WaBiBaBuSy --include=*.cs --include=*.axaml)",
+      "Bash(grep -rn UpdateClientOrder /c/Users/Patrick/Documents/GitHub/WaBiBaBuSy --include=*.cs)",
+      "Bash(grep -E \"\\\\.\\(cs|axaml\\)$\")",
+      "Bash(grep -rn \"\\\\.Order\\\\|\\\\.order\\\\|OrderPosition\" /c/Users/Patrick/Documents/GitHub/WaBiBaBuSy --include=*.cs --include=*.axaml.cs)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []

@@ -217,13 +217,13 @@
                         <Grid RowDefinitions="Auto,Auto,Auto">
                             <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,10">
                                 <TextBlock Grid.Column="0"
-                                           Text="{Binding SelectedClient.DisplayName, StringFormat='Client: {0}'}"
+                                           Text="{Binding SelectedClient.DisplayName, StringFormat='Client: {0}', FallbackValue='Client:'}"
                                            FontSize="14"
                                            FontWeight="SemiBold"
                                            Foreground="White"
                                            VerticalAlignment="Center"/>
                                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
-                                    <TextBlock Text="{Binding SelectedClient.Order, StringFormat='Order: {0}'}"
+                                    <TextBlock Text="{Binding SelectedClient.Order, StringFormat='Order: {0}', FallbackValue='Order:'}"
                                                Foreground="#AAAAAA" FontSize="11"
                                                VerticalAlignment="Center" Margin="0,0,6,0"/>
                                     <Button Content="&#9650;" FontSize="10" Padding="6,3"
@@ -243,7 +243,7 @@
                                            VerticalAlignment="Center"
                                            Margin="0,0,10,0"/>
                                 <TextBox Grid.Column="1"
-                                         Text="{Binding SelectedClient.PhysicalDistanceCm}"
+                                         Text="{Binding SelectedClient.PhysicalDistanceCm, FallbackValue=0}"
                                          Width="150"
                                          HorizontalAlignment="Left"
                                          VerticalAlignment="Center"/>

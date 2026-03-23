@@ -197,6 +197,37 @@ public partial class MainWindowViewModel : ViewModelBase
                     IsActive = item.IsActive
                 };
 
+                // Re-detect resolution if missing or unknown
+                if (string.IsNullOrEmpty(viewModel.Resolution) || viewModel.Resolution == "Unknown")
+                {
+                    if (viewModel.Type == WallpaperType.Image || viewModel.Type == WallpaperType.Gif)
+                    {
+                        try
+                        {
+                            using var image = System.Drawing.Image.FromFile(item.FilePath);
+                            viewModel.Resolution = $"{image.Width}x{image.Height}";
+                        }
+                        catch { /* ignore */ }
+                    }
+                    else if (viewModel.Type == WallpaperType.Video)
+                    {
+                        // Schedule async resolution detection for videos
+                        var vm = viewModel;
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var videoRes = await _thumbnailGenerator.GetVideoResolution(item.FilePath);
+                                if (!string.IsNullOrEmpty(videoRes))
+                                {
+                                    await Dispatcher.UIThread.InvokeAsync(() => vm.Resolution = videoRes);
+                                }
+                            }
+                            catch { /* ignore */ }
+                        });
+                    }
+                }
+
                 // Set thumbnail path for images and GIFs
                 if (viewModel.Type == WallpaperType.Image || viewModel.Type == WallpaperType.Gif)
                 {
@@ -1789,13 +1820,49 @@ public partial class MainWindowViewModel : ViewModelBase
             }
             else if (_service.IsClientConnected)
             {
-                // Client mode - get topology from server
+                // Client mode - get topology from server and expand into per-monitor nodes
                 var topology = await _service.GetTopologyAsync();
                 if (topology != null)
                 {
                     if (_enableNetworkTopologyDebugOutput)
                         Debug.WriteLine($"Client mode: Got topology with {topology.Clients.Count} clients");
-                    UpdateClientList(topology.Clients);
+
+                    var expandedNodes = new List<WaBiBaBuSy.Grpc.ConnectedClient>();
+                    int nextOrder = 0;
+                    foreach (var client in topology.Clients.OrderBy(c => c.OrderPosition))
+                    {
+                        int clientMonitorCount = client.ScreenConfig?.MonitorCount ?? 1;
+                        if (clientMonitorCount > 1 && client.ScreenConfig?.Monitors.Count > 0)
+                        {
+                            for (int m = 0; m < client.ScreenConfig.Monitors.Count; m++)
+                            {
+                                expandedNodes.Add(new WaBiBaBuSy.Grpc.ConnectedClient
+                                {
+                                    ClientId = $"{client.ClientId}_MONITOR_{m}",
+                                    Hostname = $"{client.Hostname} - Monitor {m + 1}",
+                                    IpAddress = client.IpAddress,
+                                    Status = client.Status,
+                                    OrderPosition = nextOrder++,
+                                    PhysicalDistanceCm = client.PhysicalDistanceCm,
+                                    ScreenConfig = client.ScreenConfig
+                                });
+                            }
+                        }
+                        else
+                        {
+                            expandedNodes.Add(new WaBiBaBuSy.Grpc.ConnectedClient
+                            {
+                                ClientId = client.ClientId,
+                                Hostname = client.Hostname,
+                                IpAddress = client.IpAddress,
+                                Status = client.Status,
+                                OrderPosition = nextOrder++,
+                                PhysicalDistanceCm = client.PhysicalDistanceCm,
+                                ScreenConfig = client.ScreenConfig
+                            });
+                        }
+                    }
+                    UpdateClientList(expandedNodes);
                 }
             }
             else
