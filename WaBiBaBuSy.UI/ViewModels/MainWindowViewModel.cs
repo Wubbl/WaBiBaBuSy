@@ -95,6 +95,21 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool _isClientLogsVisible;
 
     [ObservableProperty]
+    private bool _isClientConnected;
+
+    [ObservableProperty]
+    private string _clientConnectionStatus = "Disconnected";
+
+    [ObservableProperty]
+    private string _connectServerAddress = "";
+
+    [ObservableProperty]
+    private int _connectServerPort = 50051;
+
+    [ObservableProperty]
+    private bool _isConnecting;
+
+    [ObservableProperty]
     private bool _isUpdateAvailable;
 
     [ObservableProperty]
@@ -126,6 +141,11 @@ public partial class MainWindowViewModel : ViewModelBase
         _loggerFactory = LoggerFactory.Create(builder => builder.AddConsole().AddDebug());
         _desktopManager = new DesktopWindowManager(_loggerFactory.CreateLogger<DesktopWindowManager>());
         _thumbnailGenerator = new VideoThumbnailGenerator(_loggerFactory.CreateLogger<VideoThumbnailGenerator>());
+
+        // Load client config to pre-fill connect fields
+        var clientConfig = ConfigurationManager.LoadClientConfiguration();
+        ConnectServerAddress = clientConfig.ServerAddress;
+        ConnectServerPort = clientConfig.ServerPort;
 
         // Subscribe to service events
         _service.ServerStatusChanged += OnServerStatusChanged;
@@ -1485,6 +1505,95 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    [RelayCommand]
+    private async Task ConnectToServer()
+    {
+        if (_service.IsClientConnected)
+        {
+            // Already connected - disconnect
+            await _service.DisconnectFromServerAsync();
+            IsClientConnected = false;
+            ClientConnectionStatus = "Disconnected";
+            return;
+        }
+
+        var address = ConnectServerAddress.Trim();
+        var port = ConnectServerPort;
+
+        if (string.IsNullOrEmpty(address))
+        {
+            // Try mDNS auto-discovery
+            IsConnecting = true;
+            ClientConnectionStatus = "Discovering...";
+
+            _service.StartServerDiscovery();
+            await Task.Delay(2000);
+
+            var servers = _service.GetDiscoveredServers();
+            _service.StopServerDiscovery();
+
+            if (servers.Any())
+            {
+                var firstServer = servers.First();
+                address = firstServer.IpAddress;
+                port = firstServer.Port;
+                ConnectServerAddress = address;
+                ConnectServerPort = port;
+            }
+            else
+            {
+                ClientConnectionStatus = "No servers found";
+                IsConnecting = false;
+                return;
+            }
+        }
+
+        IsConnecting = true;
+        ClientConnectionStatus = $"Connecting to {address}:{port}...";
+
+        try
+        {
+            var connected = await _service.ConnectToServerAsync(address, port);
+
+            if (connected)
+            {
+                IsClientConnected = true;
+                ClientConnectionStatus = $"Connected to {address}:{port}";
+                Debug.WriteLine($"[ConnectToServer] Connected to {address}:{port}");
+                RefreshTopology();
+            }
+            else
+            {
+                ClientConnectionStatus = "Connection failed";
+            }
+        }
+        catch (Exception ex)
+        {
+            ClientConnectionStatus = $"Error: {ex.Message}";
+            Debug.WriteLine($"[ConnectToServer] Error: {ex.Message}");
+        }
+        finally
+        {
+            IsConnecting = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task DisconnectFromServer()
+    {
+        try
+        {
+            await _service.DisconnectFromServerAsync();
+            IsClientConnected = false;
+            ClientConnectionStatus = "Disconnected";
+            RefreshTopology();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[DisconnectFromServer] Error: {ex.Message}");
+        }
+    }
+
     /// <summary>
     /// Refresh client topology from server OR show local-only mode
     /// </summary>
@@ -1863,10 +1972,19 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void OnClientConnectionStatusChanged(object? sender, Core.Services.Networking.ConnectionStatusChangedEventArgs e)
     {
-        if (!e.IsConnected)
+        Dispatcher.UIThread.Post(() =>
         {
-            IsServerMode = false;
-        }
+            IsClientConnected = e.IsConnected;
+            if (e.IsConnected)
+            {
+                ClientConnectionStatus = $"Connected to {ConnectServerAddress}:{ConnectServerPort}";
+            }
+            else
+            {
+                IsServerMode = false;
+                ClientConnectionStatus = "Disconnected";
+            }
+        });
     }
 
     /// <summary>
@@ -1888,6 +2006,13 @@ public partial class MainWindowViewModel : ViewModelBase
             {
                 IsServerMode = false;
                 ServerStatus = "Stopped";
+            }
+
+            // Update client connection state
+            IsClientConnected = _service.IsClientConnected;
+            if (IsClientConnected)
+            {
+                ClientConnectionStatus = $"Connected to {ConnectServerAddress}:{ConnectServerPort}";
             }
 
             // Also refresh topology when status is updated
