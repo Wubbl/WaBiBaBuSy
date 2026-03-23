@@ -275,7 +275,7 @@ public partial class MainWindow : Window
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
         });
 
-        // Status with colored dot
+        // Resolution + connection status on one line
         var statusColor = client.IsConnected
             ? Color.Parse("#00FF00")
             : Color.Parse("#FF4444");
@@ -285,6 +285,23 @@ public partial class MainWindow : Window
             Spacing = 4,
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
         };
+        if (client.MonitorWidth > 0 && client.MonitorHeight > 0)
+        {
+            statusPanel.Children.Add(new TextBlock
+            {
+                Text = $"{client.MonitorWidth}x{client.MonitorHeight}",
+                Foreground = new SolidColorBrush(Color.Parse("#888888")),
+                FontSize = 10,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            });
+            statusPanel.Children.Add(new TextBlock
+            {
+                Text = "|",
+                Foreground = new SolidColorBrush(Color.Parse("#555555")),
+                FontSize = 10,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            });
+        }
         var statusDot = new Ellipse
         {
             Width = 8,

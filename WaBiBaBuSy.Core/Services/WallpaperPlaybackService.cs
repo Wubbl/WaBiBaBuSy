@@ -70,8 +70,10 @@ public class WallpaperPlaybackService : IDisposable
     private void OnSyncCommandReceived(object? sender, SyncCommandReceivedEventArgs e)
     {
         var command = e.Command;
-        _logger.LogInformation("Received {CommandType} command for content {ContentId}, sequence {SequenceNumber}",
+        _logger.LogInformation("[Playback] === COMMAND RECEIVED === Type={CommandType}, ContentId={ContentId}, Seq={SequenceNumber}",
             command.Type, command.ContentId, command.SequenceNumber);
+        _logger.LogInformation("[Playback] D2DApplyDelegate is {Status}", D2DApplyDelegate != null ? "SET" : "NULL (no D2D rendering possible)");
+        _logger.LogInformation("[Playback] RendererFactory is {Status}", _rendererFactory != null ? "SET" : "NULL");
 
         // Schedule command execution based on timestamp
         _ = Task.Run(async () =>
@@ -82,7 +84,7 @@ public class WallpaperPlaybackService : IDisposable
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error executing sync command");
+                _logger.LogError(ex, "[Playback] Error executing sync command: {Message}", ex.Message);
             }
         });
     }
@@ -153,42 +155,67 @@ public class WallpaperPlaybackService : IDisposable
     {
         try
         {
+            _logger.LogInformation("[Playback:LOAD] === HANDLING LOAD === ContentId={ContentId}", command.ContentId);
+
             // Check if content is in cache, auto-download if not
             if (!_contentCache.TryGetValue(command.ContentId, out var filePath))
             {
-                _logger.LogInformation("Content {ContentId} not in cache, downloading from server...", command.ContentId);
+                _logger.LogInformation("[Playback:LOAD] Content {ContentId} not in cache ({CacheCount} items cached), downloading from server...",
+                    command.ContentId, _contentCache.Count);
+                _logger.LogInformation("[Playback:LOAD] Cache directory: {CacheDir}", _cacheDirectory);
 
                 var downloadedPath = await _syncClient.DownloadContentAsync(command.ContentId, _cacheDirectory);
                 if (downloadedPath == null)
                 {
-                    _logger.LogError("Failed to download content {ContentId} from server", command.ContentId);
+                    _logger.LogError("[Playback:LOAD] FAILED to download content {ContentId} from server", command.ContentId);
                     return;
                 }
 
                 _contentCache[command.ContentId] = downloadedPath;
                 filePath = downloadedPath;
-                _logger.LogInformation("Content {ContentId} downloaded and cached at {FilePath}", command.ContentId, filePath);
+                _logger.LogInformation("[Playback:LOAD] Content {ContentId} downloaded and cached at {FilePath}", command.ContentId, filePath);
             }
+            else
+            {
+                _logger.LogInformation("[Playback:LOAD] Content {ContentId} found in cache at {FilePath}", command.ContentId, filePath);
+            }
+
+            // Verify file exists on disk
+            if (!File.Exists(filePath))
+            {
+                _logger.LogError("[Playback:LOAD] ERROR: Cached file does not exist on disk: {FilePath}", filePath);
+                _contentCache.TryRemove(command.ContentId, out _);
+                return;
+            }
+            _logger.LogInformation("[Playback:LOAD] File verified on disk: {FilePath} ({Size} bytes)", filePath, new FileInfo(filePath).Length);
 
             var rendererType = command.Params?.RendererType ?? string.Empty;
             var bgColor = command.Params?.BackgroundColor ?? "#000000";
             var fitMode = command.Params?.FitMode ?? 0;
             int monitorIndex = 0; // Default to primary monitor
 
-            _logger.LogInformation("Loading wallpaper: {FilePath} (renderer={Renderer})", filePath, rendererType);
+            _logger.LogInformation("[Playback:LOAD] Params: renderer={Renderer}, bg={BgColor}, fit={FitMode}, monitor={Monitor}",
+                rendererType, bgColor, fitMode, monitorIndex);
+            _logger.LogInformation("[Playback:LOAD] D2DApplyDelegate={D2DStatus}, RendererFactory={FactoryStatus}",
+                D2DApplyDelegate != null ? "SET" : "NULL",
+                _rendererFactory != null ? "SET" : "NULL");
 
             // Use D2D renderer if requested and delegate is available
             if (rendererType == "d2d" && D2DApplyDelegate != null)
             {
-                _logger.LogInformation("Applying via D2D composition on monitor {Monitor} (bg={BgColor}, fit={FitMode})",
+                _logger.LogInformation("[Playback:LOAD] Using D2D path: applying on monitor {Monitor} (bg={BgColor}, fit={FitMode})",
                     monitorIndex, bgColor, fitMode);
                 await D2DApplyDelegate(filePath, monitorIndex, bgColor, fitMode);
-                _logger.LogInformation("D2D wallpaper applied successfully: {ContentId}", command.ContentId);
+                _logger.LogInformation("[Playback:LOAD] D2D wallpaper applied successfully: {ContentId}", command.ContentId);
                 return;
+            }
+            else if (rendererType == "d2d" && D2DApplyDelegate == null)
+            {
+                _logger.LogWarning("[Playback:LOAD] D2D renderer requested but D2DApplyDelegate is NULL - delegate was never wired! Falling back to LibVLC");
             }
 
             // Fallback: LibVLC renderer
-            _logger.LogInformation("Applying via LibVLC renderer on monitor {Monitor}", monitorIndex);
+            _logger.LogInformation("[Playback:LOAD] Using LibVLC path on monitor {Monitor}", monitorIndex);
 
             _renderers.GetOrAdd(command.ContentId, new ConcurrentDictionary<int, IWallpaperRenderer>());
 

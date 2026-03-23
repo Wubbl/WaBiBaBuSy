@@ -635,12 +635,27 @@ public class WallpaperSyncClient : IDisposable
         {
             try
             {
-                _logger.LogInformation("Sync stream started, listening for commands");
+                _logger.LogInformation("[SyncStream] Stream started, listening for commands from server");
 
                 await foreach (var command in _syncStreamCall.ResponseStream.ReadAllAsync(_syncStreamCts.Token))
                 {
-                    _logger.LogInformation("Received {CommandType} command for content {ContentId}, sequence {SequenceNumber}",
-                        command.Type, command.ContentId, command.SequenceNumber);
+                    _logger.LogInformation("[SyncStream] === RECEIVED COMMAND === Type={CommandType}, ContentId={ContentId}, Seq={SequenceNumber}, Timestamp={Timestamp}",
+                        command.Type, command.ContentId, command.SequenceNumber, command.TimestampUtc);
+
+                    // Log all command parameters if present
+                    if (command.Params != null)
+                    {
+                        _logger.LogInformation("[SyncStream] Command params: RendererType={RendererType}, BackgroundColor={BgColor}, FitMode={FitMode}, Speed={Speed}, Loop={Loop}",
+                            command.Params.RendererType ?? "(null)",
+                            command.Params.BackgroundColor ?? "(null)",
+                            command.Params.FitMode,
+                            command.Params.AnimationSpeedCmPerSec,
+                            command.Params.Loop);
+                    }
+                    else
+                    {
+                        _logger.LogInformation("[SyncStream] Command has no params");
+                    }
 
                     // Handle cross-screen start/stop commands
                     if (command.Type == CommandType.CrossscreenStart)
@@ -666,9 +681,12 @@ public class WallpaperSyncClient : IDisposable
                     }
 
                     // Raise event for command processing
+                    var hasSubscribers = SyncCommandReceived != null;
+                    _logger.LogInformation("[SyncStream] Raising SyncCommandReceived event (hasSubscribers={HasSubs})", hasSubscribers);
                     SyncCommandReceived?.Invoke(this, new SyncCommandReceivedEventArgs(command));
 
                     // Send acknowledgment back to server
+                    _logger.LogInformation("[SyncStream] Sending acknowledgment for sequence {Seq}", command.SequenceNumber);
                     await SendSyncResponseAsync(command.SequenceNumber, WallpaperStateEnum.WallpaperBuffering);
                 }
             }

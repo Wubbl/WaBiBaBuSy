@@ -40,6 +40,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, D2DCompositionService> _d2dCompositionServices = new();
     // Thumbnail capture services per monitor for live wallpaper preview in topology
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, ThumbnailCaptureService> _thumbnailCaptureServices = new();
+    // D2D services for remote-triggered rendering when in client mode
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, D2DCompositionService> _remoteD2DServices = new();
     // Debug flag: Enable/disable network topology debug output
     private static bool _enableNetworkTopologyDebugOutput = false;
 
@@ -1542,9 +1544,9 @@ public partial class MainWindowViewModel : ViewModelBase
             }
             else
             {
-                ClientConnectionStatus = "No servers found";
-                IsConnecting = false;
-                return;
+                // No mDNS servers found, fall back to localhost
+                address = "localhost";
+                port = ConnectServerPort;
             }
         }
 
@@ -1560,6 +1562,11 @@ public partial class MainWindowViewModel : ViewModelBase
                 IsClientConnected = true;
                 ClientConnectionStatus = $"Connected to {address}:{port}";
                 Debug.WriteLine($"[ConnectToServer] Connected to {address}:{port}");
+
+                // Wire D2D rendering delegate so server can trigger D2D on this client
+                _service.SetD2DApplyDelegate(ApplyD2DFromRemoteAsync);
+                Debug.WriteLine($"[ConnectToServer] D2D apply delegate wired");
+
                 RefreshTopology();
             }
             else
@@ -1592,6 +1599,84 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             Debug.WriteLine($"[DisconnectFromServer] Error: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// D2D apply delegate called when the server sends a D2D LOAD command to this client.
+    /// Creates a local D2DCompositionService and renders on this machine's desktop.
+    /// </summary>
+    private async Task ApplyD2DFromRemoteAsync(string filePath, int monitorIndex, string backgroundColor, int fitMode)
+    {
+        Debug.WriteLine($"[D2D-Remote] ApplyD2DFromRemoteAsync called: file={filePath}, monitor={monitorIndex}, bg={backgroundColor}, fit={fitMode}");
+
+        // Dispose previous service for this monitor
+        if (_remoteD2DServices.TryRemove(monitorIndex, out var existing))
+        {
+            Debug.WriteLine($"[D2D-Remote] Disposing previous D2D service for monitor {monitorIndex}");
+            existing.Dispose();
+            await Task.Delay(300);
+        }
+
+        var monitors = NativeMonitorInfo.GetAllMonitors();
+        Debug.WriteLine($"[D2D-Remote] Found {monitors.Length} monitors");
+
+        if (monitorIndex < 0 || monitorIndex >= monitors.Length)
+        {
+            Debug.WriteLine($"[D2D-Remote] ERROR: Invalid monitor index {monitorIndex} (have {monitors.Length} monitors)");
+            return;
+        }
+
+        var screen = monitors[monitorIndex];
+        Debug.WriteLine($"[D2D-Remote] Target monitor {monitorIndex}: {screen.Bounds.Width}x{screen.Bounds.Height} at ({screen.Bounds.X},{screen.Bounds.Y})");
+
+        var screenConfig = new WaBiBaBuSy.WallpaperEngine.Composition.ScreenConfiguration
+        {
+            ClientId = $"REMOTE_CLIENT_MONITOR_{monitorIndex}",
+            Order = monitorIndex,
+            Width = screen.Bounds.Width,
+            Height = screen.Bounds.Height,
+            PhysicalDistanceCm = 0
+        };
+
+        var canvasManager = new VirtualCanvasManager(
+            _loggerFactory.CreateLogger<VirtualCanvasManager>());
+        canvasManager.CalculateLayout(new[] { screenConfig } as IEnumerable<WaBiBaBuSy.WallpaperEngine.Composition.ScreenConfiguration>);
+
+        var backgroundConfig = new BackgroundLayerConfig
+        {
+            Mode = BackgroundMode.SolidColor,
+            ColorHex = backgroundColor
+        };
+
+        var animationConfig = new AnimationLayerConfig
+        {
+            AnimationPath = filePath,
+            TargetHeight = screen.Bounds.Height,
+            Loop = true,
+            VerticalAlign = VerticalAlignment.Center,
+            CenterInitialPosition = true,
+            FitMode = (ContentFitMode)fitMode
+        };
+
+        Debug.WriteLine($"[D2D-Remote] Creating D2DCompositionService for monitor {monitorIndex}");
+        var d2dService = new D2DCompositionService(
+            _loggerFactory.CreateLogger<D2DCompositionService>(),
+            _loggerFactory,
+            _desktopManager);
+
+        var actualBounds = new System.Drawing.Rectangle(
+            screen.Bounds.X, screen.Bounds.Y,
+            screen.Bounds.Width, screen.Bounds.Height);
+
+        Debug.WriteLine($"[D2D-Remote] Initializing D2D service with bounds {actualBounds}");
+        await d2dService.InitializeAsync(canvasManager, backgroundConfig, animationConfig, actualBounds, monitorIndex);
+        await Task.Delay(100);
+
+        Debug.WriteLine($"[D2D-Remote] Starting D2D playback");
+        await d2dService.StartAsync(startTimestampMs: 0, pixelsPerSecond: 0);
+
+        _remoteD2DServices[monitorIndex] = d2dService;
+        Debug.WriteLine($"[D2D-Remote] SUCCESS: Applied D2D wallpaper '{Path.GetFileName(filePath)}' on monitor {monitorIndex}");
     }
 
     /// <summary>
@@ -1659,20 +1744,43 @@ public partial class MainWindowViewModel : ViewModelBase
                         Debug.WriteLine($"Added server monitor node: {serverNode.Hostname} at position {serverNode.OrderPosition}");
                 }
 
-                // Add all connected clients with adjusted order positions
-                int serverMonitorCount = screens.Length;
+                // Add connected clients - expand each client into per-monitor nodes
+                int nextOrder = screens.Length;
                 foreach (var client in connectedClients)
                 {
-                    allNodes.Add(new WaBiBaBuSy.Grpc.ConnectedClient
+                    int clientMonitorCount = client.ScreenConfig?.MonitorCount ?? 1;
+                    if (clientMonitorCount > 1 && client.ScreenConfig?.Monitors.Count > 0)
                     {
-                        ClientId = client.ClientId,
-                        Hostname = client.Hostname,
-                        IpAddress = client.IpAddress,
-                        Status = client.Status,
-                        OrderPosition = client.OrderPosition + serverMonitorCount, // Offset by server monitor count
-                        PhysicalDistanceCm = client.PhysicalDistanceCm,
-                        ScreenConfig = client.ScreenConfig
-                    });
+                        // Expand into one node per monitor
+                        for (int m = 0; m < client.ScreenConfig.Monitors.Count; m++)
+                        {
+                            var monitor = client.ScreenConfig.Monitors[m];
+                            allNodes.Add(new WaBiBaBuSy.Grpc.ConnectedClient
+                            {
+                                ClientId = $"{client.ClientId}_MONITOR_{m}",
+                                Hostname = $"{client.Hostname} - Monitor {m + 1}",
+                                IpAddress = client.IpAddress,
+                                Status = client.Status,
+                                OrderPosition = nextOrder++,
+                                PhysicalDistanceCm = client.PhysicalDistanceCm,
+                                ScreenConfig = client.ScreenConfig
+                            });
+                        }
+                    }
+                    else
+                    {
+                        // Single monitor client
+                        allNodes.Add(new WaBiBaBuSy.Grpc.ConnectedClient
+                        {
+                            ClientId = client.ClientId,
+                            Hostname = client.Hostname,
+                            IpAddress = client.IpAddress,
+                            Status = client.Status,
+                            OrderPosition = nextOrder++,
+                            PhysicalDistanceCm = client.PhysicalDistanceCm,
+                            ScreenConfig = client.ScreenConfig
+                        });
+                    }
                 }
 
                 if (_enableNetworkTopologyDebugOutput)
@@ -1818,22 +1926,36 @@ public partial class MainWindowViewModel : ViewModelBase
                     int monitorHeight = 0;
                     bool isPrimary = false;
 
-                    // Check if this is a monitor-specific node (LOCAL_MACHINE_MONITOR_X)
+                    // Check if this is a monitor-specific node (LOCAL_MACHINE_MONITOR_X, SERVER_LOCALHOST_MONITOR_X, or ClientId_MONITOR_X)
+                    string? monitorSuffix = null;
                     if (grpcClient.ClientId.StartsWith("LOCAL_MACHINE_MONITOR_"))
+                        monitorSuffix = grpcClient.ClientId.Replace("LOCAL_MACHINE_MONITOR_", "");
+                    else if (grpcClient.ClientId.StartsWith("SERVER_LOCALHOST_MONITOR_"))
+                        monitorSuffix = grpcClient.ClientId.Replace("SERVER_LOCALHOST_MONITOR_", "");
+                    else if (grpcClient.ClientId.Contains("_MONITOR_"))
+                        monitorSuffix = grpcClient.ClientId.Substring(grpcClient.ClientId.LastIndexOf("_MONITOR_") + "_MONITOR_".Length);
+
+                    if (monitorSuffix != null && int.TryParse(monitorSuffix, out monitorIndex))
                     {
-                        var monitorIndexStr = grpcClient.ClientId.Replace("LOCAL_MACHINE_MONITOR_", "");
-                        if (int.TryParse(monitorIndexStr, out monitorIndex))
+                        // Find the corresponding monitor info in screen config
+                        if (grpcClient.ScreenConfig != null && grpcClient.ScreenConfig.Monitors.Count > monitorIndex)
                         {
-                            // Find the corresponding monitor info in screen config
-                            if (grpcClient.ScreenConfig != null && grpcClient.ScreenConfig.Monitors.Count > monitorIndex)
-                            {
-                                var monitorInfo = grpcClient.ScreenConfig.Monitors[monitorIndex];
-                                monitorName = monitorInfo.DeviceName;
-                                monitorWidth = monitorInfo.Width;
-                                monitorHeight = monitorInfo.Height;
-                                isPrimary = monitorInfo.IsPrimary;
-                            }
+                            var monitorInfo = grpcClient.ScreenConfig.Monitors[monitorIndex];
+                            monitorName = monitorInfo.DeviceName;
+                            monitorWidth = monitorInfo.Width;
+                            monitorHeight = monitorInfo.Height;
+                            isPrimary = monitorInfo.IsPrimary;
                         }
+                    }
+                    else if (grpcClient.ScreenConfig?.Monitors.Count == 1)
+                    {
+                        // Single monitor client - use its only monitor info
+                        var monitorInfo = grpcClient.ScreenConfig.Monitors[0];
+                        monitorIndex = 0;
+                        monitorName = monitorInfo.DeviceName;
+                        monitorWidth = monitorInfo.Width;
+                        monitorHeight = monitorInfo.Height;
+                        isPrimary = monitorInfo.IsPrimary;
                     }
 
                     var newClient = new ClientNodeViewModel
