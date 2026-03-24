@@ -11,6 +11,7 @@ using DriverType = Vortice.Direct3D.DriverType;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
 using Newtonsoft.Json;
+using LibVLCSharp.Shared;
 using WaBiBaBuSy.Player.Common.Messages;
 using WaBiBaBuSy.WallpaperEngine.Composition;
 using WaBiBaBuSy.Models.Wallpaper;
@@ -172,9 +173,21 @@ class Program
     private static ID2D1Bitmap[]? _d2dGifFrames;      // GPU-cached frames
     private static List<int>? _d2dGifDelays;            // Per-frame delay (ms)
     private static long _d2dGifTotalDurationMs;
-    private static int _gifNativeWidth, _gifNativeHeight;
+    private static int _contentNativeWidth, _contentNativeHeight;
     private static double _gifSpeedMultiplier = 1.0;
     private static volatile bool _useNativeD2DComposition = false;
+
+    // Stage 6: Native D2D video playback (LibVLC → raw buffer → CopyFromMemory → ID2D1Bitmap)
+    private static LibVLC? _libVLC;
+    private static LibVLCSharp.Shared.MediaPlayer? _vlcPlayer;
+    private static IntPtr _videoBufferA;
+    private static IntPtr _videoBufferB;
+    private static volatile IntPtr _videoWriteBuffer;
+    private static volatile IntPtr _videoReadBuffer;
+    private static volatile bool _videoFrameReady;
+    private static ID2D1Bitmap? _currentVideoD2DBitmap;
+    private static int _videoNativeWidth, _videoNativeHeight;
+    private static volatile bool _useNativeD2DVideo;
 
     // Stage 3: Native D2D background
     private static ID2D1Bitmap? _backgroundImageBitmap;  // For image backgrounds
@@ -217,7 +230,7 @@ class Program
             {
                 builder.AddConsole(options =>
                 {
-                    options.LogToStandardErrorThreshold = LogLevel.Trace; // ALL logs to stderr
+                    options.LogToStandardErrorThreshold = Microsoft.Extensions.Logging.LogLevel.Trace; // ALL logs to stderr
                     options.FormatterName = "simple";
                 });
                 builder.AddSimpleConsole(options =>
@@ -225,7 +238,7 @@ class Program
                     options.SingleLine = true;       // No multi-line wrapping
                     options.IncludeScopes = false;
                 });
-                builder.SetMinimumLevel(LogLevel.Information);
+                builder.SetMinimumLevel(Microsoft.Extensions.Logging.LogLevel.Information);
             });
             _logger = loggerFactory.CreateLogger<Program>();
 
@@ -632,8 +645,8 @@ class Program
                     {
                         compInit = _compositionInitialized;
                         isPlay = _isPlaying;
-                        shouldComposeNative = _useNativeD2DComposition && isPlay;
-                        shouldComposeFallback = compInit && isPlay && !_useNativeD2DComposition;
+                        shouldComposeNative = (_useNativeD2DComposition || _useNativeD2DVideo) && isPlay;
+                        shouldComposeFallback = compInit && isPlay && !_useNativeD2DComposition && !_useNativeD2DVideo;
                     }
 
                     if (_frameCount % 60 == 0)
@@ -694,6 +707,63 @@ class Program
                         {
                             _logger?.LogError(ex, "Native D2D composition error");
                             // Fall through to color fill below
+                        }
+                    }
+                    // Stage 6: Pure D2D render path for video (LibVLC → CopyFromMemory → DrawBitmap)
+                    else if (shouldComposeNative && _useNativeD2DVideo && _currentVideoD2DBitmap != null)
+                    {
+                        try
+                        {
+                            var elapsedMs = (long)(DateTime.UtcNow - _renderLoopStart).TotalMilliseconds;
+
+                            DrawBackground();
+                            UpdateAnimationPosition(elapsedMs);
+
+                            // Upload new frame from LibVLC buffer → GPU (~0.5ms for 1080p)
+                            if (_videoFrameReady)
+                            {
+                                _videoFrameReady = false;
+                                var readBuf = _videoReadBuffer;
+                                if (readBuf != IntPtr.Zero)
+                                {
+                                    _currentVideoD2DBitmap.CopyFromMemory(readBuf, (uint)(_videoNativeWidth * 4));
+                                }
+                            }
+
+                            var destRect = new System.Drawing.RectangleF(_animX, _animY, _animWidth, _animHeight);
+                            _d2dContext.DrawBitmap(
+                                _currentVideoD2DBitmap,
+                                destRect,
+                                1.0f,
+                                BitmapInterpolationMode.Linear,
+                                null);
+
+                            if (_frameCount % 60 == 0)
+                            {
+                                _logger?.LogInformation("[D2D-VIDEO] Frame #{Frame} | Pos: ({X:F0},{Y:F0}) | Size: {W}x{H} | VideoReady: {Ready}",
+                                    _frameCount, _animX, _animY, _animWidth, _animHeight, _videoFrameReady);
+                            }
+
+                            if (!_windowShown)
+                            {
+                                _windowShown = true;
+                                _d2dContext.EndDraw();
+                                _d2dContext.Target = null;
+                                _swapChain.Present(0, PresentFlags.None);
+
+                                if (_zOrderReference != IntPtr.Zero)
+                                    SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                                else
+                                    ShowWindow(_hwnd, 5);
+                                UpdateWindow(_hwnd);
+                                _logger?.LogInformation("Window shown after first native D2D video frame");
+                                _frameCount++;
+                                continue;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger?.LogError(ex, "Native D2D video render error");
                         }
                     }
                     // Video fallback path: uses CompositionRenderer + GDI+ ConvertBitmapToD2D
@@ -836,8 +906,8 @@ class Program
         }
 
         // Store dimensions from first frame
-        _gifNativeWidth = (int)collection[0].Width;
-        _gifNativeHeight = (int)collection[0].Height;
+        _contentNativeWidth = (int)collection[0].Width;
+        _contentNativeHeight = (int)collection[0].Height;
 
         _d2dGifFrames = frames;
         _d2dGifDelays = delays;
@@ -850,7 +920,7 @@ class Program
         }
 
         var elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds;
-        long estimatedGpuMB = (long)frameCount * _gifNativeWidth * _gifNativeHeight * 4 / (1024 * 1024);
+        long estimatedGpuMB = (long)frameCount * _contentNativeWidth * _contentNativeHeight * 4 / (1024 * 1024);
 
         _logger?.LogInformation("[GIF-D2D] Extraction complete in {ElapsedMs}ms: {Frames} frames, {Duration}ms total ({FPS:F1} FPS avg), ~{GpuMB} MB GPU",
             (int)elapsedMs, frameCount, _d2dGifTotalDurationMs,
@@ -922,6 +992,131 @@ class Program
         }
 
         return frameIndex;
+    }
+
+    // ================================
+    // Stage 6: Native D2D Video (LibVLC)
+    // ================================
+
+    /// <summary>
+    /// Initialize LibVLC for direct video decoding into raw RGBA buffers.
+    /// Sets up double-buffering and creates a persistent ID2D1Bitmap for CopyFromMemory updates.
+    /// </summary>
+    private static void InitializeNativeVideo(string filePath)
+    {
+        _logger?.LogInformation("[VIDEO-INIT] Initializing LibVLC for native D2D video: {Path}", filePath);
+
+        // Initialize LibVLC
+        LibVLCSharp.Shared.Core.Initialize();
+        _libVLC = new LibVLC(enableDebugLogs: false,
+            "--no-video-title-show",
+            "--no-audio",
+            "--file-caching=300",
+            "--network-caching=300",
+            "--avcodec-hw=any");
+
+        _vlcPlayer = new LibVLCSharp.Shared.MediaPlayer(_libVLC);
+
+        // Parse media to detect video dimensions
+        using var media = new Media(_libVLC, filePath, FromType.FromPath);
+        media.Parse(MediaParseOptions.ParseLocal).Wait();
+
+        var videoTracks = media.Tracks.Where(t => t.TrackType == TrackType.Video).ToArray();
+        if (videoTracks.Length > 0)
+        {
+            _videoNativeWidth = (int)videoTracks[0].Data.Video.Width;
+            _videoNativeHeight = (int)videoTracks[0].Data.Video.Height;
+            _logger?.LogInformation("[VIDEO-INIT] Detected video dimensions: {W}x{H}", _videoNativeWidth, _videoNativeHeight);
+        }
+        else
+        {
+            _videoNativeWidth = 1920;
+            _videoNativeHeight = 1080;
+            _logger?.LogWarning("[VIDEO-INIT] Could not detect video dimensions, using default 1920x1080");
+        }
+
+        // Allocate double buffers (lock-free swap)
+        int bufferSize = _videoNativeWidth * _videoNativeHeight * 4;
+        _videoBufferA = Marshal.AllocHGlobal(bufferSize);
+        _videoBufferB = Marshal.AllocHGlobal(bufferSize);
+        _videoWriteBuffer = _videoBufferA;
+        _videoReadBuffer = _videoBufferB;
+        _videoFrameReady = false;
+
+        // Clear buffers to black
+        unsafe
+        {
+            new Span<byte>((void*)_videoBufferA, bufferSize).Clear();
+            new Span<byte>((void*)_videoBufferB, bufferSize).Clear();
+        }
+
+        // Set up LibVLC memory callbacks
+        uint pitch = (uint)(_videoNativeWidth * 4);
+        _vlcPlayer.SetVideoFormat("RV32", (uint)_videoNativeWidth, (uint)_videoNativeHeight, pitch);
+        _vlcPlayer.SetVideoCallbacks(VideoLockCb, null, VideoDisplayCb);
+
+        // Create persistent ID2D1Bitmap for CopyFromMemory updates (zero per-frame allocation)
+        var bitmapProps = new BitmapProperties(
+            new Vortice.DCommon.PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied),
+            96f, 96f);
+        _currentVideoD2DBitmap = _d2dContext!.CreateBitmap(
+            new SizeI(_videoNativeWidth, _videoNativeHeight),
+            IntPtr.Zero, 0,
+            bitmapProps);
+
+        // Wire looping via EndReached (proven pattern from VideoWallpaperRenderer)
+        _vlcPlayer.EndReached += (s, e) =>
+        {
+            if (_animationConfig?.Loop == true)
+            {
+                ThreadPool.QueueUserWorkItem(_ =>
+                {
+                    try
+                    {
+                        Thread.Sleep(50);
+                        _vlcPlayer?.Stop();
+                        Thread.Sleep(50);
+                        using var loopMedia = new Media(_libVLC!, filePath, FromType.FromPath);
+                        if (_vlcPlayer != null)
+                        {
+                            _vlcPlayer.Media = loopMedia;
+                            _vlcPlayer.Play();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogError(ex, "[VIDEO-LOOP] Error restarting video");
+                    }
+                });
+            }
+        };
+
+        // Start playback immediately (LibVLC decodes frames in the background)
+        var playMedia = new Media(_libVLC, filePath, FromType.FromPath);
+        _vlcPlayer.Media = playMedia;
+        _vlcPlayer.Play();
+
+        _logger?.LogInformation("[VIDEO-INIT] LibVLC native video initialized, playback started");
+    }
+
+    /// <summary>
+    /// LibVLC lock callback - provides buffer pointer for frame decode.
+    /// </summary>
+    private static IntPtr VideoLockCb(IntPtr opaque, IntPtr planes)
+    {
+        Marshal.WriteIntPtr(planes, _videoWriteBuffer);
+        return IntPtr.Zero;
+    }
+
+    /// <summary>
+    /// LibVLC display callback - swaps double buffers (lock-free).
+    /// </summary>
+    private static void VideoDisplayCb(IntPtr opaque, IntPtr picture)
+    {
+        // Swap: completed write buffer becomes read buffer
+        var oldRead = Interlocked.Exchange(ref _videoReadBuffer, _videoWriteBuffer);
+        _videoWriteBuffer = oldRead;
+        _videoFrameReady = true;
     }
 
     // ================================
@@ -1039,8 +1234,8 @@ class Program
     /// </summary>
     private static void CalculateAnimationLayout(AnimationLayerConfig config)
     {
-        int nativeWidth = _gifNativeWidth;
-        int nativeHeight = _gifNativeHeight;
+        int nativeWidth = _contentNativeWidth;
+        int nativeHeight = _contentNativeHeight;
 
         if (nativeWidth <= 0 || nativeHeight <= 0)
         {
@@ -1397,54 +1592,26 @@ class Program
                     _useNativeD2DComposition = true;
                     _logger?.LogInformation("[LOAD] Native D2D composition ready: {Frames} frames, {W}x{H}", _d2dGifFrames?.Length, _animWidth, _animHeight);
                 }
+                else if (extension is ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv")
+                {
+                    // Stage 6: Native D2D path for videos (LibVLC → raw buffer → CopyFromMemory)
+                    _logger?.LogInformation("[LOAD] Video detected ({Ext}), using native D2D video", extension);
+
+                    InitializeNativeVideo(filePath);
+
+                    InitializeBackground(cmd.BackgroundConfig);
+
+                    _contentNativeWidth = _videoNativeWidth;
+                    _contentNativeHeight = _videoNativeHeight;
+                    CalculateAnimationLayout(cmd.AnimationConfig);
+
+                    _useNativeD2DVideo = true;
+                    _logger?.LogInformation("[LOAD] Native D2D video ready: {W}x{H}", _videoNativeWidth, _videoNativeHeight);
+                }
                 else
                 {
-                    // Video files: use existing CompositionRenderer fallback
-                    _logger?.LogInformation("[LOAD] Video detected ({Ext}), using CompositionRenderer fallback", extension);
-
-                    var screenConfig = new ScreenConfiguration
-                    {
-                        ClientId = "D2DPlayer",
-                        Order = 0,
-                        Width = _width,
-                        Height = _height,
-                        PhysicalDistanceCm = 0,
-                        Hostname = "localhost",
-                        MonitorIndex = cmd.MonitorIndex
-                    };
-
-                    _canvasManager = new VirtualCanvasManager(
-                        Microsoft.Extensions.Logging.Abstractions.NullLogger<VirtualCanvasManager>.Instance);
-                    _canvasManager.CalculateLayout(new[] { screenConfig });
-
-                    var loggerFactory = LoggerFactory.Create(builder =>
-                    {
-                        builder.AddConsole(options =>
-                        {
-                            options.LogToStandardErrorThreshold = LogLevel.Trace;
-                            options.FormatterName = "simple";
-                        });
-                        builder.AddSimpleConsole(options =>
-                        {
-                            options.SingleLine = true;
-                            options.IncludeScopes = false;
-                        });
-                        builder.SetMinimumLevel(LogLevel.Information);
-                    });
-
-                    _compositionRenderer = new CompositionRenderer(
-                        loggerFactory.CreateLogger<CompositionRenderer>(),
-                        loggerFactory);
-
-                    var initTask = _compositionRenderer.InitializeAsync(
-                        _canvasManager,
-                        cmd.BackgroundConfig,
-                        cmd.AnimationConfig,
-                        cmd.MonitorIndex);
-                    initTask.Wait();
-
-                    _compositionInitialized = true;
-                    _logger?.LogInformation("CompositionRenderer fallback initialized");
+                    // Unsupported format fallback: use CompositionRenderer
+                    _logger?.LogWarning("[LOAD] Unsupported format ({Ext}), no rendering available", extension);
                 }
             }
 
@@ -1468,9 +1635,9 @@ class Program
 
             lock (_compositionLock)
             {
-                if (!_compositionInitialized && !_useNativeD2DComposition)
+                if (!_compositionInitialized && !_useNativeD2DComposition && !_useNativeD2DVideo)
                 {
-                    _logger?.LogError("[START-CMD] FAILED: Neither native D2D nor composition initialized!");
+                    _logger?.LogError("[START-CMD] FAILED: No rendering path initialized!");
                     throw new InvalidOperationException("No composition initialized. Call LOAD_ANIMATION first.");
                 }
 
@@ -1493,8 +1660,12 @@ class Program
                 }
                 _isPlaying = true;
 
+                // Resume video if it was paused
+                if (_useNativeD2DVideo && _vlcPlayer != null && !_vlcPlayer.IsPlaying)
+                    _vlcPlayer.Play();
+
                 // Recalculate initial position with updated pixelsPerSecond
-                if (_useNativeD2DComposition && _animationConfig != null)
+                if ((_useNativeD2DComposition || _useNativeD2DVideo) && _animationConfig != null)
                 {
                     if (_centerInitialPosition || _pixelsPerSecond == 0)
                         _animX = (_width - _animWidth) / 2f;
@@ -1525,6 +1696,9 @@ class Program
             lock (_compositionLock)
             {
                 _isPlaying = false;
+
+                if (_useNativeD2DVideo && _vlcPlayer != null && _vlcPlayer.IsPlaying)
+                    _vlcPlayer.Pause();
             }
 
             Console.WriteLine("READY");
@@ -1563,6 +1737,20 @@ class Program
 
         _backgroundImageBitmap?.Dispose();
         _backgroundImageBitmap = null;
+
+        // Dispose native video resources
+        try { _vlcPlayer?.Stop(); } catch { }
+        _vlcPlayer?.Dispose();
+        _vlcPlayer = null;
+        _libVLC?.Dispose();
+        _libVLC = null;
+        _currentVideoD2DBitmap?.Dispose();
+        _currentVideoD2DBitmap = null;
+        if (_videoBufferA != IntPtr.Zero) { Marshal.FreeHGlobal(_videoBufferA); _videoBufferA = IntPtr.Zero; }
+        if (_videoBufferB != IntPtr.Zero) { Marshal.FreeHGlobal(_videoBufferB); _videoBufferB = IntPtr.Zero; }
+        _videoReadBuffer = IntPtr.Zero;
+        _videoWriteBuffer = IntPtr.Zero;
+        _useNativeD2DVideo = false;
     }
 
     private static void Cleanup()
