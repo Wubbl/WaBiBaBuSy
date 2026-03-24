@@ -39,7 +39,15 @@
       "Bash(grep -rn UpdateClientOrder /c/Users/Patrick/Documents/GitHub/WaBiBaBuSy --include=*.cs)",
       "Bash(grep -E \"\\\\.\\(cs|axaml\\)$\")",
       "Bash(grep -rn \"\\\\.Order\\\\|\\\\.order\\\\|OrderPosition\" /c/Users/Patrick/Documents/GitHub/WaBiBaBuSy --include=*.cs --include=*.axaml.cs)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(sort -k2)",
+      "Bash(ls -d /c/Users/Patrick/Documents/GitHub/WaBiBaBuSy/WaBiBaBuSy*/)",
+      "Bash(xargs -I {} basename {})",
+      "Bash(mv 2025.10_CrossScreenSpanningDesign.md _archive/)",
+      "Bash(mv 2025.10_DOCUMENTATION_INDEX.md _archive/)",
+      "Bash(mv 2025.10_MIGRATION_PLAN_WPF_SEPARATE_PROCESS.md _archive/)",
+      "Bash(mv 2025.10_SESSION_SUMMARY_2025-10-17.md _archive/)",
+      "Bash(mv 2025.10_wabibabusy-design-doc.md _archive/)"
     ],
     "deny": [],
     "ask": []
