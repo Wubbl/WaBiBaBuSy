@@ -43,6 +43,11 @@ public class ClientConfiguration
     public int HeartbeatIntervalSeconds { get; set; } = 5;
 
     /// <summary>
+    /// Pause wallpaper rendering when a fullscreen application is detected
+    /// </summary>
+    public bool PauseOnFullscreen { get; set; } = true;
+
+    /// <summary>
     /// Update settings configuration
     /// </summary>
     public UpdateSettingsConfiguration UpdateSettings { get; set; } = new();

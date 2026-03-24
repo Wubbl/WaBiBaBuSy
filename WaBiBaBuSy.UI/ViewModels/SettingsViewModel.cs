@@ -47,6 +47,9 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty]
     private int _heartbeatIntervalSeconds;
 
+    [ObservableProperty]
+    private bool _pauseOnFullscreen;
+
     // ── Logging Settings ─────────────────────────────────────────────────────
 
     [ObservableProperty] private bool _logLevelInfo = true;
@@ -96,6 +99,7 @@ public partial class SettingsViewModel : ViewModelBase
         CacheDirectory = clientConfig.CacheDirectory;
         MaxCacheSizeMB = clientConfig.MaxCacheSizeMB;
         HeartbeatIntervalSeconds = clientConfig.HeartbeatIntervalSeconds;
+        PauseOnFullscreen = clientConfig.PauseOnFullscreen;
 
         // Logging settings
         LogLevelInfo    = loggingConfig.Level == "Information";
@@ -142,7 +146,8 @@ public partial class SettingsViewModel : ViewModelBase
                 PreferAutoDiscovery = PreferAutoDiscovery,
                 CacheDirectory = CacheDirectory,
                 MaxCacheSizeMB = MaxCacheSizeMB,
-                HeartbeatIntervalSeconds = HeartbeatIntervalSeconds
+                HeartbeatIntervalSeconds = HeartbeatIntervalSeconds,
+                PauseOnFullscreen = PauseOnFullscreen
             };
 
             var loggingConfig = new LoggingConfiguration

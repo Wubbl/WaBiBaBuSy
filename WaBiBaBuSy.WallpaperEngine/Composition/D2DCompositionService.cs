@@ -231,6 +231,22 @@ public class D2DCompositionService : IDisposable
         _logger.LogInformation("D2D composition service stopped");
     }
 
+    /// <summary>
+    /// Show or hide all D2D player windows. Used for pause-on-fullscreen.
+    /// </summary>
+    public void SetPlayersVisible(bool visible)
+    {
+        foreach (var playerHost in _playerHosts.Values)
+        {
+            if (playerHost.IsRunning && playerHost.PlayerHwnd != IntPtr.Zero)
+            {
+                Win32Interop.ShowWindow(playerHost.PlayerHwnd, visible ? Win32Interop.SW_SHOW : Win32Interop.SW_HIDE);
+            }
+        }
+
+        _logger.LogDebug("D2D players visibility set to {Visible}", visible);
+    }
+
     public void Dispose()
     {
         if (_disposed)

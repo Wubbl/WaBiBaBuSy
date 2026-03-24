@@ -42,6 +42,11 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, ThumbnailCaptureService> _thumbnailCaptureServices = new();
     // D2D services for remote-triggered rendering when in client mode
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, D2DCompositionService> _remoteD2DServices = new();
+    // Fullscreen detection service for pausing wallpaper when a fullscreen app is active
+    private FullscreenDetectionService? _fullscreenDetection;
+    private bool _wallpaperPausedByFullscreen;
+    // Content cache manager for LRU eviction
+    private ContentCacheManager? _cacheManager;
     // Debug flag: Enable/disable network topology debug output
     private static bool _enableNetworkTopologyDebugOutput = false;
     // Guard flag: prevents RefreshTopology from overwriting order during reorder operations
@@ -163,8 +168,95 @@ public partial class MainWindowViewModel : ViewModelBase
         _refreshTimer.Elapsed += OnRefreshTimerElapsed;
         // Note: Timer is started by the window's Opened event to avoid background updates
 
+        // Initialize content cache manager
+        var clientCfg = ConfigurationManager.LoadClientConfiguration();
+        _cacheManager = new ContentCacheManager(
+            _loggerFactory.CreateLogger<ContentCacheManager>(),
+            clientCfg.CacheDirectory,
+            clientCfg.MaxCacheSizeMB);
+
+        // Create fullscreen detection service (started/stopped with wallpaper lifecycle)
+        if (clientCfg.PauseOnFullscreen)
+        {
+            _fullscreenDetection = new FullscreenDetectionService(
+                _loggerFactory.CreateLogger<FullscreenDetectionService>());
+            _fullscreenDetection.FullscreenStateChanged += OnFullscreenStateChanged;
+            Debug.WriteLine("[Fullscreen] Detection ready (will start when wallpaper is active)");
+        }
+
         // Load wallpaper gallery from disk
         LoadWallpaperGallery();
+    }
+
+    /// <summary>
+    /// Start fullscreen detection when a wallpaper becomes active.
+    /// </summary>
+    private void StartFullscreenDetectionIfNeeded()
+    {
+        if (_fullscreenDetection != null && !_fullscreenDetection.IsRunning)
+        {
+            _fullscreenDetection.Start();
+        }
+    }
+
+    /// <summary>
+    /// Stop fullscreen detection when no wallpapers are active.
+    /// </summary>
+    private void StopFullscreenDetectionIfIdle()
+    {
+        if (_fullscreenDetection == null) return;
+
+        bool hasActiveWallpaper = _d2dCompositionServices.Any()
+            || _remoteD2DServices.Any()
+            || _localWallpaperRenderers.Any()
+            || IsCrossScreenRunning;
+
+        if (!hasActiveWallpaper)
+        {
+            _fullscreenDetection.Stop();
+            _wallpaperPausedByFullscreen = false;
+            Debug.WriteLine("[Fullscreen] Detection stopped (no active wallpapers)");
+        }
+    }
+
+    private void OnFullscreenStateChanged(object? sender, FullscreenStateChangedEventArgs e)
+    {
+        if (e.IsFullscreen)
+        {
+            // Hide all D2D player windows
+            foreach (var kvp in _d2dCompositionServices)
+                kvp.Value.SetPlayersVisible(false);
+            foreach (var kvp in _remoteD2DServices)
+                kvp.Value.SetPlayersVisible(false);
+
+            // Pause LibVLC renderers
+            foreach (var kvp in _localWallpaperRenderers)
+            {
+                try { kvp.Value.PauseAsync().GetAwaiter().GetResult(); }
+                catch { /* best effort */ }
+            }
+
+            _wallpaperPausedByFullscreen = true;
+            Debug.WriteLine($"[Fullscreen] Wallpaper hidden — fullscreen app: {e.ProcessName}");
+        }
+        else if (_wallpaperPausedByFullscreen)
+        {
+            // Show all D2D player windows
+            foreach (var kvp in _d2dCompositionServices)
+                kvp.Value.SetPlayersVisible(true);
+            foreach (var kvp in _remoteD2DServices)
+                kvp.Value.SetPlayersVisible(true);
+
+            // Resume LibVLC renderers
+            foreach (var kvp in _localWallpaperRenderers)
+            {
+                try { kvp.Value.StartAsync().GetAwaiter().GetResult(); }
+                catch { /* best effort */ }
+            }
+
+            _wallpaperPausedByFullscreen = false;
+            Debug.WriteLine("[Fullscreen] Wallpaper restored — fullscreen app closed");
+        }
     }
 
     /// <summary>
@@ -565,6 +657,9 @@ public partial class MainWindowViewModel : ViewModelBase
             client.IsCurrentAnimationTarget = false;
             client.ActiveAnimationName = null;
         }
+
+        // Stop fullscreen detection since no wallpapers are active
+        StopFullscreenDetectionIfIdle();
 
         Debug.WriteLine("[ClearAll] All wallpapers cleared");
         ClearAllWallpapersCommand.NotifyCanExecuteChanged();
@@ -1026,6 +1121,7 @@ public partial class MainWindowViewModel : ViewModelBase
             // Store the service for later cleanup
             _d2dCompositionServices[monitorIndex] = d2dService;
             ClearAllWallpapersCommand.NotifyCanExecuteChanged();
+            StartFullscreenDetectionIfNeeded();
 
             // Set up thumbnail capture for live preview
             SetupThumbnailCapture(monitorIndex, d2dService.PlayerHwnd, wallpaper.Name);
@@ -2519,6 +2615,8 @@ public partial class MainWindowViewModel : ViewModelBase
                 _d2dCompositionServices[monitorIndex] = d2dService;
             }
 
+            StartFullscreenDetectionIfNeeded();
+
             // Set up thumbnail capture for live preview in topology nodes
             var animName = Path.GetFileName(_crossScreenConfig.Animation.AnimationPath) ?? "Animation";
             foreach (var (monitorIndex, d2dService) in newServices)
@@ -2650,6 +2748,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
             IsCrossScreenRunning = false;
             ClearAllWallpapersCommand.NotifyCanExecuteChanged();
+            StopFullscreenDetectionIfIdle();
 
             // Reset animation indicators on all clients
             foreach (var client in Clients)

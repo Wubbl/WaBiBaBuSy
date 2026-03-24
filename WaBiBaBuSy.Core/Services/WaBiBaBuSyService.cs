@@ -218,10 +218,15 @@ public class WaBiBaBuSyService : IDisposable
 
             if (connected)
             {
+                // Create content cache manager for LRU eviction
+                var cacheManagerLogger = LoggerFactory.Create(builder => builder.AddConsole())
+                    .CreateLogger<ContentCacheManager>();
+                var cacheManager = new ContentCacheManager(cacheManagerLogger, _clientConfig.CacheDirectory, _clientConfig.MaxCacheSizeMB);
+
                 // Create and initialize wallpaper playback service
                 var playbackLogger = LoggerFactory.Create(builder => builder.AddConsole())
                     .CreateLogger<WallpaperPlaybackService>();
-                _playbackService = new WallpaperPlaybackService(playbackLogger, _client, _rendererFactory, _clientConfig.CacheDirectory);
+                _playbackService = new WallpaperPlaybackService(playbackLogger, _client, _rendererFactory, _clientConfig.CacheDirectory, cacheManager);
 
                 // Initialize update services
                 var verifierLogger = LoggerFactory.Create(builder => builder.AddConsole())

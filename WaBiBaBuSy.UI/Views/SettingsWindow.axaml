@@ -76,6 +76,15 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Wallpaper Settings -->
+                <Border Background="#252526" CornerRadius="5" Padding="15">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="Wallpaper Settings" FontSize="16" FontWeight="Bold" Foreground="White"/>
+                        <CheckBox Content="Pause wallpaper when a fullscreen app is detected (games, video players)"
+                                  IsChecked="{Binding PauseOnFullscreen}" Foreground="White"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- Logging Settings -->
                 <Border Background="#252526" CornerRadius="5" Padding="15">
                     <StackPanel Spacing="10">

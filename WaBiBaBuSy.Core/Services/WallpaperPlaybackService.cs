@@ -22,6 +22,7 @@ public class WallpaperPlaybackService : IDisposable
     private readonly ConcurrentDictionary<string, string> _contentCache; // contentId -> local file path (thread-safe)
     private readonly Func<string, int, IWallpaperRenderer?>? _rendererFactory; // Updated to take monitorIndex
     private readonly string _cacheDirectory;
+    private readonly ContentCacheManager? _cacheManager;
 
     /// <summary>
     /// Delegate for D2D rendering: (filePath, monitorIndex, backgroundColor, fitMode) → Task
@@ -40,7 +41,8 @@ public class WallpaperPlaybackService : IDisposable
         ILogger<WallpaperPlaybackService> logger,
         WallpaperSyncClient syncClient,
         Func<string, int, IWallpaperRenderer?>? rendererFactory = null,
-        string? cacheDirectory = null)
+        string? cacheDirectory = null,
+        ContentCacheManager? cacheManager = null)
     {
         _logger = logger;
         _syncClient = syncClient;
@@ -48,6 +50,7 @@ public class WallpaperPlaybackService : IDisposable
         _cacheDirectory = cacheDirectory ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "WaBiBaBuSy", "Cache");
+        _cacheManager = cacheManager;
         _renderers = new ConcurrentDictionary<string, ConcurrentDictionary<int, IWallpaperRenderer>>();
         _contentCache = new ConcurrentDictionary<string, string>();
 
@@ -164,6 +167,9 @@ public class WallpaperPlaybackService : IDisposable
                     command.ContentId, _contentCache.Count);
                 _logger.LogInformation("[Playback:LOAD] Cache directory: {CacheDir}", _cacheDirectory);
 
+                // Run LRU eviction if cache is near the size limit
+                _cacheManager?.EnsureSpace(0);
+
                 var downloadedPath = await _syncClient.DownloadContentAsync(command.ContentId, _cacheDirectory);
                 if (downloadedPath == null)
                 {
@@ -178,6 +184,7 @@ public class WallpaperPlaybackService : IDisposable
             else
             {
                 _logger.LogInformation("[Playback:LOAD] Content {ContentId} found in cache at {FilePath}", command.ContentId, filePath);
+                _cacheManager?.TouchFile(filePath);
             }
 
             // Verify file exists on disk
