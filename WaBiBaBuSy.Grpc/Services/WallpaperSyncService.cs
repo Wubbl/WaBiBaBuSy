@@ -20,6 +20,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     private readonly ConcurrentDictionary<string, ThumbnailData> _clientThumbnails;
     private readonly ConcurrentDictionary<string, string> _contentRegistry; // contentId -> server file path
     private readonly ConcurrentDictionary<string, ClientLogData> _clientLogs; // clientId -> latest logs
+    private readonly ConcurrentDictionary<string, int> _serverLocalMonitorOrders = new(); // SERVER_LOCALHOST_MONITOR_* order overrides
     private int _nextClientOrder = 1;
 
     public WallpaperSyncService(
@@ -464,6 +465,57 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     public IEnumerable<ConnectedClient> GetConnectedClients()
     {
         return _connectedClients.Values.OrderBy(c => c.OrderPosition);
+    }
+
+    /// <summary>
+    /// Update client order directly (for in-process server-mode calls).
+    /// Handles both real connected clients and SERVER_LOCALHOST_MONITOR_* nodes.
+    /// </summary>
+    public bool UpdateClientOrderDirect(Dictionary<string, int> clientOrders)
+    {
+        try
+        {
+            foreach (var (clientId, newPosition) in clientOrders)
+            {
+                if (_connectedClients.TryGetValue(clientId, out var client))
+                {
+                    client.OrderPosition = newPosition;
+                }
+                else if (clientId.StartsWith("SERVER_LOCALHOST_MONITOR_"))
+                {
+                    _serverLocalMonitorOrders[clientId] = newPosition;
+                }
+                else
+                {
+                    // Could be a per-monitor expanded node (e.g., "guid_MONITOR_0")
+                    // Try to find the base client
+                    var baseIdx = clientId.LastIndexOf("_MONITOR_");
+                    if (baseIdx >= 0)
+                    {
+                        var baseClientId = clientId[..baseIdx];
+                        // Store as server-local override since expanded nodes aren't in _connectedClients
+                        _serverLocalMonitorOrders[clientId] = newPosition;
+                    }
+                }
+            }
+
+            _logger.LogInformation("Updated order for {Count} clients (direct)", clientOrders.Count);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating client order (direct)");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Get the persisted order for a server-local or expanded monitor node.
+    /// Returns null if no override has been set.
+    /// </summary>
+    public int? GetServerLocalMonitorOrder(string clientId)
+    {
+        return _serverLocalMonitorOrders.TryGetValue(clientId, out var order) ? order : null;
     }
 
     /// <summary>

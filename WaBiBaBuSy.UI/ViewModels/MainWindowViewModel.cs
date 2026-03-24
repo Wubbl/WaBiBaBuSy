@@ -44,6 +44,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, D2DCompositionService> _remoteD2DServices = new();
     // Debug flag: Enable/disable network topology debug output
     private static bool _enableNetworkTopologyDebugOutput = false;
+    // Guard flag: prevents RefreshTopology from overwriting order during reorder operations
+    private volatile bool _isReorderingInProgress;
 
     [ObservableProperty]
     private ObservableCollection<ClientNodeViewModel> _clients = new();
@@ -377,7 +379,7 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void MoveClientUp()
+    private async Task MoveClientUp()
     {
         if (SelectedClient == null) return;
         var sorted = Clients.OrderBy(c => c.Order).ToList();
@@ -388,11 +390,12 @@ public partial class MainWindowViewModel : ViewModelBase
             var prev = sorted[idx - 1];
             (SelectedClient.Order, prev.Order) = (prev.Order, SelectedClient.Order);
             Debug.WriteLine($"[Topology] Moved {SelectedClient.DisplayName} up: Order={SelectedClient.Order}");
+            await PersistClientOrderAsync();
         }
     }
 
     [RelayCommand]
-    private void MoveClientDown()
+    private async Task MoveClientDown()
     {
         if (SelectedClient == null) return;
         var sorted = Clients.OrderBy(c => c.Order).ToList();
@@ -403,6 +406,29 @@ public partial class MainWindowViewModel : ViewModelBase
             var next = sorted[idx + 1];
             (SelectedClient.Order, next.Order) = (next.Order, SelectedClient.Order);
             Debug.WriteLine($"[Topology] Moved {SelectedClient.DisplayName} down: Order={SelectedClient.Order}");
+            await PersistClientOrderAsync();
+        }
+    }
+
+    /// <summary>
+    /// Persist the current client order to the server (or locally in server mode).
+    /// Sets a guard flag to prevent RefreshTopology from overwriting during the operation.
+    /// </summary>
+    public async Task PersistClientOrderAsync()
+    {
+        _isReorderingInProgress = true;
+        try
+        {
+            var orders = Clients.ToDictionary(c => c.ClientId, c => c.Order);
+            await _service.UpdateClientOrderAsync(orders);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Topology] Error persisting client order: {ex.Message}");
+        }
+        finally
+        {
+            _isReorderingInProgress = false;
         }
     }
 
@@ -1715,6 +1741,9 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public async void RefreshTopology()
     {
+        // Don't overwrite order while a reorder operation is in flight
+        if (_isReorderingInProgress) return;
+
         try
         {
             if (_enableNetworkTopologyDebugOutput)
@@ -1760,13 +1789,16 @@ public partial class MainWindowViewModel : ViewModelBase
                 for (int i = 0; i < screens.Length; i++)
                 {
                     var screen = screens[i];
+                    var nodeId = $"SERVER_LOCALHOST_MONITOR_{i}";
+                    // Use persisted order if available, otherwise default to index
+                    var persistedOrder = _service.GetServerLocalMonitorOrder(nodeId) ?? i;
                     var serverNode = new WaBiBaBuSy.Grpc.ConnectedClient
                     {
-                        ClientId = $"SERVER_LOCALHOST_MONITOR_{i}",
+                        ClientId = nodeId,
                         Hostname = $"{Environment.MachineName} - Monitor {i + 1} (Server)",
                         IpAddress = screen.Primary ? "Primary Monitor (Server)" : $"Monitor {i + 1} (Server)",
                         Status = WaBiBaBuSy.Grpc.ClientStatusEnum.ClientConnected,
-                        OrderPosition = i,
+                        OrderPosition = persistedOrder,
                         PhysicalDistanceCm = 0,
                         ScreenConfig = serverScreenConfig
                     };
@@ -1786,13 +1818,16 @@ public partial class MainWindowViewModel : ViewModelBase
                         for (int m = 0; m < client.ScreenConfig.Monitors.Count; m++)
                         {
                             var monitor = client.ScreenConfig.Monitors[m];
+                            var expandedId = $"{client.ClientId}_MONITOR_{m}";
+                            var expandedOrder = _service.GetServerLocalMonitorOrder(expandedId) ?? nextOrder;
+                            nextOrder++;
                             allNodes.Add(new WaBiBaBuSy.Grpc.ConnectedClient
                             {
-                                ClientId = $"{client.ClientId}_MONITOR_{m}",
+                                ClientId = expandedId,
                                 Hostname = $"{client.Hostname} - Monitor {m + 1}",
                                 IpAddress = client.IpAddress,
                                 Status = client.Status,
-                                OrderPosition = nextOrder++,
+                                OrderPosition = expandedOrder,
                                 PhysicalDistanceCm = client.PhysicalDistanceCm,
                                 ScreenConfig = client.ScreenConfig
                             });
@@ -1800,14 +1835,14 @@ public partial class MainWindowViewModel : ViewModelBase
                     }
                     else
                     {
-                        // Single monitor client
+                        // Single monitor client - use server's OrderPosition directly
                         allNodes.Add(new WaBiBaBuSy.Grpc.ConnectedClient
                         {
                             ClientId = client.ClientId,
                             Hostname = client.Hostname,
                             IpAddress = client.IpAddress,
                             Status = client.Status,
-                            OrderPosition = nextOrder++,
+                            OrderPosition = client.OrderPosition,
                             PhysicalDistanceCm = client.PhysicalDistanceCm,
                             ScreenConfig = client.ScreenConfig
                         });
@@ -1980,9 +2015,9 @@ public partial class MainWindowViewModel : ViewModelBase
                 }
                 else
                 {
-                    // Add new client
-                    var x = 100 + (index * 200);
-                    var y = 100;
+                    // Add new client (positions are calculated by auto-wrap layout in the view)
+                    var x = 0.0;
+                    var y = 0.0;
                     if (_enableNetworkTopologyDebugOutput)
                         Debug.WriteLine($"[UpdateClientList] Adding new client: {grpcClient.ClientId} ({grpcClient.Hostname}) at X={x}, Y={y}");
 

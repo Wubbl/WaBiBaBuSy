@@ -381,6 +381,36 @@ public class WaBiBaBuSyService : IDisposable
     }
 
     /// <summary>
+    /// Update client order in the topology.
+    /// Server mode: updates directly in-process. Client mode: sends via gRPC.
+    /// </summary>
+    public async Task<bool> UpdateClientOrderAsync(Dictionary<string, int> clientOrders)
+    {
+        if (IsServerRunning)
+        {
+            // Server mode - update directly
+            var result = _serverHost?.SyncService?.UpdateClientOrderDirect(clientOrders) ?? false;
+            return result;
+        }
+
+        if (_client == null || !IsClientConnected)
+        {
+            _logger.LogWarning("Cannot update client order - not connected to server");
+            return false;
+        }
+
+        return await _client.UpdateClientOrderAsync(clientOrders);
+    }
+
+    /// <summary>
+    /// Get persisted order for a server-local or expanded monitor node (server mode only).
+    /// </summary>
+    public int? GetServerLocalMonitorOrder(string clientId)
+    {
+        return _serverHost?.SyncService?.GetServerLocalMonitorOrder(clientId);
+    }
+
+    /// <summary>
     /// Update client physical distance (when in client mode)
     /// </summary>
     public async Task<bool> UpdateClientDistanceAsync(string clientId, int distanceCm)

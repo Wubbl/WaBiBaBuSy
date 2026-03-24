@@ -9,6 +9,7 @@ using Avalonia.Media.Imaging;
 using WaBiBaBuSy.UI.ViewModels;
 using WaBiBaBuSy.WallpaperEngine.Services;
 using System;
+using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -23,6 +24,22 @@ public partial class MainWindow : Window
     private Point _dragStartPoint;
     private bool _isDragging = false;
     private Rectangle? _selectionRectangle;
+
+    // Drag-and-drop reordering state
+    private Border? _draggedNodeBorder;
+    private ClientNodeViewModel? _draggedClient;
+    private Point _nodeDragStartPoint;
+    private bool _isNodeDragging;
+    private Rectangle? _dropIndicator;
+    private int _dropTargetIndex = -1;
+    private DateTime _nodeDragStartTime;
+
+    // Layout constants
+    private const double NodeWidth = 180;
+    private const double NodeMinHeight = 150;
+    private const double HSpacing = 20;
+    private const double VSpacing = 30;
+    private const double LayoutPadding = 20;
 
     public MainWindow()
     {
@@ -106,8 +123,17 @@ public partial class MainWindow : Window
             canvas.Children.RemoveAt(1);
         }
 
+        // Auto-wrap layout: calculate positions based on canvas width
+        CalculateAutoWrapPositions(canvas, viewModel);
+
+        // Add machine group boxes behind nodes
+        DrawMachineGroupBoxes(canvas, viewModel);
+
+        // Add arrow connections between nodes
+        DrawArrowConnections(canvas, viewModel);
+
         // Add client nodes
-        foreach (var client in viewModel.Clients)
+        foreach (var client in viewModel.Clients.OrderBy(c => c.Order))
         {
             var border = CreateClientNodeBorder(client, viewModel);
             Canvas.SetLeft(border, client.X);
@@ -354,28 +380,80 @@ public partial class MainWindow : Window
 
         border.Child = stackPanel;
 
-        // Click handler with Ctrl+Click support for multi-select
+        // Click and drag handler: click = select, drag = reorder
         border.PointerPressed += (s, e) =>
         {
-            Debug.WriteLine($"[MainWindow] Client node clicked: {client.DisplayName}");
+            if (_topologyCanvas == null) return;
+            var point = e.GetCurrentPoint(_topologyCanvas);
+            if (!point.Properties.IsLeftButtonPressed) return;
 
-            var ctrlPressed = (e.KeyModifiers & KeyModifiers.Control) == KeyModifiers.Control;
+            _nodeDragStartPoint = point.Position;
+            _draggedNodeBorder = border;
+            _draggedClient = client;
+            _isNodeDragging = false;
+            _nodeDragStartTime = DateTime.UtcNow;
+            e.Pointer.Capture((Avalonia.Input.IInputElement)border);
+            e.Handled = true; // prevent canvas rectangle-selection
+        };
 
-            if (ctrlPressed)
+        border.PointerMoved += (s, e) =>
+        {
+            if (_draggedNodeBorder != border || _draggedClient != client) return;
+            if (_topologyCanvas == null) return;
+
+            var pos = e.GetPosition(_topologyCanvas);
+            var delta = pos - _nodeDragStartPoint;
+
+            // Start dragging after 5px movement threshold
+            if (!_isNodeDragging && (Math.Abs(delta.X) > 5 || Math.Abs(delta.Y) > 5))
             {
-                Debug.WriteLine($"[MainWindow] Ctrl+Click: toggling selection for {client.DisplayName}");
-                client.IsSelected = !client.IsSelected;
+                _isNodeDragging = true;
+                viewModel.StopRefreshTimer();
+                border.Opacity = 0.5;
+                border.ZIndex = 100; // bring to front during drag
+            }
+
+            if (_isNodeDragging)
+            {
+                // Move node to follow cursor
+                Canvas.SetLeft(border, pos.X - NodeWidth / 2);
+                Canvas.SetTop(border, pos.Y - NodeMinHeight / 2);
+                UpdateDropIndicator(pos, viewModel.Clients.Count);
+            }
+
+            // Safety timeout: cancel drag after 10 seconds
+            if (_isNodeDragging && (DateTime.UtcNow - _nodeDragStartTime).TotalSeconds > 10)
+            {
+                CancelNodeDrag(viewModel);
+            }
+        };
+
+        border.PointerReleased += (s, e) =>
+        {
+            e.Pointer.Capture(null);
+            if (_draggedNodeBorder != border) return;
+
+            if (!_isNodeDragging)
+            {
+                // Was a click, not a drag
+                HandleNodeClick(client, e.KeyModifiers, viewModel);
             }
             else
             {
-                viewModel.SelectClientCommand.Execute(client);
+                // Complete the drag reorder
+                CompleteNodeDrag(viewModel);
+                return; // CompleteNodeDrag handles cleanup
             }
+
+            _draggedNodeBorder = null;
+            _draggedClient = null;
+            _isNodeDragging = false;
         };
 
         // Hover effect
         border.PointerEntered += (s, e) =>
         {
-            if (!client.IsSelected)
+            if (!client.IsSelected && _draggedNodeBorder == null)
             {
                 border.Background = new SolidColorBrush(Color.Parse("#4E4E52"));
             }
@@ -383,7 +461,7 @@ public partial class MainWindow : Window
 
         border.PointerExited += (s, e) =>
         {
-            if (!client.IsSelected)
+            if (!client.IsSelected && _draggedNodeBorder == null)
             {
                 border.Background = new SolidColorBrush(Color.Parse("#3E3E42"));
             }
@@ -393,11 +471,383 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Extract the base machine ID from a client ID (strips _MONITOR_N suffix).
+    /// Two nodes with the same base ID are on the same physical machine.
+    /// </summary>
+    private static string GetBaseMachineId(string clientId)
+    {
+        var idx = clientId.LastIndexOf("_MONITOR_");
+        return idx >= 0 ? clientId[..idx] : clientId;
+    }
+
+    /// <summary>
+    /// Draw curved bezier arrows between consecutive nodes (ordered by Order).
+    /// Blue (#0078D4) for same-machine nodes, gray (#888888) for cross-machine.
+    /// </summary>
+    private void DrawArrowConnections(Canvas canvas, MainWindowViewModel viewModel)
+    {
+        var sorted = viewModel.Clients.OrderBy(c => c.Order).ToList();
+        if (sorted.Count < 2) return;
+
+        const double nodeWidth = 180;
+        const double nodeHeight = 150;
+        const double arrowHeadSize = 8;
+
+        for (int i = 0; i < sorted.Count - 1; i++)
+        {
+            var from = sorted[i];
+            var to = sorted[i + 1];
+
+            var fromBaseId = GetBaseMachineId(from.ClientId);
+            var toBaseId = GetBaseMachineId(to.ClientId);
+            bool sameMachine = fromBaseId == toBaseId;
+            var arrowColor = sameMachine
+                ? Color.Parse("#0078D4")  // blue
+                : Color.Parse("#888888"); // gray
+
+            double startX = from.X + nodeWidth;
+            double startY = from.Y + nodeHeight / 2;
+            double endX = to.X;
+            double endY = to.Y + nodeHeight / 2;
+
+            // Determine if wrapping to next row (end is below and to the left)
+            bool rowWrap = endY > startY + 20;
+
+            var pen = new Pen(new SolidColorBrush(arrowColor), 2);
+
+            PathFigure figure;
+            if (rowWrap)
+            {
+                // Curved path: go right, down, then left to the next row
+                double midY = (startY + endY) / 2;
+                figure = new PathFigure
+                {
+                    StartPoint = new Point(startX, startY),
+                    IsClosed = false,
+                    Segments =
+                    {
+                        new BezierSegment
+                        {
+                            Point1 = new Point(startX + 40, startY),
+                            Point2 = new Point(endX - 40, endY),
+                            Point3 = new Point(endX, endY)
+                        }
+                    }
+                };
+            }
+            else
+            {
+                // Standard curved arrow between adjacent nodes on same row
+                double midX = (startX + endX) / 2;
+                double curveOffset = -20; // curve upward
+                figure = new PathFigure
+                {
+                    StartPoint = new Point(startX, startY),
+                    IsClosed = false,
+                    Segments =
+                    {
+                        new BezierSegment
+                        {
+                            Point1 = new Point(midX, startY + curveOffset),
+                            Point2 = new Point(midX, endY + curveOffset),
+                            Point3 = new Point(endX, endY)
+                        }
+                    }
+                };
+            }
+
+            var pathGeometry = new PathGeometry { Figures = { figure } };
+            var arrowPath = new Avalonia.Controls.Shapes.Path
+            {
+                Data = pathGeometry,
+                Stroke = new SolidColorBrush(arrowColor),
+                StrokeThickness = 2,
+                IsHitTestVisible = false
+            };
+            canvas.Children.Add(arrowPath);
+
+            // Arrowhead at the end point
+            DrawArrowHead(canvas, endX, endY, startX, startY, arrowColor, arrowHeadSize, rowWrap);
+        }
+    }
+
+    /// <summary>
+    /// Draw an arrowhead pointing toward (endX, endY) from the direction of (fromX, fromY).
+    /// </summary>
+    private void DrawArrowHead(Canvas canvas, double endX, double endY,
+        double fromX, double fromY, Color color, double size, bool rowWrap)
+    {
+        // Calculate direction from the last bezier control point toward the end
+        double dx, dy;
+        if (rowWrap)
+        {
+            // For row-wrap arrows, the approach direction is from the left
+            dx = 1;
+            dy = 0;
+        }
+        else
+        {
+            // For same-row arrows, approach from the left with slight curve
+            dx = endX - fromX;
+            dy = endY - fromY;
+        }
+
+        double len = Math.Sqrt(dx * dx + dy * dy);
+        if (len < 0.001) return;
+        dx /= len;
+        dy /= len;
+
+        // Two points of the arrowhead
+        double perpX = -dy;
+        double perpY = dx;
+        var p1 = new Point(endX - dx * size + perpX * size * 0.5, endY - dy * size + perpY * size * 0.5);
+        var p2 = new Point(endX - dx * size - perpX * size * 0.5, endY - dy * size - perpY * size * 0.5);
+        var tip = new Point(endX, endY);
+
+        var headFigure = new PathFigure
+        {
+            StartPoint = p1,
+            IsClosed = true,
+            IsFilled = true,
+            Segments =
+            {
+                new LineSegment { Point = tip },
+                new LineSegment { Point = p2 }
+            }
+        };
+
+        var headGeometry = new PathGeometry { Figures = { headFigure } };
+        var headPath = new Avalonia.Controls.Shapes.Path
+        {
+            Data = headGeometry,
+            Fill = new SolidColorBrush(color),
+            Stroke = new SolidColorBrush(color),
+            StrokeThickness = 1,
+            IsHitTestVisible = false
+        };
+        canvas.Children.Add(headPath);
+    }
+
+    /// <summary>
+    /// Draw subtle group boxes around nodes that belong to the same physical machine.
+    /// </summary>
+    private void DrawMachineGroupBoxes(Canvas canvas, MainWindowViewModel viewModel)
+    {
+        // Group nodes by base machine ID
+        var groups = viewModel.Clients
+            .GroupBy(c => GetBaseMachineId(c.ClientId))
+            .Where(g => g.Count() > 1)
+            .ToList();
+
+        foreach (var group in groups)
+        {
+            var nodes = group.ToList();
+            const double padding = 12;
+            const double nodeWidth = 180;
+            const double nodeHeight = 150;
+
+            // Calculate bounding box of all nodes in this group
+            double minX = nodes.Min(n => n.X) - padding;
+            double minY = nodes.Min(n => n.Y) - padding;
+            double maxX = nodes.Max(n => n.X) + nodeWidth + padding;
+            double maxY = nodes.Max(n => n.Y) + nodeHeight + padding;
+
+            var groupBorder = new Border
+            {
+                Width = maxX - minX,
+                Height = maxY - minY,
+                Background = new SolidColorBrush(Color.Parse("#150078D4")),  // very subtle blue tint
+                BorderBrush = new SolidColorBrush(Color.Parse("#660078D4")), // 40% opacity blue
+                BorderThickness = new Thickness(1.5),
+                CornerRadius = new CornerRadius(12),
+                IsHitTestVisible = false
+            };
+
+            Canvas.SetLeft(groupBorder, minX);
+            Canvas.SetTop(groupBorder, minY);
+            canvas.Children.Add(groupBorder);
+        }
+    }
+
+    /// <summary>
+    /// Calculate auto-wrap positions for nodes based on available canvas width.
+    /// Nodes flow left-to-right, wrapping to a new row when width is exceeded.
+    /// </summary>
+    private void CalculateAutoWrapPositions(Canvas canvas, MainWindowViewModel viewModel)
+    {
+        var topologyBorder = this.FindControl<Border>("TopologyBorder");
+        double canvasWidth = topologyBorder?.Bounds.Width ?? canvas.Bounds.Width;
+        if (canvasWidth < NodeWidth + LayoutPadding * 2)
+            canvasWidth = 800; // sensible fallback
+
+        int nodesPerRow = Math.Max(1, (int)((canvasWidth - LayoutPadding) / (NodeWidth + HSpacing)));
+
+        int index = 0;
+        foreach (var client in viewModel.Clients.OrderBy(c => c.Order))
+        {
+            int col = index % nodesPerRow;
+            int row = index / nodesPerRow;
+            client.X = LayoutPadding + col * (NodeWidth + HSpacing);
+            client.Y = LayoutPadding + row * (NodeMinHeight + VSpacing);
+            index++;
+        }
+    }
+
+    /// <summary>
+    /// Get the grid position (node index) for a canvas coordinate, used for drag-and-drop targeting.
+    /// </summary>
+    private int GetDropIndexAtPosition(Point pos, int nodeCount)
+    {
+        var topologyBorder = this.FindControl<Border>("TopologyBorder");
+        double canvasWidth = topologyBorder?.Bounds.Width ?? _topologyCanvas?.Bounds.Width ?? 800;
+        int nodesPerRow = Math.Max(1, (int)((canvasWidth - LayoutPadding) / (NodeWidth + HSpacing)));
+
+        int col = Math.Max(0, (int)((pos.X - LayoutPadding + HSpacing / 2) / (NodeWidth + HSpacing)));
+        int row = Math.Max(0, (int)((pos.Y - LayoutPadding + VSpacing / 2) / (NodeMinHeight + VSpacing)));
+
+        col = Math.Min(col, nodesPerRow - 1);
+        int index = row * nodesPerRow + col;
+        return Math.Clamp(index, 0, nodeCount - 1);
+    }
+
+    /// <summary>
+    /// Handle node click (extracted for reuse from drag-and-drop vs. click detection).
+    /// </summary>
+    private void HandleNodeClick(ClientNodeViewModel client, KeyModifiers modifiers, MainWindowViewModel viewModel)
+    {
+        Debug.WriteLine($"[MainWindow] Client node clicked: {client.DisplayName}");
+        var ctrlPressed = (modifiers & KeyModifiers.Control) == KeyModifiers.Control;
+        if (ctrlPressed)
+        {
+            Debug.WriteLine($"[MainWindow] Ctrl+Click: toggling selection for {client.DisplayName}");
+            client.IsSelected = !client.IsSelected;
+        }
+        else
+        {
+            viewModel.SelectClientCommand.Execute(client);
+        }
+    }
+
+    /// <summary>
+    /// Complete a node drag operation: reorder nodes and persist.
+    /// </summary>
+    private async void CompleteNodeDrag(MainWindowViewModel viewModel)
+    {
+        if (_draggedClient == null) return;
+
+        // Remove drop indicator
+        if (_dropIndicator != null && _topologyCanvas != null)
+        {
+            _topologyCanvas.Children.Remove(_dropIndicator);
+            _dropIndicator = null;
+        }
+
+        // Restore visual state
+        if (_draggedNodeBorder != null)
+            _draggedNodeBorder.Opacity = 1.0;
+
+        // Calculate new order based on drop position
+        var sorted = viewModel.Clients.OrderBy(c => c.Order).ToList();
+        var draggedIdx = sorted.IndexOf(_draggedClient);
+        if (draggedIdx >= 0 && _dropTargetIndex >= 0 && _dropTargetIndex != draggedIdx)
+        {
+            // Remove from current position and insert at target
+            sorted.RemoveAt(draggedIdx);
+            int insertIdx = Math.Min(_dropTargetIndex, sorted.Count);
+            sorted.Insert(insertIdx, _draggedClient);
+
+            // Reassign Order values sequentially
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                sorted[i].Order = i;
+            }
+
+            // Persist the new order
+            await viewModel.PersistClientOrderAsync();
+        }
+
+        // Re-render to snap nodes back to grid
+        RenderClientNodes();
+
+        // Restart the refresh timer
+        viewModel.StartRefreshTimer();
+
+        _draggedNodeBorder = null;
+        _draggedClient = null;
+        _isNodeDragging = false;
+        _dropTargetIndex = -1;
+    }
+
+    /// <summary>
+    /// Update the drop indicator position during a node drag.
+    /// </summary>
+    private void UpdateDropIndicator(Point cursorPos, int nodeCount)
+    {
+        if (_topologyCanvas == null) return;
+
+        int targetIdx = GetDropIndexAtPosition(cursorPos, nodeCount);
+        _dropTargetIndex = targetIdx;
+
+        // Calculate where the indicator line should be
+        var topologyBorder = this.FindControl<Border>("TopologyBorder");
+        double canvasWidth = topologyBorder?.Bounds.Width ?? _topologyCanvas.Bounds.Width;
+        int nodesPerRow = Math.Max(1, (int)((canvasWidth - LayoutPadding) / (NodeWidth + HSpacing)));
+
+        int col = targetIdx % nodesPerRow;
+        int row = targetIdx / nodesPerRow;
+        double indicatorX = LayoutPadding + col * (NodeWidth + HSpacing) - HSpacing / 2;
+        double indicatorY = LayoutPadding + row * (NodeMinHeight + VSpacing) - 5;
+
+        if (_dropIndicator == null)
+        {
+            _dropIndicator = new Rectangle
+            {
+                Width = 3,
+                Height = NodeMinHeight + 10,
+                Fill = new SolidColorBrush(Color.Parse("#0078D4")),
+                IsHitTestVisible = false
+            };
+            _topologyCanvas.Children.Add(_dropIndicator);
+        }
+
+        Canvas.SetLeft(_dropIndicator, indicatorX);
+        Canvas.SetTop(_dropIndicator, indicatorY);
+        _dropIndicator.Height = NodeMinHeight + 10;
+    }
+
+    /// <summary>
+    /// Cancel a node drag operation without reordering.
+    /// </summary>
+    private void CancelNodeDrag(MainWindowViewModel viewModel)
+    {
+        if (_draggedNodeBorder != null)
+        {
+            _draggedNodeBorder.Opacity = 1.0;
+            _draggedNodeBorder.ZIndex = 0;
+        }
+
+        if (_dropIndicator != null && _topologyCanvas != null)
+        {
+            _topologyCanvas.Children.Remove(_dropIndicator);
+            _dropIndicator = null;
+        }
+
+        _draggedNodeBorder = null;
+        _draggedClient = null;
+        _isNodeDragging = false;
+        _dropTargetIndex = -1;
+
+        // Re-render to reset positions and restart timer
+        RenderClientNodes();
+        viewModel.StartRefreshTimer();
+    }
+
+    /// <summary>
     /// Handle canvas mouse down - start rectangle selection drag
     /// </summary>
     private void OnCanvasPointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (_topologyCanvas == null)
+        if (_topologyCanvas == null || _isNodeDragging)
             return;
 
         var point = e.GetCurrentPoint(_topologyCanvas);
@@ -444,7 +894,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnCanvasPointerMoved(object? sender, PointerEventArgs e)
     {
-        if (!_isDragging || _topologyCanvas == null || _selectionRectangle == null)
+        if (!_isDragging || _isNodeDragging || _topologyCanvas == null || _selectionRectangle == null)
             return;
 
         var point = e.GetCurrentPoint(_topologyCanvas);

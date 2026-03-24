@@ -350,6 +350,49 @@ public class WallpaperSyncClient : IDisposable
     }
 
     /// <summary>
+    /// Update the order of clients in the topology on the server
+    /// </summary>
+    public async Task<bool> UpdateClientOrderAsync(Dictionary<string, int> clientOrders)
+    {
+        if (_client == null || !IsConnected)
+        {
+            _logger.LogWarning("Cannot update client order - not connected");
+            return false;
+        }
+
+        try
+        {
+            var request = new ClientOrderUpdate();
+            foreach (var (clientId, newPosition) in clientOrders)
+            {
+                request.ClientOrders.Add(new ClientOrderItem
+                {
+                    ClientId = clientId,
+                    NewPosition = newPosition
+                });
+            }
+
+            var response = await _client.UpdateClientOrderAsync(request);
+
+            if (response.Success)
+            {
+                _logger.LogInformation("Successfully updated order for {Count} clients", clientOrders.Count);
+            }
+            else
+            {
+                _logger.LogWarning("Failed to update client order: {Message}", response.Message);
+            }
+
+            return response.Success;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating client order");
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Transfer a content file to the server
     /// </summary>
     public async Task<bool> TransferContentAsync(string filePath, string contentId, int chunkSizeBytes = 1024 * 1024)
