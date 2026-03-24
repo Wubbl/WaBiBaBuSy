@@ -6,6 +6,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using WaBiBaBuSy.UI.ViewModels;
 using WaBiBaBuSy.WallpaperEngine.Services;
 using System;
@@ -40,6 +41,15 @@ public partial class MainWindow : Window
     private const double HSpacing = 20;
     private const double VSpacing = 30;
     private const double LayoutPadding = 20;
+
+    // Arrow animation state
+    private readonly List<ArrowAnimationData> _arrowAnimations = new();
+    private DispatcherTimer? _arrowAnimTimer;
+    private double _arrowAnimProgress; // 0.0 to 1.0, loops
+
+    private record ArrowAnimationData(
+        Point Start, Point End, Avalonia.Controls.Shapes.Path ArrowHead,
+        double DirectionX, double DirectionY, Color ArrowColor);
 
     public MainWindow()
     {
@@ -116,6 +126,10 @@ public partial class MainWindow : Window
         }
 
         Debug.WriteLine($"[MainWindow] Rendering {viewModel.Clients.Count} client nodes");
+
+        // Stop arrow animation before clearing
+        StopArrowAnimation();
+        _arrowAnimations.Clear();
 
         // Clear existing nodes (keep debug text at index 0)
         while (canvas.Children.Count > 1)
@@ -481,17 +495,23 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Draw curved bezier arrows between consecutive nodes (ordered by Order).
+    /// Draw straight-line arrows between consecutive nodes (ordered by Order).
     /// Blue (#0078D4) for same-machine nodes, gray (#888888) for cross-machine.
+    /// Arrowheads animate from start to end of each line.
     /// </summary>
     private void DrawArrowConnections(Canvas canvas, MainWindowViewModel viewModel)
     {
-        var sorted = viewModel.Clients.OrderBy(c => c.Order).ToList();
-        if (sorted.Count < 2) return;
+        // Clear previous animation data
+        _arrowAnimations.Clear();
 
-        const double nodeWidth = 180;
-        const double nodeHeight = 150;
-        const double arrowHeadSize = 8;
+        var sorted = viewModel.Clients.OrderBy(c => c.Order).ToList();
+        if (sorted.Count < 2)
+        {
+            StopArrowAnimation();
+            return;
+        }
+
+        const double arrowHeadSize = 10;
 
         for (int i = 0; i < sorted.Count - 1; i++)
         {
@@ -505,127 +525,122 @@ public partial class MainWindow : Window
                 ? Color.Parse("#0078D4")  // blue
                 : Color.Parse("#888888"); // gray
 
-            double startX = from.X + nodeWidth;
-            double startY = from.Y + nodeHeight / 2;
+            double startX = from.X + NodeWidth;
+            double startY = from.Y + NodeMinHeight / 2;
             double endX = to.X;
-            double endY = to.Y + nodeHeight / 2;
+            double endY = to.Y + NodeMinHeight / 2;
 
-            // Determine if wrapping to next row (end is below and to the left)
-            bool rowWrap = endY > startY + 20;
-
-            var pen = new Pen(new SolidColorBrush(arrowColor), 2);
-
-            PathFigure figure;
-            if (rowWrap)
+            // Draw straight line
+            var line = new Line
             {
-                // Curved path: go right, down, then left to the next row
-                double midY = (startY + endY) / 2;
-                figure = new PathFigure
-                {
-                    StartPoint = new Point(startX, startY),
-                    IsClosed = false,
-                    Segments =
-                    {
-                        new BezierSegment
-                        {
-                            Point1 = new Point(startX + 40, startY),
-                            Point2 = new Point(endX - 40, endY),
-                            Point3 = new Point(endX, endY)
-                        }
-                    }
-                };
-            }
-            else
-            {
-                // Standard curved arrow between adjacent nodes on same row
-                double midX = (startX + endX) / 2;
-                double curveOffset = -20; // curve upward
-                figure = new PathFigure
-                {
-                    StartPoint = new Point(startX, startY),
-                    IsClosed = false,
-                    Segments =
-                    {
-                        new BezierSegment
-                        {
-                            Point1 = new Point(midX, startY + curveOffset),
-                            Point2 = new Point(midX, endY + curveOffset),
-                            Point3 = new Point(endX, endY)
-                        }
-                    }
-                };
-            }
-
-            var pathGeometry = new PathGeometry { Figures = { figure } };
-            var arrowPath = new Avalonia.Controls.Shapes.Path
-            {
-                Data = pathGeometry,
+                StartPoint = new Point(startX, startY),
+                EndPoint = new Point(endX, endY),
                 Stroke = new SolidColorBrush(arrowColor),
                 StrokeThickness = 2,
-                IsHitTestVisible = false
+                IsHitTestVisible = false,
+                Opacity = 0.6
             };
-            canvas.Children.Add(arrowPath);
+            canvas.Children.Add(line);
 
-            // Arrowhead at the end point
-            DrawArrowHead(canvas, endX, endY, startX, startY, arrowColor, arrowHeadSize, rowWrap);
+            // Create arrowhead (triangle) that will be animated along the line
+            double dx = endX - startX;
+            double dy = endY - startY;
+            double len = Math.Sqrt(dx * dx + dy * dy);
+            if (len < 1) continue;
+            double ndx = dx / len;
+            double ndy = dy / len;
+
+            var arrowHead = CreateArrowHeadPath(arrowColor, arrowHeadSize, ndx, ndy);
+            canvas.Children.Add(arrowHead);
+
+            _arrowAnimations.Add(new ArrowAnimationData(
+                new Point(startX, startY), new Point(endX, endY),
+                arrowHead, ndx, ndy, arrowColor));
         }
+
+        // Start animation timer if we have arrows
+        if (_arrowAnimations.Count > 0)
+            StartArrowAnimation();
     }
 
     /// <summary>
-    /// Draw an arrowhead pointing toward (endX, endY) from the direction of (fromX, fromY).
+    /// Create an arrowhead Path (filled triangle) pointing in direction (dx, dy).
     /// </summary>
-    private void DrawArrowHead(Canvas canvas, double endX, double endY,
-        double fromX, double fromY, Color color, double size, bool rowWrap)
+    private static Avalonia.Controls.Shapes.Path CreateArrowHeadPath(
+        Color color, double size, double dx, double dy)
     {
-        // Calculate direction from the last bezier control point toward the end
-        double dx, dy;
-        if (rowWrap)
-        {
-            // For row-wrap arrows, the approach direction is from the left
-            dx = 1;
-            dy = 0;
-        }
-        else
-        {
-            // For same-row arrows, approach from the left with slight curve
-            dx = endX - fromX;
-            dy = endY - fromY;
-        }
-
-        double len = Math.Sqrt(dx * dx + dy * dy);
-        if (len < 0.001) return;
-        dx /= len;
-        dy /= len;
-
-        // Two points of the arrowhead
+        // Perpendicular direction
         double perpX = -dy;
         double perpY = dx;
-        var p1 = new Point(endX - dx * size + perpX * size * 0.5, endY - dy * size + perpY * size * 0.5);
-        var p2 = new Point(endX - dx * size - perpX * size * 0.5, endY - dy * size - perpY * size * 0.5);
-        var tip = new Point(endX, endY);
 
-        var headFigure = new PathFigure
+        // Triangle points relative to (0,0) — will be positioned via Canvas.Left/Top
+        var tip = new Point(dx * size * 0.5, dy * size * 0.5);
+        var left = new Point(-dx * size * 0.5 + perpX * size * 0.4, -dy * size * 0.5 + perpY * size * 0.4);
+        var right = new Point(-dx * size * 0.5 - perpX * size * 0.4, -dy * size * 0.5 - perpY * size * 0.4);
+
+        var figure = new PathFigure
         {
-            StartPoint = p1,
+            StartPoint = tip,
             IsClosed = true,
-            IsFilled = true,
-            Segments =
-            {
-                new LineSegment { Point = tip },
-                new LineSegment { Point = p2 }
-            }
+            IsFilled = true
         };
+        figure.Segments!.Add(new LineSegment { Point = left });
+        figure.Segments!.Add(new LineSegment { Point = right });
 
-        var headGeometry = new PathGeometry { Figures = { headFigure } };
-        var headPath = new Avalonia.Controls.Shapes.Path
+        var geometry = new PathGeometry();
+        geometry.Figures!.Add(figure);
+
+        return new Avalonia.Controls.Shapes.Path
         {
-            Data = headGeometry,
+            Data = geometry,
             Fill = new SolidColorBrush(color),
-            Stroke = new SolidColorBrush(color),
-            StrokeThickness = 1,
             IsHitTestVisible = false
         };
-        canvas.Children.Add(headPath);
+    }
+
+    /// <summary>
+    /// Start the arrow animation timer (animates arrowheads along their lines).
+    /// </summary>
+    private void StartArrowAnimation()
+    {
+        if (_arrowAnimTimer != null) return;
+
+        _arrowAnimTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(30)
+        };
+        _arrowAnimTimer.Tick += OnArrowAnimationTick;
+        _arrowAnimTimer.Start();
+    }
+
+    /// <summary>
+    /// Stop the arrow animation timer.
+    /// </summary>
+    private void StopArrowAnimation()
+    {
+        _arrowAnimTimer?.Stop();
+        _arrowAnimTimer = null;
+    }
+
+    /// <summary>
+    /// Animation tick: move all arrowheads along their lines.
+    /// </summary>
+    private void OnArrowAnimationTick(object? sender, EventArgs e)
+    {
+        // Advance progress: full cycle in ~2.5 seconds
+        _arrowAnimProgress += 0.012;
+        if (_arrowAnimProgress > 1.0)
+            _arrowAnimProgress = 0.0;
+
+        foreach (var arrow in _arrowAnimations)
+        {
+            // Lerp position along the line
+            double x = arrow.Start.X + (arrow.End.X - arrow.Start.X) * _arrowAnimProgress;
+            double y = arrow.Start.Y + (arrow.End.Y - arrow.Start.Y) * _arrowAnimProgress;
+
+            Canvas.SetLeft(arrow.ArrowHead, x);
+            Canvas.SetTop(arrow.ArrowHead, y);
+        }
     }
 
     /// <summary>
