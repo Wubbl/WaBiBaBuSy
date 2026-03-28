@@ -74,38 +74,41 @@ public class UpdateDownloader
                 RequestedVersion = updateInfo.Version
             };
 
-            using var call = grpcClient.DownloadUpdate(request, cancellationToken: cancellationToken);
-            using var fileStream = new FileStream(packagePath, FileMode.Create, FileAccess.Write, FileShare.Read, bufferSize: 8192, useAsync: true);
-
             long totalBytesReceived = 0;
             int chunksReceived = 0;
 
-            await foreach (var chunk in call.ResponseStream.ReadAllAsync(cancellationToken))
+            // File stream is scoped here so it is fully closed/flushed before verification opens the same file
+            using (var call = grpcClient.DownloadUpdate(request, cancellationToken: cancellationToken))
+            await using (var fileStream = new FileStream(packagePath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 8192, useAsync: true))
             {
-                // Write chunk data to file
-                await fileStream.WriteAsync(chunk.Data.ToByteArray(), cancellationToken);
-
-                totalBytesReceived += chunk.Data.Length;
-                chunksReceived++;
-
-                // Use chunk.TotalSize as fallback when PackageSize is unknown (0)
-                var totalSize = updateInfo.PackageSize > 0 ? updateInfo.PackageSize : chunk.TotalSize;
-                var progressPercent = totalSize > 0
-                    ? (int)((totalBytesReceived * 100) / totalSize)
-                    : 0;
-                ProgressChanged?.Invoke(this, new UpdateProgressEventArgs
+                await foreach (var chunk in call.ResponseStream.ReadAllAsync(cancellationToken))
                 {
-                    ProgressPercent = progressPercent,
-                    BytesReceived = totalBytesReceived,
-                    TotalBytes = totalSize,
-                    ChunksReceived = chunksReceived
-                });
+                    // Write chunk data to file
+                    await fileStream.WriteAsync(chunk.Data.ToByteArray(), cancellationToken);
 
-                _logger.LogDebug("Downloaded chunk {ChunkIndex}/{TotalChunks} ({Bytes} bytes)",
-                    chunk.ChunkIndex + 1, chunk.TotalChunks, chunk.Data.Length);
+                    totalBytesReceived += chunk.Data.Length;
+                    chunksReceived++;
+
+                    // Use chunk.TotalSize as fallback when PackageSize is unknown (0)
+                    var totalSize = updateInfo.PackageSize > 0 ? updateInfo.PackageSize : chunk.TotalSize;
+                    var progressPercent = totalSize > 0
+                        ? (int)((totalBytesReceived * 100) / totalSize)
+                        : 0;
+                    ProgressChanged?.Invoke(this, new UpdateProgressEventArgs
+                    {
+                        ProgressPercent = progressPercent,
+                        BytesReceived = totalBytesReceived,
+                        TotalBytes = totalSize,
+                        ChunksReceived = chunksReceived
+                    });
+
+                    _logger.LogDebug("Downloaded chunk {ChunkIndex}/{TotalChunks} ({Bytes} bytes)",
+                        chunk.ChunkIndex + 1, chunk.TotalChunks, chunk.Data.Length);
+                }
+
+                await fileStream.FlushAsync(cancellationToken);
             }
-
-            await fileStream.FlushAsync(cancellationToken);
+            // fileStream and gRPC call are fully disposed here — file handle is released before verification
 
             _logger.LogInformation("Download complete. Total size: {Size:N0} bytes in {Chunks} chunks",
                 totalBytesReceived, chunksReceived);
