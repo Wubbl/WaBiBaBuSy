@@ -64,6 +64,13 @@ public partial class ClientNodeViewModel : ObservableObject
     [ObservableProperty]
     private bool _isCurrentAnimationTarget;
 
+    /// <summary>
+    /// Accent color assigned when this node shares a machine with other nodes (multi-monitor).
+    /// Null for single-monitor machines (no color coding needed).
+    /// </summary>
+    [ObservableProperty]
+    private Avalonia.Media.Color? _groupColor;
+
     [ObservableProperty]
     private string? _activeAnimationName;
 

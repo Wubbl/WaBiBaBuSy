@@ -140,8 +140,8 @@ public partial class MainWindow : Window
         // Auto-wrap layout: calculate positions based on canvas width
         CalculateAutoWrapPositions(canvas, viewModel);
 
-        // Add machine group boxes behind nodes
-        DrawMachineGroupBoxes(canvas, viewModel);
+        // Assign group colors to nodes that share a physical machine (multi-monitor)
+        AssignGroupColors(viewModel);
 
         // Add arrow connections between nodes
         DrawArrowConnections(canvas, viewModel);
@@ -202,6 +202,13 @@ public partial class MainWindow : Window
                 border.BorderThickness = new Thickness(3);
                 border.Background = new SolidColorBrush(Color.Parse("#4E5A6E"));
             }
+            else if (client.GroupColor is Color gc)
+            {
+                // Multi-monitor node: accent border + very subtle background tint
+                border.BorderBrush = new SolidColorBrush(gc);
+                border.BorderThickness = new Thickness(2);
+                border.Background = new SolidColorBrush(Color.FromArgb(30, gc.R, gc.G, gc.B));
+            }
             else
             {
                 border.BorderBrush = new SolidColorBrush(Color.Parse("#666666"));
@@ -212,7 +219,8 @@ public partial class MainWindow : Window
 
         client.PropertyChanged += (s, e) =>
         {
-            if (e.PropertyName is nameof(client.IsSelected) or nameof(client.IsAnimating) or nameof(client.IsCurrentAnimationTarget))
+            if (e.PropertyName is nameof(client.IsSelected) or nameof(client.IsAnimating)
+                or nameof(client.IsCurrentAnimationTarget) or nameof(client.GroupColor))
             {
                 UpdateNodeAppearance();
             }
@@ -643,44 +651,37 @@ public partial class MainWindow : Window
         }
     }
 
+    // Palette of accent colors for multi-monitor machine groups.
+    private static readonly Color[] GroupColorPalette =
+    [
+        Color.Parse("#E8A020"), // amber
+        Color.Parse("#3BAA6B"), // green
+        Color.Parse("#A04DC8"), // purple
+        Color.Parse("#20A8C8"), // teal
+        Color.Parse("#E05050"), // red
+        Color.Parse("#D07030"), // orange
+    ];
+
     /// <summary>
-    /// Draw subtle group boxes around nodes that belong to the same physical machine.
+    /// Assign a distinct accent color to every node that shares a physical machine with
+    /// at least one other node. Single-monitor nodes get GroupColor = null.
     /// </summary>
-    private void DrawMachineGroupBoxes(Canvas canvas, MainWindowViewModel viewModel)
+    private static void AssignGroupColors(MainWindowViewModel viewModel)
     {
-        // Group nodes by base machine ID
+        // Clear all group colors first
+        foreach (var c in viewModel.Clients)
+            c.GroupColor = null;
+
         var groups = viewModel.Clients
             .GroupBy(c => GetBaseMachineId(c.ClientId))
             .Where(g => g.Count() > 1)
             .ToList();
 
-        foreach (var group in groups)
+        for (int i = 0; i < groups.Count; i++)
         {
-            var nodes = group.ToList();
-            const double padding = 12;
-            const double nodeWidth = 180;
-            const double nodeHeight = 150;
-
-            // Calculate bounding box of all nodes in this group
-            double minX = nodes.Min(n => n.X) - padding;
-            double minY = nodes.Min(n => n.Y) - padding;
-            double maxX = nodes.Max(n => n.X) + nodeWidth + padding;
-            double maxY = nodes.Max(n => n.Y) + nodeHeight + padding;
-
-            var groupBorder = new Border
-            {
-                Width = maxX - minX,
-                Height = maxY - minY,
-                Background = new SolidColorBrush(Color.Parse("#150078D4")),  // very subtle blue tint
-                BorderBrush = new SolidColorBrush(Color.Parse("#660078D4")), // 40% opacity blue
-                BorderThickness = new Thickness(1.5),
-                CornerRadius = new CornerRadius(12),
-                IsHitTestVisible = false
-            };
-
-            Canvas.SetLeft(groupBorder, minX);
-            Canvas.SetTop(groupBorder, minY);
-            canvas.Children.Add(groupBorder);
+            var color = GroupColorPalette[i % GroupColorPalette.Length];
+            foreach (var node in groups[i])
+                node.GroupColor = color;
         }
     }
 

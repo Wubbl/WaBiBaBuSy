@@ -1663,14 +1663,8 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async Task ConnectToServer()
     {
-        if (_service.IsClientConnected)
-        {
-            // Already connected - disconnect
-            await _service.DisconnectFromServerAsync();
-            IsClientConnected = false;
-            ClientConnectionStatus = "Disconnected";
+        if (IsClientConnected || _service.IsClientConnected)
             return;
-        }
 
         var address = ConnectServerAddress.Trim();
         var port = ConnectServerPort;
