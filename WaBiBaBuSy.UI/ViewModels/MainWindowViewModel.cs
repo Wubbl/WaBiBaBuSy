@@ -1665,50 +1665,21 @@ public partial class MainWindowViewModel : ViewModelBase
         if (IsClientConnected || _service.IsClientConnected)
             return;
 
-        var address = ConnectServerAddress.Trim();
-        var port = ConnectServerPort;
-
-        if (string.IsNullOrEmpty(address))
-        {
-            // Try mDNS auto-discovery
-            IsConnecting = true;
-            ClientConnectionStatus = "Discovering...";
-
-            _service.StartServerDiscovery();
-            await Task.Delay(2000);
-
-            var servers = _service.GetDiscoveredServers();
-            _service.StopServerDiscovery();
-
-            if (servers.Any())
-            {
-                var firstServer = servers.First();
-                address = firstServer.IpAddress;
-                port = firstServer.Port;
-                ConnectServerAddress = address;
-                ConnectServerPort = port;
-            }
-            else
-            {
-                // No mDNS servers found, fall back to localhost
-                address = "localhost";
-                port = ConnectServerPort;
-            }
-        }
-
         IsConnecting = true;
-        ClientConnectionStatus = $"Connecting to {address}:{port}...";
+        ClientConnectionStatus = "Discovering...";
 
         try
         {
-            var connected = await _service.ConnectToServerAsync(address, port, ApplyD2DFromRemoteAsync);
+            var address = ConnectServerAddress.Trim();
+            var port = ConnectServerPort;
+            if (string.IsNullOrEmpty(address)) address = "localhost";
+
+            var connected = await _service.DiscoverAndConnectAsync(address, port, ApplyD2DFromRemoteAsync);
 
             if (connected)
             {
                 IsClientConnected = true;
-                ClientConnectionStatus = $"Connected to {address}:{port}";
-                Debug.WriteLine($"[ConnectToServer] Connected to {address}:{port} — D2D delegate wired");
-
+                ClientConnectionStatus = $"Connected";
                 RefreshTopology();
             }
             else
@@ -1719,7 +1690,6 @@ public partial class MainWindowViewModel : ViewModelBase
         catch (Exception ex)
         {
             ClientConnectionStatus = $"Error: {ex.Message}";
-            Debug.WriteLine($"[ConnectToServer] Error: {ex.Message}");
         }
         finally
         {

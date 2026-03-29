@@ -182,12 +182,49 @@ public class WaBiBaBuSyService : IDisposable
     }
 
     /// <summary>
+    /// Discover a server via mDNS (or fall back to the given address) and connect.
+    /// This is the single connect path used by both Tray and MainWindow.
+    /// </summary>
+    public async Task<bool> DiscoverAndConnectAsync(
+        string fallbackAddress,
+        int fallbackPort,
+        Func<string, int, string, int, Task>? d2dApplyDelegate = null)
+    {
+        // Try mDNS discovery first
+        StartServerDiscovery();
+        await Task.Delay(2000);
+
+        var servers = GetDiscoveredServers();
+        StopServerDiscovery();
+
+        string address;
+        int port;
+        if (servers.Any())
+        {
+            var first = servers.First();
+            address = first.IpAddress;
+            port = first.Port;
+        }
+        else
+        {
+            address = fallbackAddress;
+            port = fallbackPort;
+        }
+
+        var connected = await ConnectToServerAsync(address, port);
+
+        if (connected && d2dApplyDelegate != null)
+        {
+            SetD2DApplyDelegate(d2dApplyDelegate);
+        }
+
+        return connected;
+    }
+
+    /// <summary>
     /// Start client mode and connect to server
     /// </summary>
-    public async Task<bool> ConnectToServerAsync(
-        string serverAddress,
-        int serverPort,
-        Func<string, int, string, int, Task>? d2dApplyDelegate = null)
+    public async Task<bool> ConnectToServerAsync(string serverAddress, int serverPort)
     {
         if (IsClientConnected)
         {
@@ -204,7 +241,7 @@ public class WaBiBaBuSyService : IDisposable
             _client.ConnectionStatusChanged += OnClientConnectionStatusChanged;
             _client.UpdateAvailable += OnUpdateAvailable;
 
-            // Connect — this starts the sync stream, so commands can arrive immediately after
+            // Connect
             var connected = await _client.ConnectAsync(serverAddress, serverPort);
 
             if (connected)
@@ -212,11 +249,8 @@ public class WaBiBaBuSyService : IDisposable
                 // Create content cache manager for LRU eviction
                 var cacheManager = new ContentCacheManager(AppLogger.CreateLogger<ContentCacheManager>(), _clientConfig.CacheDirectory, _clientConfig.MaxCacheSizeMB);
 
-                // Create and initialize wallpaper playback service, then wire D2D delegate
-                // immediately — before any commands already in the stream can be dispatched
+                // Create and initialize wallpaper playback service
                 _playbackService = new WallpaperPlaybackService(AppLogger.CreateLogger<WallpaperPlaybackService>(), _client, _rendererFactory, _clientConfig.CacheDirectory, cacheManager);
-                if (d2dApplyDelegate != null)
-                    _playbackService.D2DApplyDelegate = d2dApplyDelegate;
 
                 // Initialize update services
                 _updateVerifier = new UpdateVerifier(AppLogger.CreateLogger<UpdateVerifier>());

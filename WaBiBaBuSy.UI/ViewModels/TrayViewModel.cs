@@ -111,29 +111,9 @@ public partial class TrayViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task Connect()
+    private void Connect()
     {
-        _service.StartServerDiscovery();
-        await Task.Delay(2000);
-
-        var servers = _service.GetDiscoveredServers();
-        _service.StopServerDiscovery();
-
-        bool connected;
-        if (servers.Any())
-        {
-            var firstServer = servers.First();
-            connected = await _service.ConnectToServerAsync(firstServer.IpAddress, firstServer.Port, ApplyD2DFromRemoteAsync);
-        }
-        else
-        {
-            connected = await _service.ConnectToServerAsync("localhost", 50051, ApplyD2DFromRemoteAsync);
-        }
-
-        if (!connected)
-        {
-            Console.WriteLine("[TrayConnect] Failed to connect to server");
-        }
+        _ = _service.DiscoverAndConnectAsync("localhost", 50051, ApplyD2DFromRemoteAsync);
     }
 
     /// <summary>
