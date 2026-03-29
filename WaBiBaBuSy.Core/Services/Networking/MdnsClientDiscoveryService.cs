@@ -86,7 +86,10 @@ public class MdnsClientDiscoveryService : IDisposable
     /// </summary>
     public IReadOnlyList<DiscoveredServer> GetDiscoveredServers()
     {
-        return _discoveredServers.AsReadOnly();
+        lock (_discoveredServers)
+        {
+            return _discoveredServers.ToList();
+        }
     }
 
     private void OnServiceDiscovered(object? sender, DomainName serviceName)
