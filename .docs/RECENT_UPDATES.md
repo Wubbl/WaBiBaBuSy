@@ -1,6 +1,32 @@
 # WaBiBaBuSy - Recent Updates & Changelog
 
-**Last Updated:** 2026-03-24
+**Last Updated:** 2026-03-29
+
+---
+
+## 2026-03-29 — File Logging Fix + Remote Client D2D Wiring
+
+### FIXED: File logging empty on remote clients
+All service loggers in `TrayViewModel`, `MainWindowViewModel`, `WaBiBaBuSyService`, and all sub-services (WallpaperSyncClient, WallpaperPlaybackService, WallpaperSyncCoordinator, etc.) were constructed with private `LoggerFactory.Create(...AddConsole())` instances. These bypass `AppLogger` entirely — nothing reached the file provider.
+
+**Fix:** Removed all `LoggerFactory.Create()` calls in production code. All logger creation now uses `AppLogger.CreateLogger<T>()` or `AppLogger.Factory`. Added `AppLogger.Factory` static property to expose the underlying `ILoggerFactory` for services that require it.
+
+**Rule:** Never call `LoggerFactory.Create()` directly anywhere in the UI or Core layers.
+
+### FIXED: D2D wallpaper not applied on remote clients (race condition)
+`WallpaperSyncClient.ConnectAsync()` calls `StartSyncStream()` before returning, so gRPC commands can arrive immediately. Previously `D2DApplyDelegate` was set *after* `ConnectToServerAsync()` returned — a LOAD command arriving in that window saw `null` and silently fell back to the non-functional LibVLC path.
+
+**Fix:** `ConnectToServerAsync(address, port, d2dApplyDelegate)` now accepts the delegate as a parameter and sets it on `WallpaperPlaybackService` immediately after construction, before returning. Both `TrayViewModel` and `MainWindowViewModel` pass the delegate at call time.
+
+**Rule:** Always pass the D2D delegate to `ConnectToServerAsync`. Never call `SetD2DApplyDelegate` separately after connection. See Software Architecture doc for details.
+
+### FIXED: `TrayViewModel.Connect()` async anti-pattern
+Was `void Connect()` using `Task.Delay(2000).ContinueWith(async _ => {...})`. The `async` lambda inside `ContinueWith` returns `Task<Task>` — the outer task completes when the lambda starts, not when the body finishes. Exceptions were silently swallowed.
+
+**Fix:** Changed to `async Task Connect()` with `await Task.Delay(2000)`.
+
+### Tray menu simplified
+Removed "Server Mode" submenu (Start Server / Stop Server) — server machine always opens main window. Removed "Client Mode" submenu — Connect and Disconnect are now top-level tray items.
 
 ---
 

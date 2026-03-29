@@ -266,6 +266,17 @@ Main Process (WaBiBaBuSy.UI)              Player Process (Player.D2D)
 - Clients cache files locally in `%LOCALAPPDATA%\WaBiBaBuSy\Cache`
 - SHA-256 integrity verification on all transfers
 
+### D2D Delegate Wiring — IMPORTANT
+
+The `D2DApplyDelegate` on `WallpaperPlaybackService` **must be wired before the gRPC sync stream can deliver commands**. The stream starts inside `WallpaperSyncClient.ConnectAsync()`, which is called at the start of `WaBiBaBuSyService.ConnectToServerAsync()`. If the delegate is set *after* `ConnectToServerAsync` returns, there is a race window where a LOAD command arrives with `D2DApplyDelegate == null` and silently falls back to the (non-functional for remote clients) LibVLC path.
+
+**Correct pattern:** Pass the delegate as a parameter to `ConnectToServerAsync`:
+```csharp
+await _service.ConnectToServerAsync(address, port, ApplyD2DFromRemoteAsync);
+```
+
+`ConnectToServerAsync` sets `_playbackService.D2DApplyDelegate` immediately after constructing the service, before returning. **Never** call `SetD2DApplyDelegate` separately after `ConnectToServerAsync` — that reintroduces the race.
+
 ---
 
 ## Distributed Animation System
@@ -327,6 +338,9 @@ Server                          Client                        Updater
 - **`FileLoggerProvider`** creates rolling daily files in configured `LogDirectory`
 - Config persisted to `%APPDATA%\WaBiBaBuSy\logging-config.json` (separate from main config)
 - 7 component toggles for fine-grained log filtering
+- **`AppLogger.Factory`** — exposes the underlying `ILoggerFactory` for services that require it (e.g. `D2DCompositionService`)
+
+> **CRITICAL: Always use `AppLogger.CreateLogger<T>()` / `AppLogger.Factory`** for all logger creation in the UI and Core layers. Never call `LoggerFactory.Create(...)` directly — those loggers bypass the file provider entirely and will not appear in log files. This applies to `TrayViewModel`, `MainWindowViewModel`, `WaBiBaBuSyService`, and all sub-services.
 
 ---
 
