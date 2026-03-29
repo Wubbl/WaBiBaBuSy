@@ -5,8 +5,8 @@ using System.Threading.Tasks;
 using Avalonia.Controls.ApplicationLifetimes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Common.Version;
+using WaBiBaBuSy.Core.Services.Logging;
 using WaBiBaBuSy.Core.Interfaces;
 using WaBiBaBuSy.Core.Services;
 using WaBiBaBuSy.Models.Configuration;
@@ -26,13 +26,9 @@ public partial class TrayViewModel : ObservableObject
     private readonly IClassicDesktopStyleApplicationLifetime _desktop;
     private readonly WaBiBaBuSyService _service;
     private readonly DesktopWindowManager _desktopManager;
-    private readonly ILoggerFactory _loggerFactory;
     private MainWindow? _mainWindow;
     // D2D services for remote-triggered rendering on this client
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, D2DCompositionService> _clientD2DServices = new();
-
-    [ObservableProperty]
-    private bool _isServerRunning;
 
     [ObservableProperty]
     private bool _isClientConnected;
@@ -50,20 +46,17 @@ public partial class TrayViewModel : ObservableObject
         Console.WriteLine($"Loaded server config from: {ConfigurationManager.GetServerConfigPath()}");
         Console.WriteLine($"Loaded client config from: {ConfigurationManager.GetClientConfigPath()}");
 
-        _loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
-        var logger = _loggerFactory.CreateLogger<WaBiBaBuSyService>();
+        var logger = AppLogger.CreateLogger<WaBiBaBuSyService>();
 
         // Create desktop window manager (will be used for wallpaper restoration on exit)
-        var desktopManagerLogger = _loggerFactory.CreateLogger<DesktopWindowManager>();
-        _desktopManager = new DesktopWindowManager(desktopManagerLogger);
+        _desktopManager = new DesktopWindowManager(AppLogger.CreateLogger<DesktopWindowManager>());
 
         // Create renderer factory for wallpaper playback
-        var rendererFactory = CreateRendererFactory(_loggerFactory, _desktopManager);
+        var rendererFactory = CreateRendererFactory(_desktopManager);
 
         _service = new WaBiBaBuSyService(logger, serverConfig, clientConfig, rendererFactory);
 
         // Subscribe to service events
-        _service.ServerStatusChanged += OnServerStatusChanged;
         _service.ClientConnectionStatusChanged += OnClientConnectionStatusChanged;
 
         // Subscribe to application exit event to restore desktop
@@ -73,7 +66,7 @@ public partial class TrayViewModel : ObservableObject
     /// <summary>
     /// Creates a renderer factory that instantiates appropriate renderers based on file type and monitor index
     /// </summary>
-    private Func<string, int, IWallpaperRenderer?> CreateRendererFactory(ILoggerFactory loggerFactory, DesktopWindowManager desktopManager)
+    private Func<string, int, IWallpaperRenderer?> CreateRendererFactory(DesktopWindowManager desktopManager)
     {
         return (filePath, monitorIndex) =>
         {
@@ -85,12 +78,12 @@ public partial class TrayViewModel : ObservableObject
                 // GIFs now use LibVLC (VideoWallpaperRenderer) for instant loading
                 ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv" or ".gif" =>
                     new VideoWallpaperRenderer(
-                        loggerFactory.CreateLogger<VideoWallpaperRenderer>(),
+                        AppLogger.CreateLogger<VideoWallpaperRenderer>(),
                         desktopManager),
 
                 ".jpg" or ".jpeg" or ".png" or ".bmp" =>
                     new ImageWallpaperRendererLibVLC(
-                        loggerFactory.CreateLogger<ImageWallpaperRendererLibVLC>(),
+                        AppLogger.CreateLogger<ImageWallpaperRendererLibVLC>(),
                         desktopManager),
 
                 _ => null
@@ -118,63 +111,29 @@ public partial class TrayViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task StartServer()
+    private async Task Connect()
     {
-        try
-        {
-            await _service.StartServerAsync();
-        }
-        catch (Exception ex)
-        {
-            // TODO: Show error dialog to user
-            Console.WriteLine($"Error starting server: {ex.Message}");
-        }
-    }
-
-    [RelayCommand]
-    private async Task StopServer()
-    {
-        try
-        {
-            await _service.StopServerAsync();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error stopping server: {ex.Message}");
-        }
-    }
-
-    [RelayCommand]
-    private void Connect()
-    {
-        // TODO: Show client connection dialog
-        // For now, try to discover servers
         _service.StartServerDiscovery();
+        await Task.Delay(2000);
 
-        // Wait a moment for discovery
-        Task.Delay(2000).ContinueWith(async _ =>
+        var servers = _service.GetDiscoveredServers();
+        _service.StopServerDiscovery();
+
+        bool connected;
+        if (servers.Any())
         {
-            var servers = _service.GetDiscoveredServers();
-            bool connected;
-            if (servers.Any())
-            {
-                var firstServer = servers.First();
-                connected = await _service.ConnectToServerAsync(firstServer.IpAddress, firstServer.Port);
-            }
-            else
-            {
-                // No servers found, try default
-                connected = await _service.ConnectToServerAsync("localhost", 50051);
-            }
+            var firstServer = servers.First();
+            connected = await _service.ConnectToServerAsync(firstServer.IpAddress, firstServer.Port, ApplyD2DFromRemoteAsync);
+        }
+        else
+        {
+            connected = await _service.ConnectToServerAsync("localhost", 50051, ApplyD2DFromRemoteAsync);
+        }
 
-            if (connected)
-            {
-                // Wire D2D rendering delegate so remote server can trigger D2D on this client
-                _service.SetD2DApplyDelegate(ApplyD2DFromRemoteAsync);
-            }
-
-            _service.StopServerDiscovery();
-        });
+        if (!connected)
+        {
+            Console.WriteLine("[TrayConnect] Failed to connect to server");
+        }
     }
 
     /// <summary>
@@ -209,7 +168,7 @@ public partial class TrayViewModel : ObservableObject
         };
 
         var canvasManager = new VirtualCanvasManager(
-            _loggerFactory.CreateLogger<VirtualCanvasManager>());
+            AppLogger.CreateLogger<VirtualCanvasManager>());
         canvasManager.CalculateLayout(new[] { screenConfig });
 
         var backgroundConfig = new BackgroundLayerConfig
@@ -229,8 +188,8 @@ public partial class TrayViewModel : ObservableObject
         };
 
         var d2dService = new D2DCompositionService(
-            _loggerFactory.CreateLogger<D2DCompositionService>(),
-            _loggerFactory,
+            AppLogger.CreateLogger<D2DCompositionService>(),
+            AppLogger.Factory,
             _desktopManager);
 
         var actualBounds = new System.Drawing.Rectangle(
@@ -283,11 +242,6 @@ public partial class TrayViewModel : ObservableObject
 
         // Shutdown the application
         _desktop.Shutdown();
-    }
-
-    private void OnServerStatusChanged(object? sender, Core.Services.Networking.ServerStatusChangedEventArgs e)
-    {
-        IsServerRunning = e.IsRunning;
     }
 
     private void OnClientConnectionStatusChanged(object? sender, Core.Services.Networking.ConnectionStatusChangedEventArgs e)

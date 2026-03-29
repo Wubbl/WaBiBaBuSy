@@ -23,18 +23,8 @@
                     <NativeMenu>
                         <NativeMenuItem Header="Open Control Panel" Command="{Binding ShowWindowCommand}"/>
                         <NativeMenuItemSeparator />
-                        <NativeMenuItem Header="Server Mode">
-                            <NativeMenu>
-                                <NativeMenuItem Header="Start Server" Command="{Binding StartServerCommand}"/>
-                                <NativeMenuItem Header="Stop Server" Command="{Binding StopServerCommand}"/>
-                            </NativeMenu>
-                        </NativeMenuItem>
-                        <NativeMenuItem Header="Client Mode">
-                            <NativeMenu>
-                                <NativeMenuItem Header="Connect to Server..." Command="{Binding ConnectCommand}"/>
-                                <NativeMenuItem Header="Disconnect" Command="{Binding DisconnectCommand}"/>
-                            </NativeMenu>
-                        </NativeMenuItem>
+                        <NativeMenuItem Header="Connect to Server..." Command="{Binding ConnectCommand}"/>
+                        <NativeMenuItem Header="Disconnect" Command="{Binding DisconnectCommand}"/>
                         <NativeMenuItemSeparator />
                         <NativeMenuItem Header="Settings" Command="{Binding SettingsCommand}"/>
                         <NativeMenuItem Header="Exit" Command="{Binding ExitCommand}"/>

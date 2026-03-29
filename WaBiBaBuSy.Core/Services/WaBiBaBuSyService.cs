@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Core.Interfaces;
+using WaBiBaBuSy.Core.Services.Logging;
 using WaBiBaBuSy.Core.Services.Animation;
 using WaBiBaBuSy.Core.Services.Networking;
 using WaBiBaBuSy.Core.Services.Update;
@@ -107,15 +108,11 @@ public class WaBiBaBuSyService : IDisposable
             // Create mDNS service if auto-discovery is enabled
             if (_serverConfig.EnableAutoDiscovery)
             {
-                var mdnsLogger = LoggerFactory.Create(builder => builder.AddConsole())
-                    .CreateLogger<MdnsServerService>();
-                _mdnsServerService = new MdnsServerService(mdnsLogger, _serverConfig);
+                _mdnsServerService = new MdnsServerService(AppLogger.CreateLogger<MdnsServerService>(), _serverConfig);
             }
 
             // Create and start server host
-            var serverLogger = LoggerFactory.Create(builder => builder.AddConsole())
-                .CreateLogger<WallpaperSyncServerHost>();
-            _serverHost = new WallpaperSyncServerHost(serverLogger, _serverConfig, _mdnsServerService);
+            _serverHost = new WallpaperSyncServerHost(AppLogger.CreateLogger<WallpaperSyncServerHost>(), _serverConfig, _mdnsServerService);
             _serverHost.ServerStatusChanged += OnServerStatusChanged;
 
             await _serverHost.StartAsync();
@@ -128,18 +125,11 @@ public class WaBiBaBuSyService : IDisposable
             }
 
             // Create sync coordinator
-            var coordinatorLogger = LoggerFactory.Create(builder => builder.AddConsole())
-                .CreateLogger<WallpaperSyncCoordinator>();
-            _syncCoordinator = new WallpaperSyncCoordinator(coordinatorLogger, _serverHost.SyncService);
+            _syncCoordinator = new WallpaperSyncCoordinator(AppLogger.CreateLogger<WallpaperSyncCoordinator>(), _serverHost.SyncService);
 
             // Create animation distribution and orchestration services (Phase 3)
-            var distributorLogger = LoggerFactory.Create(builder => builder.AddConsole())
-                .CreateLogger<AnimationDistributor>();
-            _animationDistributor = new AnimationDistributor(distributorLogger);
-
-            var orchestratorLogger = LoggerFactory.Create(builder => builder.AddConsole())
-                .CreateLogger<AnimationOrchestrator>();
-            _animationOrchestrator = new AnimationOrchestrator(orchestratorLogger, _animationDistributor);
+            _animationDistributor = new AnimationDistributor(AppLogger.CreateLogger<AnimationDistributor>());
+            _animationOrchestrator = new AnimationOrchestrator(AppLogger.CreateLogger<AnimationOrchestrator>(), _animationDistributor);
 
             // Wire orchestrator event handlers
             // Note: Events are handled by gRPC service, orchestrator is self-contained
@@ -194,7 +184,10 @@ public class WaBiBaBuSyService : IDisposable
     /// <summary>
     /// Start client mode and connect to server
     /// </summary>
-    public async Task<bool> ConnectToServerAsync(string serverAddress, int serverPort)
+    public async Task<bool> ConnectToServerAsync(
+        string serverAddress,
+        int serverPort,
+        Func<string, int, string, int, Task>? d2dApplyDelegate = null)
     {
         if (IsClientConnected)
         {
@@ -207,46 +200,32 @@ public class WaBiBaBuSyService : IDisposable
             _logger.LogInformation("Connecting to server at {Address}:{Port}", serverAddress, serverPort);
 
             // Create client
-            var clientLogger = LoggerFactory.Create(builder => builder.AddConsole())
-                .CreateLogger<WallpaperSyncClient>();
-            _client = new WallpaperSyncClient(clientLogger, _clientConfig);
+            _client = new WallpaperSyncClient(AppLogger.CreateLogger<WallpaperSyncClient>(), _clientConfig);
             _client.ConnectionStatusChanged += OnClientConnectionStatusChanged;
             _client.UpdateAvailable += OnUpdateAvailable;
 
-            // Connect
+            // Connect — this starts the sync stream, so commands can arrive immediately after
             var connected = await _client.ConnectAsync(serverAddress, serverPort);
 
             if (connected)
             {
                 // Create content cache manager for LRU eviction
-                var cacheManagerLogger = LoggerFactory.Create(builder => builder.AddConsole())
-                    .CreateLogger<ContentCacheManager>();
-                var cacheManager = new ContentCacheManager(cacheManagerLogger, _clientConfig.CacheDirectory, _clientConfig.MaxCacheSizeMB);
+                var cacheManager = new ContentCacheManager(AppLogger.CreateLogger<ContentCacheManager>(), _clientConfig.CacheDirectory, _clientConfig.MaxCacheSizeMB);
 
-                // Create and initialize wallpaper playback service
-                var playbackLogger = LoggerFactory.Create(builder => builder.AddConsole())
-                    .CreateLogger<WallpaperPlaybackService>();
-                _playbackService = new WallpaperPlaybackService(playbackLogger, _client, _rendererFactory, _clientConfig.CacheDirectory, cacheManager);
+                // Create and initialize wallpaper playback service, then wire D2D delegate
+                // immediately — before any commands already in the stream can be dispatched
+                _playbackService = new WallpaperPlaybackService(AppLogger.CreateLogger<WallpaperPlaybackService>(), _client, _rendererFactory, _clientConfig.CacheDirectory, cacheManager);
+                if (d2dApplyDelegate != null)
+                    _playbackService.D2DApplyDelegate = d2dApplyDelegate;
 
                 // Initialize update services
-                var verifierLogger = LoggerFactory.Create(builder => builder.AddConsole())
-                    .CreateLogger<UpdateVerifier>();
-                _updateVerifier = new UpdateVerifier(verifierLogger);
-
-                var downloaderLogger = LoggerFactory.Create(builder => builder.AddConsole())
-                    .CreateLogger<UpdateDownloader>();
-                _updateDownloader = new UpdateDownloader(downloaderLogger, _updateVerifier);
-
-                var managerLogger = LoggerFactory.Create(builder => builder.AddConsole())
-                    .CreateLogger<UpdateManager>();
+                _updateVerifier = new UpdateVerifier(AppLogger.CreateLogger<UpdateVerifier>());
+                _updateDownloader = new UpdateDownloader(AppLogger.CreateLogger<UpdateDownloader>(), _updateVerifier);
                 _updateManager = new UpdateManager(
-                    managerLogger, _updateDownloader, _updateVerifier,
+                    AppLogger.CreateLogger<UpdateManager>(), _updateDownloader, _updateVerifier,
                     _clientConfig.UpdateSettings.DownloadDirectory,
                     _clientConfig.UpdateSettings.BackupDirectory);
-
-                var applicatorLogger = LoggerFactory.Create(builder => builder.AddConsole())
-                    .CreateLogger<UpdateApplicator>();
-                _updateApplicator = new UpdateApplicator(applicatorLogger);
+                _updateApplicator = new UpdateApplicator(AppLogger.CreateLogger<UpdateApplicator>());
 
                 // Forward update status events
                 _updateManager.StatusChanged += (s, e) => UpdateStatusChanged?.Invoke(this, e);
@@ -314,9 +293,7 @@ public class WaBiBaBuSyService : IDisposable
         {
             _logger.LogInformation("Starting server discovery");
 
-            var logger = LoggerFactory.Create(builder => builder.AddConsole())
-                .CreateLogger<MdnsClientDiscoveryService>();
-            _mdnsClientDiscovery = new MdnsClientDiscoveryService(logger);
+            _mdnsClientDiscovery = new MdnsClientDiscoveryService(AppLogger.CreateLogger<MdnsClientDiscoveryService>());
             _mdnsClientDiscovery.ServerDiscovered += OnServerDiscovered;
 
             _mdnsClientDiscovery.StartDiscovery(_serverConfig.ServiceType);

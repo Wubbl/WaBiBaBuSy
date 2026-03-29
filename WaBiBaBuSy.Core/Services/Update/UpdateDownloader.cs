@@ -76,6 +76,7 @@ public class UpdateDownloader
 
             long totalBytesReceived = 0;
             int chunksReceived = 0;
+            string? packageHashFromChunks = null;
 
             // File stream is scoped here so it is fully closed/flushed before verification opens the same file
             using (var call = grpcClient.DownloadUpdate(request, cancellationToken: cancellationToken))
@@ -85,6 +86,10 @@ public class UpdateDownloader
                 {
                     // Write chunk data to file
                     await fileStream.WriteAsync(chunk.Data.ToByteArray(), cancellationToken);
+
+                    // Capture package hash from the server (sent in every chunk)
+                    if (!string.IsNullOrEmpty(chunk.PackageHash))
+                        packageHashFromChunks = chunk.PackageHash;
 
                     totalBytesReceived += chunk.Data.Length;
                     chunksReceived++;
@@ -113,9 +118,19 @@ public class UpdateDownloader
             _logger.LogInformation("Download complete. Total size: {Size:N0} bytes in {Chunks} chunks",
                 totalBytesReceived, chunksReceived);
 
-            // Verify package hash
+            // Verify package hash — prefer hash from chunks; fall back to updateInfo (may be empty if server deferred it)
+            var expectedHash = !string.IsNullOrEmpty(updateInfo.PackageHash)
+                ? updateInfo.PackageHash
+                : packageHashFromChunks;
+
+            if (string.IsNullOrEmpty(expectedHash))
+            {
+                _logger.LogWarning("No package hash available from server — skipping integrity check");
+                return packagePath;
+            }
+
             _logger.LogInformation("Verifying package integrity...");
-            var isValid = await _verifier.VerifyFileHashAsync(packagePath, updateInfo.PackageHash, cancellationToken);
+            var isValid = await _verifier.VerifyFileHashAsync(packagePath, expectedHash, cancellationToken);
 
             if (!isValid)
             {

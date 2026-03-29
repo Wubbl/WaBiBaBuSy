@@ -15,7 +15,7 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
-using Microsoft.Extensions.Logging;
+using WaBiBaBuSy.Core.Services.Logging;
 
 namespace WaBiBaBuSy.UI.Views;
 
@@ -42,6 +42,9 @@ public partial class MainWindow : Window
     private const double VSpacing = 30;
     private const double LayoutPadding = 20;
 
+    // Last known column count — used to detect when topology must be re-laid out on resize
+    private int _lastNodesPerRow = -1;
+
     // Arrow animation state
     private readonly List<ArrowAnimationData> _arrowAnimations = new();
     private DispatcherTimer? _arrowAnimTimer;
@@ -49,7 +52,13 @@ public partial class MainWindow : Window
 
     private record ArrowAnimationData(
         Point Start, Point End, Avalonia.Controls.Shapes.Path ArrowHead,
-        double DirectionX, double DirectionY, Color ArrowColor);
+        double DirectionX, double DirectionY, Color ArrowColor,
+        // Straight line: all Bezier fields null.
+        // S-curve (cross-row): two cubic bezier segments sharing midpoint BezierMid.
+        //   Seg1: Start → BezierMid  via (BezierCP1, BezierCP2)
+        //   Seg2: BezierMid → End    via (BezierCP3, BezierCP4)
+        Point? BezierCP1 = null, Point? BezierCP2 = null,
+        Point? BezierMid = null, Point? BezierCP3 = null, Point? BezierCP4 = null);
 
     public MainWindow()
     {
@@ -57,9 +66,7 @@ public partial class MainWindow : Window
 
         // Pre-initialize LibVLC in background to eliminate ~9s delay on first wallpaper
         // This runs asynchronously and won't block the UI
-        var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole().AddDebug());
-        var logger = loggerFactory.CreateLogger<MainWindow>();
-        _ = LibVLCPreloader.PreloadAsync(logger);
+        _ = LibVLCPreloader.PreloadAsync(AppLogger.CreateLogger<MainWindow>());
 
         // Drag-and-drop handlers for gallery
         AddHandler(DragDrop.DropEvent, OnFileDrop);
@@ -95,7 +102,16 @@ public partial class MainWindow : Window
             var topologyBorder = this.FindControl<Border>("TopologyBorder");
             if (topologyBorder != null && _topologyCanvas != null)
             {
-                topologyBorder.SizeChanged += (s, e) => UpdateCanvasSize(e.NewSize);
+                topologyBorder.SizeChanged += (s, e) =>
+                {
+                    // Re-render if the number of columns changes — node positions must be recalculated.
+                    // Otherwise just resize the canvas to match the new border size.
+                    int newCols = Math.Max(1, (int)((e.NewSize.Width - LayoutPadding) / (NodeWidth + HSpacing)));
+                    if (newCols != _lastNodesPerRow)
+                        RenderClientNodes();
+                    else
+                        UpdateCanvasSize(e.NewSize);
+                };
             }
 
             // Click on empty gallery area deselects wallpaper
@@ -538,32 +554,90 @@ public partial class MainWindow : Window
             double endX = to.X;
             double endY = to.Y + NodeMinHeight / 2;
 
-            // Draw straight line
-            var line = new Line
+            bool crossRow = Math.Abs(from.Y - to.Y) > NodeMinHeight * 0.5;
+
+            if (crossRow)
             {
-                StartPoint = new Point(startX, startY),
-                EndPoint = new Point(endX, endY),
-                Stroke = new SolidColorBrush(arrowColor),
-                StrokeThickness = 2,
-                IsHitTestVisible = false,
-                Opacity = 0.6
-            };
-            canvas.Children.Add(line);
+                // S-curve that exits source on the RIGHT, arcs right/down to between the rows,
+                // sweeps left, then arcs down/right entering target on the LEFT side.
+                //
+                // Two cubic bezier segments sharing junction point M with C1 continuity:
+                //   Seg1: Start → M  (exit arc)
+                //   Seg2: M → End    (entry arc)
+                //
+                // C1 at M: CP2_seg1=(rightX, midY), M=((rightX+endX)/2, midY)
+                //   → reflected CP1_seg2 = 2*M - CP2_seg1 = (endX, midY)  ✓ (horizontal)
+                // Arrival at End: CP4=(endX-30, endY) → tangent=(+30,0) → arrowhead points RIGHT ✓
 
-            // Create arrowhead (triangle) that will be animated along the line
-            double dx = endX - startX;
-            double dy = endY - startY;
-            double len = Math.Sqrt(dx * dx + dy * dy);
-            if (len < 1) continue;
-            double ndx = dx / len;
-            double ndy = dy / len;
+                double rightX = sorted
+                    .Where(n => Math.Abs(n.Y - from.Y) < NodeMinHeight * 0.5
+                             || Math.Abs(n.Y - to.Y) < NodeMinHeight * 0.5)
+                    .Max(n => n.X + NodeWidth) + 40;
 
-            var arrowHead = CreateArrowHeadPath(arrowColor, arrowHeadSize, ndx, ndy);
-            canvas.Children.Add(arrowHead);
+                double midY = from.Y + NodeMinHeight + VSpacing / 2.0;
+                var M = new Point((rightX + endX) / 2.0, midY);
 
-            _arrowAnimations.Add(new ArrowAnimationData(
-                new Point(startX, startY), new Point(endX, endY),
-                arrowHead, ndx, ndy, arrowColor));
+                // Seg1 control points
+                var cp1 = new Point(rightX, startY);   // exit going RIGHT from source
+                var cp2 = new Point(rightX, midY);      // arrive at M from the right (C1 anchor)
+
+                // Seg2 control points (CP3 = C1 reflection of CP2 around M)
+                var cp3 = new Point(endX, midY);        // 2*M - cp2 = (endX, midY), continue LEFT
+                var cp4 = new Point(endX - 30, endY);   // arrive at target from slightly left
+
+                var geom = new PathGeometry();
+                var fig = new PathFigure { StartPoint = new Point(startX, startY), IsClosed = false };
+                fig.Segments!.Add(new BezierSegment { Point1 = cp1, Point2 = cp2, Point3 = M });
+                fig.Segments!.Add(new BezierSegment { Point1 = cp3, Point2 = cp4, Point3 = new Point(endX, endY) });
+                geom.Figures!.Add(fig);
+
+                var pathShape = new Avalonia.Controls.Shapes.Path
+                {
+                    Data = geom,
+                    Stroke = new SolidColorBrush(arrowColor),
+                    StrokeThickness = 2,
+                    IsHitTestVisible = false,
+                    Opacity = 0.6
+                };
+                canvas.Children.Add(pathShape);
+
+                // Arrowhead direction at End: tangent = 3*(End - CP4) = (30, 0) → pointing RIGHT
+                var arrowHead = CreateArrowHeadPath(arrowColor, arrowHeadSize, 1.0, 0.0);
+                canvas.Children.Add(arrowHead);
+
+                _arrowAnimations.Add(new ArrowAnimationData(
+                    new Point(startX, startY), new Point(endX, endY),
+                    arrowHead, 1.0, 0.0, arrowColor,
+                    cp1, cp2, M, cp3, cp4));
+            }
+            else
+            {
+                // Same-row: draw a straight line
+                var line = new Line
+                {
+                    StartPoint = new Point(startX, startY),
+                    EndPoint = new Point(endX, endY),
+                    Stroke = new SolidColorBrush(arrowColor),
+                    StrokeThickness = 2,
+                    IsHitTestVisible = false,
+                    Opacity = 0.6
+                };
+                canvas.Children.Add(line);
+
+                double dx = endX - startX;
+                double dy = endY - startY;
+                double len = Math.Sqrt(dx * dx + dy * dy);
+                if (len < 1) continue;
+                double ndx = dx / len;
+                double ndy = dy / len;
+
+                var arrowHead = CreateArrowHeadPath(arrowColor, arrowHeadSize, ndx, ndy);
+                canvas.Children.Add(arrowHead);
+
+                _arrowAnimations.Add(new ArrowAnimationData(
+                    new Point(startX, startY), new Point(endX, endY),
+                    arrowHead, ndx, ndy, arrowColor));
+            }
         }
 
         // Start animation timer if we have arrows
@@ -642,9 +716,29 @@ public partial class MainWindow : Window
 
         foreach (var arrow in _arrowAnimations)
         {
-            // Lerp position along the line
-            double x = arrow.Start.X + (arrow.End.X - arrow.Start.X) * _arrowAnimProgress;
-            double y = arrow.Start.Y + (arrow.End.Y - arrow.Start.Y) * _arrowAnimProgress;
+            double x, y;
+            if (arrow.BezierMid is Point mid
+                && arrow.BezierCP1 is Point cp1 && arrow.BezierCP2 is Point cp2
+                && arrow.BezierCP3 is Point cp3 && arrow.BezierCP4 is Point cp4)
+            {
+                // Two-segment S-curve: first half of progress = seg1, second half = seg2
+                double t = _arrowAnimProgress < 0.5
+                    ? _arrowAnimProgress * 2.0
+                    : (_arrowAnimProgress - 0.5) * 2.0;
+                Point p0 = _arrowAnimProgress < 0.5 ? arrow.Start : mid;
+                Point c1 = _arrowAnimProgress < 0.5 ? cp1 : cp3;
+                Point c2 = _arrowAnimProgress < 0.5 ? cp2 : cp4;
+                Point p3 = _arrowAnimProgress < 0.5 ? mid : arrow.End;
+                double mt = 1 - t;
+                x = mt*mt*mt*p0.X + 3*mt*mt*t*c1.X + 3*mt*t*t*c2.X + t*t*t*p3.X;
+                y = mt*mt*mt*p0.Y + 3*mt*mt*t*c1.Y + 3*mt*t*t*c2.Y + t*t*t*p3.Y;
+            }
+            else
+            {
+                // Straight line
+                x = arrow.Start.X + (arrow.End.X - arrow.Start.X) * _arrowAnimProgress;
+                y = arrow.Start.Y + (arrow.End.Y - arrow.Start.Y) * _arrowAnimProgress;
+            }
 
             Canvas.SetLeft(arrow.ArrowHead, x);
             Canvas.SetTop(arrow.ArrowHead, y);
@@ -697,6 +791,7 @@ public partial class MainWindow : Window
             canvasWidth = 800; // sensible fallback
 
         int nodesPerRow = Math.Max(1, (int)((canvasWidth - LayoutPadding) / (NodeWidth + HSpacing)));
+        _lastNodesPerRow = nodesPerRow;
 
         int index = 0;
         foreach (var client in viewModel.Clients.OrderBy(c => c.Order))

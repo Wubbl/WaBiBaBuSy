@@ -16,6 +16,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Core.Interfaces;
 using WaBiBaBuSy.Core.Services;
+using WaBiBaBuSy.Core.Services.Logging;
 using WaBiBaBuSy.Models;
 using WaBiBaBuSy.Models.Configuration;
 using WaBiBaBuSy.Models.Wallpaper;
@@ -31,7 +32,6 @@ public partial class MainWindowViewModel : ViewModelBase
 {
     private readonly WaBiBaBuSyService _service;
     private readonly System.Timers.Timer _refreshTimer;
-    private readonly ILoggerFactory _loggerFactory;
     private readonly DesktopWindowManager _desktopManager;
     private readonly VideoThumbnailGenerator _thumbnailGenerator;
     // Multi-monitor support: ConcurrentDictionary<monitorIndex, renderer> (thread-safe for gRPC callbacks)
@@ -146,10 +146,9 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         _service = service;
 
-        // Initialize logger factory and desktop manager for local wallpaper rendering
-        _loggerFactory = LoggerFactory.Create(builder => builder.AddConsole().AddDebug());
-        _desktopManager = new DesktopWindowManager(_loggerFactory.CreateLogger<DesktopWindowManager>());
-        _thumbnailGenerator = new VideoThumbnailGenerator(_loggerFactory.CreateLogger<VideoThumbnailGenerator>());
+        // Initialize desktop manager for local wallpaper rendering
+        _desktopManager = new DesktopWindowManager(AppLogger.CreateLogger<DesktopWindowManager>());
+        _thumbnailGenerator = new VideoThumbnailGenerator(AppLogger.CreateLogger<VideoThumbnailGenerator>());
 
         // Load client config to pre-fill connect fields
         var clientConfig = ConfigurationManager.LoadClientConfiguration();
@@ -171,7 +170,7 @@ public partial class MainWindowViewModel : ViewModelBase
         // Initialize content cache manager
         var clientCfg = ConfigurationManager.LoadClientConfiguration();
         _cacheManager = new ContentCacheManager(
-            _loggerFactory.CreateLogger<ContentCacheManager>(),
+            AppLogger.CreateLogger<ContentCacheManager>(),
             clientCfg.CacheDirectory,
             clientCfg.MaxCacheSizeMB);
 
@@ -179,7 +178,7 @@ public partial class MainWindowViewModel : ViewModelBase
         if (clientCfg.PauseOnFullscreen)
         {
             _fullscreenDetection = new FullscreenDetectionService(
-                _loggerFactory.CreateLogger<FullscreenDetectionService>());
+                AppLogger.CreateLogger<FullscreenDetectionService>());
             _fullscreenDetection.FullscreenStateChanged += OnFullscreenStateChanged;
             Debug.WriteLine("[Fullscreen] Detection ready (will start when wallpaper is active)");
         }
@@ -924,11 +923,11 @@ public partial class MainWindowViewModel : ViewModelBase
                 // GIFs now use LibVLC (VideoWallpaperRenderer) for instant loading
                 ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv" or ".gif"
                     => new VideoWallpaperRenderer(
-                        _loggerFactory.CreateLogger<VideoWallpaperRenderer>(),
+                        AppLogger.CreateLogger<VideoWallpaperRenderer>(),
                         _desktopManager),
                 ".jpg" or ".jpeg" or ".png" or ".bmp"
                     => new ImageWallpaperRendererLibVLC(
-                        _loggerFactory.CreateLogger<ImageWallpaperRendererLibVLC>(),
+                        AppLogger.CreateLogger<ImageWallpaperRendererLibVLC>(),
                         _desktopManager),
                 _ => null
             };
@@ -1066,7 +1065,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
             // Create canvas manager for single screen
             var canvasManager = new VirtualCanvasManager(
-                _loggerFactory.CreateLogger<VirtualCanvasManager>());
+                AppLogger.CreateLogger<VirtualCanvasManager>());
             canvasManager.CalculateLayout(new WaBiBaBuSy.WallpaperEngine.Composition.ScreenConfiguration[] { screenConfig });
 
             // Create background configuration (use auto-detected or user-specified color)
@@ -1091,8 +1090,8 @@ public partial class MainWindowViewModel : ViewModelBase
             // Create composition renderer
             // Create D2D composition service (metadata-based, no CompositionRenderer needed in main process)
             var d2dService = new D2DCompositionService(
-                _loggerFactory.CreateLogger<D2DCompositionService>(),
-                _loggerFactory,
+                AppLogger.CreateLogger<D2DCompositionService>(),
+                AppLogger.Factory,
                 _desktopManager);
 
             Debug.WriteLine($"[Direct2D] Initializing D2D composition service for monitor {monitorIndex} (metadata-based)");
@@ -1172,7 +1171,7 @@ public partial class MainWindowViewModel : ViewModelBase
             // Create VideoWallpaperRenderer in NON-headless mode
             // This creates a real visible window on the desktop that LibVLC renders to
             var renderer = new VideoWallpaperRenderer(
-                _loggerFactory.CreateLogger<VideoWallpaperRenderer>(),
+                AppLogger.CreateLogger<VideoWallpaperRenderer>(),
                 _desktopManager);
 
             var config = new WallpaperConfig
@@ -1702,17 +1701,13 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            var connected = await _service.ConnectToServerAsync(address, port);
+            var connected = await _service.ConnectToServerAsync(address, port, ApplyD2DFromRemoteAsync);
 
             if (connected)
             {
                 IsClientConnected = true;
                 ClientConnectionStatus = $"Connected to {address}:{port}";
-                Debug.WriteLine($"[ConnectToServer] Connected to {address}:{port}");
-
-                // Wire D2D rendering delegate so server can trigger D2D on this client
-                _service.SetD2DApplyDelegate(ApplyD2DFromRemoteAsync);
-                Debug.WriteLine($"[ConnectToServer] D2D apply delegate wired");
+                Debug.WriteLine($"[ConnectToServer] Connected to {address}:{port} — D2D delegate wired");
 
                 RefreshTopology();
             }
@@ -1786,7 +1781,7 @@ public partial class MainWindowViewModel : ViewModelBase
         };
 
         var canvasManager = new VirtualCanvasManager(
-            _loggerFactory.CreateLogger<VirtualCanvasManager>());
+            AppLogger.CreateLogger<VirtualCanvasManager>());
         canvasManager.CalculateLayout(new[] { screenConfig } as IEnumerable<WaBiBaBuSy.WallpaperEngine.Composition.ScreenConfiguration>);
 
         var backgroundConfig = new BackgroundLayerConfig
@@ -1807,8 +1802,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
         Debug.WriteLine($"[D2D-Remote] Creating D2DCompositionService for monitor {monitorIndex}");
         var d2dService = new D2DCompositionService(
-            _loggerFactory.CreateLogger<D2DCompositionService>(),
-            _loggerFactory,
+            AppLogger.CreateLogger<D2DCompositionService>(),
+            AppLogger.Factory,
             _desktopManager);
 
         var actualBounds = new System.Drawing.Rectangle(
@@ -2251,7 +2246,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         var captureService = _thumbnailCaptureServices.GetOrAdd(monitorIndex, _ =>
-            new ThumbnailCaptureService(_loggerFactory.CreateLogger<ThumbnailCaptureService>()));
+            new ThumbnailCaptureService(AppLogger.CreateLogger<ThumbnailCaptureService>()));
 
         captureService.SetWallpaperHwnd(hwnd, wallpaperName);
         Debug.WriteLine($"[Thumbnail] Set up capture for monitor {monitorIndex}: HWND={hwnd}, wallpaper={wallpaperName}");
@@ -2534,7 +2529,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
             // Create virtual canvas spanning all selected monitors
             var canvasManager = new VirtualCanvasManager(
-                _loggerFactory.CreateLogger<VirtualCanvasManager>());
+                AppLogger.CreateLogger<VirtualCanvasManager>());
             canvasManager.CalculateLayout(screenConfigs);
 
             Debug.WriteLine($"[CrossScreen] Virtual canvas: {canvasManager.VirtualBounds.Width}x{canvasManager.VirtualBounds.Height}");
@@ -2566,8 +2561,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
                 // Create D2D service
                 var d2dService = new D2DCompositionService(
-                    _loggerFactory.CreateLogger<D2DCompositionService>(),
-                    _loggerFactory,
+                    AppLogger.CreateLogger<D2DCompositionService>(),
+                    AppLogger.Factory,
                     _desktopManager);
 
                 // Initialize (sends LOAD_ANIMATION to player process)
@@ -2769,7 +2764,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            var logger = _loggerFactory.CreateLogger<MainWindowViewModel>();
+            var logger = AppLogger.CreateLogger<MainWindowViewModel>();
             logger.LogInformation(
                 "[DistributedAnimation] Starting frame composition: Animation={AnimationId}, Duration={DurationMs}ms, Monitor={MonitorIndex}",
                 metadata.AnimationId, metadata.DurationMs, metadata.TargetMonitorIndex);
@@ -2791,7 +2786,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            _loggerFactory.CreateLogger<MainWindowViewModel>()
+            AppLogger.CreateLogger<MainWindowViewModel>()
                 .LogError(ex, "[DistributedAnimation] Error in OnDistributedAnimationRender");
             throw;
         }

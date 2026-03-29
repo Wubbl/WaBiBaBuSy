@@ -79,6 +79,9 @@ public static class AppLogger
         ApplyConfig(config);
     }
 
+    /// <summary>The underlying factory — use when a service requires <see cref="ILoggerFactory"/>.</summary>
+    public static ILoggerFactory Factory => _factory;
+
     public static ILogger<T> CreateLogger<T>() => _factory.CreateLogger<T>();
     public static ILogger CreateLogger(string categoryName) => _factory.CreateLogger(categoryName);
 
