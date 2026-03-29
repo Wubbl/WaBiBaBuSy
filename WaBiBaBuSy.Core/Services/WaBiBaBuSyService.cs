@@ -190,6 +190,8 @@ public class WaBiBaBuSyService : IDisposable
         int fallbackPort,
         Func<string, int, string, int, Task>? d2dApplyDelegate = null)
     {
+        _logger.LogInformation("[Connect] Starting discovery + connect (fallback={Address}:{Port})", fallbackAddress, fallbackPort);
+
         // Try mDNS discovery first
         StartServerDiscovery();
         await Task.Delay(2000);
@@ -204,18 +206,27 @@ public class WaBiBaBuSyService : IDisposable
             var first = servers.First();
             address = first.IpAddress;
             port = first.Port;
+            _logger.LogInformation("[Connect] mDNS discovered server at {Address}:{Port}", address, port);
         }
         else
         {
             address = fallbackAddress;
             port = fallbackPort;
+            _logger.LogWarning("[Connect] No servers discovered via mDNS, using fallback {Address}:{Port}", address, port);
         }
 
         var connected = await ConnectToServerAsync(address, port);
 
-        if (connected && d2dApplyDelegate != null)
+        if (connected)
         {
-            SetD2DApplyDelegate(d2dApplyDelegate);
+            if (d2dApplyDelegate != null)
+                SetD2DApplyDelegate(d2dApplyDelegate);
+            _logger.LogInformation("[Connect] Successfully connected to {Address}:{Port}, D2D delegate {Status}",
+                address, port, d2dApplyDelegate != null ? "wired" : "not set");
+        }
+        else
+        {
+            _logger.LogError("[Connect] FAILED to connect to {Address}:{Port}", address, port);
         }
 
         return connected;

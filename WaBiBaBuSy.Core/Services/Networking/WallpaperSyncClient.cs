@@ -111,9 +111,19 @@ public class WallpaperSyncClient : IDisposable
             _logger.LogInformation("Successfully connected to server. Client ID: {ClientId}", _clientId);
             return true;
         }
+        catch (global::Grpc.Core.RpcException rpcEx)
+        {
+            _logger.LogError("[Connect] gRPC error connecting to {Address}:{Port} — Status={Status}, Detail={Detail}",
+                serverAddress, serverPort, rpcEx.StatusCode, rpcEx.Status.Detail);
+            IsConnected = false;
+            ConnectionStatusChanged?.Invoke(this,
+                new ConnectionStatusChangedEventArgs(false, serverAddress, serverPort));
+            return false;
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error connecting to server");
+            _logger.LogError(ex, "[Connect] Error connecting to {Address}:{Port} — {Message}",
+                serverAddress, serverPort, ex.InnerException?.Message ?? ex.Message);
             IsConnected = false;
             ConnectionStatusChanged?.Invoke(this,
                 new ConnectionStatusChangedEventArgs(false, serverAddress, serverPort));
