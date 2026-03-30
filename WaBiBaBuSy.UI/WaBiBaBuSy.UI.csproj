@@ -45,6 +45,11 @@
     <ProjectReference Include="..\WaBiBaBuSy.Core\WaBiBaBuSy.Core.csproj" />
     <ProjectReference Include="..\WaBiBaBuSy.Models\WaBiBaBuSy.Models.csproj" />
     <ProjectReference Include="..\WaBiBaBuSy.WallpaperEngine\WaBiBaBuSy.WallpaperEngine.csproj" />
+    <!-- Build Player.Image as a dependency so CopyPlayerExecutables always finds the output -->
+    <ProjectReference Include="..\WaBiBaBuSy.Player.Image\WaBiBaBuSy.Player.Image.csproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <Private>false</Private>
+    </ProjectReference>
     <!-- Build Player.D2D as a dependency so CopyPlayerD2DExecutables always finds the output -->
     <ProjectReference Include="..\WaBiBaBuSy.Player.D2D\WaBiBaBuSy.Player.D2D.csproj">
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
@@ -73,6 +78,14 @@
     <Copy SourceFiles="@(PlayerImageFiles)" DestinationFolder="$(OutputPath)\%(RecursiveDir)" SkipUnchangedFiles="true" />
   </Target>
 
+  <!-- Copy Player.Image executable and dependencies to publish directory -->
+  <Target Name="CopyPlayerExecutablesOnPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <PlayerImageFilesPublish Include="..\WaBiBaBuSy.Player.Image\bin\$(Configuration)\net9.0-windows\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(PlayerImageFilesPublish)" DestinationFolder="$(PublishDir)\%(RecursiveDir)" SkipUnchangedFiles="true" />
+  </Target>
+
   <!-- Copy Player.D2D executable and dependencies to output directory -->
   <Target Name="CopyPlayerD2DExecutables" AfterTargets="Build">
     <ItemGroup>
@@ -81,11 +94,27 @@
     <Copy SourceFiles="@(PlayerD2DFiles)" DestinationFolder="$(OutputPath)\%(RecursiveDir)" SkipUnchangedFiles="true" />
   </Target>
 
+  <!-- Copy Player.D2D executable and dependencies to publish directory -->
+  <Target Name="CopyPlayerD2DExecutablesOnPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <PlayerD2DFilesPublish Include="..\WaBiBaBuSy.Player.D2D\bin\$(Configuration)\net9.0-windows\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(PlayerD2DFilesPublish)" DestinationFolder="$(PublishDir)\%(RecursiveDir)" SkipUnchangedFiles="true" />
+  </Target>
+
   <!-- Copy FFmpeg binaries if they exist -->
   <Target Name="CopyFFmpegBinaries" AfterTargets="Build">
     <ItemGroup>
       <FFmpegFiles Include="ffmpeg\*.exe" />
     </ItemGroup>
     <Copy SourceFiles="@(FFmpegFiles)" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" Condition="Exists('ffmpeg\ffmpeg.exe')" />
+  </Target>
+
+  <!-- Copy FFmpeg binaries to publish directory -->
+  <Target Name="CopyFFmpegBinariesOnPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <FFmpegFilesPublish Include="ffmpeg\*.exe" />
+    </ItemGroup>
+    <Copy SourceFiles="@(FFmpegFilesPublish)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="Exists('ffmpeg\ffmpeg.exe')" />
   </Target>
 </Project>

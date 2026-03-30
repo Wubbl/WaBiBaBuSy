@@ -48,7 +48,8 @@
       "Bash(mv 2025.10_MIGRATION_PLAN_WPF_SEPARATE_PROCESS.md _archive/)",
       "Bash(mv 2025.10_SESSION_SUMMARY_2025-10-17.md _archive/)",
       "Bash(mv 2025.10_wabibabusy-design-doc.md _archive/)",
-      "Bash(tasklist.exe //FI \"IMAGENAME eq WaBiBaBuSy.UI.exe\")"
+      "Bash(tasklist.exe //FI \"IMAGENAME eq WaBiBaBuSy.UI.exe\")",
+      "Bash(ls:*)"
     ],
     "deny": [],
     "ask": []
