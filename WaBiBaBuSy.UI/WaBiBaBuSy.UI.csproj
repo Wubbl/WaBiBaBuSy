@@ -45,6 +45,11 @@
     <ProjectReference Include="..\WaBiBaBuSy.Core\WaBiBaBuSy.Core.csproj" />
     <ProjectReference Include="..\WaBiBaBuSy.Models\WaBiBaBuSy.Models.csproj" />
     <ProjectReference Include="..\WaBiBaBuSy.WallpaperEngine\WaBiBaBuSy.WallpaperEngine.csproj" />
+    <!-- Build Player.D2D as a dependency so CopyPlayerD2DExecutables always finds the output -->
+    <ProjectReference Include="..\WaBiBaBuSy.Player.D2D\WaBiBaBuSy.Player.D2D.csproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <Private>false</Private>
+    </ProjectReference>
   </ItemGroup>
 
   <!-- Auto-set BuildNumber from git commit count (can be overridden via /p:BuildNumber=N) -->

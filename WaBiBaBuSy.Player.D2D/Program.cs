@@ -1608,9 +1608,28 @@ class Program
                     _useNativeD2DVideo = true;
                     _logger?.LogInformation("[LOAD] Native D2D video ready: {W}x{H}", _videoNativeWidth, _videoNativeHeight);
                 }
+                else if (extension is ".jpg" or ".jpeg" or ".png" or ".bmp")
+                {
+                    // Static image: load as single-frame via Magick.NET, reuse GIF pipeline
+                    _logger?.LogInformation("[LOAD] Static image detected ({Ext}), loading as single D2D frame", extension);
+
+                    using var image = new MagickImage(filePath);
+                    _contentNativeWidth = (int)image.Width;
+                    _contentNativeHeight = (int)image.Height;
+
+                    using var gdiBitmap = image.ToBitmap();
+                    _d2dGifFrames = [UploadBitmapToD2D(gdiBitmap)];
+                    _d2dGifDelays = [1000]; // Single frame, delay irrelevant
+                    _d2dGifTotalDurationMs = 1000;
+
+                    InitializeBackground(cmd.BackgroundConfig);
+                    CalculateAnimationLayout(cmd.AnimationConfig);
+
+                    _useNativeD2DComposition = true;
+                    _logger?.LogInformation("[LOAD] Static image ready: {W}x{H}", _contentNativeWidth, _contentNativeHeight);
+                }
                 else
                 {
-                    // Unsupported format fallback: use CompositionRenderer
                     _logger?.LogWarning("[LOAD] Unsupported format ({Ext}), no rendering available", extension);
                 }
             }
