@@ -92,7 +92,7 @@ public class UpdateManager
             RaiseStatusChanged(new UpdateStatusInfo
             {
                 Status = UpdateStatusType.Failed,
-                ErrorMessage = $"Failed to check for updates: {ex.Message}"
+                ErrorMessage = ex.Message
             });
             throw;
         }
@@ -197,7 +197,7 @@ public class UpdateManager
             RaiseStatusChanged(new UpdateStatusInfo
             {
                 Status = UpdateStatusType.Failed,
-                ErrorMessage = $"Failed to prepare update: {ex.Message}",
+                ErrorMessage = ex.Message,
                 UpdateId = updateInfo.Version
             });
             throw;

@@ -53,6 +53,7 @@ public partial class MainWindow : Window
     private record ArrowAnimationData(
         Point Start, Point End, Avalonia.Controls.Shapes.Path ArrowHead,
         double DirectionX, double DirectionY, Color ArrowColor,
+        RotateTransform Rotation,
         // Straight line: all Bezier fields null.
         // S-curve (cross-row): two cubic bezier segments sharing midpoint BezierMid.
         //   Seg1: Start → BezierMid  via (BezierCP1, BezierCP2)
@@ -601,13 +602,12 @@ public partial class MainWindow : Window
                 };
                 canvas.Children.Add(pathShape);
 
-                // Arrowhead direction at End: tangent = 3*(End - CP4) = (30, 0) → pointing RIGHT
-                var arrowHead = CreateArrowHeadPath(arrowColor, arrowHeadSize, 1.0, 0.0);
+                var (arrowHead, arrowRotation) = CreateArrowHeadPath(arrowColor, arrowHeadSize);
                 canvas.Children.Add(arrowHead);
 
                 _arrowAnimations.Add(new ArrowAnimationData(
                     new Point(startX, startY), new Point(endX, endY),
-                    arrowHead, 1.0, 0.0, arrowColor,
+                    arrowHead, 1.0, 0.0, arrowColor, arrowRotation,
                     cp1, cp2, M, cp3, cp4));
             }
             else
@@ -631,12 +631,12 @@ public partial class MainWindow : Window
                 double ndx = dx / len;
                 double ndy = dy / len;
 
-                var arrowHead = CreateArrowHeadPath(arrowColor, arrowHeadSize, ndx, ndy);
+                var (arrowHead, arrowRotation) = CreateArrowHeadPath(arrowColor, arrowHeadSize);
                 canvas.Children.Add(arrowHead);
 
                 _arrowAnimations.Add(new ArrowAnimationData(
                     new Point(startX, startY), new Point(endX, endY),
-                    arrowHead, ndx, ndy, arrowColor));
+                    arrowHead, ndx, ndy, arrowColor, arrowRotation));
             }
         }
 
@@ -646,38 +646,36 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Create an arrowhead Path (filled triangle) pointing in direction (dx, dy).
+    /// Create an arrowhead Path (filled triangle) always pointing right (+X axis).
+    /// The returned RotateTransform should be updated each frame to match the travel direction.
     /// </summary>
-    private static Avalonia.Controls.Shapes.Path CreateArrowHeadPath(
-        Color color, double size, double dx, double dy)
+    private static (Avalonia.Controls.Shapes.Path ArrowHead, RotateTransform Rotation) CreateArrowHeadPath(
+        Color color, double size)
     {
-        // Perpendicular direction
-        double perpX = -dy;
-        double perpY = dx;
+        // Triangle centered at origin, pointing right (+X axis)
+        var tip   = new Point( size * 0.5,  0);
+        var left  = new Point(-size * 0.5,  size * 0.4);
+        var right = new Point(-size * 0.5, -size * 0.4);
 
-        // Triangle points relative to (0,0) — will be positioned via Canvas.Left/Top
-        var tip = new Point(dx * size * 0.5, dy * size * 0.5);
-        var left = new Point(-dx * size * 0.5 + perpX * size * 0.4, -dy * size * 0.5 + perpY * size * 0.4);
-        var right = new Point(-dx * size * 0.5 - perpX * size * 0.4, -dy * size * 0.5 - perpY * size * 0.4);
-
-        var figure = new PathFigure
-        {
-            StartPoint = tip,
-            IsClosed = true,
-            IsFilled = true
-        };
+        var figure = new PathFigure { StartPoint = tip, IsClosed = true, IsFilled = true };
         figure.Segments!.Add(new LineSegment { Point = left });
         figure.Segments!.Add(new LineSegment { Point = right });
 
         var geometry = new PathGeometry();
         geometry.Figures!.Add(figure);
 
-        return new Avalonia.Controls.Shapes.Path
+        var rotation = new RotateTransform(0);
+
+        var path = new Avalonia.Controls.Shapes.Path
         {
             Data = geometry,
             Fill = new SolidColorBrush(color),
-            IsHitTestVisible = false
+            IsHitTestVisible = false,
+            RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
+            RenderTransform = rotation
         };
+
+        return (path, rotation);
     }
 
     /// <summary>
@@ -716,7 +714,7 @@ public partial class MainWindow : Window
 
         foreach (var arrow in _arrowAnimations)
         {
-            double x, y;
+            double x, y, tdx, tdy;
             if (arrow.BezierMid is Point mid
                 && arrow.BezierCP1 is Point cp1 && arrow.BezierCP2 is Point cp2
                 && arrow.BezierCP3 is Point cp3 && arrow.BezierCP4 is Point cp4)
@@ -732,14 +730,21 @@ public partial class MainWindow : Window
                 double mt = 1 - t;
                 x = mt*mt*mt*p0.X + 3*mt*mt*t*c1.X + 3*mt*t*t*c2.X + t*t*t*p3.X;
                 y = mt*mt*mt*p0.Y + 3*mt*mt*t*c1.Y + 3*mt*t*t*c2.Y + t*t*t*p3.Y;
+
+                // Cubic bezier tangent: P'(t) = 3(1-t)²(C1-P0) + 6(1-t)t(C2-C1) + 3t²(P3-C2)
+                tdx = 3*mt*mt*(c1.X-p0.X) + 6*mt*t*(c2.X-c1.X) + 3*t*t*(p3.X-c2.X);
+                tdy = 3*mt*mt*(c1.Y-p0.Y) + 6*mt*t*(c2.Y-c1.Y) + 3*t*t*(p3.Y-c2.Y);
             }
             else
             {
-                // Straight line
+                // Straight line — constant direction
                 x = arrow.Start.X + (arrow.End.X - arrow.Start.X) * _arrowAnimProgress;
                 y = arrow.Start.Y + (arrow.End.Y - arrow.Start.Y) * _arrowAnimProgress;
+                tdx = arrow.DirectionX;
+                tdy = arrow.DirectionY;
             }
 
+            arrow.Rotation.Angle = Math.Atan2(tdy, tdx) * 180.0 / Math.PI;
             Canvas.SetLeft(arrow.ArrowHead, x);
             Canvas.SetTop(arrow.ArrowHead, y);
         }

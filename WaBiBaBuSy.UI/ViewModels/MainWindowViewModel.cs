@@ -649,12 +649,14 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         _localWallpaperRenderers.Clear();
 
-        // Reset animation indicators on clients
+        // Reset animation indicators and preview on clients
         foreach (var client in Clients)
         {
             client.IsAnimating = false;
             client.IsCurrentAnimationTarget = false;
             client.ActiveAnimationName = null;
+            client.ThumbnailImage = null;
+            client.CurrentWallpaper = null;
         }
 
         // Stop fullscreen detection since no wallpapers are active
@@ -1418,7 +1420,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 ReleaseNotes = e.Description
             };
             IsUpdateAvailable = true;
-            UpdateStatusText = $"Update available: v{e.ServerVersion} - {e.Description}";
+            UpdateStatusText = $"Update available: v{e.ServerVersion}";
         });
     }
 

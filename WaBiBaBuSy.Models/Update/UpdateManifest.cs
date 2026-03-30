@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace WaBiBaBuSy.Models.Update;
 
 /// <summary>
@@ -65,6 +67,7 @@ public class UpdateFileInfo
 /// <summary>
 /// Action to perform with an update file
 /// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum FileAction
 {
     /// <summary>
