@@ -864,7 +864,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                     }
                 }
 
-                // Copy updater exe if available
+                // Copy updater exe — required for clients to apply the update
                 var updaterExe = Path.Combine(serverInstallDir, "WaBiBaBuSy.Updater.exe");
                 if (File.Exists(updaterExe))
                 {
@@ -876,6 +876,10 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                         var fileName = Path.GetFileName(file);
                         File.Copy(file, Path.Combine(updaterDir, fileName), overwrite: true);
                     }
+                }
+                else
+                {
+                    _logger.LogError("WaBiBaBuSy.Updater.exe not found in server install dir {Dir} — update package will be built without it. Clients must have the updater pre-installed to apply this update.", serverInstallDir);
                 }
 
                 // Generate manifest.json with SHA-256 hashes

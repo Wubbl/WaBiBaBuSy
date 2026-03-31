@@ -55,6 +55,11 @@
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
       <Private>false</Private>
     </ProjectReference>
+    <!-- Build Updater as a dependency so CopyUpdaterExecutables always finds the output -->
+    <ProjectReference Include="..\WaBiBaBuSy.Updater\WaBiBaBuSy.Updater.csproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <Private>false</Private>
+    </ProjectReference>
   </ItemGroup>
 
   <!-- Auto-set BuildNumber from git commit count (can be overridden via /p:BuildNumber=N) -->
@@ -100,6 +105,22 @@
       <PlayerD2DFilesPublish Include="..\WaBiBaBuSy.Player.D2D\bin\$(Configuration)\net9.0-windows\**\*.*" />
     </ItemGroup>
     <Copy SourceFiles="@(PlayerD2DFilesPublish)" DestinationFolder="$(PublishDir)\%(RecursiveDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- Copy Updater executable to output directory -->
+  <Target Name="CopyUpdaterExecutables" AfterTargets="Build">
+    <ItemGroup>
+      <UpdaterFiles Include="..\WaBiBaBuSy.Updater\bin\$(Configuration)\net9.0\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(UpdaterFiles)" DestinationFolder="$(OutputPath)\%(RecursiveDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- Copy Updater executable to publish directory -->
+  <Target Name="CopyUpdaterExecutablesOnPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <UpdaterFilesPublish Include="..\WaBiBaBuSy.Updater\bin\$(Configuration)\net9.0\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(UpdaterFilesPublish)" DestinationFolder="$(PublishDir)\%(RecursiveDir)" SkipUnchangedFiles="true" />
   </Target>
 
   <!-- Copy FFmpeg binaries if they exist -->

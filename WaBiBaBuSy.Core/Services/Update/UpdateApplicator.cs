@@ -157,12 +157,18 @@ public class UpdateApplicator
                 return false;
             }
 
-            // Check for updater
+            // Check for updater — package location preferred, fallback to current install dir
             var updaterPath = Path.Combine(updateDirectory, "updater", "WaBiBaBuSy.Updater.exe");
             if (!File.Exists(updaterPath))
             {
-                _logger.LogError("Update package missing updater executable");
-                return false;
+                var installUpdater = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WaBiBaBuSy.Updater.exe");
+                if (!File.Exists(installUpdater))
+                {
+                    _logger.LogError("Update package missing updater executable (searched: {PackagePath}, {InstallPath})",
+                        updaterPath, installUpdater);
+                    return false;
+                }
+                _logger.LogWarning("Updater not in update package, will use installed updater: {InstallPath}", installUpdater);
             }
 
             _logger.LogInformation("Update package validation successful");
