@@ -269,6 +269,11 @@ internal static class Win32Interop
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFOEX lpmi);
 
+    // MDT_EFFECTIVE_DPI = 0: effective DPI accounting for DPI scaling (most reliable)
+    // MDT_RAW_DPI       = 2: physical hardware pixels per inch
+    [DllImport("shcore.dll")]
+    public static extern int GetDpiForMonitor(IntPtr hMonitor, int dpiType, out uint dpiX, out uint dpiY);
+
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     public struct MONITORINFOEX
     {
@@ -294,8 +299,14 @@ public class NativeMonitorInfo
     public bool IsPrimary { get; init; }
 
     /// <summary>
+    /// Physical pixels per centimeter for this monitor, derived from GetDpiForMonitor.
+    /// 0 if DPI could not be queried.
+    /// </summary>
+    public float PixelsPerCm { get; init; }
+
+    /// <summary>
     /// Get all monitors using native Win32 API (no WinForms dependency).
-    /// Sorted left-to-right by X position.
+    /// Sorted left-to-right by X position. DPI is queried per-monitor.
     /// </summary>
     public static NativeMonitorInfo[] GetAllMonitors()
     {
@@ -308,6 +319,13 @@ public class NativeMonitorInfo
 
             if (Win32Interop.GetMonitorInfo(hMonitor, ref info))
             {
+                // Query raw physical DPI (MDT_RAW_DPI=2); fall back to effective DPI (MDT_EFFECTIVE_DPI=0)
+                float pixelsPerCm = 0f;
+                if (Win32Interop.GetDpiForMonitor(hMonitor, 2, out uint rawDpiX, out uint rawDpiY) == 0 && rawDpiX > 0)
+                    pixelsPerCm = rawDpiX / 2.54f;
+                else if (Win32Interop.GetDpiForMonitor(hMonitor, 0, out uint effDpiX, out uint effDpiY) == 0 && effDpiX > 0)
+                    pixelsPerCm = effDpiX / 2.54f;
+
                 monitors.Add(new NativeMonitorInfo
                 {
                     Bounds = new System.Drawing.Rectangle(
@@ -319,7 +337,8 @@ public class NativeMonitorInfo
                         info.rcWork.Right - info.rcWork.Left,
                         info.rcWork.Bottom - info.rcWork.Top),
                     DeviceName = info.szDevice,
-                    IsPrimary = (info.dwFlags & Win32Interop.MONITORINFOF_PRIMARY) != 0
+                    IsPrimary = (info.dwFlags & Win32Interop.MONITORINFOF_PRIMARY) != 0,
+                    PixelsPerCm = pixelsPerCm
                 });
             }
             return true;

@@ -38,6 +38,10 @@ public class VirtualCanvasManager
     /// Screens are arranged horizontally (left to right) based on their Order property.
     /// </summary>
     /// <param name="screens">Screen configurations with resolution and order information</param>
+    /// Each screen's <see cref="ScreenConfiguration.PixelsPerCm"/> and
+    /// <see cref="ScreenConfiguration.PhysicalDistanceCm"/> are used to insert gap pixels
+    /// between screens when both are non-zero, so the animation visually travels through
+    /// real-world space between monitors.
     public void CalculateLayout(IEnumerable<ScreenConfiguration> screens)
     {
         _logger.LogInformation("Calculating virtual canvas layout");
@@ -55,6 +59,7 @@ public class VirtualCanvasManager
         var mappings = new List<ScreenMapping>();
         int currentX = 0;
         int maxHeight = 0;
+        bool isFirst = true;
 
         foreach (var screen in screenList)
         {
@@ -64,6 +69,15 @@ public class VirtualCanvasManager
                 _logger.LogWarning("Invalid screen dimensions for {ClientId}: {Width}x{Height}, skipping",
                     screen.ClientId, screen.Width, screen.Height);
                 continue;
+            }
+
+            // Insert gap pixels before this screen (all screens except the first)
+            if (!isFirst && screen.PixelsPerCm > 0 && screen.PhysicalDistanceCm > 0)
+            {
+                int gapPx = (int)(screen.PhysicalDistanceCm * screen.PixelsPerCm);
+                currentX += gapPx;
+                _logger.LogInformation("  Gap before {ClientId}: {DistanceCm}cm × {PixelsPerCm:F1}px/cm = {GapPx}px",
+                    screen.ClientId, screen.PhysicalDistanceCm, screen.PixelsPerCm, gapPx);
             }
 
             // Physical screen bounds (local coordinates on the client)
@@ -95,6 +109,7 @@ public class VirtualCanvasManager
 
             // Advance X position for next screen
             currentX += screen.Width;
+            isFirst = false;
 
             // Track maximum height
             if (screen.Height > maxHeight)
@@ -194,4 +209,11 @@ public class ScreenConfiguration
     public int PhysicalDistanceCm { get; init; }
     public string? Hostname { get; init; }
     public int MonitorIndex { get; init; }
+    /// <summary>
+    /// Physical pixels per centimeter for this screen, derived from monitor DPI.
+    /// When > 0 and PhysicalDistanceCm > 0, gap pixels are inserted before this screen
+    /// in the virtual canvas so animation travels through real-world space between monitors.
+    /// Set to 0 to treat screens as edge-to-edge.
+    /// </summary>
+    public float PixelsPerCm { get; init; }
 }

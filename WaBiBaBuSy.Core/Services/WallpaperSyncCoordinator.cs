@@ -368,6 +368,67 @@ public class WallpaperSyncCoordinator
     }
 
     /// <summary>
+    /// Send a cross-screen D2D command to a remote client.
+    /// Tells the client to start a D2D player with the given virtual canvas parameters,
+    /// synchronized to the shared start timestamp.
+    /// </summary>
+    public async Task StartCrossScreenD2DOnClientAsync(
+        string clientId,
+        string contentId,
+        string filePath,
+        string backgroundColor,
+        int fitMode,
+        int virtualCanvasWidth,
+        int monitorOffsetX,
+        long sharedStartTimestampMs,
+        int pixelsPerSecond,
+        bool perMonitorMode,
+        int movementType)
+    {
+        if (_syncService == null)
+        {
+            _logger.LogWarning("Cannot start cross-screen D2D: sync service not initialized");
+            return;
+        }
+
+        _syncService.RegisterContent(contentId, filePath);
+
+        var command = new SyncCommand
+        {
+            Type = CommandType.Load,
+            TimestampUtc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            SequenceNumber = System.Threading.Interlocked.Increment(ref _sequenceNumber),
+            ContentId = contentId,
+            Params = new SyncParameters
+            {
+                RendererType = "d2d_crossscreen",
+                BackgroundColor = backgroundColor,
+                FitMode = fitMode,
+                Loop = true,
+                VirtualCanvasWidth = virtualCanvasWidth,
+                MonitorOffsetX = monitorOffsetX,
+                SharedStartTimestampMs = sharedStartTimestampMs,
+                PixelsPerSecond = pixelsPerSecond,
+                PerMonitorMode = perMonitorMode,
+                MovementType = movementType
+            }
+        };
+
+        _logger.LogInformation(
+            "Starting cross-screen D2D on client {ClientId}: canvas={VCW}px, offset={Offset}px, ts={Ts}ms, speed={Speed}px/s, perMonitor={PerMonitor}",
+            clientId, virtualCanvasWidth, monitorOffsetX, sharedStartTimestampMs, pixelsPerSecond, perMonitorMode);
+
+        try
+        {
+            await _syncService.SendCommandToClientAsync(clientId, command);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error sending cross-screen D2D command to client {ClientId}", clientId);
+        }
+    }
+
+    /// <summary>
     /// Send a cross-screen frame to a specific client
     /// </summary>
     public async Task SendCrossScreenFrameAsync(

@@ -83,6 +83,8 @@ public class D2DCompositionService : IDisposable
         int monitorIndex = 0,
         MovementConfig? movementConfig = null,
         bool perMonitorMode = false,
+        int? explicitVirtualCanvasWidth = null,
+        int? explicitMonitorOffsetX = null,
         CancellationToken cancellationToken = default)
     {
         if (_disposed)
@@ -126,10 +128,10 @@ public class D2DCompositionService : IDisposable
                 BackgroundConfig = backgroundConfig,
                 MonitorIndex = monitorIndex,
                 VirtualCanvasHeight = actualMonitorBounds.Height,
-                VirtualCanvasWidth = perMonitorMode
+                VirtualCanvasWidth = explicitVirtualCanvasWidth ?? (perMonitorMode
                     ? actualMonitorBounds.Width
-                    : (canvasManager.VirtualBounds.Width > 0 ? canvasManager.VirtualBounds.Width : actualMonitorBounds.Width),
-                MonitorOffsetX = perMonitorMode ? 0 : screen.VirtualBounds.X,
+                    : (canvasManager.VirtualBounds.Width > 0 ? canvasManager.VirtualBounds.Width : actualMonitorBounds.Width)),
+                MonitorOffsetX = explicitMonitorOffsetX ?? (perMonitorMode ? 0 : screen.VirtualBounds.X),
                 MovementConfig = _movementConfig
             };
 

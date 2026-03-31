@@ -155,9 +155,16 @@ message SyncParameters {
   string transition_effect = 4;
   int32 animation_speed_cm_per_sec = 5; // Speed of animation travel (cm/s)
   int64 calculated_delay_ms = 6; // Calculated delay based on distance and speed
-  string renderer_type = 7;       // "d2d" (default) or "libvlc"
+  string renderer_type = 7;       // "d2d", "libvlc", or "d2d_crossscreen"
   string background_color = 8;    // Hex color for D2D background (e.g., "#000000")
   int32 fit_mode = 9;             // 0=Stretch, 1=Center, 2=Fit, 3=Fill
+  // Cross-screen D2D fields (used when renderer_type = "d2d_crossscreen")
+  int32 virtual_canvas_width = 10;      // Total virtual canvas width across all nodes
+  int32 monitor_offset_x = 11;          // This node's X offset within the virtual canvas
+  int64 shared_start_timestamp_ms = 12; // Shared playback start timestamp (UTC ms)
+  int32 pixels_per_second = 13;         // Animation movement speed
+  bool per_monitor_mode = 14;           // false=spanning/sequential, true=simultaneous
+  int32 movement_type = 15;             // 0=Static,1=Linear,2=Bounce,3=SineWave,4=Circular,5=RandomWalk
 }
 
 // Sync response (client acknowledgment)

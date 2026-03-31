@@ -30,6 +30,14 @@ public class WallpaperPlaybackService : IDisposable
     /// </summary>
     public Func<string, int, string, int, Task>? D2DApplyDelegate { get; set; }
 
+    /// <summary>
+    /// Delegate for cross-screen D2D rendering.
+    /// (filePath, monitorIndex, backgroundColor, fitMode, virtualCanvasWidth, monitorOffsetX,
+    ///  sharedStartTimestampMs, pixelsPerSecond, perMonitorMode, movementType) → Task
+    /// Set by the UI layer to enable synchronized cross-screen D2D animation on this client.
+    /// </summary>
+    public Func<string, int, string, int, int, int, long, int, bool, int, Task>? D2DCrossScreenApplyDelegate { get; set; }
+
     // Drift detection state
     private CancellationTokenSource? _driftMonitorCts;
     private Task? _driftMonitorTask;
@@ -206,6 +214,33 @@ public class WallpaperPlaybackService : IDisposable
             _logger.LogInformation("[Playback:LOAD] D2DApplyDelegate={D2DStatus}, RendererFactory={FactoryStatus}",
                 D2DApplyDelegate != null ? "SET" : "NULL",
                 _rendererFactory != null ? "SET" : "NULL");
+
+            // Use cross-screen D2D renderer if requested
+            if (rendererType == "d2d_crossscreen")
+            {
+                if (D2DCrossScreenApplyDelegate != null)
+                {
+                    var virtualCanvasWidth = command.Params?.VirtualCanvasWidth ?? 1920;
+                    var monitorOffsetX = command.Params?.MonitorOffsetX ?? 0;
+                    var sharedStartTs = command.Params?.SharedStartTimestampMs ?? 0L;
+                    var pxPerSec = command.Params?.PixelsPerSecond ?? 0;
+                    var perMonitor = command.Params?.PerMonitorMode ?? false;
+                    var movType = command.Params?.MovementType ?? 0;
+                    _logger.LogInformation(
+                        "[Playback:LOAD] Cross-screen D2D: canvas={VCW}px, offset={Offset}px, ts={Ts}ms, speed={Speed}px/s, perMonitor={PerMonitor}, movType={MovType}",
+                        virtualCanvasWidth, monitorOffsetX, sharedStartTs, pxPerSec, perMonitor, movType);
+                    await D2DCrossScreenApplyDelegate(filePath, monitorIndex, bgColor, fitMode,
+                        virtualCanvasWidth, monitorOffsetX, sharedStartTs, pxPerSec, perMonitor, movType);
+                    _logger.LogInformation("[Playback:LOAD] Cross-screen D2D applied: {ContentId}", command.ContentId);
+                }
+                else
+                {
+                    _logger.LogWarning("[Playback:LOAD] d2d_crossscreen requested but D2DCrossScreenApplyDelegate is NULL - falling back to plain D2D");
+                    if (D2DApplyDelegate != null)
+                        await D2DApplyDelegate(filePath, monitorIndex, bgColor, fitMode);
+                }
+                return;
+            }
 
             // Use D2D renderer if requested and delegate is available
             if (rendererType == "d2d" && D2DApplyDelegate != null)

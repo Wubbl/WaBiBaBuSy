@@ -1677,6 +1677,8 @@ public partial class MainWindowViewModel : ViewModelBase
             if (string.IsNullOrEmpty(address)) address = "localhost";
 
             var connected = await _service.DiscoverAndConnectAsync(address, port, ApplyD2DFromRemoteAsync);
+            if (connected)
+                _service.SetD2DCrossScreenApplyDelegate(ApplyCrossScreenD2DFromRemoteAsync);
 
             if (connected)
             {
@@ -1713,6 +1715,96 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             Debug.WriteLine($"[DisconnectFromServer] Error: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Cross-screen D2D apply delegate. Called when the server sends a CROSSSCREEN D2D command.
+    /// Creates a D2D player on this client with the server-provided virtual canvas parameters
+    /// so all nodes share the same coordinate space and start timestamp.
+    /// </summary>
+    private async Task ApplyCrossScreenD2DFromRemoteAsync(
+        string filePath, int monitorIndex, string backgroundColor, int fitMode,
+        int virtualCanvasWidth, int monitorOffsetX, long sharedStartTimestampMs,
+        int pixelsPerSecond, bool perMonitorMode, int movementType)
+    {
+        Debug.WriteLine($"[D2D-CrossScreen] Received: file={filePath}, monitor={monitorIndex}, canvas={virtualCanvasWidth}px, offset={monitorOffsetX}px, ts={sharedStartTimestampMs}ms, speed={pixelsPerSecond}px/s, perMonitor={perMonitorMode}, movType={movementType}");
+
+        // Dispose previous cross-screen service for this monitor
+        if (_remoteD2DServices.TryRemove(monitorIndex, out var existing))
+        {
+            existing.Dispose();
+            await Task.Delay(300);
+        }
+
+        var monitors = NativeMonitorInfo.GetAllMonitors();
+        if (monitorIndex < 0 || monitorIndex >= monitors.Length)
+        {
+            Debug.WriteLine($"[D2D-CrossScreen] ERROR: Invalid monitor index {monitorIndex} (have {monitors.Length} monitors)");
+            return;
+        }
+
+        var screen = monitors[monitorIndex];
+        var actualBounds = new System.Drawing.Rectangle(
+            screen.Bounds.X, screen.Bounds.Y,
+            screen.Bounds.Width, screen.Bounds.Height);
+
+        // Build a single-screen canvas manager (used for player host init only;
+        // actual virtualCanvasWidth / monitorOffsetX are overridden via explicit params)
+        var screenConfig = new WaBiBaBuSy.WallpaperEngine.Composition.ScreenConfiguration
+        {
+            ClientId = $"REMOTE_CLIENT_MONITOR_{monitorIndex}",
+            Order = monitorIndex,
+            Width = screen.Bounds.Width,
+            Height = screen.Bounds.Height,
+            PhysicalDistanceCm = 0
+        };
+        var canvasManager = new VirtualCanvasManager(AppLogger.CreateLogger<VirtualCanvasManager>());
+        canvasManager.CalculateLayout(new[] { screenConfig });
+
+        var backgroundConfig = new BackgroundLayerConfig
+        {
+            Mode = BackgroundMode.SolidColor,
+            ColorHex = backgroundColor
+        };
+
+        var animationConfig = new AnimationLayerConfig
+        {
+            AnimationPath = filePath,
+            TargetHeight = screen.Bounds.Height,
+            Loop = true,
+            VerticalAlign = VerticalAlignment.Center,
+            CenterInitialPosition = true,
+            FitMode = (ContentFitMode)fitMode
+        };
+
+        var movementConfig = movementType == 0
+            ? null
+            : new MovementConfig
+            {
+                Type = (MovementType)movementType,
+                SpeedPixelsPerSecond = pixelsPerSecond
+            };
+
+        Debug.WriteLine($"[D2D-CrossScreen] Initializing D2D service: bounds={actualBounds}, vcw={virtualCanvasWidth}, offsetX={monitorOffsetX}");
+        var d2dService = new D2DCompositionService(
+            AppLogger.CreateLogger<D2DCompositionService>(),
+            AppLogger.Factory,
+            _desktopManager);
+
+        await d2dService.InitializeAsync(
+            canvasManager, backgroundConfig, animationConfig, actualBounds,
+            monitorIndex, movementConfig,
+            perMonitorMode: perMonitorMode,
+            explicitVirtualCanvasWidth: virtualCanvasWidth,
+            explicitMonitorOffsetX: monitorOffsetX);
+
+        await Task.Delay(100);
+
+        Debug.WriteLine($"[D2D-CrossScreen] Starting playback at ts={sharedStartTimestampMs}ms");
+        await d2dService.StartAsync(startTimestampMs: sharedStartTimestampMs, pixelsPerSecond: pixelsPerSecond);
+
+        _remoteD2DServices[monitorIndex] = d2dService;
+        Debug.WriteLine($"[D2D-CrossScreen] SUCCESS: Cross-screen D2D started on monitor {monitorIndex}");
     }
 
     /// <summary>
@@ -2455,10 +2547,12 @@ public partial class MainWindowViewModel : ViewModelBase
                 ? Clients.Where(c => selectedMonitorIds.Contains(c.ClientId))
                 : Clients;
 
-            // Only use local monitors for D2D (remote clients use orchestration)
-            // Respect SelectedMonitorIds order if set (user may have reordered in config dialog)
+            // Split clients into local monitors and remote nodes
             var localClientsUnordered = clientsToUse
                 .Where(c => c.ClientId.StartsWith("LOCAL_MACHINE_MONITOR_"))
+                .ToList();
+            var remoteClients = clientsToUse
+                .Where(c => !c.ClientId.StartsWith("LOCAL_MACHINE_MONITOR_"))
                 .ToList();
 
             List<ClientNodeViewModel> localClients;
@@ -2479,16 +2573,22 @@ public partial class MainWindowViewModel : ViewModelBase
                     .ToList();
             }
 
-            if (localClients.Count == 0)
+            if (localClients.Count == 0 && remoteClients.Count == 0)
             {
-                Debug.WriteLine("[CrossScreen] No local monitors selected");
+                Debug.WriteLine("[CrossScreen] No monitors selected");
                 return;
             }
 
-            Debug.WriteLine($"[CrossScreen] Starting D2D animation on {localClients.Count} local monitor(s)");
+            Debug.WriteLine($"[CrossScreen] Starting D2D animation on {localClients.Count} local + {remoteClients.Count} remote node(s)");
 
-            // Build screen configurations for virtual canvas
-            var screenConfigs = localClients.Select(c => new WallpaperEngine.Composition.ScreenConfiguration
+            // Query DPI for local monitors to derive physical pixels-per-cm for gap modeling.
+            // Remote clients are assumed to have the same monitor model as the first local monitor.
+            var nativeMonitors = WaBiBaBuSy.WallpaperEngine.Native.NativeMonitorInfo.GetAllMonitors();
+            float fallbackPixelsPerCm = nativeMonitors.Length > 0 ? nativeMonitors[0].PixelsPerCm : 0f;
+
+            // Build screen configurations for virtual canvas - ALL nodes (local + remote)
+            var allClients = localClients.Concat(remoteClients).ToList();
+            var screenConfigs = allClients.Select(c => new WallpaperEngine.Composition.ScreenConfiguration
             {
                 ClientId = c.ClientId,
                 Width = c.MonitorWidth > 0 ? c.MonitorWidth : 1920,
@@ -2496,10 +2596,16 @@ public partial class MainWindowViewModel : ViewModelBase
                 Order = c.Order,
                 PhysicalDistanceCm = c.PhysicalDistanceCm,
                 Hostname = c.Hostname,
-                MonitorIndex = c.MonitorIndex
+                MonitorIndex = c.MonitorIndex,
+                // Local: look up by monitor index; Remote: use first local monitor as fallback
+                PixelsPerCm = c.ClientId.StartsWith("LOCAL_MACHINE_MONITOR_")
+                    ? (c.MonitorIndex < nativeMonitors.Length ? nativeMonitors[c.MonitorIndex].PixelsPerCm : fallbackPixelsPerCm)
+                    : fallbackPixelsPerCm
             }).ToList();
 
-            // Create virtual canvas spanning all selected monitors
+            // Create virtual canvas spanning ALL nodes.
+            // Gap pixels between physically spaced monitors are inserted automatically
+            // from each screen's PixelsPerCm + PhysicalDistanceCm.
             var canvasManager = new VirtualCanvasManager(
                 AppLogger.CreateLogger<VirtualCanvasManager>());
             canvasManager.CalculateLayout(screenConfigs);
@@ -2574,6 +2680,39 @@ public partial class MainWindowViewModel : ViewModelBase
             {
                 await d2dService.StartAsync(startTimestampMs: sharedStartTimestamp, pixelsPerSecond: pixelsPerSecond);
                 _d2dCompositionServices[monitorIndex] = d2dService;
+            }
+
+            // Phase 3: Send cross-screen D2D commands to remote clients
+            if (remoteClients.Count > 0 && _service.SyncCoordinator != null)
+            {
+                var contentId = System.IO.Path.GetFileName(_crossScreenConfig.Animation.AnimationPath);
+                var bgColor = _crossScreenConfig.Background.ColorHex ?? "#000000";
+                var movementTypeInt = (int)_crossScreenConfig.Movement.Type;
+
+                foreach (var remoteClient in remoteClients)
+                {
+                    var screenMapping = canvasManager.GetScreenByClientId(remoteClient.ClientId);
+                    var remoteOffsetX = screenMapping?.VirtualBounds.X ?? 0;
+
+                    Debug.WriteLine($"[CrossScreen] Sending cross-screen D2D to remote {remoteClient.Hostname} ({remoteClient.ClientId}): offset={remoteOffsetX}px, canvas={canvasManager.VirtualBounds.Width}px");
+
+                    await _service.SyncCoordinator.StartCrossScreenD2DOnClientAsync(
+                        clientId: remoteClient.ClientId,
+                        contentId: contentId,
+                        filePath: _crossScreenConfig.Animation.AnimationPath,
+                        backgroundColor: bgColor,
+                        fitMode: (int)(_crossScreenConfig.Animation.FitMode),
+                        virtualCanvasWidth: canvasManager.VirtualBounds.Width,
+                        monitorOffsetX: remoteOffsetX,
+                        sharedStartTimestampMs: sharedStartTimestamp,
+                        pixelsPerSecond: pixelsPerSecond,
+                        perMonitorMode: !isSequential,
+                        movementType: movementTypeInt);
+                }
+            }
+            else if (remoteClients.Count > 0)
+            {
+                Debug.WriteLine("[CrossScreen] WARNING: Remote clients selected but server not running - cannot send cross-screen commands");
             }
 
             StartFullscreenDetectionIfNeeded();

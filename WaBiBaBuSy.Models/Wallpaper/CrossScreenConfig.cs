@@ -48,6 +48,7 @@ public class CrossScreenConfig
     /// Movement configuration for animation positioning across the virtual canvas
     /// </summary>
     public MovementConfig Movement { get; set; } = new();
+
 }
 
 /// <summary>
