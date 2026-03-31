@@ -671,7 +671,7 @@ public partial class MainWindow : Window
             Data = geometry,
             Fill = new SolidColorBrush(color),
             IsHitTestVisible = false,
-            RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative),
+            RenderTransformOrigin = new RelativePoint(0, 0, RelativeUnit.Absolute),
             RenderTransform = rotation
         };
 
