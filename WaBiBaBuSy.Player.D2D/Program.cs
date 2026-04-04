@@ -194,6 +194,16 @@ class Program
     private static Color4 _backgroundColor;               // For solid color
     private static BackgroundMode _backgroundMode;
 
+    // ThreeZone background brushes (pre-created, reused each frame)
+    private static ID2D1SolidColorBrush? _topZoneBrush;
+    private static ID2D1SolidColorBrush? _bottomZoneBrush;
+    private static ID2D1SolidColorBrush? _corridorBrush;
+
+    // Corridor constraint (derived from ThreeZone background)
+    private static int _corridorTopPx;
+    private static int _corridorHeightPx;
+    private static bool _hasCorridorConstraint;
+
     // Stage 4: Animation positioning (ported from AnimationLayerRenderer)
     private static int _animWidth, _animHeight;    // Scaled by FitMode
     private static float _animX, _animY;            // Current position
@@ -1130,6 +1140,14 @@ class Program
     {
         _backgroundMode = config.Mode;
 
+        // Reset corridor constraint and dispose old ThreeZone brushes
+        _hasCorridorConstraint = false;
+        _corridorTopPx = 0;
+        _corridorHeightPx = 0;
+        _topZoneBrush?.Dispose();    _topZoneBrush    = null;
+        _bottomZoneBrush?.Dispose(); _bottomZoneBrush = null;
+        _corridorBrush?.Dispose();   _corridorBrush   = null;
+
         // Dispose previous background image
         _backgroundImageBitmap?.Dispose();
         _backgroundImageBitmap = null;
@@ -1155,6 +1173,17 @@ class Program
                     _backgroundMode = BackgroundMode.SolidColor;
                     _backgroundColor = ParseHexColor(config.ColorHex);
                 }
+                break;
+
+            case BackgroundMode.ThreeZone:
+                _topZoneBrush    = _d2dContext!.CreateSolidColorBrush(ParseHexColor(config.TopZoneColorHex));
+                _bottomZoneBrush = _d2dContext.CreateSolidColorBrush(ParseHexColor(config.BottomZoneColorHex));
+                _corridorBrush   = _d2dContext.CreateSolidColorBrush(ParseHexColor(config.CorridorColorHex));
+                _corridorTopPx    = config.CorridorTopPx;
+                _corridorHeightPx = config.CorridorHeightPx;
+                _hasCorridorConstraint = true;
+                _logger?.LogInformation("[BG-D2D] ThreeZone: corridorTop={T}px height={H}px",
+                    _corridorTopPx, _corridorHeightPx);
                 break;
         }
     }
@@ -1208,6 +1237,20 @@ class Program
                 {
                     _d2dContext.Clear(_backgroundColor);
                 }
+                break;
+
+            case BackgroundMode.ThreeZone:
+                _d2dContext.Clear(new Color4(0, 0, 0, 1));
+                // Top zone
+                if (_topZoneBrush != null && _corridorTopPx > 0)
+                    _d2dContext.FillRectangle(new System.Drawing.RectangleF(0, 0, _width, _corridorTopPx), _topZoneBrush);
+                // Corridor
+                if (_corridorBrush != null)
+                    _d2dContext.FillRectangle(new System.Drawing.RectangleF(0, _corridorTopPx, _width, _corridorHeightPx), _corridorBrush);
+                // Bottom zone
+                int bottomY = _corridorTopPx + _corridorHeightPx;
+                if (_bottomZoneBrush != null && bottomY < _height)
+                    _d2dContext.FillRectangle(new System.Drawing.RectangleF(0, bottomY, _width, _height - bottomY), _bottomZoneBrush);
                 break;
         }
     }
@@ -1292,18 +1335,27 @@ class Program
         }
 
         // Vertical alignment
-        switch (config.VerticalAlign)
+        if (_hasCorridorConstraint && _corridorHeightPx > 0)
         {
-            case VerticalAlignment.Top:
-                _animY = 0;
-                break;
-            case VerticalAlignment.Bottom:
-                _animY = _height - _animHeight;
-                break;
-            case VerticalAlignment.Center:
-            default:
-                _animY = (_height - _animHeight) / 2f;
-                break;
+            // Center within the corridor
+            _animY = _corridorTopPx + (_corridorHeightPx - _animHeight) / 2f;
+            _animY = MathF.Max(_corridorTopPx, _animY);
+        }
+        else
+        {
+            switch (config.VerticalAlign)
+            {
+                case VerticalAlignment.Top:
+                    _animY = 0;
+                    break;
+                case VerticalAlignment.Bottom:
+                    _animY = _height - _animHeight;
+                    break;
+                case VerticalAlignment.Center:
+                default:
+                    _animY = (_height - _animHeight) / 2f;
+                    break;
+            }
         }
 
         _logger?.LogInformation("[LAYOUT] Animation: {W}x{H} at ({X:F0},{Y:F0}) | FitMode: {Fit} | Native: {NW}x{NH} | Screen: {SW}x{SH}",
@@ -1324,6 +1376,15 @@ class Program
                 _virtualCanvasWidth, _height);
             _animX = vx - _monitorOffsetX;
             _animY = vy;
+
+            // Clamp Y to corridor when ThreeZone background is active
+            if (_hasCorridorConstraint && _corridorHeightPx > 0)
+            {
+                float minY = _corridorTopPx;
+                float maxY = _corridorTopPx + _corridorHeightPx - _animHeight;
+                if (maxY < minY) maxY = minY;
+                _animY = Math.Clamp(_animY, minY, maxY);
+            }
         }
         else if (_pixelsPerSecond > 0)
         {
@@ -1756,6 +1817,11 @@ class Program
 
         _backgroundImageBitmap?.Dispose();
         _backgroundImageBitmap = null;
+
+        _topZoneBrush?.Dispose();    _topZoneBrush    = null;
+        _bottomZoneBrush?.Dispose(); _bottomZoneBrush = null;
+        _corridorBrush?.Dispose();   _corridorBrush   = null;
+        _hasCorridorConstraint = false;
 
         // Dispose native video resources
         try { _vlcPlayer?.Stop(); } catch { }

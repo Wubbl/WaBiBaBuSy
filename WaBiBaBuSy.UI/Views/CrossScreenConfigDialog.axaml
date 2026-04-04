@@ -36,6 +36,7 @@
                                 <ComboBoxItem Content="Solid Color"/>
                                 <ComboBoxItem Content="Stretched Image"/>
                                 <ComboBoxItem Content="Tiled Image"/>
+                                <ComboBoxItem Content="Three Zone (Corridor)"/>
                             </ComboBox>
                         </StackPanel>
 
@@ -54,6 +55,41 @@
                                 <TextBox Grid.Column="0" Text="{Binding BackgroundImagePath}" IsReadOnly="True" Margin="0,0,10,0"/>
                                 <Button Grid.Column="1" Content="Browse File..." Command="{Binding BrowseBackgroundImageCommand}"/>
                             </Grid>
+                        </StackPanel>
+
+                        <StackPanel Spacing="8" IsVisible="{Binding IsThreeZoneMode}">
+                            <TextBlock Text="Three Zone Settings" FontSize="12" FontWeight="SemiBold"/>
+
+                            <Grid ColumnDefinitions="180,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" >
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Corridor Top (px):" FontSize="12" VerticalAlignment="Center"/>
+                                <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding CorridorTopPx}"
+                                               Minimum="0" Maximum="2000" Increment="10" Width="140" HorizontalAlignment="Left"/>
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Corridor Height (px):" FontSize="12" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding CorridorHeightPx}"
+                                               Minimum="50" Maximum="2000" Increment="10" Width="140" HorizontalAlignment="Left" Margin="0,6,0,0"/>
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Top Zone Color:" FontSize="12" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="6" Margin="0,6,0,0">
+                                    <TextBox Text="{Binding TopZoneColorHex}" Width="110" Watermark="#1A3A5C"/>
+                                    <Border Width="20" Height="20" CornerRadius="3" Background="{Binding TopZoneColorHex}" BorderBrush="#555" BorderThickness="1" VerticalAlignment="Center"/>
+                                </StackPanel>
+
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Bottom Zone Color:" FontSize="12" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Spacing="6" Margin="0,6,0,0">
+                                    <TextBox Text="{Binding BottomZoneColorHex}" Width="110" Watermark="#3C1A5C"/>
+                                    <Border Width="20" Height="20" CornerRadius="3" Background="{Binding BottomZoneColorHex}" BorderBrush="#555" BorderThickness="1" VerticalAlignment="Center"/>
+                                </StackPanel>
+
+                                <TextBlock Grid.Row="4" Grid.Column="0" Text="Corridor Color:" FontSize="12" VerticalAlignment="Center" Margin="0,6,0,0"/>
+                                <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Spacing="6" Margin="0,6,0,0">
+                                    <TextBox Text="{Binding CorridorColorHex}" Width="110" Watermark="#1E1E1E"/>
+                                    <Border Width="20" Height="20" CornerRadius="3" Background="{Binding CorridorColorHex}" BorderBrush="#555" BorderThickness="1" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <TextBlock Text="Place icons in the top/bottom zones. The animation travels through the center corridor."
+                                       FontSize="10" Foreground="#888888" TextWrapping="Wrap" Margin="0,4,0,0"/>
                         </StackPanel>
                     </StackPanel>
                 </Border>
@@ -119,13 +155,14 @@
 
                         <StackPanel Spacing="5">
                             <TextBlock Text="Pattern:" FontSize="12"/>
-                            <ComboBox SelectedIndex="{Binding MovementTypeIndex}" Width="250" HorizontalAlignment="Left">
-                                <ComboBoxItem Content="Static (Centered)"/>
-                                <ComboBoxItem Content="Linear (A to B)"/>
-                                <ComboBoxItem Content="Bounce (Off Edges)"/>
-                                <ComboBoxItem Content="Sine Wave"/>
-                                <ComboBoxItem Content="Circular (Orbit)"/>
-                                <ComboBoxItem Content="Random Walk"/>
+                            <ComboBox ItemsSource="{Binding AvailableMovementOptions}"
+                                      SelectedItem="{Binding SelectedMovementType}"
+                                      Width="250" HorizontalAlignment="Left">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
                             </ComboBox>
                         </StackPanel>
 

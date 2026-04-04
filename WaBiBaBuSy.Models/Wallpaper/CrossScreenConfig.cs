@@ -85,7 +85,12 @@ public enum BackgroundMode
     /// <summary>
     /// Tile an image pattern across all screens
     /// </summary>
-    TiledImage
+    TiledImage,
+
+    /// <summary>
+    /// Top zone + middle corridor + bottom zone, each with distinct color.
+    /// </summary>
+    ThreeZone
 }
 
 /// <summary>
@@ -107,6 +112,21 @@ public class BackgroundLayerConfig
     /// Path to background image file (for StretchedImage or TiledImage modes)
     /// </summary>
     public string? ImagePath { get; set; }
+
+    /// <summary>ThreeZone: pixels from top where the corridor starts.</summary>
+    public int CorridorTopPx { get; set; } = 324;
+
+    /// <summary>ThreeZone: height of the corridor in pixels.</summary>
+    public int CorridorHeightPx { get; set; } = 432;
+
+    /// <summary>ThreeZone: color for the top zone (icon area).</summary>
+    public string TopZoneColorHex { get; set; } = "#1A3A5C";
+
+    /// <summary>ThreeZone: color for the bottom zone (icon area).</summary>
+    public string BottomZoneColorHex { get; set; } = "#3C1A5C";
+
+    /// <summary>ThreeZone: color for the middle corridor.</summary>
+    public string CorridorColorHex { get; set; } = "#1E1E1E";
 }
 
 /// <summary>

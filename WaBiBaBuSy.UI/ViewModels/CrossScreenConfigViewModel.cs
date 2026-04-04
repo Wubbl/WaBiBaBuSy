@@ -34,10 +34,22 @@ public partial class MonitorSelectionItem : ViewModelBase
     private bool _isSelected = true;
 }
 
+public record MovementTypeOption(string Name, MovementType Type);
+
 public partial class CrossScreenConfigViewModel : ViewModelBase
 {
     private IStorageProvider? _storageProvider;
     private Action? _closeAction;
+
+    private static readonly MovementTypeOption[] AllMovementOptions =
+    [
+        new("Static (Centered)",   MovementType.Static),
+        new("Linear (A to B)",     MovementType.Linear),
+        new("Bounce (Off Edges)",  MovementType.Bounce),
+        new("Sine Wave",           MovementType.SineWave),
+        new("Circular (Orbit)",    MovementType.Circular),
+        new("Random Walk",         MovementType.RandomWalk),
+    ];
 
     /// <summary>
     /// Pre-selected wallpaper from main gallery, used to auto-populate paths
@@ -78,7 +90,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     private int _animationDistributionModeIndex = 0; // 0 = Sequential, 1 = Simultaneous
 
     [ObservableProperty]
-    private int _movementTypeIndex = 0; // Maps to MovementType enum
+    private MovementTypeOption _selectedMovementType = AllMovementOptions[0];
 
     [ObservableProperty]
     private float _movementAngle = 30f;
@@ -92,14 +104,35 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     [ObservableProperty]
     private float _orbitRadius = 500f;
 
+    [ObservableProperty]
+    private int _corridorTopPx = 324;
+
+    [ObservableProperty]
+    private int _corridorHeightPx = 432;
+
+    [ObservableProperty]
+    private string _topZoneColorHex = "#1A3A5C";
+
+    [ObservableProperty]
+    private string _bottomZoneColorHex = "#3C1A5C";
+
+    [ObservableProperty]
+    private string _corridorColorHex = "#1E1E1E";
+
     public bool IsSolidColorMode => BackgroundModeIndex == 0;
     public bool IsImageMode => BackgroundModeIndex == 1 || BackgroundModeIndex == 2;
+    public bool IsThreeZoneMode => BackgroundModeIndex == 3;
 
-    public bool IsMovementActive => MovementTypeIndex > 0;
-    public bool IsDirectionVisible => MovementTypeIndex == 1 || MovementTypeIndex == 2; // Linear or Bounce
-    public bool IsSineWaveMode => MovementTypeIndex == 3;
-    public bool IsCircularMode => MovementTypeIndex == 4;
-    public bool IsRandomWalkMode => MovementTypeIndex == 5;
+    public IReadOnlyList<MovementTypeOption> AvailableMovementOptions =>
+        IsThreeZoneMode
+            ? AllMovementOptions.Where(o => o.Type != MovementType.Circular).ToArray()
+            : AllMovementOptions;
+
+    public bool IsMovementActive => SelectedMovementType.Type != MovementType.Static;
+    public bool IsDirectionVisible => SelectedMovementType.Type is MovementType.Linear or MovementType.Bounce;
+    public bool IsSineWaveMode => SelectedMovementType.Type == MovementType.SineWave;
+    public bool IsCircularMode => SelectedMovementType.Type == MovementType.Circular;
+    public bool IsRandomWalkMode => SelectedMovementType.Type == MovementType.RandomWalk;
 
     public bool DialogResult { get; private set; }
 
@@ -111,9 +144,15 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(IsSolidColorMode));
         OnPropertyChanged(nameof(IsImageMode));
+        OnPropertyChanged(nameof(IsThreeZoneMode));
+        OnPropertyChanged(nameof(AvailableMovementOptions));
+
+        // If Circular was selected and user switches to ThreeZone, fall back to Bounce
+        if (IsThreeZoneMode && SelectedMovementType.Type == MovementType.Circular)
+            SelectedMovementType = AllMovementOptions.First(o => o.Type == MovementType.Bounce);
     }
 
-    partial void OnMovementTypeIndexChanged(int value)
+    partial void OnSelectedMovementTypeChanged(MovementTypeOption value)
     {
         OnPropertyChanged(nameof(IsMovementActive));
         OnPropertyChanged(nameof(IsDirectionVisible));
@@ -175,11 +214,18 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             BackgroundMode.SolidColor => 0,
             BackgroundMode.StretchedImage => 1,
             BackgroundMode.TiledImage => 2,
+            BackgroundMode.ThreeZone => 3,
             _ => 0
         };
 
         BackgroundColor = config.Background.ColorHex;
         BackgroundImagePath = config.Background.ImagePath ?? string.Empty;
+
+        CorridorTopPx      = config.Background.CorridorTopPx;
+        CorridorHeightPx   = config.Background.CorridorHeightPx;
+        TopZoneColorHex    = config.Background.TopZoneColorHex;
+        BottomZoneColorHex = config.Background.BottomZoneColorHex;
+        CorridorColorHex   = config.Background.CorridorColorHex;
         AnimationPath = config.Animation.AnimationPath;
         AnimationHeight = config.Animation.TargetHeight;
         AnimationLoop = config.Animation.Loop;
@@ -202,7 +248,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
 
         // Restore movement configuration
         var movement = config.Movement;
-        MovementTypeIndex = (int)movement.Type;
+        SelectedMovementType = AllMovementOptions.FirstOrDefault(o => o.Type == movement.Type) ?? AllMovementOptions[0];
         AnimationSpeed = (int)movement.SpeedPixelsPerSecond;
         MovementAngle = movement.DirectionAngleDegrees;
         WaveAmplitude = movement.WaveAmplitudePixels;
@@ -224,6 +270,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             0 => BackgroundMode.SolidColor,
             1 => BackgroundMode.StretchedImage,
             2 => BackgroundMode.TiledImage,
+            3 => BackgroundMode.ThreeZone,
             _ => BackgroundMode.SolidColor
         };
 
@@ -248,7 +295,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             .Select(m => m.ClientId)
             .ToList();
 
-        var movementType = (MovementType)MovementTypeIndex;
+        var movementType = SelectedMovementType.Type;
 
         return new CrossScreenConfig
         {
@@ -256,7 +303,12 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             {
                 Mode = backgroundMode,
                 ColorHex = BackgroundColor,
-                ImagePath = string.IsNullOrWhiteSpace(BackgroundImagePath) ? null : BackgroundImagePath
+                ImagePath = string.IsNullOrWhiteSpace(BackgroundImagePath) ? null : BackgroundImagePath,
+                CorridorTopPx      = CorridorTopPx,
+                CorridorHeightPx   = CorridorHeightPx,
+                TopZoneColorHex    = TopZoneColorHex,
+                BottomZoneColorHex = BottomZoneColorHex,
+                CorridorColorHex   = CorridorColorHex
             },
             Animation = new AnimationLayerConfig
             {
@@ -399,7 +451,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     private void Ok()
     {
         // Validate configuration
-        if (BackgroundModeIndex > 0 && string.IsNullOrWhiteSpace(BackgroundImagePath))
+        if (IsImageMode && string.IsNullOrWhiteSpace(BackgroundImagePath))
         {
             // TODO: Show error message
             return;
