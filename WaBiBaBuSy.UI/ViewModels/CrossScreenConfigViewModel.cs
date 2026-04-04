@@ -123,16 +123,16 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     public bool IsImageMode => BackgroundModeIndex == 1 || BackgroundModeIndex == 2;
     public bool IsThreeZoneMode => BackgroundModeIndex == 3;
 
-    public IReadOnlyList<MovementTypeOption> AvailableMovementOptions =>
-        IsThreeZoneMode
-            ? AllMovementOptions.Where(o => o.Type != MovementType.Circular).ToArray()
-            : AllMovementOptions;
+    private readonly ObservableCollection<MovementTypeOption> _availableMovementOptions =
+        new(AllMovementOptions);
 
-    public bool IsMovementActive => SelectedMovementType.Type != MovementType.Static;
-    public bool IsDirectionVisible => SelectedMovementType.Type is MovementType.Linear or MovementType.Bounce;
-    public bool IsSineWaveMode => SelectedMovementType.Type == MovementType.SineWave;
-    public bool IsCircularMode => SelectedMovementType.Type == MovementType.Circular;
-    public bool IsRandomWalkMode => SelectedMovementType.Type == MovementType.RandomWalk;
+    public ObservableCollection<MovementTypeOption> AvailableMovementOptions => _availableMovementOptions;
+
+    public bool IsMovementActive => SelectedMovementType?.Type != MovementType.Static;
+    public bool IsDirectionVisible => SelectedMovementType?.Type is MovementType.Linear or MovementType.Bounce;
+    public bool IsSineWaveMode => SelectedMovementType?.Type == MovementType.SineWave;
+    public bool IsCircularMode => SelectedMovementType?.Type == MovementType.Circular;
+    public bool IsRandomWalkMode => SelectedMovementType?.Type == MovementType.RandomWalk;
 
     public bool DialogResult { get; private set; }
 
@@ -145,11 +145,16 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsSolidColorMode));
         OnPropertyChanged(nameof(IsImageMode));
         OnPropertyChanged(nameof(IsThreeZoneMode));
-        OnPropertyChanged(nameof(AvailableMovementOptions));
-
-        // If Circular was selected and user switches to ThreeZone, fall back to Bounce
-        if (IsThreeZoneMode && SelectedMovementType.Type == MovementType.Circular)
+        // If Circular was selected and user switches to ThreeZone, fall back to Bounce first
+        if (IsThreeZoneMode && SelectedMovementType?.Type == MovementType.Circular)
             SelectedMovementType = AllMovementOptions.First(o => o.Type == MovementType.Bounce);
+
+        // Mutate the collection in-place so the ComboBox keeps its SelectedItem reference
+        var circular = AllMovementOptions.First(o => o.Type == MovementType.Circular);
+        if (IsThreeZoneMode && _availableMovementOptions.Contains(circular))
+            _availableMovementOptions.Remove(circular);
+        else if (!IsThreeZoneMode && !_availableMovementOptions.Contains(circular))
+            _availableMovementOptions.Insert(4, circular);
     }
 
     partial void OnSelectedMovementTypeChanged(MovementTypeOption value)
