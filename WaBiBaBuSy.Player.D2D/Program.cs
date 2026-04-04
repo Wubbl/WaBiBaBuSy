@@ -204,6 +204,11 @@ class Program
     private static int _corridorHeightPx;
     private static bool _hasCorridorConstraint;
 
+    // IconZone mode — N-brush zone drawing + precomputed path
+    private static readonly List<(float Y, float Height, bool IsFree, ID2D1SolidColorBrush? Brush)> _iconZoneBands = new();
+    private static readonly List<(float X, float Y)> _animPath = new();
+    private static float _animPathTotalLength;
+
     // Stage 4: Animation positioning (ported from AnimationLayerRenderer)
     private static int _animWidth, _animHeight;    // Scaled by FitMode
     private static float _animX, _animY;            // Current position
@@ -1148,6 +1153,12 @@ class Program
         _bottomZoneBrush?.Dispose(); _bottomZoneBrush = null;
         _corridorBrush?.Dispose();   _corridorBrush   = null;
 
+        // Reset IconZone brushes and path
+        foreach (var (_, _, _, brush) in _iconZoneBands) brush?.Dispose();
+        _iconZoneBands.Clear();
+        _animPath.Clear();
+        _animPathTotalLength = 0f;
+
         // Dispose previous background image
         _backgroundImageBitmap?.Dispose();
         _backgroundImageBitmap = null;
@@ -1184,6 +1195,20 @@ class Program
                 _hasCorridorConstraint = true;
                 _logger?.LogInformation("[BG-D2D] ThreeZone: corridorTop={T}px height={H}px",
                     _corridorTopPx, _corridorHeightPx);
+                break;
+
+            case BackgroundMode.IconZone:
+                foreach (var band in config.IconZoneBands)
+                {
+                    var hexColor = band.IsFree ? config.IconCorridorColorHex : band.ColorHex;
+                    var brush = _d2dContext!.CreateSolidColorBrush(ParseHexColor(hexColor));
+                    _iconZoneBands.Add((band.Y, band.Height, band.IsFree, brush));
+                }
+                foreach (var wp in config.AnimationPath)
+                    _animPath.Add((wp.X, wp.Y));
+                _animPathTotalLength = ComputePathLength(_animPath);
+                _logger?.LogInformation("[BG-D2D] IconZone: {Bands} bands, {Pts} path points, totalLen={Len:F0}px",
+                    _iconZoneBands.Count, _animPath.Count, _animPathTotalLength);
                 break;
         }
     }
@@ -1251,6 +1276,13 @@ class Program
                 int bottomY = _corridorTopPx + _corridorHeightPx;
                 if (_bottomZoneBrush != null && bottomY < _height)
                     _d2dContext.FillRectangle(new System.Drawing.RectangleF(0, bottomY, _width, _height - bottomY), _bottomZoneBrush);
+                break;
+
+            case BackgroundMode.IconZone:
+                _d2dContext.Clear(new Color4(0, 0, 0, 1));
+                foreach (var (zY, zH, _, zBrush) in _iconZoneBands)
+                    if (zBrush != null)
+                        _d2dContext.FillRectangle(new System.Drawing.RectangleF(0, zY, _width, zH), zBrush);
                 break;
         }
     }
@@ -1368,6 +1400,41 @@ class Program
     /// </summary>
     private static void UpdateAnimationPosition(long elapsedMs)
     {
+        // IconZone: path-following (path uses local screen coords, no monitor offset needed)
+        if (_backgroundMode == BackgroundMode.IconZone && _animPath.Count >= 2)
+        {
+            float speed = _movementConfig?.SpeedPixelsPerSecond ?? 300f;
+
+            float dist;
+            if (_movementConfig?.Type == MovementType.Bounce)
+            {
+                float cycle = _animPathTotalLength * 2f;
+                float t = (elapsedMs * speed / 1000f) % cycle;
+                dist = t < _animPathTotalLength ? t : cycle - t;
+            }
+            else
+            {
+                dist = (_animPathTotalLength > 0f)
+                    ? (elapsedMs * speed / 1000f) % _animPathTotalLength
+                    : 0f;
+            }
+
+            var (px, py) = SamplePath(_animPath, dist);
+
+            if (_movementConfig?.Type == MovementType.SineWave)
+            {
+                float amp  = _movementConfig.WaveAmplitudePixels;
+                float freq = _movementConfig.WaveFrequencyHz;
+                float sinOffset = MathF.Sin(elapsedMs / 1000f * freq * MathF.Tau) * amp;
+                py = ClampToNearestFreeBand(py + sinOffset);
+            }
+
+            _animX = px;
+            _animY = py;
+            return;
+        }
+
+        // Standard movement via MovementCalculator
         if (_movementConfig != null && _movementConfig.Type != MovementType.Static)
         {
             var (vx, vy) = MovementCalculator.Calculate(
@@ -1393,6 +1460,60 @@ class Program
             _animX = (float)(-_animWidth + (elapsedSeconds * _pixelsPerSecond));
         }
         // For static animations (pixelsPerSecond=0 and no movement config), position stays at initial centered value
+    }
+
+    private static float ComputePathLength(List<(float X, float Y)> path)
+    {
+        if (path.Count < 2) return 0f;
+        float total = 0f;
+        for (int i = 0; i < path.Count - 1; i++)
+        {
+            float dx = path[i + 1].X - path[i].X;
+            float dy = path[i + 1].Y - path[i].Y;
+            total += MathF.Sqrt(dx * dx + dy * dy);
+        }
+        return total;
+    }
+
+    private static (float X, float Y) SamplePath(List<(float X, float Y)> path, float dist)
+    {
+        if (path.Count == 0) return (0f, 0f);
+        if (path.Count == 1) return (path[0].X, path[0].Y);
+
+        float remaining = dist;
+        for (int i = 0; i < path.Count - 1; i++)
+        {
+            float dx = path[i + 1].X - path[i].X;
+            float dy = path[i + 1].Y - path[i].Y;
+            float segLen = MathF.Sqrt(dx * dx + dy * dy);
+            if (remaining <= segLen || i == path.Count - 2)
+            {
+                float t = segLen > 0f ? Math.Clamp(remaining / segLen, 0f, 1f) : 0f;
+                return (path[i].X + dx * t, path[i].Y + dy * t);
+            }
+            remaining -= segLen;
+        }
+        return (path[^1].X, path[^1].Y);
+    }
+
+    private static float ClampToNearestFreeBand(float y)
+    {
+        if (_iconZoneBands.Count == 0) return y;
+
+        // Find the free band whose center is nearest to y
+        float bestY = y;
+        float bestDist = float.MaxValue;
+        foreach (var (bY, bH, isFree, _) in _iconZoneBands)
+        {
+            if (!isFree) continue;
+            float minY = bY;
+            float maxY = bY + bH - _animHeight;
+            if (maxY < minY) maxY = minY;
+            float clamped = Math.Clamp(y, minY, maxY);
+            float dist = MathF.Abs(clamped - y);
+            if (dist < bestDist) { bestDist = dist; bestY = clamped; }
+        }
+        return bestY;
     }
 
     // ================================
@@ -1822,6 +1943,10 @@ class Program
         _bottomZoneBrush?.Dispose(); _bottomZoneBrush = null;
         _corridorBrush?.Dispose();   _corridorBrush   = null;
         _hasCorridorConstraint = false;
+
+        foreach (var (_, _, _, brush) in _iconZoneBands) brush?.Dispose();
+        _iconZoneBands.Clear();
+        _animPath.Clear();
 
         // Dispose native video resources
         try { _vlcPlayer?.Stop(); } catch { }

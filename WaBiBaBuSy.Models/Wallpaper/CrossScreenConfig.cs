@@ -90,7 +90,33 @@ public enum BackgroundMode
     /// <summary>
     /// Top zone + middle corridor + bottom zone, each with distinct color.
     /// </summary>
-    ThreeZone
+    ThreeZone,
+
+    /// <summary>
+    /// Zones derived from actual desktop icon positions. Path navigates all free bands.
+    /// </summary>
+    IconZone
+}
+
+/// <summary>
+/// A horizontal screen band used by IconZone mode (free corridor or icon-blocked zone).
+/// </summary>
+public class ZoneRect
+{
+    public float Y      { get; set; }
+    public float Height { get; set; }
+    /// <summary>True = animation can enter this band; false = blocked by icons.</summary>
+    public bool  IsFree { get; set; }
+    public string ColorHex { get; set; } = "#000000";
+}
+
+/// <summary>
+/// A single waypoint in the precomputed animation path through free bands.
+/// </summary>
+public class WaypointF
+{
+    public float X { get; set; }
+    public float Y { get; set; }
 }
 
 /// <summary>
@@ -127,6 +153,14 @@ public class BackgroundLayerConfig
 
     /// <summary>ThreeZone: color for the middle corridor.</summary>
     public string CorridorColorHex { get; set; } = "#1E1E1E";
+
+    // ── IconZone mode ────────────────────────────────────────────────────────
+    /// <summary>All horizontal bands (free + blocked) ordered top→bottom.</summary>
+    public List<ZoneRect>  IconZoneBands       { get; set; } = new();
+    /// <summary>Precomputed closed-loop path through all free bands (local screen coords).</summary>
+    public List<WaypointF> AnimationPath       { get; set; } = new();
+    /// <summary>Color for free corridor bands.</summary>
+    public string          IconCorridorColorHex { get; set; } = "#1E1E1E";
 }
 
 /// <summary>

@@ -32,11 +32,12 @@
 
                         <StackPanel Spacing="5">
                             <TextBlock Text="Mode:" FontSize="12"/>
-                            <ComboBox SelectedIndex="{Binding BackgroundModeIndex}" Width="200" HorizontalAlignment="Left">
+                            <ComboBox SelectedIndex="{Binding BackgroundModeIndex}" Width="220" HorizontalAlignment="Left">
                                 <ComboBoxItem Content="Solid Color"/>
                                 <ComboBoxItem Content="Stretched Image"/>
                                 <ComboBoxItem Content="Tiled Image"/>
                                 <ComboBoxItem Content="Three Zone (Corridor)"/>
+                                <ComboBoxItem Content="Icon Zone (Auto-detect)"/>
                             </ComboBox>
                         </StackPanel>
 
@@ -90,6 +91,65 @@
 
                             <TextBlock Text="Place icons in the top/bottom zones. The animation travels through the center corridor."
                                        FontSize="10" Foreground="#888888" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                        </StackPanel>
+
+                        <!-- Icon Zone Settings -->
+                        <StackPanel Spacing="10" IsVisible="{Binding IsIconZoneMode}">
+                            <TextBlock Text="Icon Zone Settings" FontSize="12" FontWeight="SemiBold"/>
+
+                            <!-- Detect button + status -->
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <Button Content="Detect Desktop Icons" Command="{Binding DetectIconsCommand}"
+                                        IsEnabled="{Binding !IsDetecting}" Padding="10,5"/>
+                                <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="#AAAAAA">
+                                    <TextBlock.Text>
+                                        <MultiBinding StringFormat="Detected: {0} blocked zones">
+                                            <Binding Path="DetectedZoneCount"/>
+                                        </MultiBinding>
+                                    </TextBlock.Text>
+                                </TextBlock>
+                            </StackPanel>
+
+                            <!-- Corridor color -->
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Corridor Color (free bands):" FontSize="12"/>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBox Text="{Binding IconCorridorColorHex}" Width="110" Watermark="#1E1E1E"/>
+                                    <Border Width="20" Height="20" CornerRadius="3"
+                                            Background="{Binding IconCorridorColorHex}"
+                                            BorderBrush="#555" BorderThickness="1" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <!-- Zone color palette -->
+                            <StackPanel Spacing="6">
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <TextBlock Text="Zone Colors (blocked bands):" FontSize="12" VerticalAlignment="Center"/>
+                                    <Button Content="Randomize" Command="{Binding RandomizePaletteCommand}"
+                                            Padding="8,3" FontSize="11"/>
+                                </StackPanel>
+                                <ItemsControl ItemsSource="{Binding IconZonePalette}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel Orientation="Horizontal"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Vertical" Spacing="2" Margin="0,0,6,4" Width="50">
+                                                <Border Width="46" Height="28" CornerRadius="3"
+                                                        Background="{Binding ColorHex}"
+                                                        BorderBrush="#555" BorderThickness="1"/>
+                                                <TextBox Text="{Binding ColorHex}" FontSize="9"
+                                                         Padding="2,1" HorizontalAlignment="Stretch"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+
+                            <TextBlock Text="Click Detect to read your desktop icon positions. Icons in the same row merge into one zone. The animation will find a path through the open areas."
+                                       FontSize="10" Foreground="#888888" TextWrapping="Wrap"/>
                         </StackPanel>
                     </StackPanel>
                 </Border>

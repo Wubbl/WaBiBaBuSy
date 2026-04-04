@@ -286,6 +286,47 @@ internal static class Win32Interop
     }
 
     public const uint MONITORINFOF_PRIMARY = 1;
+
+    // ── Desktop icon detection ───────────────────────────────────────────────
+
+    // ListView messages
+    public const uint LVM_FIRST             = 0x1000;
+    public const uint LVM_GETITEMCOUNT      = LVM_FIRST + 4;
+    public const uint LVM_GETITEMPOSITION   = LVM_FIRST + 16;
+
+    // Icon spacing SPI actions (GET variants)
+    public const uint SPI_ICONHORIZONTALSPACING = 0x000D;
+    public const uint SPI_ICONVERTICALSPACING   = 0x0018;
+
+    // Process memory access
+    public const uint PROCESS_VM_OPERATION = 0x0008;
+    public const uint PROCESS_VM_READ      = 0x0010;
+    public const uint MEM_COMMIT           = 0x1000;
+    public const uint MEM_RELEASE          = 0x8000;
+    public const uint PAGE_READWRITE       = 0x04;
+
+    [DllImport("user32.dll")]
+    public static extern bool SystemParametersInfo(uint uiAction, uint uiParam, out uint pvParam, uint fWinIni);
+
+    [DllImport("user32.dll")]
+    public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr VirtualAllocEx(IntPtr hProcess, IntPtr lpAddress, uint dwSize,
+        uint flAllocationType, uint flProtect);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool VirtualFreeEx(IntPtr hProcess, IntPtr lpAddress, uint dwSize, uint dwFreeType);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool ReadProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress,
+        [Out] byte[] lpBuffer, uint nSize, out uint lpNumberOfBytesRead);
 }
 
 /// <summary>
