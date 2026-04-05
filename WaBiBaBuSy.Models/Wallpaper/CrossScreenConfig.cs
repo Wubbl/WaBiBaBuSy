@@ -120,6 +120,15 @@ public class WaypointF
 }
 
 /// <summary>
+/// Result of ZonePlanner.Compute: zone bands and animation path.
+/// </summary>
+public class ZoneLayout
+{
+    public List<ZoneRect>  Bands { get; set; } = new();
+    public List<WaypointF> Path  { get; set; } = new();
+}
+
+/// <summary>
 /// Configuration for the background layer
 /// </summary>
 public class BackgroundLayerConfig
@@ -155,12 +164,13 @@ public class BackgroundLayerConfig
     public string CorridorColorHex { get; set; } = "#1E1E1E";
 
     // ── IconZone mode ────────────────────────────────────────────────────────
-    /// <summary>All horizontal bands (free + blocked) ordered top→bottom.</summary>
-    public List<ZoneRect>  IconZoneBands       { get; set; } = new();
-    /// <summary>Precomputed closed-loop path through all free bands (local screen coords).</summary>
-    public List<WaypointF> AnimationPath       { get; set; } = new();
+    /// <summary>
+    /// Colors for each detected icon cluster (connected component), in order.
+    /// Each client uses these colors when rendering its own locally-detected zones.
+    /// </summary>
+    public List<string> IconZonePaletteHexes  { get; set; } = new();
     /// <summary>Color for free corridor bands.</summary>
-    public string          IconCorridorColorHex { get; set; } = "#1E1E1E";
+    public string       IconCorridorColorHex  { get; set; } = "#1E1E1E";
 }
 
 /// <summary>

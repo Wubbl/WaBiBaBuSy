@@ -98,6 +98,104 @@ class Program
     private const int WS_EX_TRANSPARENT = 0x00000020;
     private const uint LWA_ALPHA = 0x2;
     private const uint SWP_NOACTIVATE = 0x0010;
+
+    // ── Desktop icon detection (IconZone mode) ───────────────────────────────
+    private const uint DICO_PROCESS_VM_OPERATION = 0x0008;
+    private const uint DICO_PROCESS_VM_READ      = 0x0010;
+    private const uint DICO_MEM_COMMIT           = 0x1000;
+    private const uint DICO_MEM_RELEASE          = 0x8000;
+    private const uint DICO_PAGE_READWRITE        = 0x04;
+    private const uint DICO_LVM_GETITEMCOUNT      = 0x1004;
+    private const uint DICO_LVM_GETITEMPOSITION   = 0x1010;
+    private const uint DICO_SPI_ICONHSPACING      = 0x000D;
+    private const uint DICO_SPI_ICONVSPACING      = 0x0018;
+
+    [DllImport("kernel32.dll")] private static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
+    [DllImport("kernel32.dll")] private static extern bool   CloseHandle(IntPtr h);
+    [DllImport("kernel32.dll")] private static extern IntPtr VirtualAllocEx(IntPtr proc, IntPtr addr, uint size, uint type, uint protect);
+    [DllImport("kernel32.dll")] private static extern bool   VirtualFreeEx(IntPtr proc, IntPtr addr, uint size, uint type);
+    [DllImport("kernel32.dll")] private static extern bool   ReadProcessMemory(IntPtr proc, IntPtr baseAddr, [Out] byte[] buf, uint size, out uint read);
+    [DllImport("user32.dll")]   private static extern uint   GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+    [DllImport("user32.dll", EntryPoint = "SystemParametersInfoW")]
+    private static extern bool SystemParametersInfoUint(uint action, uint param, out uint result, uint winIni);
+    [DllImport("user32.dll")]   private static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll", CharSet = CharSet.Auto)] private static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
+    [DllImport("user32.dll", CharSet = CharSet.Auto)] private static extern IntPtr FindWindowEx(IntPtr parent, IntPtr childAfter, string? className, string? windowName);
+    private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
+    [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    private static List<(int X, int Y)> DetectDesktopIconPositions()
+    {
+        var result = new List<(int, int)>();
+        try
+        {
+            var lv = FindDesktopListView();
+            if (lv == IntPtr.Zero) return result;
+
+            GetWindowThreadProcessId(lv, out uint pid);
+            IntPtr proc = OpenProcess(DICO_PROCESS_VM_OPERATION | DICO_PROCESS_VM_READ, false, pid);
+            if (proc == IntPtr.Zero) return result;
+
+            try
+            {
+                IntPtr remote = VirtualAllocEx(proc, IntPtr.Zero, 8, DICO_MEM_COMMIT, DICO_PAGE_READWRITE);
+                if (remote == IntPtr.Zero) return result;
+                try
+                {
+                    int count = (int)SendMessage(lv, DICO_LVM_GETITEMCOUNT, IntPtr.Zero, IntPtr.Zero);
+                    var buf = new byte[8];
+                    for (int i = 0; i < count; i++)
+                    {
+                        SendMessage(lv, DICO_LVM_GETITEMPOSITION, new IntPtr(i), remote);
+                        if (ReadProcessMemory(proc, remote, buf, 8, out _))
+                            result.Add((BitConverter.ToInt32(buf, 0), BitConverter.ToInt32(buf, 4)));
+                    }
+                }
+                finally { VirtualFreeEx(proc, remote, 0, DICO_MEM_RELEASE); }
+            }
+            finally { CloseHandle(proc); }
+        }
+        catch (Exception ex) { _logger?.LogWarning(ex, "[IconZone] Icon detection failed"); }
+        return result;
+    }
+
+    private static (int W, int H) GetIconCellSize()
+    {
+        try
+        {
+            if (SystemParametersInfoUint(DICO_SPI_ICONHSPACING, 0, out uint w, 0) &&
+                SystemParametersInfoUint(DICO_SPI_ICONVSPACING, 0, out uint h, 0))
+                return ((int)w, (int)h);
+        }
+        catch { }
+        return (75, 75);
+    }
+
+    private static IntPtr FindDesktopListView()
+    {
+        IntPtr prog = FindWindow("Progman", null);
+        if (prog != IntPtr.Zero)
+        {
+            IntPtr def = FindWindowEx(prog, IntPtr.Zero, "SHELLDLL_DefView", null);
+            if (def != IntPtr.Zero)
+            {
+                IntPtr lv = FindWindowEx(def, IntPtr.Zero, "SysListView32", null);
+                if (lv != IntPtr.Zero) return lv;
+            }
+        }
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((hwnd, _) =>
+        {
+            IntPtr def = FindWindowEx(hwnd, IntPtr.Zero, "SHELLDLL_DefView", null);
+            if (def != IntPtr.Zero)
+            {
+                IntPtr lv = FindWindowEx(def, IntPtr.Zero, "SysListView32", null);
+                if (lv != IntPtr.Zero) { found = lv; return false; }
+            }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_SHOWWINDOW = 0x0040;
@@ -1198,18 +1296,28 @@ class Program
                 break;
 
             case BackgroundMode.IconZone:
-                foreach (var band in config.IconZoneBands)
+            {
+                // Detect icons locally on this machine
+                var (cellW, cellH) = GetIconCellSize();
+                var iconPositions  = DetectDesktopIconPositions();
+                _logger?.LogInformation("[IconZone] Detected {Count} icons, cell={W}x{H}px", iconPositions.Count, cellW, cellH);
+
+                var layout = WaBiBaBuSy.WallpaperEngine.Desktop.ZonePlanner.Compute(
+                    iconPositions, cellW, cellH, _width, _height,
+                    config.IconZonePaletteHexes, config.IconCorridorColorHex);
+
+                foreach (var band in layout.Bands)
                 {
-                    var hexColor = band.IsFree ? config.IconCorridorColorHex : band.ColorHex;
-                    var brush = _d2dContext!.CreateSolidColorBrush(ParseHexColor(hexColor));
+                    var brush = _d2dContext!.CreateSolidColorBrush(ParseHexColor(band.ColorHex));
                     _iconZoneBands.Add((band.Y, band.Height, band.IsFree, brush));
                 }
-                foreach (var wp in config.AnimationPath)
+                foreach (var wp in layout.Path)
                     _animPath.Add((wp.X, wp.Y));
                 _animPathTotalLength = ComputePathLength(_animPath);
                 _logger?.LogInformation("[BG-D2D] IconZone: {Bands} bands, {Pts} path points, totalLen={Len:F0}px",
                     _iconZoneBands.Count, _animPath.Count, _animPathTotalLength);
                 break;
+            }
         }
     }
 

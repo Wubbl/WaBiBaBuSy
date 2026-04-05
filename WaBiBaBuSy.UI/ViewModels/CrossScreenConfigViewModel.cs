@@ -11,6 +11,8 @@ using CommunityToolkit.Mvvm.Input;
 using WaBiBaBuSy.Core.Services.Desktop;
 using WaBiBaBuSy.Models.Wallpaper;
 using WaBiBaBuSy.WallpaperEngine.Services;
+// Note: DesktopIconService / ZonePlanner are intentionally NOT used here.
+// Each Player.D2D node detects its own desktop icons at runtime.
 
 namespace WaBiBaBuSy.UI.ViewModels;
 
@@ -47,9 +49,6 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
 {
     private IStorageProvider? _storageProvider;
     private Action? _closeAction;
-
-    // Last result from DesktopIconService + ZonePlanner (used in BuildConfig)
-    private ZoneLayout? _lastDetectedLayout;
 
     private static readonly MovementTypeOption[] AllMovementOptions =
     [
@@ -132,8 +131,6 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     // ── IconZone mode ────────────────────────────────────────────────────────
     [ObservableProperty] private ObservableCollection<ZoneColorItem> _iconZonePalette = new();
     [ObservableProperty] private string _iconCorridorColorHex = "#1E1E1E";
-    [ObservableProperty] private int    _detectedZoneCount    = 0;
-    [ObservableProperty] private bool   _isDetecting          = false;
 
     public bool IsSolidColorMode => BackgroundModeIndex == 0;
     public bool IsImageMode => BackgroundModeIndex == 1 || BackgroundModeIndex == 2;
@@ -155,6 +152,10 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
 
     public CrossScreenConfigViewModel()
     {
+        // Seed a default 8-color palette so Icon Zone mode is ready out of the box
+        var defaults = PaletteGenerator.GenerateHarmonious(8);
+        for (int i = 0; i < defaults.Count; i++)
+            _iconZonePalette.Add(new ZoneColorItem { ColorHex = defaults[i], Label = $"Zone {i + 1}" });
     }
 
     partial void OnBackgroundModeIndexChanged(int value)
@@ -256,15 +257,8 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         IconCorridorColorHex = config.Background.IconCorridorColorHex;
         IconZonePalette.Clear();
         int zIdx = 0;
-        foreach (var band in config.Background.IconZoneBands.Where(b => !b.IsFree))
-            IconZonePalette.Add(new ZoneColorItem { ColorHex = band.ColorHex, Label = $"Zone {++zIdx}" });
-        DetectedZoneCount = zIdx;
-        if (config.Background.IconZoneBands.Count > 0)
-            _lastDetectedLayout = new WaBiBaBuSy.Core.Services.Desktop.ZoneLayout
-            {
-                Bands = config.Background.IconZoneBands,
-                Path  = config.Background.AnimationPath
-            };
+        foreach (var hex in config.Background.IconZonePaletteHexes)
+            IconZonePalette.Add(new ZoneColorItem { ColorHex = hex, Label = $"Zone {++zIdx}" });
         AnimationPath = config.Animation.AnimationPath;
         AnimationHeight = config.Animation.TargetHeight;
         AnimationLoop = config.Animation.Loop;
@@ -349,9 +343,8 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                 TopZoneColorHex    = TopZoneColorHex,
                 BottomZoneColorHex = BottomZoneColorHex,
                 CorridorColorHex   = CorridorColorHex,
-                IconCorridorColorHex = IconCorridorColorHex,
-                IconZoneBands = _lastDetectedLayout?.Bands ?? new(),
-                AnimationPath = _lastDetectedLayout?.Path  ?? new()
+                IconCorridorColorHex  = IconCorridorColorHex,
+                IconZonePaletteHexes = IconZonePalette.Select(z => z.ColorHex).ToList()
             },
             Animation = new AnimationLayerConfig
             {
@@ -491,84 +484,28 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private async Task DetectIcons()
-    {
-        IsDetecting = true;
-        try
-        {
-            var service = new DesktopIconService();
-            var planner = new ZonePlanner();
-
-            var (cellW, cellH) = await Task.Run(() => service.GetGridCellSize());
-            var icons          = await Task.Run(() => service.GetIconPositions());
-
-            // Get current screen dimensions from primary monitor
-            var screen = Avalonia.Application.Current?.ApplicationLifetime is
-                Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desk
-                ? desk.MainWindow?.Screens?.Primary
-                : null;
-            int screenW = screen?.Bounds.Width  ?? 1920;
-            int screenH = screen?.Bounds.Height ?? 1080;
-
-            // Count how many blocked zones we'll need colors for
-            int blockedCount = await Task.Run(() =>
-            {
-                bool[] occ = new bool[(int)Math.Ceiling((double)screenH / cellH)];
-                foreach (var icon in icons)
-                {
-                    int r = icon.PixelY / cellH;
-                    if (r >= 0 && r < occ.Length) occ[r] = true;
-                }
-                // Count blocked run-length bands
-                int count = 0;
-                bool prev = false;
-                foreach (bool b in occ) { if (b && !prev) count++; prev = b; }
-                return count;
-            });
-
-            // Generate palette if we don't have enough colors
-            if (IconZonePalette.Count < blockedCount)
-            {
-                var palette = PaletteGenerator.GenerateHarmonious(Math.Max(blockedCount, 4));
-                IconZonePalette.Clear();
-                for (int i = 0; i < palette.Count; i++)
-                    IconZonePalette.Add(new ZoneColorItem { ColorHex = palette[i], Label = $"Zone {i + 1}" });
-            }
-
-            var paletteHexes = IconZonePalette.Select(z => z.ColorHex).ToList();
-            var layout = await Task.Run(() => planner.Compute(icons, cellW, cellH, screenW, screenH, paletteHexes, IconCorridorColorHex));
-
-            _lastDetectedLayout = layout;
-            DetectedZoneCount = layout.Bands.Count(b => !b.IsFree);
-
-            // Sync palette labels to detected count
-            for (int i = 0; i < IconZonePalette.Count; i++)
-                IconZonePalette[i].Label = $"Zone {i + 1}";
-        }
-        finally
-        {
-            IsDetecting = false;
-        }
-    }
-
-    [RelayCommand]
     private void RandomizePalette()
     {
-        int count = Math.Max(DetectedZoneCount, 4);
+        int count = Math.Max(IconZonePalette.Count, 4);
         var palette = PaletteGenerator.GenerateHarmonious(count);
         IconZonePalette.Clear();
         for (int i = 0; i < palette.Count; i++)
             IconZonePalette.Add(new ZoneColorItem { ColorHex = palette[i], Label = $"Zone {i + 1}" });
+    }
 
-        // Re-run zone computation with new colors if we have a layout
-        if (_lastDetectedLayout != null)
-        {
-            int paletteIdx = 0;
-            foreach (var band in _lastDetectedLayout.Bands.Where(b => !b.IsFree))
-            {
-                band.ColorHex = paletteIdx < palette.Count ? palette[paletteIdx++] : "#333333";
-            }
-        }
+    [RelayCommand]
+    private void AddZoneColor()
+    {
+        int idx = IconZonePalette.Count + 1;
+        var single = PaletteGenerator.GenerateHarmonious(idx);
+        IconZonePalette.Add(new ZoneColorItem { ColorHex = single[idx - 1], Label = $"Zone {idx}" });
+    }
+
+    [RelayCommand]
+    private void RemoveLastZoneColor()
+    {
+        if (IconZonePalette.Count > 1)
+            IconZonePalette.RemoveAt(IconZonePalette.Count - 1);
     }
 
     [RelayCommand]
@@ -578,12 +515,6 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         if (IsImageMode && string.IsNullOrWhiteSpace(BackgroundImagePath))
         {
             // TODO: Show error message
-            return;
-        }
-
-        if (IsIconZoneMode && _lastDetectedLayout == null)
-        {
-            // TODO: Show error message — "Please click Detect Desktop Icons first"
             return;
         }
 
