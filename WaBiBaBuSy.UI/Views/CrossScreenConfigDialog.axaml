@@ -176,6 +176,10 @@
                         </StackPanel>
 
                         <CheckBox IsChecked="{Binding AnimationLoop}" Content="Loop Animation" Margin="0,5,0,0"/>
+                        <CheckBox IsChecked="{Binding RotateWithPath}"
+                                  Content="Rotate animation with path direction (IconZone only)"
+                                  IsEnabled="{Binding IsIconZoneMode}"
+                                  Margin="0,2,0,0"/>
                     </StackPanel>
                 </Border>
 

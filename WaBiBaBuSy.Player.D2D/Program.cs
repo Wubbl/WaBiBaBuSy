@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Drawing;
+using System.Numerics;
 using System.Drawing.Imaging;
 using ImageMagick;
 using Vortice.Direct2D1;
@@ -318,6 +319,8 @@ class Program
     private static MovementConfig? _movementConfig;
     private static int _virtualCanvasWidth = 1920;
     private static int _monitorOffsetX = 0;
+    private static bool _rotateWithPath;
+    private static float _animRotationRad;
 
     // Animation state
     private static volatile bool _isPlaying = false;
@@ -786,12 +789,22 @@ class Program
                             int frameIdx = GetCurrentGifFrameIndex(elapsedMs);
                             var destRect = new System.Drawing.RectangleF(_animX, _animY, _animWidth, _animHeight);
 
+                            bool hasRotation = _rotateWithPath && _animRotationRad != 0f && _animPath.Count >= 2;
+                            if (hasRotation)
+                            {
+                                float cx = _animX + _animWidth / 2f;
+                                float cy = _animY + _animHeight / 2f;
+                                _d2dContext.Transform = Matrix3x2.CreateRotation(
+                                    _animRotationRad, new Vector2(cx, cy));
+                            }
                             _d2dContext.DrawBitmap(
                                 _d2dGifFrames[frameIdx],
                                 destRect,
                                 1.0f,
                                 BitmapInterpolationMode.Linear,
                                 null);
+                            if (hasRotation)
+                                _d2dContext.Transform = Matrix3x2.Identity;
 
                             if (_frameCount % 60 == 0)
                             {
@@ -1301,13 +1314,22 @@ class Program
                 _iconCorridorBgColor = ParseHexColor(config.IconCorridorColorHex);
 
                 var (cellW, cellH) = GetIconCellSize();
-                var iconPositions  = DetectDesktopIconPositions();
-                _logger?.LogInformation("[IconZone] Detected {Count} icons, cell={W}x{H}px", iconPositions.Count, cellW, cellH);
+                // On multi-monitor single-machine setups, all players share the same Progman/SysListView32.
+                // LVM_GETITEMPOSITION returns primary-monitor icon positions, so secondary monitors
+                // (monitorOffsetX > 0) must not render those rects — they belong to the first monitor only.
+                var iconPositions = _monitorOffsetX == 0
+                    ? DetectDesktopIconPositions()
+                    : new List<(int X, int Y)>();
+                _logger?.LogInformation("[IconZone] Detected {Count} icons, cell={W}x{H}px (monitorOffset={Offset}px)", iconPositions.Count, cellW, cellH, _monitorOffsetX);
 
+                // Add padding equal to half the animation height so the A* path keeps the
+                // full animation bitmap clear of icon zone rects (not just the center point).
+                int pathPaddingPx = _animHeight / 2;
                 // Always compute local zones for background rendering
                 var layout = WaBiBaBuSy.WallpaperEngine.Desktop.ZonePlanner.Compute(
                     iconPositions, cellW, cellH, _width, _height,
-                    config.IconZonePaletteHexes, config.IconCorridorColorHex);
+                    config.IconZonePaletteHexes, config.IconCorridorColorHex,
+                    paddingPx: pathPaddingPx);
 
                 foreach (var band in layout.Bands)
                 {
@@ -1489,6 +1511,7 @@ class Program
 
         _fitMode = config.FitMode;
         _centerInitialPosition = config.CenterInitialPosition;
+        _rotateWithPath = config.RotateWithPath;
 
         // Calculate initial position
         if (_centerInitialPosition || _pixelsPerSecond == 0)
@@ -1557,6 +1580,21 @@ class Program
 
             var (px, py) = SamplePath(_animPath, dist);
 
+            // Compute rotation angle from path tangent (look ahead a small distance)
+            if (_rotateWithPath && _animPathTotalLength > 0f)
+            {
+                float lookAhead = MathF.Min(10f, _animPathTotalLength * 0.01f);
+                bool nearEnd = dist > _animPathTotalLength - lookAhead;
+                var (px2, py2) = SamplePath(_animPath, nearEnd ? dist - lookAhead : (dist + lookAhead) % _animPathTotalLength);
+                float dx = nearEnd ? px - px2 : px2 - px;
+                float dy = nearEnd ? py - py2 : py2 - py;
+                _animRotationRad = MathF.Atan2(dy, dx);
+            }
+            else
+            {
+                _animRotationRad = 0f;
+            }
+
             if (_movementConfig?.Type == MovementType.SineWave)
             {
                 float amp  = _movementConfig.WaveAmplitudePixels;
@@ -1569,6 +1607,10 @@ class Program
             _animY = py;
             return;
         }
+
+        // Warn if IconZone mode has no path to follow (should not happen since ZonePlanner has fallback)
+        if (_backgroundMode == BackgroundMode.IconZone && _animPath.Count < 2)
+            _logger?.LogWarning("[IconZone] Path-following skipped: only {Count} waypoints available. Check icon detection and ZonePlanner output.", _animPath.Count);
 
         // Standard movement via MovementCalculator
         if (_movementConfig != null && _movementConfig.Type != MovementType.Static)

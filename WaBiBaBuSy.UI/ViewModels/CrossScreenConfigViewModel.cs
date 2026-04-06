@@ -131,6 +131,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     // ── IconZone mode ────────────────────────────────────────────────────────
     [ObservableProperty] private ObservableCollection<ZoneColorItem> _iconZonePalette = new();
     [ObservableProperty] private string _iconCorridorColorHex = "#1E1E1E";
+    [ObservableProperty] private bool _rotateWithPath = false;
 
     public bool IsSolidColorMode => BackgroundModeIndex == 0;
     public bool IsImageMode => BackgroundModeIndex == 1 || BackgroundModeIndex == 2;
@@ -259,6 +260,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         int zIdx = 0;
         foreach (var hex in config.Background.IconZonePaletteHexes)
             IconZonePalette.Add(new ZoneColorItem { ColorHex = hex, Label = $"Zone {++zIdx}" });
+        RotateWithPath = config.Animation.RotateWithPath;
         AnimationPath = config.Animation.AnimationPath;
         AnimationHeight = config.Animation.TargetHeight;
         AnimationLoop = config.Animation.Loop;
@@ -351,7 +353,8 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                 AnimationPath = AnimationPath,
                 TargetHeight = AnimationHeight,
                 Loop = AnimationLoop,
-                VerticalAlign = verticalAlign
+                VerticalAlign = verticalAlign,
+                RotateWithPath = RotateWithPath
             },
             AnimationSpeedPxPerSecond = AnimationSpeed,
             SelectedMonitorIds = selectedMonitorIds,

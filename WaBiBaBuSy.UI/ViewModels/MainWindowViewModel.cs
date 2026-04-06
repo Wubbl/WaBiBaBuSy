@@ -2639,12 +2639,16 @@ public partial class MainWindowViewModel : ViewModelBase
                     var firstScreen = firstMonitorIdx < screens.Length ? screens[firstMonitorIdx] : screens[0];
                     int virtualH = firstScreen.Bounds.Height;
 
+                    // Add padding equal to half the animation height so the A* path keeps
+                    // the full animation bitmap clear of icon zone rects, not just the center.
+                    int pathPaddingPx = _crossScreenConfig.Animation.TargetHeight / 2;
                     var globalLayout = WaBiBaBuSy.WallpaperEngine.Desktop.ZonePlanner.Compute(
                         allIcons.Select(i => (i.PixelX, i.PixelY)),
                         cellW, cellH,
                         canvasManager.VirtualBounds.Width, virtualH,
                         _crossScreenConfig.Background.IconZonePaletteHexes,
-                        _crossScreenConfig.Background.IconCorridorColorHex);
+                        _crossScreenConfig.Background.IconCorridorColorHex,
+                        paddingPx: pathPaddingPx);
 
                     // Clone animation config with global path attached
                     animationConfig = new AnimationLayerConfig

@@ -227,6 +227,12 @@ public class AnimationLayerConfig
     /// computing a local path from their own icon positions.
     /// </summary>
     public List<WaypointF>? PrecomputedPath { get; set; }
+
+    /// <summary>
+    /// When true, the animation rotates to align with the direction of travel along the corridor path.
+    /// Only has effect in IconZone background mode with path-following active.
+    /// </summary>
+    public bool RotateWithPath { get; set; } = false;
 }
 
 /// <summary>
