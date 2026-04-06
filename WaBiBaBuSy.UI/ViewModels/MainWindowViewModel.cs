@@ -2481,6 +2481,14 @@ public partial class MainWindowViewModel : ViewModelBase
             // Apply pre-selected wallpaper to auto-populate empty fields
             viewModel.ApplyPreSelectedWallpaper();
 
+            // Auto-detect background color if still at default (saves the user a manual click)
+            if ((string.IsNullOrEmpty(viewModel.BackgroundColor) || viewModel.BackgroundColor == "#000000")
+                && (!string.IsNullOrEmpty(viewModel.AnimationPath) || !string.IsNullOrEmpty(viewModel.BackgroundImagePath)))
+            {
+                try { await viewModel.AutoDetectBackgroundColorCommand.ExecuteAsync(null); }
+                catch (Exception ex) { Debug.WriteLine($"[CrossScreen] Auto-detect color failed: {ex.Message}"); }
+            }
+
             dialog.DataContext = viewModel;
 
             // Set close action so ViewModel can close the dialog
@@ -2615,6 +2623,50 @@ public partial class MainWindowViewModel : ViewModelBase
             // Get actual monitor bounds from Windows
             var screens = System.Windows.Forms.Screen.AllScreens;
 
+            // Sequential + IconZone: compute one global A* path across the full virtual canvas
+            // so all local monitors share the same coordinated corridor path.
+            var perMonitor = _crossScreenConfig.DistributionMode == AnimationDistributionMode.Simultaneous;
+            var animationConfig = _crossScreenConfig.Animation;
+            if (!perMonitor && _crossScreenConfig.Background.Mode == BackgroundMode.IconZone && localClients.Count > 0)
+            {
+                try
+                {
+                    var iconService = new WaBiBaBuSy.Core.Services.Desktop.DesktopIconService();
+                    var (cellW, cellH) = iconService.GetGridCellSize();
+                    var allIcons = iconService.GetIconPositions(); // positions in virtual-desktop (absolute) coords
+
+                    int firstMonitorIdx = GetMonitorIndex(localClients[0].ClientId);
+                    var firstScreen = firstMonitorIdx < screens.Length ? screens[firstMonitorIdx] : screens[0];
+                    int virtualH = firstScreen.Bounds.Height;
+
+                    var globalLayout = WaBiBaBuSy.WallpaperEngine.Desktop.ZonePlanner.Compute(
+                        allIcons.Select(i => (i.PixelX, i.PixelY)),
+                        cellW, cellH,
+                        canvasManager.VirtualBounds.Width, virtualH,
+                        _crossScreenConfig.Background.IconZonePaletteHexes,
+                        _crossScreenConfig.Background.IconCorridorColorHex);
+
+                    // Clone animation config with global path attached
+                    animationConfig = new AnimationLayerConfig
+                    {
+                        AnimationPath         = _crossScreenConfig.Animation.AnimationPath,
+                        TargetHeight          = _crossScreenConfig.Animation.TargetHeight,
+                        Loop                  = _crossScreenConfig.Animation.Loop,
+                        VerticalAlign         = _crossScreenConfig.Animation.VerticalAlign,
+                        CenterInitialPosition = _crossScreenConfig.Animation.CenterInitialPosition,
+                        SpeedMultiplier       = _crossScreenConfig.Animation.SpeedMultiplier,
+                        FitMode               = _crossScreenConfig.Animation.FitMode,
+                        PrecomputedPath       = globalLayout.Path
+                    };
+
+                    Debug.WriteLine($"[CrossScreen] IconZone sequential: computed global path with {globalLayout.Path.Count} waypoints across {canvasManager.VirtualBounds.Width}px virtual canvas");
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[CrossScreen] Global icon path failed, players will compute locally: {ex.Message}");
+                }
+            }
+
             // Phase 1: Initialize all D2D players (load animation, extract GIF frames)
             var newServices = new List<(int monitorIndex, D2DCompositionService service)>();
 
@@ -2646,11 +2698,10 @@ public partial class MainWindowViewModel : ViewModelBase
                 // Initialize (sends LOAD_ANIMATION to player process)
                 // Simultaneous = per-monitor (each monitor is its own canvas)
                 // Sequential = spanning (animation traverses virtual canvas across all monitors)
-                var perMonitor = _crossScreenConfig.DistributionMode == AnimationDistributionMode.Simultaneous;
                 await d2dService.InitializeAsync(
                     canvasManager,
                     _crossScreenConfig.Background,
-                    _crossScreenConfig.Animation,
+                    animationConfig,
                     actualBounds,
                     monitorIndex,
                     _crossScreenConfig.Movement,

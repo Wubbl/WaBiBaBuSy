@@ -303,7 +303,8 @@ class Program
     private static bool _hasCorridorConstraint;
 
     // IconZone mode — N-brush zone drawing + precomputed path
-    private static readonly List<(float Y, float Height, bool IsFree, ID2D1SolidColorBrush? Brush)> _iconZoneBands = new();
+    private static readonly List<(float Y, float Height, float X, float Width, bool IsFree, ID2D1SolidColorBrush? Brush)> _iconZoneBands = new();
+    private static Color4 _iconCorridorBgColor = new Color4(0.118f, 0.118f, 0.118f, 1f); // #1E1E1E default
     private static readonly List<(float X, float Y)> _animPath = new();
     private static float _animPathTotalLength;
 
@@ -1252,7 +1253,7 @@ class Program
         _corridorBrush?.Dispose();   _corridorBrush   = null;
 
         // Reset IconZone brushes and path
-        foreach (var (_, _, _, brush) in _iconZoneBands) brush?.Dispose();
+        foreach (var (_, _, _, _, _, brush) in _iconZoneBands) brush?.Dispose();
         _iconZoneBands.Clear();
         _animPath.Clear();
         _animPathTotalLength = 0f;
@@ -1297,11 +1298,13 @@ class Program
 
             case BackgroundMode.IconZone:
             {
-                // Detect icons locally on this machine
+                _iconCorridorBgColor = ParseHexColor(config.IconCorridorColorHex);
+
                 var (cellW, cellH) = GetIconCellSize();
                 var iconPositions  = DetectDesktopIconPositions();
                 _logger?.LogInformation("[IconZone] Detected {Count} icons, cell={W}x{H}px", iconPositions.Count, cellW, cellH);
 
+                // Always compute local zones for background rendering
                 var layout = WaBiBaBuSy.WallpaperEngine.Desktop.ZonePlanner.Compute(
                     iconPositions, cellW, cellH, _width, _height,
                     config.IconZonePaletteHexes, config.IconCorridorColorHex);
@@ -1309,10 +1312,32 @@ class Program
                 foreach (var band in layout.Bands)
                 {
                     var brush = _d2dContext!.CreateSolidColorBrush(ParseHexColor(band.ColorHex));
-                    _iconZoneBands.Add((band.Y, band.Height, band.IsFree, brush));
+                    _iconZoneBands.Add((band.Y, band.Height, band.X, band.Width, band.IsFree, brush));
                 }
-                foreach (var wp in layout.Path)
-                    _animPath.Add((wp.X, wp.Y));
+
+                // Path: use centrally-precomputed path (sequential mode) if provided,
+                // otherwise use locally-computed path and shift to virtual-canvas space.
+                var precomputed = _animationConfig?.PrecomputedPath;
+                if (precomputed?.Count > 0)
+                {
+                    _logger?.LogInformation("[IconZone] Using precomputed global path ({Pts} waypoints)", precomputed.Count);
+                    foreach (var wp in precomputed)
+                        _animPath.Add((wp.X, wp.Y));
+                }
+                else
+                {
+                    foreach (var wp in layout.Path)
+                        _animPath.Add((wp.X, wp.Y));
+
+                    // Shift local path to virtual-canvas space for sequential mode
+                    if (_monitorOffsetX != 0)
+                    {
+                        _logger?.LogInformation("[IconZone] Shifting path by MonitorOffsetX={Offset}px for sequential mode", _monitorOffsetX);
+                        for (int i = 0; i < _animPath.Count; i++)
+                            _animPath[i] = (_animPath[i].X + _monitorOffsetX, _animPath[i].Y);
+                    }
+                }
+
                 _animPathTotalLength = ComputePathLength(_animPath);
                 _logger?.LogInformation("[BG-D2D] IconZone: {Bands} bands, {Pts} path points, totalLen={Len:F0}px",
                     _iconZoneBands.Count, _animPath.Count, _animPathTotalLength);
@@ -1387,10 +1412,13 @@ class Program
                 break;
 
             case BackgroundMode.IconZone:
-                _d2dContext.Clear(new Color4(0, 0, 0, 1));
-                foreach (var (zY, zH, _, zBrush) in _iconZoneBands)
-                    if (zBrush != null)
-                        _d2dContext.FillRectangle(new System.Drawing.RectangleF(0, zY, _width, zH), zBrush);
+                _d2dContext.Clear(_iconCorridorBgColor);
+                foreach (var (zY, zH, zX, zW, isFree, zBrush) in _iconZoneBands)
+                    if (!isFree && zBrush != null)
+                    {
+                        float drawW = zW < 0 ? _width : zW;
+                        _d2dContext.FillRectangle(new System.Drawing.RectangleF(zX, zY, drawW, zH), zBrush);
+                    }
                 break;
         }
     }
@@ -1508,7 +1536,7 @@ class Program
     /// </summary>
     private static void UpdateAnimationPosition(long elapsedMs)
     {
-        // IconZone: path-following (path uses local screen coords, no monitor offset needed)
+        // IconZone: path-following. Path is in virtual-canvas space; subtract MonitorOffsetX to get local coords.
         if (_backgroundMode == BackgroundMode.IconZone && _animPath.Count >= 2)
         {
             float speed = _movementConfig?.SpeedPixelsPerSecond ?? 300f;
@@ -1537,7 +1565,7 @@ class Program
                 py = ClampToNearestFreeBand(py + sinOffset);
             }
 
-            _animX = px;
+            _animX = px - _monitorOffsetX;  // Convert virtual-canvas X → local screen X
             _animY = py;
             return;
         }
@@ -1606,22 +1634,9 @@ class Program
 
     private static float ClampToNearestFreeBand(float y)
     {
-        if (_iconZoneBands.Count == 0) return y;
-
-        // Find the free band whose center is nearest to y
-        float bestY = y;
-        float bestDist = float.MaxValue;
-        foreach (var (bY, bH, isFree, _) in _iconZoneBands)
-        {
-            if (!isFree) continue;
-            float minY = bY;
-            float maxY = bY + bH - _animHeight;
-            if (maxY < minY) maxY = minY;
-            float clamped = Math.Clamp(y, minY, maxY);
-            float dist = MathF.Abs(clamped - y);
-            if (dist < bestDist) { bestDist = dist; bestY = clamped; }
-        }
-        return bestY;
+        // With 2D per-icon zones the free space is not described as bands;
+        // just clamp the sine offset to screen bounds so it doesn't go off-screen.
+        return Math.Clamp(y, 0f, Math.Max(0f, _height - _animHeight));
     }
 
     // ================================
@@ -2052,7 +2067,7 @@ class Program
         _corridorBrush?.Dispose();   _corridorBrush   = null;
         _hasCorridorConstraint = false;
 
-        foreach (var (_, _, _, brush) in _iconZoneBands) brush?.Dispose();
+        foreach (var (_, _, _, _, _, brush) in _iconZoneBands) brush?.Dispose();
         _iconZoneBands.Clear();
         _animPath.Clear();
 

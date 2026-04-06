@@ -99,13 +99,16 @@ public enum BackgroundMode
 }
 
 /// <summary>
-/// A horizontal screen band used by IconZone mode (free corridor or icon-blocked zone).
+/// A rectangular zone used by IconZone mode (per-icon colored rect or free corridor).
+/// X/Width describe the 2D position; Width=-1 means "use full canvas width" (backward compat).
 /// </summary>
 public class ZoneRect
 {
+    public float X      { get; set; } = 0f;
+    public float Width  { get; set; } = -1f; // -1 = full canvas width (backward compat)
     public float Y      { get; set; }
     public float Height { get; set; }
-    /// <summary>True = animation can enter this band; false = blocked by icons.</summary>
+    /// <summary>True = animation can enter this zone; false = blocked by icons.</summary>
     public bool  IsFree { get; set; }
     public string ColorHex { get; set; } = "#000000";
 }
@@ -217,6 +220,13 @@ public class AnimationLayerConfig
     /// Default: Stretch (fills entire screen, may distort aspect ratio)
     /// </summary>
     public ContentFitMode FitMode { get; set; } = ContentFitMode.Stretch;
+
+    /// <summary>
+    /// Precomputed animation path in virtual-canvas coordinates (for sequential IconZone mode).
+    /// When set by the server/main process, D2D players use this path directly instead of
+    /// computing a local path from their own icon positions.
+    /// </summary>
+    public List<WaypointF>? PrecomputedPath { get; set; }
 }
 
 /// <summary>

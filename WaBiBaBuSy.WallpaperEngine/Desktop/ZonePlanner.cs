@@ -3,30 +3,35 @@ using WaBiBaBuSy.Models.Wallpaper;
 namespace WaBiBaBuSy.WallpaperEngine.Desktop;
 
 /// <summary>
-/// Converts desktop icon pixel positions into zone bands and an animation path.
-///
-/// Merging: icons that are adjacent horizontally OR vertically are joined into one
-/// connected component via BFS flood-fill (4-connectivity). Each component becomes
-/// one colored zone rendered as its axis-aligned bounding box.
+/// Converts desktop icon pixel positions into per-icon 2D zone rects and a smooth
+/// animation path that navigates through the free space between icons via A* search
+/// with 8-directional (diagonal) movement.
 /// </summary>
 public static class ZonePlanner
 {
     /// <summary>
-    /// Computes zone bands and animation path from icon pixel positions.
+    /// Computes per-icon zone rects and an A* animation path through free space.
     /// </summary>
     /// <param name="iconPixels">Pixel top-left positions of each icon (screen coords).</param>
     /// <param name="cellW">Icon grid cell width in pixels.</param>
     /// <param name="cellH">Icon grid cell height in pixels.</param>
-    /// <param name="screenW">Monitor width in pixels.</param>
-    /// <param name="screenH">Monitor height in pixels.</param>
-    /// <param name="palette">Colors for occupied components (index 0..N-1).</param>
-    /// <param name="corridorColorHex">Color applied to free areas.</param>
+    /// <param name="screenW">Canvas width in pixels.</param>
+    /// <param name="screenH">Canvas height in pixels.</param>
+    /// <param name="palette">Colors for icon zones (cycled round-robin).</param>
+    /// <param name="corridorColorHex">Color applied to free space (used by caller for background).</param>
+    /// <param name="paddingPx">Extra padding around each icon zone in all directions.</param>
+    /// <param name="monitorOffsetX">
+    /// Virtual-canvas X offset for sequential multi-monitor mode.
+    /// All path waypoints are shifted by this value so they are in virtual-canvas space.
+    /// </param>
     public static ZoneLayout Compute(
         IEnumerable<(int X, int Y)> iconPixels,
         int cellW, int cellH,
         int screenW, int screenH,
         IList<string> palette,
-        string corridorColorHex = "#1E1E1E")
+        string corridorColorHex = "#1E1E1E",
+        int paddingPx = 0,
+        int monitorOffsetX = 0)
     {
         if (cellW <= 0) cellW = 75;
         if (cellH <= 0) cellH = 75;
@@ -34,196 +39,281 @@ public static class ZonePlanner
         int cols = Math.Max(1, (int)Math.Ceiling((double)screenW / cellW));
         int rows = Math.Max(1, (int)Math.Ceiling((double)screenH / cellH));
 
-        // ── 1. Build occupied grid ─────────────────────────────────────────
-        bool[,] occ = new bool[rows, cols];
+        // ── 1. Build occupied grid and per-icon zone rects ─────────────────
+        bool[,] occ  = new bool[rows, cols];
+        var bands    = new List<ZoneRect>();
+        int paletteIdx = 0;
+        int padCells   = paddingPx > 0
+            ? (int)Math.Ceiling((double)paddingPx / Math.Min(cellW, cellH))
+            : 0;
+
         foreach (var (px, py) in iconPixels)
         {
             int c = Math.Clamp(px / cellW, 0, cols - 1);
             int r = Math.Clamp(py / cellH, 0, rows - 1);
-            occ[r, c] = true;
-        }
 
-        // ── 2. 2D connected components via BFS (4-connectivity) ────────────
-        int[,] compId = new int[rows, cols];
-        for (int r = 0; r < rows; r++)
-            for (int c = 0; c < cols; c++)
-                compId[r, c] = -1;
-
-        var compBounds = new List<(int MinR, int MaxR, int MinC, int MaxC)>();
-        int[] dr = { -1, 1, 0, 0 };
-        int[] dc = { 0, 0, -1, 1 };
-
-        for (int r0 = 0; r0 < rows; r0++)
-        for (int c0 = 0; c0 < cols; c0++)
-        {
-            if (!occ[r0, c0] || compId[r0, c0] >= 0) continue;
-
-            int id = compBounds.Count;
-            int minR = r0, maxR = r0, minC = c0, maxC = c0;
-
-            var queue = new Queue<(int r, int c)>();
-            queue.Enqueue((r0, c0));
-            compId[r0, c0] = id;
-
-            while (queue.Count > 0)
+            // Mark this cell and padding-expanded neighbors as occupied
+            for (int dr = -padCells; dr <= padCells; dr++)
+            for (int dc = -padCells; dc <= padCells; dc++)
             {
-                var (r, c) = queue.Dequeue();
-                if (r < minR) minR = r; if (r > maxR) maxR = r;
-                if (c < minC) minC = c; if (c > maxC) maxC = c;
-
-                for (int d = 0; d < 4; d++)
-                {
-                    int nr = r + dr[d], nc = c + dc[d];
-                    if (nr >= 0 && nr < rows && nc >= 0 && nc < cols
-                        && occ[nr, nc] && compId[nr, nc] < 0)
-                    {
-                        compId[nr, nc] = id;
-                        queue.Enqueue((nr, nc));
-                    }
-                }
+                int nr = r + dr, nc = c + dc;
+                if (nr >= 0 && nr < rows && nc >= 0 && nc < cols)
+                    occ[nr, nc] = true;
             }
 
-            compBounds.Add((minR, maxR, minC, maxC));
+            // Per-icon 2D zone rect (cell bounds + padding, clamped to canvas)
+            float zX = Math.Max(0f, px - paddingPx);
+            float zY = Math.Max(0f, py - paddingPx);
+            float zW = Math.Min(cellW + 2 * paddingPx, screenW - zX);
+            float zH = Math.Min(cellH + 2 * paddingPx, screenH - zY);
+
+            string color = palette.Count > 0 ? palette[paletteIdx % palette.Count] : "#333333";
+            paletteIdx++;
+
+            bands.Add(new ZoneRect
+            {
+                X = zX, Y = zY,
+                Width = zW, Height = zH,
+                IsFree = false,
+                ColorHex = color
+            });
         }
 
-        // ── 3. Build zone rects (bounding box per component) ──────────────
-        var bands = new List<ZoneRect>();
-        for (int id = 0; id < compBounds.Count; id++)
-        {
-            var (minR, maxR, _, _) = compBounds[id];
-            string color = id < palette.Count ? palette[id] : "#333333";
-            float y = minR * cellH;
-            float h = Math.Min((maxR - minR + 1) * cellH, screenH - y);
-            bands.Add(new ZoneRect { Y = y, Height = h, IsFree = false, ColorHex = color });
-        }
+        // ── 2. Compute A* path through free space ──────────────────────────
+        var path = ComputeAStarPath(occ, cols, rows, cellW, cellH, screenW, screenH);
 
-        // ── 4. Free row-bands (for path & free zone rects) ────────────────
-        bool[] occupiedRow = new bool[rows];
-        for (int r = 0; r < rows; r++)
-            for (int c = 0; c < cols; c++)
-                if (occ[r, c]) { occupiedRow[r] = true; break; }
-
-        var rawBands = RunLengthEncodeRows(occupiedRow, rows);
-
-        // Add free bands as ZoneRects for rendering
-        foreach (var (startRow, endRow, isFree) in rawBands.Where(b => b.isFree))
-        {
-            float y = startRow * cellH;
-            float h = Math.Min((endRow - startRow + 1) * cellH, screenH - y);
-            bands.Add(new ZoneRect { Y = y, Height = h, IsFree = true, ColorHex = corridorColorHex });
-        }
-
-        // ── 5. Build waypoint path through free bands ─────────────────────
-        var path = BuildPath(rawBands, occ, cols, cellW, cellH, screenW);
+        // ── 3. Shift path to virtual-canvas coordinates ────────────────────
+        if (monitorOffsetX != 0)
+            for (int i = 0; i < path.Count; i++)
+                path[i] = new WaypointF { X = path[i].X + monitorOffsetX, Y = path[i].Y };
 
         return new ZoneLayout { Bands = bands, Path = path };
     }
 
-    // ── Path building ─────────────────────────────────────────────────────────
+    // ── A* Path Planning ─────────────────────────────────────────────────────
 
-    private static List<WaypointF> BuildPath(
-        List<(int startRow, int endRow, bool isFree)> rawBands,
-        bool[,] occ, int cols, int cellW, int cellH, int screenW)
+    private static List<WaypointF> ComputeAStarPath(
+        bool[,] occ, int cols, int rows, int cellW, int cellH, int screenW, int screenH)
     {
-        var freeBands = rawBands.Where(b => b.isFree).ToList();
-        var path = new List<WaypointF>();
-        if (freeBands.Count == 0) return path;
+        int midRow = rows / 2;
 
-        bool goRight = true;
-        for (int fi = 0; fi < freeBands.Count; fi++)
+        // Find best unoccupied row on left/right edges (prefer middle)
+        int startRow = FindNearestFreeRow(occ, col: 0,       rows, midRow);
+        int endRow   = FindNearestFreeRow(occ, col: cols - 1, rows, midRow);
+
+        var gScore = new Dictionary<int, float>();    // key = r*cols+c
+        var parent = new Dictionary<int, int>();      // key → parent key, -1 = none
+        // MinHeap: (fScore, key)
+        var open   = new MinHeap();
+        var closed = new HashSet<int>();
+
+        int startKey = startRow * cols + 0;
+        int endKey   = endRow   * cols + (cols - 1);
+
+        gScore[startKey] = 0f;
+        open.Push(Heuristic(startRow, 0, endRow, cols - 1), startKey);
+        parent[startKey] = -1;
+
+        // 8-directional movement: (dr, dc, cost)
+        int[]   dr      = { -1, -1, -1,  0,  0,  1,  1,  1 };
+        int[]   dc      = { -1,  0,  1, -1,  1, -1,  0,  1 };
+        float[] moveCost= { 1.4142f, 1f, 1.4142f, 1f, 1f, 1.4142f, 1f, 1.4142f };
+
+        bool found = false;
+        while (open.Count > 0)
         {
-            var fb = freeBands[fi];
-            float bandCenterY = fb.startRow * cellH + (fb.endRow - fb.startRow + 1) * cellH / 2f;
+            var (_, curKey) = open.Pop();
+            if (closed.Contains(curKey)) continue;
+            closed.Add(curKey);
 
-            if (goRight)
+            if (curKey == endKey) { found = true; break; }
+
+            int curR = curKey / cols, curC = curKey % cols;
+            float g = gScore.GetValueOrDefault(curKey, float.MaxValue);
+
+            for (int d = 0; d < 8; d++)
             {
-                path.Add(new WaypointF { X = 0,        Y = bandCenterY });
-                path.Add(new WaypointF { X = screenW,  Y = bandCenterY });
+                int nr = curR + dr[d], nc = curC + dc[d];
+                if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+
+                // Avoid cutting through corners of occupied cells diagonally
+                if (dr[d] != 0 && dc[d] != 0)
+                    if (IsOcc(occ, curR + dr[d], curC, rows, cols) &&
+                        IsOcc(occ, curR, curC + dc[d], rows, cols)) continue;
+
+                int nKey = nr * cols + nc;
+                if (closed.Contains(nKey)) continue;
+
+                // Occupied cells are passable but very costly (last resort)
+                float extra = IsOcc(occ, nr, nc, rows, cols) ? 50f : 0f;
+                float newG  = g + moveCost[d] + extra;
+
+                if (newG < gScore.GetValueOrDefault(nKey, float.MaxValue))
+                {
+                    gScore[nKey] = newG;
+                    parent[nKey] = curKey;
+                    open.Push(newG + Heuristic(nr, nc, endRow, cols - 1), nKey);
+                }
             }
-            else
-            {
-                path.Add(new WaypointF { X = screenW, Y = bandCenterY });
-                path.Add(new WaypointF { X = 0,       Y = bandCenterY });
-            }
-
-            if (fi < freeBands.Count - 1)
-            {
-                var nextFb = freeBands[fi + 1];
-                float nextCenterY = nextFb.startRow * cellH + (nextFb.endRow - nextFb.startRow + 1) * cellH / 2f;
-
-                int blockedRowStart = fb.endRow + 1;
-                int blockedRowEnd   = nextFb.startRow - 1;
-                float passageX = FindPassageX(occ, cols, blockedRowStart, blockedRowEnd, cellW, goRight, screenW);
-
-                path.Add(new WaypointF { X = passageX, Y = bandCenterY  });
-                path.Add(new WaypointF { X = passageX, Y = nextCenterY  });
-            }
-
-            goRight = !goRight;
         }
 
-        if (path.Count > 1)
-            path.Add(new WaypointF { X = path[0].X, Y = path[0].Y });
+        if (!found)
+        {
+            // Fallback: straight line from start to end
+            float sy = startRow * cellH + cellH * 0.5f;
+            float ey = endRow   * cellH + cellH * 0.5f;
+            return new List<WaypointF>
+            {
+                new() { X = 0,       Y = sy },
+                new() { X = screenW, Y = ey },
+                new() { X = 0,       Y = sy }   // loop closure
+            };
+        }
 
-        return path;
+        // Reconstruct raw grid path
+        var rawKeys = new List<int>();
+        int k = endKey;
+        while (k != -1)
+        {
+            rawKeys.Add(k);
+            k = parent.GetValueOrDefault(k, -1);
+        }
+        rawKeys.Reverse();
+
+        // Convert grid cells to pixel centers
+        var pixels = rawKeys.Select(key =>
+            (X: (key % cols) * cellW + cellW * 0.5f,
+             Y: (key / cols) * cellH + cellH * 0.5f)).ToList();
+
+        // String-pull: reduce waypoints via line-of-sight checks
+        var smoothed = StringPull(pixels, occ, cols, rows, cellW, cellH);
+
+        // Close the loop
+        if (smoothed.Count > 1)
+            smoothed.Add(new WaypointF { X = smoothed[0].X, Y = smoothed[0].Y });
+
+        return smoothed;
     }
 
-    private static float FindPassageX(
-        bool[,] occ, int cols,
-        int rowStart, int rowEnd, int cellW,
-        bool preferRight, int screenW)
+    private static int FindNearestFreeRow(bool[,] occ, int col, int rows, int preferRow)
     {
-        if (rowStart > rowEnd) return screenW / 2f;
-
-        int rows = occ.GetLength(0);
-        rowEnd = Math.Min(rowEnd, rows - 1);
-
-        for (int attempt = 0; attempt < 2; attempt++)
+        for (int delta = 0; delta < rows; delta++)
         {
-            bool right = (attempt == 0) == preferRight;
-            int s = right ? cols - 1 : 0;
-            int e = right ? -1 : cols;
-            int step = right ? -1 : 1;
-
-            for (int c = s; c != e; c += step)
-            {
-                bool clear = true;
-                for (int r = rowStart; r <= rowEnd; r++)
-                    if (r < rows && occ[r, c]) { clear = false; break; }
-                if (clear) return c * cellW + cellW / 2f;
-            }
+            int r1 = preferRow + delta;
+            int r2 = preferRow - delta;
+            if (r1 < rows && !occ[r1, col]) return r1;
+            if (r2 >= 0  && !occ[r2, col]) return r2;
         }
-
-        // Fallback: column with fewest icons
-        int best = cols / 2, bestCount = int.MaxValue;
-        for (int c = 0; c < cols; c++)
-        {
-            int n = 0;
-            for (int r = rowStart; r <= rowEnd; r++)
-                if (r < rows && occ[r, c]) n++;
-            if (n < bestCount) { bestCount = n; best = c; }
-        }
-        return best * cellW + cellW / 2f;
+        return preferRow; // All blocked; fall back to preferred row
     }
 
-    private static List<(int startRow, int endRow, bool isFree)> RunLengthEncodeRows(
-        bool[] occupiedRow, int rows)
+    private static float Heuristic(int r0, int c0, int r1, int c1)
     {
-        var result = new List<(int, int, bool)>();
-        if (rows == 0) return result;
+        float dr = r0 - r1, dc = c0 - c1;
+        return MathF.Sqrt(dr * dr + dc * dc);
+    }
 
-        bool cur = !occupiedRow[0];
-        int start = 0;
-        for (int r = 1; r <= rows; r++)
+    private static bool IsOcc(bool[,] occ, int r, int c, int rows, int cols)
+        => r >= 0 && r < rows && c >= 0 && c < cols && occ[r, c];
+
+    // ── String-pulling (visibility shortcutting) ─────────────────────────────
+
+    private static List<WaypointF> StringPull(
+        List<(float X, float Y)> pixels,
+        bool[,] occ, int cols, int rows, int cellW, int cellH)
+    {
+        if (pixels.Count <= 2)
+            return pixels.Select(p => new WaypointF { X = p.X, Y = p.Y }).ToList();
+
+        var result = new List<WaypointF> { new() { X = pixels[0].X, Y = pixels[0].Y } };
+        int i = 0;
+
+        while (i < pixels.Count - 1)
         {
-            bool rowFree = r < rows ? !occupiedRow[r] : !cur;
-            if (rowFree != cur)
-            {
-                result.Add((start, r - 1, cur));
-                start = r;
-                cur = rowFree;
-            }
+            // Find the furthest pixel we can reach from pixels[i] in a straight line
+            int j = pixels.Count - 1;
+            while (j > i + 1 &&
+                   !HasLineOfSight(occ, cols, rows, cellW, cellH, pixels[i], pixels[j]))
+                j--;
+
+            result.Add(new WaypointF { X = pixels[j].X, Y = pixels[j].Y });
+            i = j;
         }
+
         return result;
+    }
+
+    private static bool HasLineOfSight(
+        bool[,] occ, int cols, int rows, int cellW, int cellH,
+        (float X, float Y) from, (float X, float Y) to)
+    {
+        int c0 = (int)(from.X / cellW), r0 = (int)(from.Y / cellH);
+        int c1 = (int)(to.X   / cellW), r1 = (int)(to.Y   / cellH);
+
+        // Bresenham's line
+        int dc = Math.Abs(c1 - c0), dr = Math.Abs(r1 - r0);
+        int sc = c0 < c1 ? 1 : -1, sr = r0 < r1 ? 1 : -1;
+        int err = dc - dr;
+        int c = c0, r = r0;
+
+        while (true)
+        {
+            if (IsOcc(occ, r, c, rows, cols)) return false;
+            if (c == c1 && r == r1) break;
+            int e2 = 2 * err;
+            if (e2 > -dr) { err -= dr; c += sc; }
+            if (e2 <  dc) { err += dc; r += sr; }
+        }
+        return true;
+    }
+
+    // ── Minimal binary min-heap ───────────────────────────────────────────────
+
+    private sealed class MinHeap
+    {
+        private readonly List<(float Priority, int Key)> _data = new();
+
+        public int Count => _data.Count;
+
+        public void Push(float priority, int key)
+        {
+            _data.Add((priority, key));
+            BubbleUp(_data.Count - 1);
+        }
+
+        public (float Priority, int Key) Pop()
+        {
+            var top = _data[0];
+            int last = _data.Count - 1;
+            _data[0] = _data[last];
+            _data.RemoveAt(last);
+            if (_data.Count > 0) BubbleDown(0);
+            return top;
+        }
+
+        private void BubbleUp(int i)
+        {
+            while (i > 0)
+            {
+                int p = (i - 1) / 2;
+                if (_data[p].Priority <= _data[i].Priority) break;
+                (_data[p], _data[i]) = (_data[i], _data[p]);
+                i = p;
+            }
+        }
+
+        private void BubbleDown(int i)
+        {
+            int n = _data.Count;
+            while (true)
+            {
+                int l = 2 * i + 1, r = l + 1, min = i;
+                if (l < n && _data[l].Priority < _data[min].Priority) min = l;
+                if (r < n && _data[r].Priority < _data[min].Priority) min = r;
+                if (min == i) break;
+                (_data[min], _data[i]) = (_data[i], _data[min]);
+                i = min;
+            }
+        }
     }
 }
