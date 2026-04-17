@@ -159,6 +159,16 @@
                         </StackPanel>
 
                         <StackPanel Spacing="5">
+                            <TextBlock Text="Fit Mode:" FontSize="12"/>
+                            <ComboBox SelectedIndex="{Binding FitModeIndex}" Width="200" HorizontalAlignment="Left">
+                                <ComboBoxItem Content="Center (native resolution)"/>
+                                <ComboBoxItem Content="Fit (scale into screen)"/>
+                                <ComboBoxItem Content="Fill (cover screen)"/>
+                                <ComboBoxItem Content="Stretch (distort to screen)"/>
+                            </ComboBox>
+                        </StackPanel>
+
+                        <StackPanel Spacing="5" IsVisible="{Binding IsAnimationHeightRelevant}">
                             <TextBlock Text="Animation Height (pixels):" FontSize="12"/>
                             <NumericUpDown Value="{Binding AnimationHeight}"
                                            Minimum="100" Maximum="2160"

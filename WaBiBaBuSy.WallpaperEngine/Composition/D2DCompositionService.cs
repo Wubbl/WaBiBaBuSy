@@ -234,6 +234,26 @@ public class D2DCompositionService : IDisposable
     }
 
     /// <summary>
+    /// Broadcasts a debug-overlay toggle to every player hosted by this service.
+    /// Fire-and-forget — responses from players are not awaited.
+    /// </summary>
+    public async Task SendToggleDebugOverlayAsync(bool enabled, bool toggle)
+    {
+        foreach (var playerHost in _playerHosts.Values)
+        {
+            if (!playerHost.IsRunning) continue;
+            try
+            {
+                await playerHost.SendToggleDebugOverlayAsync(enabled, toggle);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to toggle debug overlay on a player host");
+            }
+        }
+    }
+
+    /// <summary>
     /// Show or hide all D2D player windows. Used for pause-on-fullscreen.
     /// </summary>
     public void SetPlayersVisible(bool visible)

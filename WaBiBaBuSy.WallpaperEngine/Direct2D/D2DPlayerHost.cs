@@ -470,6 +470,27 @@ public class D2DPlayerHost : IDisposable
     }
 
     /// <summary>
+    /// Sends a debug-overlay toggle to the player. When <paramref name="toggle"/> is true,
+    /// the player flips whatever state it is in, ignoring <paramref name="enabled"/>.
+    /// Fire-and-forget: we do not block waiting for a response so UI stays snappy even if
+    /// a player is unresponsive.
+    /// </summary>
+    public async Task SendToggleDebugOverlayAsync(bool enabled, bool toggle)
+    {
+        if (!IsRunning) return;
+        try
+        {
+            var cmd = new PlayerCommandToggleDebugOverlay { Enabled = enabled, Toggle = toggle };
+            var json = JsonConvert.SerializeObject(cmd);
+            await SendCommandAsync(json);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send debug overlay toggle");
+        }
+    }
+
+    /// <summary>
     /// Enable test mode: toggles between red and blue every 2 seconds.
     /// Use this to verify the swap chain is working (displaying different frames).
     /// </summary>

@@ -147,6 +147,12 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         _service = service;
 
+        // Kill any player processes left behind by a prior crashed/killed UI session so they
+        // can't keep rendering stale content over a fresh start.
+        int killed = KillOrphanPlayerProcesses();
+        if (killed > 0)
+            Debug.WriteLine($"[Startup] Killed {killed} orphan player process(es) from a prior session");
+
         // Initialize desktop manager for local wallpaper rendering
         _desktopManager = new DesktopWindowManager(AppLogger.CreateLogger<DesktopWindowManager>());
         _thumbnailGenerator = new VideoThumbnailGenerator(AppLogger.CreateLogger<VideoThumbnailGenerator>());
@@ -633,10 +639,58 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool CanStartCrossScreen() =>
         HasAnimationConfig && !IsCrossScreenRunning;
 
-    private bool CanClearAllWallpapers() =>
-        IsCrossScreenRunning || _d2dCompositionServices.Any() || _localWallpaperRenderers.Any();
+    /// <summary>
+    /// Force-kills any WaBiBaBuSy.Player.D2D.exe processes that are still running but no longer
+    /// tracked by this UI. Orphan players can arise after crashes, debug sessions, or when the
+    /// UI state is reset while player processes keep rendering stale content.
+    /// </summary>
+    private static int KillOrphanPlayerProcesses()
+    {
+        int killed = 0;
+        try
+        {
+            var current = Process.GetCurrentProcess().Id;
+            foreach (var proc in Process.GetProcessesByName("WaBiBaBuSy.Player.D2D"))
+            {
+                try
+                {
+                    if (proc.Id == current) { proc.Dispose(); continue; }
+                    proc.Kill(entireProcessTree: true);
+                    proc.WaitForExit(2000);
+                    killed++;
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[KillOrphans] Failed to kill PID {proc.Id}: {ex.Message}");
+                }
+                finally
+                {
+                    proc.Dispose();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[KillOrphans] Enumeration failed: {ex.Message}");
+        }
+        return killed;
+    }
 
-    [RelayCommand(CanExecute = nameof(CanClearAllWallpapers))]
+    /// <summary>
+    /// Broadcasts a debug overlay toggle to every active D2D player. Reliable alternative to
+    /// the F11 hotkey, which Avalonia or another process can capture first.
+    /// </summary>
+    [RelayCommand]
+    private async Task ToggleDebugOverlay()
+    {
+        foreach (var service in _d2dCompositionServices.Values)
+        {
+            try { await service.SendToggleDebugOverlayAsync(enabled: false, toggle: true); }
+            catch (Exception ex) { Debug.WriteLine($"[DebugOverlay] Toggle failed: {ex.Message}"); }
+        }
+    }
+
+    [RelayCommand]
     private async Task ClearAllWallpapers()
     {
         Debug.WriteLine("[ClearAll] Stopping animations and clearing wallpapers");
@@ -699,8 +753,16 @@ public partial class MainWindowViewModel : ViewModelBase
         // Stop fullscreen detection since no wallpapers are active
         StopFullscreenDetectionIfIdle();
 
+        // Finally, kill any lingering Player.D2D processes that this UI has lost track of
+        // (common after crashes, debug sessions, or stale state).
+        int killed = KillOrphanPlayerProcesses();
+        if (killed > 0)
+            Debug.WriteLine($"[ClearAll] Killed {killed} orphan player process(es)");
+
+        // Force IsCrossScreenRunning back to a sane state even if StopCrossScreen couldn't.
+        IsCrossScreenRunning = false;
+
         Debug.WriteLine("[ClearAll] All wallpapers cleared");
-        ClearAllWallpapersCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand]
@@ -2681,10 +2743,12 @@ public partial class MainWindowViewModel : ViewModelBase
 
                     // Effective animation height depends on FitMode. Using the actual rendered height
                     // keeps the server-side path padding in sync with what Player.D2D will compute
-                    // locally (pathPaddingPx = _animHeight / 2).
+                    // locally (pathPaddingPx = _animHeight / 2 + optional wave amplitude).
                     int effectiveHeight = ComputeEffectiveAnimationHeight(
                         _crossScreenConfig.Animation, firstScreen.Bounds.Width, virtualH);
                     int pathPaddingPx = effectiveHeight / 2;
+                    if (_crossScreenConfig.Movement.Type == MovementType.SineWave)
+                        pathPaddingPx += (int)Math.Ceiling(_crossScreenConfig.Movement.WaveAmplitudePixels);
                     var globalLayout = WaBiBaBuSy.WallpaperEngine.Desktop.ZonePlanner.Compute(
                         allIcons.Select(i => (i.PixelX, i.PixelY)),
                         cellW, cellH,

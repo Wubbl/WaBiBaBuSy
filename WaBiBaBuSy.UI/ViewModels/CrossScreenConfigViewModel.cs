@@ -80,6 +80,18 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     [ObservableProperty]
     private int _animationHeight = 720;
 
+    // 0 = Center (native resolution), 1 = Fit, 2 = Fill, 3 = Stretch
+    // Order matches ContentFitMode enum so the index maps directly.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsAnimationHeightRelevant))]
+    private int _fitModeIndex = (int)ContentFitMode.Center;
+
+    /// <summary>
+    /// True when AnimationHeight actually affects rendering. In Center mode the native
+    /// resolution wins and the height field is ignored, so the UI hides it.
+    /// </summary>
+    public bool IsAnimationHeightRelevant => (ContentFitMode)FitModeIndex != ContentFitMode.Center;
+
     [ObservableProperty]
     private int _verticalAlignmentIndex = 1; // Center
 
@@ -266,6 +278,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         RotateWithPath = config.Animation.RotateWithPath;
         AnimationPath = config.Animation.AnimationPath;
         AnimationHeight = config.Animation.TargetHeight;
+        FitModeIndex = (int)config.Animation.FitMode;
         AnimationLoop = config.Animation.Loop;
         AnimationSpeed = config.AnimationSpeedPxPerSecond;
 
@@ -355,6 +368,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             {
                 AnimationPath = AnimationPath,
                 TargetHeight = AnimationHeight,
+                FitMode = (ContentFitMode)FitModeIndex,
                 Loop = AnimationLoop,
                 VerticalAlign = verticalAlign,
                 RotateWithPath = RotateWithPath

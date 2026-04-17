@@ -53,10 +53,10 @@ class Program
     private const uint WM_HOTKEY = 0x0312;
     private const int IDC_ARROW = 32512;
 
-    // Debug overlay hotkey (F12)
+    // Debug overlay hotkey (F11 — F12 is taken by Avalonia Dev Tools in the main UI)
     private const int HOTKEY_ID_DEBUG_OVERLAY = 0xB1B1;
     private const uint MOD_NOREPEAT = 0x4000;
-    private const uint VK_F12 = 0x7B;
+    private const uint VK_F11 = 0x7A;
 
     [DllImport("user32.dll")]
     private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
@@ -285,7 +285,7 @@ class Program
     {
         Enabled = false,
         ShowPath = true,
-        ShowIconRects = false,
+        ShowIconRects = true,
         ShowZoneBandOutlines = false,
         ShowInfoPanel = true
     };
@@ -338,12 +338,24 @@ class Program
     private static Color4 _iconCorridorBgColor = new Color4(0.118f, 0.118f, 0.118f, 1f); // #1E1E1E default
     private static readonly List<(float X, float Y)> _animPath = new();
     private static float _animPathTotalLength;
+    // Raw per-monitor icon positions (local coords, set in InitializeBackground IconZone)
+    private static readonly List<(int X, int Y)> _detectedIcons = new();
+    private static int _detectedCellW = 75, _detectedCellH = 75;
+
+    // Actual movement trail — ring buffer of recent animation center positions in local space.
+    // Shows the true trajectory including SineWave offsets, so it can be compared to the A* path.
+    private const int MOVEMENT_TRAIL_CAPACITY = 180;
+    private static readonly (float X, float Y)[] _movementTrail = new (float X, float Y)[MOVEMENT_TRAIL_CAPACITY];
+    private static int _movementTrailCount;
+    private static int _movementTrailHead;
 
     // Debug overlay brushes — lazy-created the first time the overlay turns on.
     private static ID2D1SolidColorBrush? _debugPathBrush;
     private static ID2D1SolidColorBrush? _debugWaypointBrush;
     private static ID2D1SolidColorBrush? _debugAnimRectBrush;
     private static ID2D1SolidColorBrush? _debugInfoBrush;
+    private static ID2D1SolidColorBrush? _debugIconRectBrush;
+    private static ID2D1SolidColorBrush? _debugTrailBrush;
 
     // Stage 4: Animation positioning (ported from AnimationLayerRenderer)
     private static int _animWidth, _animHeight;    // Scaled by FitMode
@@ -537,12 +549,12 @@ class Program
 
             UpdateWindow(_hwnd);
 
-            // F12 global hotkey — toggles debug overlay from anywhere, even when a game is focused.
+            // F11 global hotkey — toggles debug overlay from anywhere, even when a game is focused.
             // Registration failure is non-fatal; the stdin command still works.
-            if (!RegisterHotKey(_hwnd, HOTKEY_ID_DEBUG_OVERLAY, MOD_NOREPEAT, VK_F12))
+            if (!RegisterHotKey(_hwnd, HOTKEY_ID_DEBUG_OVERLAY, MOD_NOREPEAT, VK_F11))
             {
                 var err = Marshal.GetLastWin32Error();
-                _logger?.LogWarning("[Debug] RegisterHotKey F12 failed (error={Err}). Overlay toggle is only available via stdin command.", err);
+                _logger?.LogWarning("[Debug] RegisterHotKey F11 failed (error={Err}). Overlay toggle is only available via stdin command.", err);
             }
         }
         finally
@@ -563,7 +575,7 @@ class Program
                 if (wParam.ToInt32() == HOTKEY_ID_DEBUG_OVERLAY)
                 {
                     _debugOverlay.Enabled = !_debugOverlay.Enabled;
-                    _logger?.LogInformation("[Debug] Overlay {State} via F12", _debugOverlay.Enabled ? "ON" : "OFF");
+                    _logger?.LogInformation("[Debug] Overlay {State} via F11", _debugOverlay.Enabled ? "ON" : "OFF");
                 }
                 return IntPtr.Zero;
             case WM_DESTROY:
@@ -1009,6 +1021,7 @@ class Program
                         _d2dContext.Clear(color);
                     }
 
+                    RecordMovementTrailSample();
                     DrawDebugOverlay();
 
                     _d2dContext.EndDraw();
@@ -1383,9 +1396,18 @@ class Program
                 _logger?.LogInformation("[IconZone] Monitor offset={Offset}px kept {Kept} of {Total} icons, cell={W}x{H}px",
                     _monitorOffsetX, iconPositions.Count, allIcons.Count, cellW, cellH);
 
+                _detectedIcons.Clear();
+                _detectedIcons.AddRange(iconPositions);
+                _detectedCellW = cellW;
+                _detectedCellH = cellH;
+
                 // Add padding equal to half the animation height so the A* path keeps the
                 // full animation bitmap clear of icon zone rects (not just the center point).
+                // SineWave adds a perpendicular oscillation, so include its amplitude here too
+                // — otherwise the oscillation pushes the animation into the icons.
                 int pathPaddingPx = _animHeight / 2;
+                if (_movementConfig?.Type == MovementType.SineWave)
+                    pathPaddingPx += (int)Math.Ceiling(_movementConfig.WaveAmplitudePixels);
                 // Always compute local zones for background rendering
                 var layout = WaBiBaBuSy.WallpaperEngine.Desktop.ZonePlanner.Compute(
                     iconPositions, cellW, cellH, _width, _height,
@@ -1520,9 +1542,25 @@ class Program
     }
 
     /// <summary>
-    /// Draw the debug overlay (path, waypoints, animation outline, state indicator) on top of
-    /// the current frame. Called once per frame right before EndDraw; fully inert when disabled.
-    /// Toggle via F12 hotkey or <see cref="PlayerCommandToggleDebugOverlay"/>.
+    /// Record the animation's current center point into the trail ring buffer for later rendering.
+    /// Called every frame regardless of overlay visibility, so the trail is ready the instant it
+    /// is toggled on.
+    /// </summary>
+    private static void RecordMovementTrailSample()
+    {
+        if (_animWidth <= 0 || _animHeight <= 0) return;
+        float cx = _animX + _animWidth * 0.5f;
+        float cy = _animY + _animHeight * 0.5f;
+        _movementTrail[_movementTrailHead] = (cx, cy);
+        _movementTrailHead = (_movementTrailHead + 1) % MOVEMENT_TRAIL_CAPACITY;
+        if (_movementTrailCount < MOVEMENT_TRAIL_CAPACITY) _movementTrailCount++;
+    }
+
+    /// <summary>
+    /// Draw the debug overlay on top of the current frame: A* path polyline and waypoints,
+    /// actual-movement trail, icon zone rects, animation outline, and status LED.
+    /// Called once per frame before EndDraw; fully inert when disabled.
+    /// Toggle via F11 hotkey or <see cref="PlayerCommandToggleDebugOverlay"/>.
     /// </summary>
     private static void DrawDebugOverlay()
     {
@@ -1534,15 +1572,35 @@ class Program
         _debugWaypointBrush ??= _d2dContext.CreateSolidColorBrush(new Color4(1f, 1f, 0.1f, 1f));   // yellow
         _debugAnimRectBrush ??= _d2dContext.CreateSolidColorBrush(new Color4(0f, 1f, 1f, 1f));     // cyan
         _debugInfoBrush     ??= _d2dContext.CreateSolidColorBrush(new Color4(0.1f, 1f, 0.2f, 1f)); // green
+        _debugIconRectBrush ??= _d2dContext.CreateSolidColorBrush(new Color4(1f, 0.2f, 0.2f, 1f)); // red
+        _debugTrailBrush    ??= _d2dContext.CreateSolidColorBrush(new Color4(1f, 0.6f, 0f, 1f));   // orange
 
-        // 1. Animation path polyline + waypoint markers.
+        // 1. Icon zone rects — overlays the planner's "occupied" rectangles so we can see what
+        //    the A* path is actually avoiding. Also draws a dot at each raw icon position.
+        if (_debugOverlay.ShowIconRects && _debugIconRectBrush != null)
+        {
+            foreach (var (zY, zH, zX, zW, isFree, _) in _iconZoneBands)
+            {
+                if (isFree) continue;
+                float drawW = zW < 0 ? _width : zW;
+                _d2dContext.DrawRectangle(new System.Drawing.RectangleF(zX, zY, drawW, zH),
+                    _debugIconRectBrush, strokeWidth: 1.5f);
+            }
+            foreach (var (ix, iy) in _detectedIcons)
+            {
+                var ellipse = new Vortice.Direct2D1.Ellipse(
+                    new Vector2(ix + _detectedCellW * 0.5f, iy + _detectedCellH * 0.5f), 3f, 3f);
+                _d2dContext.FillEllipse(ellipse, _debugIconRectBrush);
+            }
+        }
+
+        // 2. A* path polyline + waypoint markers.
         if (_debugOverlay.ShowPath && _debugPathBrush != null && _debugWaypointBrush != null && _animPath.Count >= 2)
         {
             for (int i = 0; i < _animPath.Count - 1; i++)
             {
                 var a = _animPath[i];
                 var b = _animPath[i + 1];
-                // Path is in virtual-canvas coords; convert to this monitor's local space.
                 var pa = new Vector2(a.X - _monitorOffsetX, a.Y);
                 var pb = new Vector2(b.X - _monitorOffsetX, b.Y);
                 _d2dContext.DrawLine(pa, pb, _debugPathBrush, strokeWidth: 2f);
@@ -1555,16 +1613,33 @@ class Program
             }
         }
 
-        // 2. Current animation bitmap outline — shows actual rendered size vs. expected position.
+        // 3. Actual movement trail — shows what the animation's center is doing, including
+        //    SineWave offsets. If the trail wanders into red icon rects, movement is wrong.
+        if (_debugOverlay.ShowPath && _debugTrailBrush != null && _movementTrailCount >= 2)
+        {
+            int first = _movementTrailCount < MOVEMENT_TRAIL_CAPACITY
+                ? 0
+                : _movementTrailHead;
+            for (int i = 1; i < _movementTrailCount; i++)
+            {
+                int prev = (first + i - 1) % MOVEMENT_TRAIL_CAPACITY;
+                int cur  = (first + i)     % MOVEMENT_TRAIL_CAPACITY;
+                var a = _movementTrail[prev];
+                var b = _movementTrail[cur];
+                _d2dContext.DrawLine(new Vector2(a.X, a.Y), new Vector2(b.X, b.Y),
+                    _debugTrailBrush, strokeWidth: 1.5f);
+            }
+        }
+
+        // 4. Current animation bitmap outline — shows actual rendered size vs. expected position.
         if (_debugAnimRectBrush != null && _animWidth > 0 && _animHeight > 0)
         {
             var rect = new System.Drawing.RectangleF(_animX, _animY, _animWidth, _animHeight);
             _d2dContext.DrawRectangle(rect, _debugAnimRectBrush, strokeWidth: 2f);
         }
 
-        // 3. State indicator (top-left): a small green square per-monitor so we can tell each
-        // player is in debug mode even without text rendering. Deliberately simple for v1;
-        // richer info panel (DirectWrite text) is a future extension.
+        // 5. Status LED (top-left) — proves each player's debug overlay is running even on
+        //    monitors that otherwise look empty. Deliberately simple; text panel is a future add.
         if (_debugOverlay.ShowInfoPanel && _debugInfoBrush != null)
         {
             var led = new System.Drawing.RectangleF(8, 8, 16, 16);
@@ -1694,27 +1769,33 @@ class Program
 
             var (px, py) = SamplePath(_animPath, dist);
 
-            // Compute rotation angle from path tangent (look ahead a small distance)
-            if (_rotateWithPath && _animPathTotalLength > 0f)
+            // Compute path tangent when either rotation or SineWave perpendicular offset
+            // is active — both consume it.
+            bool needsTangent = _rotateWithPath || _movementConfig?.Type == MovementType.SineWave;
+            float tangentAngle = 0f;
+            if (needsTangent && _animPathTotalLength > 0f)
             {
                 float lookAhead = MathF.Min(10f, _animPathTotalLength * 0.01f);
                 bool nearEnd = dist > _animPathTotalLength - lookAhead;
                 var (px2, py2) = SamplePath(_animPath, nearEnd ? dist - lookAhead : (dist + lookAhead) % _animPathTotalLength);
                 float dx = nearEnd ? px - px2 : px2 - px;
                 float dy = nearEnd ? py - py2 : py2 - py;
-                _animRotationRad = MathF.Atan2(dy, dx);
+                tangentAngle = MathF.Atan2(dy, dx);
             }
-            else
-            {
-                _animRotationRad = 0f;
-            }
+            _animRotationRad = _rotateWithPath ? tangentAngle : 0f;
 
             if (_movementConfig?.Type == MovementType.SineWave)
             {
                 float amp  = _movementConfig.WaveAmplitudePixels;
                 float freq = _movementConfig.WaveFrequencyHz;
                 float sinOffset = MathF.Sin(elapsedMs / 1000f * freq * MathF.Tau) * amp;
-                py = ClampToNearestFreeBand(py + sinOffset);
+                // Oscillate perpendicular to path direction so the wave stays inside the padded
+                // corridor. Perpendicular of (cos θ, sin θ) is (−sin θ, cos θ).
+                float perpX = -MathF.Sin(tangentAngle);
+                float perpY =  MathF.Cos(tangentAngle);
+                px += perpX * sinOffset;
+                py += perpY * sinOffset;
+                py = Math.Clamp(py, 0f, Math.Max(0f, _height - _animHeight));
             }
 
             _animX = px - _monitorOffsetX;  // Convert virtual-canvas X → local screen X
@@ -2276,6 +2357,8 @@ class Program
         _debugWaypointBrush?.Dispose(); _debugWaypointBrush = null;
         _debugAnimRectBrush?.Dispose(); _debugAnimRectBrush = null;
         _debugInfoBrush?.Dispose();     _debugInfoBrush = null;
+        _debugIconRectBrush?.Dispose(); _debugIconRectBrush = null;
+        _debugTrailBrush?.Dispose();    _debugTrailBrush = null;
 
         // Dispose D2D/D3D resources (Stage 1 order)
         _d2dContext?.Dispose();

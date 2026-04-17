@@ -82,7 +82,14 @@
                     </StackPanel>
                 </StackPanel>
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+                <!-- WrapPanel so buttons flow to a second row when the window is narrow instead of clipping.
+                     Avalonia 11.x WrapPanel has no ItemSpacing; children use Margin for spacing instead. -->
+                <WrapPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <WrapPanel.Styles>
+                        <Style Selector="WrapPanel > :is(Control)">
+                            <Setter Property="Margin" Value="0,3,8,3"/>
+                        </Style>
+                    </WrapPanel.Styles>
                     <!-- Apply via LibVLC -->
                     <Button Content="Apply via LibVLC"
                             Command="{Binding ApplyWallpaperToSelectedCommand}"/>
@@ -132,7 +139,12 @@
                     <!-- Clear Wallpaper (outside group) -->
                     <Button Content="Clear Wallpaper"
                             Command="{Binding ClearAllWallpapersCommand}"/>
-                </StackPanel>
+
+                    <!-- Debug Overlay Toggle: reliable alternative to F11 (which Avalonia may steal) -->
+                    <Button Content="Debug Overlay"
+                            Command="{Binding ToggleDebugOverlayCommand}"
+                            ToolTip.Tip="Show/hide path, icon rects, and movement trail on every active player (F11 hotkey also works if not captured)."/>
+                </WrapPanel>
             </Grid>
         </Border>
 
