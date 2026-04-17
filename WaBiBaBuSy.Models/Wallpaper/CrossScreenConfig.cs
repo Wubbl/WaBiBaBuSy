@@ -217,9 +217,9 @@ public class AnimationLayerConfig
 
     /// <summary>
     /// How the animation content is fitted to the screen.
-    /// Default: Stretch (fills entire screen, may distort aspect ratio)
+    /// Default: Center (render at native resolution — no scaling, preserves sharpness).
     /// </summary>
-    public ContentFitMode FitMode { get; set; } = ContentFitMode.Stretch;
+    public ContentFitMode FitMode { get; set; } = ContentFitMode.Center;
 
     /// <summary>
     /// Precomputed animation path in virtual-canvas coordinates (for sequential IconZone mode).

@@ -50,7 +50,19 @@ class Program
     private const uint WM_PAINT = 0x000F;
     private const uint WM_ERASEBKGND = 0x0014;
     private const uint WM_DESTROY = 0x0002;
+    private const uint WM_HOTKEY = 0x0312;
     private const int IDC_ARROW = 32512;
+
+    // Debug overlay hotkey (F12)
+    private const int HOTKEY_ID_DEBUG_OVERLAY = 0xB1B1;
+    private const uint MOD_NOREPEAT = 0x4000;
+    private const uint VK_F12 = 0x7B;
+
+    [DllImport("user32.dll")]
+    private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+    [DllImport("user32.dll")]
+    private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
     // Win32 imports
     [DllImport("user32.dll")]
@@ -260,6 +272,24 @@ class Program
     private static volatile string? _pendingParentCommand = null;
     private static readonly object _parentLock = new();
 
+    // Debug overlay state (togglable via F12 hotkey or cmd_toggle_debug_overlay stdin message)
+    private struct DebugOverlayState
+    {
+        public bool Enabled;
+        public bool ShowPath;
+        public bool ShowIconRects;
+        public bool ShowZoneBandOutlines;
+        public bool ShowInfoPanel;
+    }
+    private static DebugOverlayState _debugOverlay = new()
+    {
+        Enabled = false,
+        ShowPath = true,
+        ShowIconRects = false,
+        ShowZoneBandOutlines = false,
+        ShowInfoPanel = true
+    };
+
     // Composition system (video fallback path)
     private static CompositionRenderer? _compositionRenderer;
     private static VirtualCanvasManager? _canvasManager;
@@ -308,6 +338,12 @@ class Program
     private static Color4 _iconCorridorBgColor = new Color4(0.118f, 0.118f, 0.118f, 1f); // #1E1E1E default
     private static readonly List<(float X, float Y)> _animPath = new();
     private static float _animPathTotalLength;
+
+    // Debug overlay brushes — lazy-created the first time the overlay turns on.
+    private static ID2D1SolidColorBrush? _debugPathBrush;
+    private static ID2D1SolidColorBrush? _debugWaypointBrush;
+    private static ID2D1SolidColorBrush? _debugAnimRectBrush;
+    private static ID2D1SolidColorBrush? _debugInfoBrush;
 
     // Stage 4: Animation positioning (ported from AnimationLayerRenderer)
     private static int _animWidth, _animHeight;    // Scaled by FitMode
@@ -500,6 +536,14 @@ class Program
             }
 
             UpdateWindow(_hwnd);
+
+            // F12 global hotkey — toggles debug overlay from anywhere, even when a game is focused.
+            // Registration failure is non-fatal; the stdin command still works.
+            if (!RegisterHotKey(_hwnd, HOTKEY_ID_DEBUG_OVERLAY, MOD_NOREPEAT, VK_F12))
+            {
+                var err = Marshal.GetLastWin32Error();
+                _logger?.LogWarning("[Debug] RegisterHotKey F12 failed (error={Err}). Overlay toggle is only available via stdin command.", err);
+            }
         }
         finally
         {
@@ -515,6 +559,13 @@ class Program
                 return IntPtr.Zero;
             case WM_ERASEBKGND:
                 return new IntPtr(1);
+            case WM_HOTKEY:
+                if (wParam.ToInt32() == HOTKEY_ID_DEBUG_OVERLAY)
+                {
+                    _debugOverlay.Enabled = !_debugOverlay.Enabled;
+                    _logger?.LogInformation("[Debug] Overlay {State} via F12", _debugOverlay.Enabled ? "ON" : "OFF");
+                }
+                return IntPtr.Zero;
             case WM_DESTROY:
                 _running = false;
                 return IntPtr.Zero;
@@ -958,6 +1009,8 @@ class Program
                         _d2dContext.Clear(color);
                     }
 
+                    DrawDebugOverlay();
+
                     _d2dContext.EndDraw();
                     _d2dContext.Target = null;
                     _swapChain.Present(0, PresentFlags.None);
@@ -1314,13 +1367,21 @@ class Program
                 _iconCorridorBgColor = ParseHexColor(config.IconCorridorColorHex);
 
                 var (cellW, cellH) = GetIconCellSize();
-                // On multi-monitor single-machine setups, all players share the same Progman/SysListView32.
-                // LVM_GETITEMPOSITION returns primary-monitor icon positions, so secondary monitors
-                // (monitorOffsetX > 0) must not render those rects — they belong to the first monitor only.
-                var iconPositions = _monitorOffsetX == 0
-                    ? DetectDesktopIconPositions()
-                    : new List<(int X, int Y)>();
-                _logger?.LogInformation("[IconZone] Detected {Count} icons, cell={W}x{H}px (monitorOffset={Offset}px)", iconPositions.Count, cellW, cellH, _monitorOffsetX);
+                // LVM_GETITEMPOSITION returns every desktop icon in virtual-screen coords.
+                // Each player keeps only icons whose cell rectangle intersects its own monitor rect
+                // [_monitorOffsetX, _monitorOffsetX + _width) × [0, _height), then shifts to local space.
+                var allIcons = DetectDesktopIconPositions();
+                var iconPositions = new List<(int X, int Y)>(allIcons.Count);
+                foreach (var (ix, iy) in allIcons)
+                {
+                    if (ix + cellW <= _monitorOffsetX) continue;
+                    if (ix >= _monitorOffsetX + _width) continue;
+                    if (iy + cellH <= 0) continue;
+                    if (iy >= _height) continue;
+                    iconPositions.Add((ix - _monitorOffsetX, iy));
+                }
+                _logger?.LogInformation("[IconZone] Monitor offset={Offset}px kept {Kept} of {Total} icons, cell={W}x{H}px",
+                    _monitorOffsetX, iconPositions.Count, allIcons.Count, cellW, cellH);
 
                 // Add padding equal to half the animation height so the A* path keeps the
                 // full animation bitmap clear of icon zone rects (not just the center point).
@@ -1456,6 +1517,59 @@ class Program
             return new Color4(r / 255f, g / 255f, b / 255f, 1f);
         }
         return new Color4(0, 0, 0, 1); // Default black
+    }
+
+    /// <summary>
+    /// Draw the debug overlay (path, waypoints, animation outline, state indicator) on top of
+    /// the current frame. Called once per frame right before EndDraw; fully inert when disabled.
+    /// Toggle via F12 hotkey or <see cref="PlayerCommandToggleDebugOverlay"/>.
+    /// </summary>
+    private static void DrawDebugOverlay()
+    {
+        if (!_debugOverlay.Enabled) return;
+        if (_d2dContext == null) return;
+
+        // Lazy-create brushes the first time the overlay is used.
+        _debugPathBrush     ??= _d2dContext.CreateSolidColorBrush(new Color4(1f, 0.1f, 0.9f, 1f)); // magenta
+        _debugWaypointBrush ??= _d2dContext.CreateSolidColorBrush(new Color4(1f, 1f, 0.1f, 1f));   // yellow
+        _debugAnimRectBrush ??= _d2dContext.CreateSolidColorBrush(new Color4(0f, 1f, 1f, 1f));     // cyan
+        _debugInfoBrush     ??= _d2dContext.CreateSolidColorBrush(new Color4(0.1f, 1f, 0.2f, 1f)); // green
+
+        // 1. Animation path polyline + waypoint markers.
+        if (_debugOverlay.ShowPath && _debugPathBrush != null && _debugWaypointBrush != null && _animPath.Count >= 2)
+        {
+            for (int i = 0; i < _animPath.Count - 1; i++)
+            {
+                var a = _animPath[i];
+                var b = _animPath[i + 1];
+                // Path is in virtual-canvas coords; convert to this monitor's local space.
+                var pa = new Vector2(a.X - _monitorOffsetX, a.Y);
+                var pb = new Vector2(b.X - _monitorOffsetX, b.Y);
+                _d2dContext.DrawLine(pa, pb, _debugPathBrush, strokeWidth: 2f);
+            }
+            foreach (var (wx, wy) in _animPath)
+            {
+                var ellipse = new Vortice.Direct2D1.Ellipse(
+                    new Vector2(wx - _monitorOffsetX, wy), 4f, 4f);
+                _d2dContext.FillEllipse(ellipse, _debugWaypointBrush);
+            }
+        }
+
+        // 2. Current animation bitmap outline — shows actual rendered size vs. expected position.
+        if (_debugAnimRectBrush != null && _animWidth > 0 && _animHeight > 0)
+        {
+            var rect = new System.Drawing.RectangleF(_animX, _animY, _animWidth, _animHeight);
+            _d2dContext.DrawRectangle(rect, _debugAnimRectBrush, strokeWidth: 2f);
+        }
+
+        // 3. State indicator (top-left): a small green square per-monitor so we can tell each
+        // player is in debug mode even without text rendering. Deliberately simple for v1;
+        // richer info panel (DirectWrite text) is a future extension.
+        if (_debugOverlay.ShowInfoPanel && _debugInfoBrush != null)
+        {
+            var led = new System.Drawing.RectangleF(8, 8, 16, 16);
+            _d2dContext.FillRectangle(led, _debugInfoBrush);
+        }
     }
 
     // ================================
@@ -1879,6 +1993,17 @@ class Program
                     HandleStopAnimationCommand();
                     break;
 
+                case "cmd_toggle_debug_overlay":
+                    var overlayCmd = JsonConvert.DeserializeObject<PlayerCommandToggleDebugOverlay>(json);
+                    if (overlayCmd != null)
+                    {
+                        _debugOverlay.Enabled = overlayCmd.Toggle ? !_debugOverlay.Enabled : overlayCmd.Enabled;
+                        _logger?.LogInformation("[Debug] Overlay {State} via stdin", _debugOverlay.Enabled ? "ON" : "OFF");
+                    }
+                    else
+                        Console.WriteLine("ERROR:Failed to deserialize PlayerCommandToggleDebugOverlay");
+                    break;
+
                 default:
                     Console.WriteLine($"ERROR:Unknown JSON message type: {wrapper.MessageType}");
                     Console.Out.Flush();
@@ -1930,11 +2055,12 @@ class Program
                     // Extract GIF frames to GPU
                     ExtractGifFramesToD2D(filePath);
 
+                    // Calculate animation layout first so _animHeight is set
+                    // (InitializeBackground IconZone uses _animHeight / 2 as path padding)
+                    CalculateAnimationLayout(cmd.AnimationConfig);
+
                     // Initialize background (Stage 3)
                     InitializeBackground(cmd.BackgroundConfig);
-
-                    // Calculate animation layout (Stage 4)
-                    CalculateAnimationLayout(cmd.AnimationConfig);
 
                     _useNativeD2DComposition = true;
                     _logger?.LogInformation("[LOAD] Native D2D composition ready: {Frames} frames, {W}x{H}", _d2dGifFrames?.Length, _animWidth, _animHeight);
@@ -1946,11 +2072,11 @@ class Program
 
                     InitializeNativeVideo(filePath);
 
-                    InitializeBackground(cmd.BackgroundConfig);
-
                     _contentNativeWidth = _videoNativeWidth;
                     _contentNativeHeight = _videoNativeHeight;
                     CalculateAnimationLayout(cmd.AnimationConfig);
+
+                    InitializeBackground(cmd.BackgroundConfig);
 
                     _useNativeD2DVideo = true;
                     _logger?.LogInformation("[LOAD] Native D2D video ready: {W}x{H}", _videoNativeWidth, _videoNativeHeight);
@@ -1969,8 +2095,8 @@ class Program
                     _d2dGifDelays = [1000]; // Single frame, delay irrelevant
                     _d2dGifTotalDurationMs = 1000;
 
-                    InitializeBackground(cmd.BackgroundConfig);
                     CalculateAnimationLayout(cmd.AnimationConfig);
+                    InitializeBackground(cmd.BackgroundConfig);
 
                     _useNativeD2DComposition = true;
                     _logger?.LogInformation("[LOAD] Static image ready: {W}x{H}", _contentNativeWidth, _contentNativeHeight);
@@ -2145,6 +2271,12 @@ class Program
             _compositionInitialized = false;
         }
 
+        // Debug overlay brushes (lazy-created, may be null)
+        _debugPathBrush?.Dispose();     _debugPathBrush = null;
+        _debugWaypointBrush?.Dispose(); _debugWaypointBrush = null;
+        _debugAnimRectBrush?.Dispose(); _debugAnimRectBrush = null;
+        _debugInfoBrush?.Dispose();     _debugInfoBrush = null;
+
         // Dispose D2D/D3D resources (Stage 1 order)
         _d2dContext?.Dispose();
         _d2dDevice?.Dispose();
@@ -2156,6 +2288,7 @@ class Program
         // Destroy window
         if (_hwnd != IntPtr.Zero)
         {
+            UnregisterHotKey(_hwnd, HOTKEY_ID_DEBUG_OVERLAY);
             DestroyWindow(_hwnd);
             _hwnd = IntPtr.Zero;
         }

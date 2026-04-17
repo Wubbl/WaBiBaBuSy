@@ -8,9 +8,9 @@
         x:DataType="vm:CrossScreenConfigViewModel"
         Icon="/Assets/BiBaBuColorIcon.ico"
         Title="Animation Configuration"
-        Width="600" Height="750"
+        Width="600" Height="750" MinWidth="500" MinHeight="500"
         WindowStartupLocation="CenterOwner"
-        CanResize="False">
+        CanResize="True">
 
     <Design.DataContext>
         <vm:CrossScreenConfigViewModel/>
@@ -22,7 +22,7 @@
                    FontSize="18" FontWeight="Bold" Margin="0,0,0,20"/>
 
         <!-- Configuration Form -->
-        <ScrollViewer Grid.Row="1">
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Visible">
             <StackPanel Spacing="15">
 
                 <!-- Background Configuration -->

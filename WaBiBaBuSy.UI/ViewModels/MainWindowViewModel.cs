@@ -24,6 +24,7 @@ using WaBiBaBuSy.WallpaperEngine.Composition;
 using WaBiBaBuSy.WallpaperEngine.Native;
 using WaBiBaBuSy.WallpaperEngine.Renderers;
 using WaBiBaBuSy.WallpaperEngine.Services;
+using WaBiBaBuSy.Core.Services.Desktop;
 using WaBiBaBuSy.UI.Services;
 
 namespace WaBiBaBuSy.UI.ViewModels;
@@ -586,6 +587,42 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private static int GetMonitorIndex(string clientId) =>
         int.Parse(clientId.Replace("LOCAL_MACHINE_MONITOR_", "").Replace("SERVER_LOCALHOST_MONITOR_", ""));
+
+    /// <summary>
+    /// Computes the effective rendered animation height in pixels for a given FitMode,
+    /// matching the sizing logic in Player.D2D's CalculateAnimationLayout. Used to size
+    /// the server-side A* path padding to the actual animation bitmap.
+    /// </summary>
+    private static int ComputeEffectiveAnimationHeight(AnimationLayerConfig anim, int screenWidth, int screenHeight)
+    {
+        try
+        {
+            int nativeW = 0, nativeH = 0;
+            if (!string.IsNullOrEmpty(anim.AnimationPath) && File.Exists(anim.AnimationPath))
+            {
+                using var img = System.Drawing.Image.FromFile(anim.AnimationPath);
+                nativeW = img.Width;
+                nativeH = img.Height;
+            }
+
+            if (nativeW <= 0 || nativeH <= 0)
+                return anim.TargetHeight;
+
+            return anim.FitMode switch
+            {
+                ContentFitMode.Center  => nativeH,
+                ContentFitMode.Fit     => (int)(nativeH * Math.Min((double)screenWidth / nativeW, (double)screenHeight / nativeH)),
+                ContentFitMode.Fill    => (int)(nativeH * Math.Max((double)screenWidth / nativeW, (double)screenHeight / nativeH)),
+                ContentFitMode.Stretch => screenHeight,
+                _                      => anim.TargetHeight
+            };
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[CrossScreen] Native-size probe failed for '{anim.AnimationPath}': {ex.Message}. Falling back to TargetHeight.");
+            return anim.TargetHeight;
+        }
+    }
 
     private bool CanApplyWallpaperToSelected() =>
         SelectedWallpaper != null && Clients.Any(c => c.IsSelected);
@@ -2463,15 +2500,18 @@ public partial class MainWindowViewModel : ViewModelBase
                 {
                     Background = new BackgroundLayerConfig
                     {
-                        Mode = BackgroundMode.SolidColor,
-                        ColorHex = "#000000"
+                        Mode = BackgroundMode.IconZone,
+                        ColorHex = "#000000",
+                        IconZonePaletteHexes = PaletteGenerator.GenerateHarmonious(8),
+                        IconCorridorColorHex = "#1E1E1E"
                     },
                     Animation = new AnimationLayerConfig
                     {
                         AnimationPath = string.Empty,
                         TargetHeight = 720,
                         Loop = true,
-                        VerticalAlign = VerticalAlignment.Center
+                        VerticalAlign = VerticalAlignment.Center,
+                        RotateWithPath = true
                     },
                     AnimationSpeedPxPerSecond = 500
                 };
@@ -2639,9 +2679,12 @@ public partial class MainWindowViewModel : ViewModelBase
                     var firstScreen = firstMonitorIdx < screens.Length ? screens[firstMonitorIdx] : screens[0];
                     int virtualH = firstScreen.Bounds.Height;
 
-                    // Add padding equal to half the animation height so the A* path keeps
-                    // the full animation bitmap clear of icon zone rects, not just the center.
-                    int pathPaddingPx = _crossScreenConfig.Animation.TargetHeight / 2;
+                    // Effective animation height depends on FitMode. Using the actual rendered height
+                    // keeps the server-side path padding in sync with what Player.D2D will compute
+                    // locally (pathPaddingPx = _animHeight / 2).
+                    int effectiveHeight = ComputeEffectiveAnimationHeight(
+                        _crossScreenConfig.Animation, firstScreen.Bounds.Width, virtualH);
+                    int pathPaddingPx = effectiveHeight / 2;
                     var globalLayout = WaBiBaBuSy.WallpaperEngine.Desktop.ZonePlanner.Compute(
                         allIcons.Select(i => (i.PixelX, i.PixelY)),
                         cellW, cellH,

@@ -66,7 +66,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     public WallpaperItemViewModel? PreSelectedWallpaper { get; set; }
 
     [ObservableProperty]
-    private int _backgroundModeIndex = 0;
+    private int _backgroundModeIndex = 4; // Icon Zone
 
     [ObservableProperty]
     private string _backgroundColor = "#000000";
@@ -131,7 +131,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     // ── IconZone mode ────────────────────────────────────────────────────────
     [ObservableProperty] private ObservableCollection<ZoneColorItem> _iconZonePalette = new();
     [ObservableProperty] private string _iconCorridorColorHex = "#1E1E1E";
-    [ObservableProperty] private bool _rotateWithPath = false;
+    [ObservableProperty] private bool _rotateWithPath = true;
 
     public bool IsSolidColorMode => BackgroundModeIndex == 0;
     public bool IsImageMode => BackgroundModeIndex == 1 || BackgroundModeIndex == 2;
@@ -257,8 +257,11 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         // IconZone
         IconCorridorColorHex = config.Background.IconCorridorColorHex;
         IconZonePalette.Clear();
+        var paletteHexes = config.Background.IconZonePaletteHexes.Count > 0
+            ? config.Background.IconZonePaletteHexes
+            : PaletteGenerator.GenerateHarmonious(8);
         int zIdx = 0;
-        foreach (var hex in config.Background.IconZonePaletteHexes)
+        foreach (var hex in paletteHexes)
             IconZonePalette.Add(new ZoneColorItem { ColorHex = hex, Label = $"Zone {++zIdx}" });
         RotateWithPath = config.Animation.RotateWithPath;
         AnimationPath = config.Animation.AnimationPath;
