@@ -31,7 +31,8 @@ public static class ZonePlanner
         IList<string> palette,
         string corridorColorHex = "#1E1E1E",
         int paddingPx = 0,
-        int monitorOffsetX = 0)
+        int monitorOffsetX = 0,
+        int visualPaddingPx = 8)
     {
         if (cellW <= 0) cellW = 75;
         if (cellH <= 0) cellH = 75;
@@ -61,11 +62,12 @@ public static class ZonePlanner
                     occ[nr, nc] = true;
             }
 
-            // Per-icon 2D zone rect (cell bounds + padding, clamped to canvas)
-            float zX = Math.Max(0f, px - paddingPx);
-            float zY = Math.Max(0f, py - paddingPx);
-            float zW = Math.Min(cellW + 2 * paddingPx, screenW - zX);
-            float zH = Math.Min(cellH + 2 * paddingPx, screenH - zY);
+            // Per-icon 2D zone rect: small visual padding only — pathfinding clearance
+            // (paddingPx) is kept separate so zones don't dwarf the icons they represent.
+            float zX = Math.Max(0f, px - visualPaddingPx);
+            float zY = Math.Max(0f, py - visualPaddingPx);
+            float zW = Math.Min(cellW + 2 * visualPaddingPx, screenW - zX);
+            float zH = Math.Min(cellH + 2 * visualPaddingPx, screenH - zY);
 
             string color = palette.Count > 0 ? palette[paletteIdx % palette.Count] : "#333333";
             paletteIdx++;

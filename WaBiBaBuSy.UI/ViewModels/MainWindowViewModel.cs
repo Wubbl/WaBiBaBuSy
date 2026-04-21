@@ -2755,7 +2755,8 @@ public partial class MainWindowViewModel : ViewModelBase
                         canvasManager.VirtualBounds.Width, virtualH,
                         _crossScreenConfig.Background.IconZonePaletteHexes,
                         _crossScreenConfig.Background.IconCorridorColorHex,
-                        paddingPx: pathPaddingPx);
+                        paddingPx: pathPaddingPx,
+                        visualPaddingPx: Math.Max(4, cellW / 10));
 
                     // Clone animation config with global path attached
                     animationConfig = new AnimationLayerConfig

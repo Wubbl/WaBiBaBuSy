@@ -1412,7 +1412,8 @@ class Program
                 var layout = WaBiBaBuSy.WallpaperEngine.Desktop.ZonePlanner.Compute(
                     iconPositions, cellW, cellH, _width, _height,
                     config.IconZonePaletteHexes, config.IconCorridorColorHex,
-                    paddingPx: pathPaddingPx);
+                    paddingPx: pathPaddingPx,
+                    visualPaddingPx: Math.Max(4, cellW / 10));
 
                 foreach (var band in layout.Bands)
                 {
@@ -1522,7 +1523,12 @@ class Program
                     if (!isFree && zBrush != null)
                     {
                         float drawW = zW < 0 ? _width : zW;
-                        _d2dContext.FillRectangle(new System.Drawing.RectangleF(zX, zY, drawW, zH), zBrush);
+                        _d2dContext.FillRoundedRectangle(
+                            new Vortice.Direct2D1.RoundedRectangle
+                            {
+                                Rect = new System.Drawing.RectangleF(zX, zY, drawW, zH),
+                                RadiusX = 8f, RadiusY = 8f
+                            }, zBrush);
                     }
                 break;
         }
@@ -1583,8 +1589,12 @@ class Program
             {
                 if (isFree) continue;
                 float drawW = zW < 0 ? _width : zW;
-                _d2dContext.DrawRectangle(new System.Drawing.RectangleF(zX, zY, drawW, zH),
-                    _debugIconRectBrush, strokeWidth: 1.5f);
+                _d2dContext.DrawRoundedRectangle(
+                    new Vortice.Direct2D1.RoundedRectangle
+                    {
+                        Rect = new System.Drawing.RectangleF(zX, zY, drawW, zH),
+                        RadiusX = 8f, RadiusY = 8f
+                    }, _debugIconRectBrush, strokeWidth: 1.5f);
             }
             foreach (var (ix, iy) in _detectedIcons)
             {
@@ -1795,11 +1805,14 @@ class Program
                 float perpY =  MathF.Cos(tangentAngle);
                 px += perpX * sinOffset;
                 py += perpY * sinOffset;
-                py = Math.Clamp(py, 0f, Math.Max(0f, _height - _animHeight));
+                // Clamp the center coordinate so the bitmap stays on-screen.
+                py = Math.Clamp(py, _animHeight / 2f, Math.Max(_animHeight / 2f, _height - _animHeight / 2f));
             }
 
-            _animX = px - _monitorOffsetX;  // Convert virtual-canvas X → local screen X
-            _animY = py;
+            // (px, py) is the animation CENTER in virtual-canvas space.
+            // _animX/_animY are the bitmap top-left, so offset by half the bitmap size.
+            _animX = px - _animWidth / 2f - _monitorOffsetX;
+            _animY = py - _animHeight / 2f;
             return;
         }
 
