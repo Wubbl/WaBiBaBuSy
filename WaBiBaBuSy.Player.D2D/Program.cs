@@ -1598,8 +1598,10 @@ class Program
             }
             foreach (var (ix, iy) in _detectedIcons)
             {
-                var ellipse = new Vortice.Direct2D1.Ellipse(
-                    new Vector2(ix + _detectedCellW * 0.5f, iy + _detectedCellH * 0.5f), 3f, 3f);
+                // Snap to cell center — same grid-cell logic as ZonePlanner zone rects.
+                int cellCx = (ix / _detectedCellW) * _detectedCellW + _detectedCellW / 2;
+                int cellCy = (iy / _detectedCellH) * _detectedCellH + _detectedCellH / 2;
+                var ellipse = new Vortice.Direct2D1.Ellipse(new Vector2(cellCx, cellCy), 3f, 3f);
                 _d2dContext.FillEllipse(ellipse, _debugIconRectBrush);
             }
         }

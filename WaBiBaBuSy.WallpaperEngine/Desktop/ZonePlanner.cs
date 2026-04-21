@@ -62,10 +62,11 @@ public static class ZonePlanner
                     occ[nr, nc] = true;
             }
 
-            // Per-icon 2D zone rect: small visual padding only — pathfinding clearance
-            // (paddingPx) is kept separate so zones don't dwarf the icons they represent.
-            float zX = Math.Max(0f, px - visualPaddingPx);
-            float zY = Math.Max(0f, py - visualPaddingPx);
+            // Zone rect is based on the grid CELL boundaries, not the raw icon image
+            // position. LVM_GETITEMPOSITION returns the icon image top-left, which is
+            // horizontally centered inside the cell — using it directly offsets the zone.
+            float zX = Math.Max(0f, c * cellW - visualPaddingPx);
+            float zY = Math.Max(0f, r * cellH - visualPaddingPx);
             float zW = Math.Min(cellW + 2 * visualPaddingPx, screenW - zX);
             float zH = Math.Min(cellH + 2 * visualPaddingPx, screenH - zY);
 
