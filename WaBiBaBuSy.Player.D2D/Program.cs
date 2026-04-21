@@ -51,6 +51,7 @@ class Program
     private const uint WM_ERASEBKGND = 0x0014;
     private const uint WM_DESTROY = 0x0002;
     private const uint WM_HOTKEY = 0x0312;
+    private const uint WM_SETTINGCHANGE = 0x001A;
     private const int IDC_ARROW = 32512;
 
     // Debug overlay hotkey (F11 — F12 is taken by Avalonia Dev Tools in the main UI)
@@ -103,6 +104,9 @@ class Program
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint crKey, byte bAlpha, uint dwFlags);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr GetParent(IntPtr hWnd);
 
     private const int GWL_STYLE = -16;
     private const int GWL_EXSTYLE = -20;
@@ -267,6 +271,12 @@ class Program
     private static Color4 _currentColor = new(0, 0, 0, 1); // Default black
     private static volatile bool _windowShown = false;
     private static IntPtr _zOrderReference = IntPtr.Zero;
+    private static IntPtr _parentHwnd      = IntPtr.Zero;  // stored for re-parenting after desktop refresh
+
+    // Re-parent flags — set by WM_SETTINGCHANGE or periodic parent check, consumed by render loop
+    private static volatile bool _needsReparent    = false;
+    private static volatile bool _needsIconRefresh = false;
+    private static long _lastReparentCheckTick = 0;
 
     // Pending PARENT command to be processed on main thread
     private static volatile string? _pendingParentCommand = null;
@@ -578,6 +588,16 @@ class Program
                     _logger?.LogInformation("[Debug] Overlay {State} via F11", _debugOverlay.Enabled ? "ON" : "OFF");
                 }
                 return IntPtr.Zero;
+            case WM_SETTINGCHANGE:
+                // Desktop can be rebuilt after screen capture tools (Snipping Tool etc.) finish.
+                // Re-parent ourselves and, if in IconZone mode, re-detect icon positions.
+                if (_parentHwnd != IntPtr.Zero)
+                {
+                    _needsReparent = true;
+                    if (_backgroundMode == BackgroundMode.IconZone)
+                        _needsIconRefresh = true;
+                }
+                return IntPtr.Zero;
             case WM_DESTROY:
                 _running = false;
                 return IntPtr.Zero;
@@ -680,6 +700,7 @@ class Program
                 SetLayeredWindowAttributes(_hwnd, 0, 255, LWA_ALPHA); // Full opacity
 
                 // SetParent to make us a child/sibling
+                _parentHwnd = parentHwnd;  // store so render loop can re-parent after desktop refresh
                 SetParent(_hwnd, parentHwnd);
 
                 // Position behind DefView or bottom
@@ -755,6 +776,44 @@ class Program
                 if (parentCmd != null)
                 {
                     ProcessParentCommand(parentCmd);
+                }
+
+                // Periodic parent check — detect silent detachment (no WM_SETTINGCHANGE fired).
+                // Runs every 5 s; a missed event from the screen capture tool will be caught here.
+                if (_parentHwnd != IntPtr.Zero && !_needsReparent)
+                {
+                    long nowTick = Environment.TickCount64;
+                    if (nowTick - _lastReparentCheckTick > 5000)
+                    {
+                        _lastReparentCheckTick = nowTick;
+                        if (GetParent(_hwnd) != _parentHwnd)
+                        {
+                            _needsReparent = true;
+                            if (_backgroundMode == BackgroundMode.IconZone)
+                                _needsIconRefresh = true;
+                            _logger?.LogWarning("[Reparent] Parent mismatch detected — will re-parent");
+                        }
+                    }
+                }
+
+                // Re-parent if WM_SETTINGCHANGE or periodic check triggered it.
+                if (_needsReparent && _parentHwnd != IntPtr.Zero && _zOrderReference != IntPtr.Zero)
+                {
+                    _needsReparent = false;
+                    var exStyle = GetWindowLong(_hwnd, GWL_EXSTYLE);
+                    SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED);
+                    SetLayeredWindowAttributes(_hwnd, 0, 255, LWA_ALPHA);
+                    SetParent(_hwnd, _parentHwnd);
+                    SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
+                    _logger?.LogInformation("[Reparent] Restored parent={Parent} z={ZOrder}", _parentHwnd, _zOrderReference);
+                }
+
+                // Re-detect desktop icons and rebuild zones after a desktop refresh.
+                if (_needsIconRefresh && _backgroundConfig != null && _d2dContext != null)
+                {
+                    _needsIconRefresh = false;
+                    _logger?.LogInformation("[IconRefresh] Re-detecting icons after desktop refresh");
+                    InitializeBackground(_backgroundConfig);
                 }
 
                 if (_d2dContext != null && _swapChain != null)
