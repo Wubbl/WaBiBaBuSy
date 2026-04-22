@@ -2801,26 +2801,42 @@ public partial class MainWindowViewModel : ViewModelBase
 
                 Debug.WriteLine($"[CrossScreen] Monitor {monitorIndex}: {actualBounds.Width}x{actualBounds.Height} at ({actualBounds.X},{actualBounds.Y})");
 
+                // Build a single-screen canvas for this monitor's service.
+                // D2DCompositionService.InitializeAsync loops over ScreenMappings and spawns one
+                // player per entry — passing the full multi-screen canvasManager would cause it to
+                // spawn N players per service (N² total), all positioned at the same actualBounds.
+                // Each service must own exactly ONE player for its own monitor.
+                var thisCfg = screenConfigs.First(s => s.ClientId == client.ClientId);
+                var singleCanvas = new VirtualCanvasManager(AppLogger.CreateLogger<VirtualCanvasManager>());
+                singleCanvas.CalculateLayout(new[] { thisCfg });
+
+                // In sequential mode the player needs the full virtual canvas width and this
+                // monitor's X offset within it; derive both from the global canvasManager.
+                var globalMapping = canvasManager.GetScreenByClientId(client.ClientId);
+                int virtualOffsetX = globalMapping?.VirtualBounds.X ?? 0;
+
                 // Create D2D service
                 var d2dService = new D2DCompositionService(
                     AppLogger.CreateLogger<D2DCompositionService>(),
                     AppLogger.Factory,
                     _desktopManager);
 
-                // Initialize (sends LOAD_ANIMATION to player process)
-                // Simultaneous = per-monitor (each monitor is its own canvas)
-                // Sequential = spanning (animation traverses virtual canvas across all monitors)
+                // Initialize: singleCanvas → exactly 1 player spawned for this monitor.
+                // Pass explicit virtual-canvas width + offset so the player computes
+                // movement correctly in sequential (spanning) mode.
                 await d2dService.InitializeAsync(
-                    canvasManager,
+                    singleCanvas,
                     _crossScreenConfig.Background,
                     animationConfig,
                     actualBounds,
                     monitorIndex,
                     _crossScreenConfig.Movement,
-                    perMonitorMode: perMonitor);
+                    perMonitorMode: perMonitor,
+                    explicitVirtualCanvasWidth: perMonitor ? null : canvasManager.VirtualBounds.Width,
+                    explicitMonitorOffsetX: perMonitor ? null : virtualOffsetX);
 
                 newServices.Add((monitorIndex, d2dService));
-                Debug.WriteLine($"[CrossScreen] Monitor {monitorIndex} initialized");
+                Debug.WriteLine($"[CrossScreen] Monitor {monitorIndex} initialized (virtualOffsetX={virtualOffsetX}, vcw={canvasManager.VirtualBounds.Width})");
             }
 
             // Brief pause to let all players finish loading

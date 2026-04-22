@@ -108,6 +108,11 @@ class Program
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr GetParent(IntPtr hWnd);
 
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int nIndex);
+    private const int SM_CXICON = 11;
+    private const int SM_CYICON = 12;
+
     private const int GWL_STYLE = -16;
     private const int GWL_EXSTYLE = -20;
     private const uint WS_CHILD = 0x40000000;
@@ -276,6 +281,8 @@ class Program
     // Re-parent flags — set by WM_SETTINGCHANGE or periodic parent check, consumed by render loop
     private static volatile bool _needsReparent    = false;
     private static volatile bool _needsIconRefresh = false;
+    private static long _iconRefreshScheduledAt = 0;   // tick when refresh was last requested
+    private const  long IconRefreshDebounceMs   = 400; // wait for desktop to settle before re-detecting
     private static long _lastReparentCheckTick = 0;
 
     // Pending PARENT command to be processed on main thread
@@ -377,6 +384,7 @@ class Program
     private static MovementConfig? _movementConfig;
     private static int _virtualCanvasWidth = 1920;
     private static int _monitorOffsetX = 0;
+    private static int _monitorOffsetY = 0;
     private static bool _rotateWithPath;
     private static float _animRotationRad;
 
@@ -433,6 +441,7 @@ class Program
                         y = int.Parse(parts[1]);
                         _width = int.Parse(parts[2]);
                         _height = int.Parse(parts[3]);
+                        _monitorOffsetY = y;
                     }
                 }
                 else if (args[i] == "--test")
@@ -595,7 +604,10 @@ class Program
                 {
                     _needsReparent = true;
                     if (_backgroundMode == BackgroundMode.IconZone)
+                    {
                         _needsIconRefresh = true;
+                        _iconRefreshScheduledAt = Environment.TickCount64;
+                    }
                 }
                 return IntPtr.Zero;
             case WM_DESTROY:
@@ -790,26 +802,37 @@ class Program
                         {
                             _needsReparent = true;
                             if (_backgroundMode == BackgroundMode.IconZone)
+                            {
                                 _needsIconRefresh = true;
+                                _iconRefreshScheduledAt = Environment.TickCount64;
+                            }
                             _logger?.LogWarning("[Reparent] Parent mismatch detected — will re-parent");
                         }
                     }
                 }
 
                 // Re-parent if WM_SETTINGCHANGE or periodic check triggered it.
+                // Guard: WM_SETTINGCHANGE fires for many unrelated events (volume, screensaver…).
+                // Only issue SetParent/SetWindowPos when the parent actually changed to avoid
+                // Z-order disturbance that causes a visible flicker on every system event.
                 if (_needsReparent && _parentHwnd != IntPtr.Zero && _zOrderReference != IntPtr.Zero)
                 {
                     _needsReparent = false;
-                    var exStyle = GetWindowLong(_hwnd, GWL_EXSTYLE);
-                    SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED);
-                    SetLayeredWindowAttributes(_hwnd, 0, 255, LWA_ALPHA);
-                    SetParent(_hwnd, _parentHwnd);
-                    SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
-                    _logger?.LogInformation("[Reparent] Restored parent={Parent} z={ZOrder}", _parentHwnd, _zOrderReference);
+                    if (GetParent(_hwnd) != _parentHwnd)
+                    {
+                        var exStyle = GetWindowLong(_hwnd, GWL_EXSTYLE);
+                        SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED);
+                        SetLayeredWindowAttributes(_hwnd, 0, 255, LWA_ALPHA);
+                        SetParent(_hwnd, _parentHwnd);
+                        SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
+                        _logger?.LogInformation("[Reparent] Restored parent={Parent} z={ZOrder}", _parentHwnd, _zOrderReference);
+                    }
                 }
 
                 // Re-detect desktop icons and rebuild zones after a desktop refresh.
-                if (_needsIconRefresh && _backgroundConfig != null && _d2dContext != null)
+                // Debounce: wait for the desktop to finish settling before reading icon positions.
+                if (_needsIconRefresh && _backgroundConfig != null && _d2dContext != null
+                    && Environment.TickCount64 - _iconRefreshScheduledAt >= IconRefreshDebounceMs)
                 {
                     _needsIconRefresh = false;
                     _logger?.LogInformation("[IconRefresh] Re-detecting icons after desktop refresh");
@@ -1439,18 +1462,21 @@ class Program
                 _iconCorridorBgColor = ParseHexColor(config.IconCorridorColorHex);
 
                 var (cellW, cellH) = GetIconCellSize();
+                int iconImageW = Math.Max(0, GetSystemMetrics(SM_CXICON));
+                int iconImageH = Math.Max(0, GetSystemMetrics(SM_CYICON));
                 // LVM_GETITEMPOSITION returns every desktop icon in virtual-screen coords.
                 // Each player keeps only icons whose cell rectangle intersects its own monitor rect
-                // [_monitorOffsetX, _monitorOffsetX + _width) × [0, _height), then shifts to local space.
+                // [_monitorOffsetX, _monitorOffsetX + _width) × [_monitorOffsetY, _monitorOffsetY + _height),
+                // then shifts to local (monitor-relative) space.
                 var allIcons = DetectDesktopIconPositions();
                 var iconPositions = new List<(int X, int Y)>(allIcons.Count);
                 foreach (var (ix, iy) in allIcons)
                 {
                     if (ix + cellW <= _monitorOffsetX) continue;
                     if (ix >= _monitorOffsetX + _width) continue;
-                    if (iy + cellH <= 0) continue;
-                    if (iy >= _height) continue;
-                    iconPositions.Add((ix - _monitorOffsetX, iy));
+                    if (iy + cellH <= _monitorOffsetY) continue;
+                    if (iy >= _monitorOffsetY + _height) continue;
+                    iconPositions.Add((ix - _monitorOffsetX, iy - _monitorOffsetY));
                 }
                 _logger?.LogInformation("[IconZone] Monitor offset={Offset}px kept {Kept} of {Total} icons, cell={W}x{H}px",
                     _monitorOffsetX, iconPositions.Count, allIcons.Count, cellW, cellH);
@@ -1472,7 +1498,9 @@ class Program
                     iconPositions, cellW, cellH, _width, _height,
                     config.IconZonePaletteHexes, config.IconCorridorColorHex,
                     paddingPx: pathPaddingPx,
-                    visualPaddingPx: Math.Max(4, cellW / 10));
+                    visualPaddingPx: Math.Max(4, cellW / 10),
+                    iconImageW: iconImageW,
+                    iconImageH: iconImageH);
 
                 foreach (var band in layout.Bands)
                 {

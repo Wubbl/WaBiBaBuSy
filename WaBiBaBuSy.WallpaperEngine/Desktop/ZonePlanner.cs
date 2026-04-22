@@ -32,7 +32,9 @@ public static class ZonePlanner
         string corridorColorHex = "#1E1E1E",
         int paddingPx = 0,
         int monitorOffsetX = 0,
-        int visualPaddingPx = 8)
+        int visualPaddingPx = 8,
+        int iconImageW = 0,
+        int iconImageH = 0)
     {
         if (cellW <= 0) cellW = 75;
         if (cellH <= 0) cellH = 75;
@@ -62,13 +64,29 @@ public static class ZonePlanner
                     occ[nr, nc] = true;
             }
 
-            // Zone rect is based on the grid CELL boundaries, not the raw icon image
-            // position. LVM_GETITEMPOSITION returns the icon image top-left, which is
-            // horizontally centered inside the cell — using it directly offsets the zone.
-            float zX = Math.Max(0f, c * cellW - visualPaddingPx);
-            float zY = Math.Max(0f, r * cellH - visualPaddingPx);
-            float zW = Math.Min(cellW + 2 * visualPaddingPx, screenW - zX);
-            float zH = Math.Min(cellH + 2 * visualPaddingPx, screenH - zY);
+            // Tight mode (iconImageW/H provided): anchor zone at the actual LVM pixel position
+            // and size it to the real icon image + a 2-line label estimate.
+            //
+            // KEY constraint: zY uses py directly (no upward shift) so consecutive icons whose
+            // py values differ by cellH produce exactly a (cellH - tightH) pixel gap with no
+            // overlap.  (Old formula subtracted visualPaddingPx from zY, shrinking the gap and
+            // causing adjacent zones to overlap when tightH > cellH - visualPaddingPx.)
+            //
+            // Fallback (no icon size): original cell-boundary rects.
+            bool tight = iconImageW > 0;
+            // Width: actual icon image width + small padding on each side.
+            float zX = tight
+                ? Math.Max(0f, px - visualPaddingPx)
+                : Math.Max(0f, c * cellW - visualPaddingPx);
+            float zW = Math.Min((tight ? iconImageW : cellW) + 2 * visualPaddingPx, screenW - zX);
+            // Height: icon image + generous 2-line label allowance, capped so zones don't overlap.
+            //   tightH  = iconH + ~36 px label  →  covers icon image + two label lines.
+            //   cap      = cellH - 4             →  leaves a small visible gap between zones.
+            int tightH = tight ? Math.Min(iconImageH + 36, cellH - 4) : cellH + 2 * visualPaddingPx;
+            float zY = tight
+                ? Math.Max(0f, py)                  // anchor at icon image top (no upward shift)
+                : Math.Max(0f, r * cellH - visualPaddingPx);
+            float zH = Math.Min(tightH, screenH - zY);
 
             string color = palette.Count > 0 ? palette[paletteIdx % palette.Count] : "#333333";
             paletteIdx++;
