@@ -131,6 +131,13 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isUpdateInProgress;
 
+    // Debug overlay per-flag controls (defaults match player defaults)
+    [ObservableProperty] private bool _debugOverlayEnabled = false;
+    [ObservableProperty] private bool _debugShowPath = true;
+    [ObservableProperty] private bool _debugShowIconRects = true;
+    [ObservableProperty] private bool _debugShowZoneBands = false;
+    [ObservableProperty] private bool _debugShowInfoPanel = true;
+
     private WaBiBaBuSy.Models.Update.UpdateInfo? _pendingUpdateInfo;
     private string? _downloadedUpdatePath;
 
@@ -687,6 +694,26 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             try { await service.SendToggleDebugOverlayAsync(enabled: false, toggle: true); }
             catch (Exception ex) { Debug.WriteLine($"[DebugOverlay] Toggle failed: {ex.Message}"); }
+        }
+    }
+
+    partial void OnDebugOverlayEnabledChanged(bool value) => _ = SendDebugOverlayFlags();
+    partial void OnDebugShowPathChanged(bool value) => _ = SendDebugOverlayFlags();
+    partial void OnDebugShowIconRectsChanged(bool value) => _ = SendDebugOverlayFlags();
+    partial void OnDebugShowZoneBandsChanged(bool value) => _ = SendDebugOverlayFlags();
+    partial void OnDebugShowInfoPanelChanged(bool value) => _ = SendDebugOverlayFlags();
+
+    private async Task SendDebugOverlayFlags()
+    {
+        foreach (var service in _d2dCompositionServices.Values)
+        {
+            try
+            {
+                await service.SendSetDebugOverlayFlagsAsync(
+                    DebugOverlayEnabled, DebugShowPath, DebugShowIconRects,
+                    DebugShowZoneBands, DebugShowInfoPanel);
+            }
+            catch (Exception ex) { Debug.WriteLine($"[DebugOverlay] SendFlags failed: {ex.Message}"); }
         }
     }
 

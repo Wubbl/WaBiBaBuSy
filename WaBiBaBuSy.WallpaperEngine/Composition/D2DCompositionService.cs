@@ -254,6 +254,26 @@ public class D2DCompositionService : IDisposable
     }
 
     /// <summary>
+    /// Broadcasts all debug overlay flags to every player hosted by this service.
+    /// Fire-and-forget — responses from players are not awaited.
+    /// </summary>
+    public async Task SendSetDebugOverlayFlagsAsync(bool enabled, bool showPath, bool showIconRects, bool showZoneBands, bool showInfoPanel)
+    {
+        foreach (var playerHost in _playerHosts.Values)
+        {
+            if (!playerHost.IsRunning) continue;
+            try
+            {
+                await playerHost.SendSetDebugOverlayFlagsAsync(enabled, showPath, showIconRects, showZoneBands, showInfoPanel);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to set debug overlay flags on a player host");
+            }
+        }
+    }
+
+    /// <summary>
     /// Show or hide all D2D player windows. Used for pause-on-fullscreen.
     /// </summary>
     public void SetPlayersVisible(bool visible)

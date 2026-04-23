@@ -491,6 +491,33 @@ public class D2DPlayerHost : IDisposable
     }
 
     /// <summary>
+    /// Sends all five debug overlay flags explicitly to the player process.
+    /// Fire-and-forget: we do not block waiting for a response so UI stays snappy even if
+    /// a player is unresponsive.
+    /// </summary>
+    public async Task SendSetDebugOverlayFlagsAsync(bool enabled, bool showPath, bool showIconRects, bool showZoneBands, bool showInfoPanel)
+    {
+        if (!IsRunning) return;
+        try
+        {
+            var cmd = new PlayerCommandSetDebugOverlayFlags
+            {
+                Enabled = enabled,
+                ShowPath = showPath,
+                ShowIconRects = showIconRects,
+                ShowZoneBandOutlines = showZoneBands,
+                ShowInfoPanel = showInfoPanel
+            };
+            var json = JsonConvert.SerializeObject(cmd);
+            await SendCommandAsync(json);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send debug overlay flags");
+        }
+    }
+
+    /// <summary>
     /// Enable test mode: toggles between red and blue every 2 seconds.
     /// Use this to verify the swap chain is working (displaying different frames).
     /// </summary>

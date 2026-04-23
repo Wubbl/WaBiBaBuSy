@@ -146,10 +146,29 @@
                     <Button Content="Clear Wallpaper"
                             Command="{Binding ClearAllWallpapersCommand}"/>
 
-                    <!-- Debug Overlay Toggle: reliable alternative to F11 (which Avalonia may steal); inherits Height, Padding, FontSize from WrapPanel > Button style -->
-                    <Button Content="Debug Overlay"
-                            Command="{Binding ToggleDebugOverlayCommand}"
-                            ToolTip.Tip="Show/hide path, icon rects, and movement trail on every active player (F11 hotkey also works if not captured)."/>
+                    <!-- Debug Overlay Group -->
+                    <Border Background="#252526" BorderBrush="#3E3E42" BorderThickness="1"
+                            CornerRadius="5" Padding="6,4" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="Debug" Foreground="#AAAAAA" FontSize="10"
+                                       VerticalAlignment="Center" Margin="0,0,2,0"/>
+                            <CheckBox Content="On" IsChecked="{Binding DebugOverlayEnabled}"
+                                      FontSize="10" VerticalAlignment="Center"
+                                      ToolTip.Tip="Enable debug overlay (also F11)"/>
+                            <CheckBox Content="Path" IsChecked="{Binding DebugShowPath}"
+                                      FontSize="10" VerticalAlignment="Center"
+                                      ToolTip.Tip="Show A* path waypoints"/>
+                            <CheckBox Content="Rects" IsChecked="{Binding DebugShowIconRects}"
+                                      FontSize="10" VerticalAlignment="Center"
+                                      ToolTip.Tip="Show icon zone rectangles"/>
+                            <CheckBox Content="Zones" IsChecked="{Binding DebugShowZoneBands}"
+                                      FontSize="10" VerticalAlignment="Center"
+                                      ToolTip.Tip="Show zone band outlines"/>
+                            <CheckBox Content="Info" IsChecked="{Binding DebugShowInfoPanel}"
+                                      FontSize="10" VerticalAlignment="Center"
+                                      ToolTip.Tip="Show info panel (FPS, position, etc.)"/>
+                        </StackPanel>
+                    </Border>
                 </WrapPanel>
             </Grid>
         </Border>

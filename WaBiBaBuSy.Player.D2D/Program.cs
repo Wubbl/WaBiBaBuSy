@@ -2281,6 +2281,22 @@ class Program
                         Console.WriteLine("ERROR:Failed to deserialize PlayerCommandToggleDebugOverlay");
                     break;
 
+                case "cmd_set_debug_overlay_flags":
+                    var flagsCmd = JsonConvert.DeserializeObject<PlayerCommandSetDebugOverlayFlags>(json);
+                    if (flagsCmd != null)
+                    {
+                        _debugOverlay.Enabled = flagsCmd.Enabled;
+                        _debugOverlay.ShowPath = flagsCmd.ShowPath;
+                        _debugOverlay.ShowIconRects = flagsCmd.ShowIconRects;
+                        _debugOverlay.ShowZoneBandOutlines = flagsCmd.ShowZoneBandOutlines;
+                        _debugOverlay.ShowInfoPanel = flagsCmd.ShowInfoPanel;
+                        _logger?.LogInformation("[Debug] Overlay flags updated: Enabled={E} Path={P} Rects={R} Zones={Z} Info={I}",
+                            flagsCmd.Enabled, flagsCmd.ShowPath, flagsCmd.ShowIconRects, flagsCmd.ShowZoneBandOutlines, flagsCmd.ShowInfoPanel);
+                    }
+                    else
+                        Console.WriteLine("ERROR:Failed to deserialize PlayerCommandSetDebugOverlayFlags");
+                    break;
+
                 default:
                     Console.WriteLine($"ERROR:Unknown JSON message type: {wrapper.MessageType}");
                     Console.Out.Flush();
