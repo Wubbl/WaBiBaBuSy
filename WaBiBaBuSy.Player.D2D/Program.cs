@@ -1888,6 +1888,19 @@ class Program
         {
             float speed = _movementConfig?.SpeedPixelsPerSecond ?? 300f;
 
+            // Traverse detection: check if we've completed a full lap and need a new path
+            // Must run BEFORE dist computation so RebuildPathOnly updates _animPathTotalLength
+            if (_animPathTotalLength > 0f)
+            {
+                float fullDist = elapsedMs * speed / 1000f;
+                int newTraverseCount = (int)(fullDist / _animPathTotalLength);
+                if (newTraverseCount > _traverseCount)
+                {
+                    _traverseCount = newTraverseCount;
+                    RebuildPathOnly(_traverseCount); // variationSeed = iteration number → different route each time
+                }
+            }
+
             float dist;
             if (_movementConfig?.Type == MovementType.Bounce)
             {
@@ -1900,18 +1913,6 @@ class Program
                 dist = (_animPathTotalLength > 0f)
                     ? (elapsedMs * speed / 1000f) % _animPathTotalLength
                     : 0f;
-            }
-
-            // Detect full-path traversals and rebuild path with a new variation seed
-            if (_animPathTotalLength > 0f)
-            {
-                float fullDist = elapsedMs * speed / 1000f;
-                int newTraverseCount = (int)(fullDist / _animPathTotalLength);
-                if (newTraverseCount > _traverseCount)
-                {
-                    _traverseCount = newTraverseCount;
-                    RebuildPathOnly(_traverseCount); // variationSeed = iteration number → different route each time
-                }
             }
 
             var (px, py) = SamplePath(_animPath, dist);
