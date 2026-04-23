@@ -34,7 +34,8 @@ public static class ZonePlanner
         int monitorOffsetX = 0,
         int visualPaddingPx = 8,
         int iconImageW = 0,
-        int iconImageH = 0)
+        int iconImageH = 0,
+        int pathVariationSeed = 0)
     {
         if (cellW <= 0) cellW = 75;
         if (cellH <= 0) cellH = 75;
@@ -101,7 +102,7 @@ public static class ZonePlanner
         }
 
         // ── 2. Compute A* path through free space ──────────────────────────
-        var path = ComputeAStarPath(occ, cols, rows, cellW, cellH, screenW, screenH);
+        var path = ComputeAStarPath(occ, cols, rows, cellW, cellH, screenW, screenH, pathVariationSeed);
 
         // ── 3. Shift path to virtual-canvas coordinates ────────────────────
         if (monitorOffsetX != 0)
@@ -114,13 +115,27 @@ public static class ZonePlanner
     // ── A* Path Planning ─────────────────────────────────────────────────────
 
     private static List<WaypointF> ComputeAStarPath(
-        bool[,] occ, int cols, int rows, int cellW, int cellH, int screenW, int screenH)
+        bool[,] occ, int cols, int rows, int cellW, int cellH, int screenW, int screenH,
+        int pathVariationSeed = 0)
     {
         int midRow = rows / 2;
 
-        // Find best unoccupied row on left/right edges (prefer middle)
-        int startRow = FindNearestFreeRow(occ, col: 0,       rows, midRow);
-        int endRow   = FindNearestFreeRow(occ, col: cols - 1, rows, midRow);
+        int startRow, endRow;
+        if (pathVariationSeed == 0)
+        {
+            // Default: find nearest free row to midRow on each edge
+            startRow = FindNearestFreeRow(occ, col: 0,        rows, midRow);
+            endRow   = FindNearestFreeRow(occ, col: cols - 1, rows, midRow);
+        }
+        else
+        {
+            // Variation: pick randomly from ALL free rows on each edge, seeded for determinism
+            var freeStartRows = Enumerable.Range(0, rows).Where(r => !IsOcc(occ, r, 0,        rows, cols)).ToList();
+            var freeEndRows   = Enumerable.Range(0, rows).Where(r => !IsOcc(occ, r, cols - 1, rows, cols)).ToList();
+            var rng = new Random(pathVariationSeed);
+            startRow = freeStartRows.Count > 0 ? freeStartRows[rng.Next(freeStartRows.Count)] : FindNearestFreeRow(occ, col: 0,        rows, midRow);
+            endRow   = freeEndRows.Count   > 0 ? freeEndRows  [rng.Next(freeEndRows.Count)]   : FindNearestFreeRow(occ, col: cols - 1, rows, midRow);
+        }
 
         var gScore = new Dictionary<int, float>();    // key = r*cols+c
         var parent = new Dictionary<int, int>();      // key → parent key, -1 = none

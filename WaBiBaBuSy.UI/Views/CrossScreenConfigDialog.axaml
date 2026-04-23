@@ -277,10 +277,19 @@
                                            Width="150" HorizontalAlignment="Left"/>
                         </StackPanel>
 
-                        <!-- RandomWalk info -->
-                        <TextBlock IsVisible="{Binding IsRandomWalkMode}"
-                                   Text="Animation will wander randomly across all screens. Movement is deterministic (same on all monitors for sync)."
-                                   FontSize="10" Foreground="#888888" TextWrapping="Wrap"/>
+                        <!-- RandomWalk controls -->
+                        <StackPanel Spacing="8" IsVisible="{Binding IsRandomWalkMode}">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Iteration length (steps):" FontSize="12"/>
+                                <TextBlock Text="After this many steps the walk pattern changes. 0 = never change." FontSize="10" Foreground="#888888"/>
+                                <NumericUpDown Value="{Binding RandomWalkIterationSteps}"
+                                               Minimum="0" Maximum="500"
+                                               Increment="5"
+                                               Width="150" HorizontalAlignment="Left"/>
+                            </StackPanel>
+                            <TextBlock Text="Movement is deterministic across all monitors (sync maintained)."
+                                       FontSize="10" Foreground="#888888" TextWrapping="Wrap"/>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 

@@ -389,4 +389,11 @@ public class MovementConfig
     /// Whether movement loops when reaching the end (Linear) or continues indefinitely (Bounce/Circular/RandomWalk)
     /// </summary>
     public bool Loop { get; set; } = true;
+
+    /// <summary>
+    /// Number of random walk steps per iteration before the path pattern changes.
+    /// 0 = never change (same infinite sequence). Default 20 = new pattern every ~20 steps.
+    /// All monitors use the same iteration index (derived from elapsed time), so sync is maintained.
+    /// </summary>
+    public int IterationStepCount { get; set; } = 20;
 }

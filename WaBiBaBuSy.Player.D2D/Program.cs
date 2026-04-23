@@ -395,6 +395,8 @@ class Program
     // Raw per-monitor icon positions (local coords, set in InitializeBackground IconZone)
     private static readonly List<(int X, int Y)> _detectedIcons = new();
     private static int _detectedCellW = 75, _detectedCellH = 75;
+    // Number of full A* path traversals completed; used to trigger per-traverse path variation
+    private static int _traverseCount = 0;
 
     // Actual movement trail — ring buffer of recent animation center positions in local space.
     // Shows the true trajectory including SineWave offsets, so it can be compared to the A* path.
@@ -1460,6 +1462,7 @@ class Program
         _iconZoneBands.Clear();
         _animPath.Clear();
         _animPathTotalLength = 0f;
+        _traverseCount = 0;
 
         // Dispose previous background image
         _backgroundImageBitmap?.Dispose();
@@ -1899,6 +1902,18 @@ class Program
                     : 0f;
             }
 
+            // Detect full-path traversals and rebuild path with a new variation seed
+            if (_animPathTotalLength > 0f)
+            {
+                float fullDist = elapsedMs * speed / 1000f;
+                int newTraverseCount = (int)(fullDist / _animPathTotalLength);
+                if (newTraverseCount > _traverseCount)
+                {
+                    _traverseCount = newTraverseCount;
+                    RebuildPathOnly(_traverseCount); // variationSeed = iteration number → different route each time
+                }
+            }
+
             var (px, py) = SamplePath(_animPath, dist);
 
             // Compute path tangent when either rotation or SineWave perpendicular offset
@@ -1968,6 +1983,49 @@ class Program
             _animX = (float)(-_animWidth + (elapsedSeconds * _pixelsPerSecond));
         }
         // For static animations (pixelsPerSecond=0 and no movement config), position stays at initial centered value
+    }
+
+    /// <summary>
+    /// Re-computes only the A* animation path (no background zone rebuild).
+    /// Called on each full path traverse to pick a different route.
+    /// </summary>
+    private static void RebuildPathOnly(int variationSeed)
+    {
+        if (_backgroundMode != BackgroundMode.IconZone) return;
+        if (_detectedIcons.Count == 0) return;
+        if (_backgroundConfig == null) return;
+        if (_d2dContext == null) return;
+
+        int pathPaddingPx = _animHeight / 2;
+        if (_movementConfig?.Type == MovementType.SineWave)
+            pathPaddingPx += (int)Math.Ceiling(_movementConfig.WaveAmplitudePixels);
+
+        int iconImageW = Math.Max(0, GetSystemMetrics(SM_CXICON));
+        int iconImageH = Math.Max(0, GetSystemMetrics(SM_CYICON));
+
+        var layout = WaBiBaBuSy.WallpaperEngine.Desktop.ZonePlanner.Compute(
+            _detectedIcons, _detectedCellW, _detectedCellH, _width, _height,
+            _backgroundConfig.IconZonePaletteHexes, _backgroundConfig.IconCorridorColorHex,
+            paddingPx: pathPaddingPx,
+            visualPaddingPx: Math.Max(4, _detectedCellW / 10),
+            iconImageW: iconImageW,
+            iconImageH: iconImageH,
+            pathVariationSeed: variationSeed);
+
+        _animPath.Clear();
+        foreach (var wp in layout.Path)
+            _animPath.Add((wp.X, wp.Y));
+
+        // Shift to virtual-canvas space for sequential mode
+        if (_monitorOffsetX != 0)
+        {
+            for (int i = 0; i < _animPath.Count; i++)
+                _animPath[i] = (_animPath[i].X + _monitorOffsetX, _animPath[i].Y);
+        }
+
+        _animPathTotalLength = ComputePathLength(_animPath);
+        _logger?.LogInformation("[IconZone] Path rebuilt (traverse #{Seed}): {Pts} waypoints, totalLen={Len:F0}px",
+            variationSeed, _animPath.Count, _animPathTotalLength);
     }
 
     private static float ComputePathLength(List<(float X, float Y)> path)
