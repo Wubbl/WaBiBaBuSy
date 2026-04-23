@@ -412,6 +412,7 @@ class Program
     private static ID2D1SolidColorBrush? _debugInfoBrush;
     private static ID2D1SolidColorBrush? _debugIconRectBrush;
     private static ID2D1SolidColorBrush? _debugTrailBrush;
+    private static ID2D1SolidColorBrush? _debugZoneBandBrush;
 
     // Stage 4: Animation positioning (ported from AnimationLayerRenderer)
     private static int _animWidth, _animHeight;    // Scaled by FitMode
@@ -1703,6 +1704,7 @@ class Program
         _debugInfoBrush     ??= _d2dContext.CreateSolidColorBrush(new Color4(0.1f, 1f, 0.2f, 1f)); // green
         _debugIconRectBrush ??= _d2dContext.CreateSolidColorBrush(new Color4(1f, 0.2f, 0.2f, 1f)); // red
         _debugTrailBrush    ??= _d2dContext.CreateSolidColorBrush(new Color4(1f, 0.6f, 0f, 1f));   // orange
+        _debugZoneBandBrush ??= _d2dContext.CreateSolidColorBrush(new Color4(0.2f, 1f, 0.6f, 1f)); // teal-green
 
         // 1. Icon zone rects — overlays the planner's "occupied" rectangles so we can see what
         //    the A* path is actually avoiding. Also draws a dot at each raw icon position.
@@ -1729,7 +1731,20 @@ class Program
             }
         }
 
-        // 2. A* path polyline + waypoint markers.
+        // 2. Free zone band outlines — highlights the corridor spaces A* can navigate through.
+        if (_debugOverlay.ShowZoneBandOutlines && _debugZoneBandBrush != null)
+        {
+            foreach (var (zY, zH, zX, zW, isFree, _) in _iconZoneBands)
+            {
+                if (!isFree) continue;
+                float drawW = zW < 0 ? _width : zW;
+                _d2dContext.DrawRectangle(
+                    new System.Drawing.RectangleF(zX, zY, drawW, zH),
+                    _debugZoneBandBrush, strokeWidth: 1.5f);
+            }
+        }
+
+        // 3. A* path polyline + waypoint markers.
         if (_debugOverlay.ShowPath && _debugPathBrush != null && _debugWaypointBrush != null && _animPath.Count >= 2)
         {
             for (int i = 0; i < _animPath.Count - 1; i++)
@@ -1748,7 +1763,7 @@ class Program
             }
         }
 
-        // 3. Actual movement trail — shows what the animation's center is doing, including
+        // 4. Actual movement trail — shows what the animation's center is doing, including
         //    SineWave offsets. If the trail wanders into red icon rects, movement is wrong.
         if (_debugOverlay.ShowPath && _debugTrailBrush != null && _movementTrailCount >= 2)
         {
@@ -1766,14 +1781,14 @@ class Program
             }
         }
 
-        // 4. Current animation bitmap outline — shows actual rendered size vs. expected position.
+        // 5. Current animation bitmap outline — shows actual rendered size vs. expected position.
         if (_debugAnimRectBrush != null && _animWidth > 0 && _animHeight > 0)
         {
             var rect = new System.Drawing.RectangleF(_animX, _animY, _animWidth, _animHeight);
             _d2dContext.DrawRectangle(rect, _debugAnimRectBrush, strokeWidth: 2f);
         }
 
-        // 5. Status LED (top-left) — proves each player's debug overlay is running even on
+        // 6. Status LED (top-left) — proves each player's debug overlay is running even on
         //    monitors that otherwise look empty. Deliberately simple; text panel is a future add.
         if (_debugOverlay.ShowInfoPanel && _debugInfoBrush != null)
         {
@@ -2571,6 +2586,7 @@ class Program
         _debugInfoBrush?.Dispose();     _debugInfoBrush = null;
         _debugIconRectBrush?.Dispose(); _debugIconRectBrush = null;
         _debugTrailBrush?.Dispose();    _debugTrailBrush = null;
+        _debugZoneBandBrush?.Dispose(); _debugZoneBandBrush = null;
 
         // Dispose D2D/D3D resources (Stage 1 order)
         _d2dContext?.Dispose();
