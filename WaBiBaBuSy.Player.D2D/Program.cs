@@ -599,16 +599,11 @@ class Program
                 return IntPtr.Zero;
             case WM_SETTINGCHANGE:
                 // Desktop can be rebuilt after screen capture tools (Snipping Tool etc.) finish.
-                // Re-parent ourselves and, if in IconZone mode, re-detect icon positions.
+                // WM_SETTINGCHANGE fires for many unrelated events (volume, screensaver, clock, etc.).
+                // Only schedule a re-parent check; the actual icon refresh is triggered only if the
+                // parent window turns out to have actually changed (see reparent block in render loop).
                 if (_parentHwnd != IntPtr.Zero)
-                {
                     _needsReparent = true;
-                    if (_backgroundMode == BackgroundMode.IconZone)
-                    {
-                        _needsIconRefresh = true;
-                        _iconRefreshScheduledAt = Environment.TickCount64;
-                    }
-                }
                 return IntPtr.Zero;
             case WM_DESTROY:
                 _running = false;
@@ -826,6 +821,12 @@ class Program
                         SetParent(_hwnd, _parentHwnd);
                         SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
                         _logger?.LogInformation("[Reparent] Restored parent={Parent} z={ZOrder}", _parentHwnd, _zOrderReference);
+                        // Parent actually changed → desktop was rebuilt → re-detect icon positions.
+                        if (_backgroundMode == BackgroundMode.IconZone)
+                        {
+                            _needsIconRefresh = true;
+                            _iconRefreshScheduledAt = Environment.TickCount64;
+                        }
                     }
                 }
 
