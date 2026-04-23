@@ -90,6 +90,9 @@ class Program
     [DllImport("user32.dll")]
     private static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);
 
+    [DllImport("user32.dll")]
+    private static extern bool ValidateRect(IntPtr hWnd, IntPtr lpRect);
+
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
 
@@ -191,6 +194,40 @@ class Program
         }
         catch { }
         return (75, 75);
+    }
+
+    /// <summary>
+    /// Returns per-monitor icon positions in local (monitor-relative) coordinates.
+    /// Cheap: only reads ListView positions, no D2D work.
+    /// </summary>
+    private static List<(int X, int Y)> GetFilteredIconPositions()
+    {
+        var (cellW, cellH) = GetIconCellSize();
+        var allIcons = DetectDesktopIconPositions();
+        var result = new List<(int X, int Y)>(allIcons.Count);
+        foreach (var (ix, iy) in allIcons)
+        {
+            if (ix + cellW <= _monitorOffsetX) continue;
+            if (ix >= _monitorOffsetX + _width)  continue;
+            if (iy + cellH <= _monitorOffsetY) continue;
+            if (iy >= _monitorOffsetY + _height) continue;
+            result.Add((ix - _monitorOffsetX, iy - _monitorOffsetY));
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="fresh"/> differs from <see cref="_detectedIcons"/>.
+    /// Comparison is order-independent (sorts both lists).
+    /// </summary>
+    private static bool IconPositionsChanged(List<(int X, int Y)> fresh)
+    {
+        if (fresh.Count != _detectedIcons.Count) return true;
+        var a = fresh.OrderBy(p => p.Y).ThenBy(p => p.X).ToList();
+        var b = _detectedIcons.OrderBy(p => p.Y).ThenBy(p => p.X).ToList();
+        for (int i = 0; i < a.Count; i++)
+            if (a[i] != b[i]) return true;
+        return false;
     }
 
     private static IntPtr FindDesktopListView()
@@ -587,6 +624,7 @@ class Program
         switch (msg)
         {
             case WM_PAINT:
+                ValidateRect(_hwnd, IntPtr.Zero);
                 return IntPtr.Zero;
             case WM_ERASEBKGND:
                 return new IntPtr(1);
@@ -785,23 +823,32 @@ class Program
                     ProcessParentCommand(parentCmd);
                 }
 
-                // Periodic parent check — detect silent detachment (no WM_SETTINGCHANGE fired).
-                // Runs every 5 s; a missed event from the screen capture tool will be caught here.
+                // Periodic check — runs every 5 s:
+                //   1. Detect silent window detachment (no WM_SETTINGCHANGE fired).
+                //   2. In IconZone mode: compare live icon positions against the cached set;
+                //      rebuild zones ONLY if icons actually moved (not on every system event).
                 if (_parentHwnd != IntPtr.Zero && !_needsReparent)
                 {
                     long nowTick = Environment.TickCount64;
                     if (nowTick - _lastReparentCheckTick > 5000)
                     {
                         _lastReparentCheckTick = nowTick;
+
                         if (GetParent(_hwnd) != _parentHwnd)
                         {
                             _needsReparent = true;
-                            if (_backgroundMode == BackgroundMode.IconZone)
+                            _logger?.LogWarning("[Reparent] Parent mismatch detected — will re-parent");
+                        }
+
+                        if (_backgroundMode == BackgroundMode.IconZone && !_needsIconRefresh)
+                        {
+                            var fresh = GetFilteredIconPositions();
+                            if (IconPositionsChanged(fresh))
                             {
+                                _logger?.LogInformation("[IconRefresh] Icon positions changed — scheduling zone rebuild");
                                 _needsIconRefresh = true;
                                 _iconRefreshScheduledAt = Environment.TickCount64;
                             }
-                            _logger?.LogWarning("[Reparent] Parent mismatch detected — will re-parent");
                         }
                     }
                 }
@@ -821,12 +868,6 @@ class Program
                         SetParent(_hwnd, _parentHwnd);
                         SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
                         _logger?.LogInformation("[Reparent] Restored parent={Parent} z={ZOrder}", _parentHwnd, _zOrderReference);
-                        // Parent actually changed → desktop was rebuilt → re-detect icon positions.
-                        if (_backgroundMode == BackgroundMode.IconZone)
-                        {
-                            _needsIconRefresh = true;
-                            _iconRefreshScheduledAt = Environment.TickCount64;
-                        }
                     }
                 }
 
