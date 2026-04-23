@@ -101,8 +101,8 @@
                             <StackPanel Spacing="4">
                                 <TextBlock Text="Corridor Color (free bands):" FontSize="12"/>
                                 <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <TextBox Text="{Binding IconCorridorColorHex}" Width="110" Watermark="#1E1E1E"/>
-                                    <Border Width="20" Height="20" CornerRadius="3"
+                                    <TextBox Text="{Binding IconCorridorColorHex}" Width="110" Height="26" Watermark="#1E1E1E"/>
+                                    <Border Width="26" Height="26" CornerRadius="3"
                                             Background="{Binding IconCorridorColorHex}"
                                             BorderBrush="#555" BorderThickness="1" VerticalAlignment="Center"/>
                                 </StackPanel>
@@ -113,13 +113,13 @@
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <TextBlock Text="Zone Colors (icon clusters):" FontSize="12" VerticalAlignment="Center"/>
                                     <Button Content="Randomize" Command="{Binding RandomizePaletteCommand}"
-                                            Padding="8,3" FontSize="11"/>
+                                            Height="26" Padding="8,3" FontSize="11" VerticalContentAlignment="Center"/>
                                     <Button Content="+" Command="{Binding AddZoneColorCommand}"
-                                            Padding="8,3" FontSize="11" ToolTip.Tip="Add zone color"/>
+                                            Height="26" Padding="8,3" FontSize="11" ToolTip.Tip="Add zone color" VerticalContentAlignment="Center"/>
                                     <Button Content="−" Command="{Binding RemoveLastZoneColorCommand}"
-                                            Padding="8,3" FontSize="11" ToolTip.Tip="Remove last zone color"/>
+                                            Height="26" Padding="8,3" FontSize="11" ToolTip.Tip="Remove last zone color" VerticalContentAlignment="Center"/>
                                 </StackPanel>
-                                <ItemsControl ItemsSource="{Binding IconZonePalette}">
+                                <ItemsControl ItemsSource="{Binding IconZonePalette}" HorizontalAlignment="Left">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
                                             <WrapPanel Orientation="Horizontal"/>
@@ -131,7 +131,7 @@
                                                 <Border Width="46" Height="28" CornerRadius="3"
                                                         Background="{Binding ColorHex}"
                                                         BorderBrush="#555" BorderThickness="1"/>
-                                                <TextBox Text="{Binding ColorHex}" FontSize="9"
+                                                <TextBox Text="{Binding ColorHex}" FontSize="9" Height="20"
                                                          Padding="2,1" HorizontalAlignment="Stretch"/>
                                             </StackPanel>
                                         </DataTemplate>
@@ -277,10 +277,19 @@
                                            Width="150" HorizontalAlignment="Left"/>
                         </StackPanel>
 
-                        <!-- RandomWalk info -->
-                        <TextBlock IsVisible="{Binding IsRandomWalkMode}"
-                                   Text="Animation will wander randomly across all screens. Movement is deterministic (same on all monitors for sync)."
-                                   FontSize="10" Foreground="#888888" TextWrapping="Wrap"/>
+                        <!-- RandomWalk controls -->
+                        <StackPanel Spacing="8" IsVisible="{Binding IsRandomWalkMode}">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Iteration length (steps):" FontSize="12"/>
+                                <TextBlock Text="After this many steps the walk pattern changes. 0 = never change." FontSize="10" Foreground="#888888"/>
+                                <NumericUpDown Value="{Binding RandomWalkIterationSteps}"
+                                               Minimum="0" Maximum="500"
+                                               Increment="5"
+                                               Width="150" HorizontalAlignment="Left"/>
+                            </StackPanel>
+                            <TextBlock Text="Movement is deterministic across all monitors (sync maintained)."
+                                       FontSize="10" Foreground="#888888" TextWrapping="Wrap"/>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 

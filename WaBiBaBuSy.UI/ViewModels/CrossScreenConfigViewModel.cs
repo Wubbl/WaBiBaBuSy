@@ -126,6 +126,9 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     private float _orbitRadius = 500f;
 
     [ObservableProperty]
+    private int _randomWalkIterationSteps = 20;
+
+    [ObservableProperty]
     private int _corridorTopPx = 324;
 
     [ObservableProperty]
@@ -305,6 +308,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         WaveAmplitude = movement.WaveAmplitudePixels;
         WaveFrequency = movement.WaveFrequencyHz;
         OrbitRadius = movement.OrbitRadiusPixels;
+        RandomWalkIterationSteps = movement.IterationStepCount;
 
         // Restore monitor selection from config
         var selectedIds = new HashSet<string>(config.SelectedMonitorIds);
@@ -384,7 +388,10 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                 WaveAmplitudePixels = WaveAmplitude,
                 WaveFrequencyHz = WaveFrequency,
                 OrbitRadiusPixels = OrbitRadius,
-                Loop = AnimationLoop
+                Loop = AnimationLoop,
+                RandomSeed = 42,
+                RandomStepIntervalMs = 1000f,
+                IterationStepCount = RandomWalkIterationSteps
             }
         };
     }

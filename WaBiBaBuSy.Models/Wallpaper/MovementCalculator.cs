@@ -192,9 +192,17 @@ public static class MovementCalculator
         int currentStepIndex = (int)(elapsedMs / stepIntervalMs);
         float withinStep = (elapsedMs % stepIntervalMs) / stepIntervalMs; // 0..1 interpolation factor
 
+        // Rolling seed: every IterationStepCount steps, rotate to a new seed so the walk
+        // never settles into a visible repeating pattern. All monitors advance together
+        // (same elapsedMs → same iterationIndex → same seed change).
+        int iterationIndex = (config.IterationStepCount > 0)
+            ? currentStepIndex / config.IterationStepCount
+            : 0;
+        int effectiveSeed = config.RandomSeed ^ (int)((uint)iterationIndex * 2246822519u);
+
         // Generate waypoint for the current step and the next step
-        var (x0, y0) = GenerateWaypoint(config.RandomSeed, currentStepIndex, animWidth, animHeight, canvasWidth, canvasHeight);
-        var (x1, y1) = GenerateWaypoint(config.RandomSeed, currentStepIndex + 1, animWidth, animHeight, canvasWidth, canvasHeight);
+        var (x0, y0) = GenerateWaypoint(effectiveSeed, currentStepIndex, animWidth, animHeight, canvasWidth, canvasHeight);
+        var (x1, y1) = GenerateWaypoint(effectiveSeed, currentStepIndex + 1, animWidth, animHeight, canvasWidth, canvasHeight);
 
         // Smooth interpolation using cubic ease-in-out
         float t = SmoothStep(withinStep);

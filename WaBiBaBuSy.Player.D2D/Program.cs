@@ -395,6 +395,8 @@ class Program
     // Raw per-monitor icon positions (local coords, set in InitializeBackground IconZone)
     private static readonly List<(int X, int Y)> _detectedIcons = new();
     private static int _detectedCellW = 75, _detectedCellH = 75;
+    // Number of full A* path traversals completed; used to trigger per-traverse path variation
+    private static int _traverseCount = 0;
 
     // Actual movement trail — ring buffer of recent animation center positions in local space.
     // Shows the true trajectory including SineWave offsets, so it can be compared to the A* path.
@@ -410,6 +412,7 @@ class Program
     private static ID2D1SolidColorBrush? _debugInfoBrush;
     private static ID2D1SolidColorBrush? _debugIconRectBrush;
     private static ID2D1SolidColorBrush? _debugTrailBrush;
+    private static ID2D1SolidColorBrush? _debugZoneBandBrush;
 
     // Stage 4: Animation positioning (ported from AnimationLayerRenderer)
     private static int _animWidth, _animHeight;    // Scaled by FitMode
@@ -1460,6 +1463,7 @@ class Program
         _iconZoneBands.Clear();
         _animPath.Clear();
         _animPathTotalLength = 0f;
+        _traverseCount = 0;
 
         // Dispose previous background image
         _backgroundImageBitmap?.Dispose();
@@ -1510,18 +1514,9 @@ class Program
                 // Each player keeps only icons whose cell rectangle intersects its own monitor rect
                 // [_monitorOffsetX, _monitorOffsetX + _width) × [_monitorOffsetY, _monitorOffsetY + _height),
                 // then shifts to local (monitor-relative) space.
-                var allIcons = DetectDesktopIconPositions();
-                var iconPositions = new List<(int X, int Y)>(allIcons.Count);
-                foreach (var (ix, iy) in allIcons)
-                {
-                    if (ix + cellW <= _monitorOffsetX) continue;
-                    if (ix >= _monitorOffsetX + _width) continue;
-                    if (iy + cellH <= _monitorOffsetY) continue;
-                    if (iy >= _monitorOffsetY + _height) continue;
-                    iconPositions.Add((ix - _monitorOffsetX, iy - _monitorOffsetY));
-                }
-                _logger?.LogInformation("[IconZone] Monitor offset={Offset}px kept {Kept} of {Total} icons, cell={W}x{H}px",
-                    _monitorOffsetX, iconPositions.Count, allIcons.Count, cellW, cellH);
+                var iconPositions = GetFilteredIconPositions();
+                _logger?.LogInformation("[IconZone] Monitor offset={Offset}px kept {Kept} icons, cell={W}x{H}px",
+                    _monitorOffsetX, iconPositions.Count, cellW, cellH);
 
                 _detectedIcons.Clear();
                 _detectedIcons.AddRange(iconPositions);
@@ -1709,6 +1704,7 @@ class Program
         _debugInfoBrush     ??= _d2dContext.CreateSolidColorBrush(new Color4(0.1f, 1f, 0.2f, 1f)); // green
         _debugIconRectBrush ??= _d2dContext.CreateSolidColorBrush(new Color4(1f, 0.2f, 0.2f, 1f)); // red
         _debugTrailBrush    ??= _d2dContext.CreateSolidColorBrush(new Color4(1f, 0.6f, 0f, 1f));   // orange
+        _debugZoneBandBrush ??= _d2dContext.CreateSolidColorBrush(new Color4(0.2f, 1f, 0.6f, 1f)); // teal-green
 
         // 1. Icon zone rects — overlays the planner's "occupied" rectangles so we can see what
         //    the A* path is actually avoiding. Also draws a dot at each raw icon position.
@@ -1735,7 +1731,20 @@ class Program
             }
         }
 
-        // 2. A* path polyline + waypoint markers.
+        // 2. Free zone band outlines — highlights the corridor spaces A* can navigate through.
+        if (_debugOverlay.ShowZoneBandOutlines && _debugZoneBandBrush != null)
+        {
+            foreach (var (zY, zH, zX, zW, isFree, _) in _iconZoneBands)
+            {
+                if (!isFree) continue;
+                float drawW = zW < 0 ? _width : zW;
+                _d2dContext.DrawRectangle(
+                    new System.Drawing.RectangleF(zX, zY, drawW, zH),
+                    _debugZoneBandBrush, strokeWidth: 1.5f);
+            }
+        }
+
+        // 3. A* path polyline + waypoint markers.
         if (_debugOverlay.ShowPath && _debugPathBrush != null && _debugWaypointBrush != null && _animPath.Count >= 2)
         {
             for (int i = 0; i < _animPath.Count - 1; i++)
@@ -1754,7 +1763,7 @@ class Program
             }
         }
 
-        // 3. Actual movement trail — shows what the animation's center is doing, including
+        // 4. Actual movement trail — shows what the animation's center is doing, including
         //    SineWave offsets. If the trail wanders into red icon rects, movement is wrong.
         if (_debugOverlay.ShowPath && _debugTrailBrush != null && _movementTrailCount >= 2)
         {
@@ -1772,14 +1781,14 @@ class Program
             }
         }
 
-        // 4. Current animation bitmap outline — shows actual rendered size vs. expected position.
+        // 5. Current animation bitmap outline — shows actual rendered size vs. expected position.
         if (_debugAnimRectBrush != null && _animWidth > 0 && _animHeight > 0)
         {
             var rect = new System.Drawing.RectangleF(_animX, _animY, _animWidth, _animHeight);
             _d2dContext.DrawRectangle(rect, _debugAnimRectBrush, strokeWidth: 2f);
         }
 
-        // 5. Status LED (top-left) — proves each player's debug overlay is running even on
+        // 6. Status LED (top-left) — proves each player's debug overlay is running even on
         //    monitors that otherwise look empty. Deliberately simple; text panel is a future add.
         if (_debugOverlay.ShowInfoPanel && _debugInfoBrush != null)
         {
@@ -1894,6 +1903,22 @@ class Program
         {
             float speed = _movementConfig?.SpeedPixelsPerSecond ?? 300f;
 
+            // Traverse detection: check if we've completed a full lap and need a new path
+            // Must run BEFORE dist computation so RebuildPathOnly updates _animPathTotalLength
+            if (_animPathTotalLength > 0f)
+            {
+                float fullDist = elapsedMs * speed / 1000f;
+                float cycleDist = (_movementConfig?.Type == MovementType.Bounce)
+                    ? _animPathTotalLength * 2f
+                    : _animPathTotalLength;
+                int newTraverseCount = (int)(fullDist / cycleDist);
+                if (newTraverseCount > _traverseCount)
+                {
+                    _traverseCount = newTraverseCount;
+                    RebuildPathOnly(_traverseCount); // variationSeed = iteration number → different route each time
+                }
+            }
+
             float dist;
             if (_movementConfig?.Type == MovementType.Bounce)
             {
@@ -1977,6 +2002,48 @@ class Program
             _animX = (float)(-_animWidth + (elapsedSeconds * _pixelsPerSecond));
         }
         // For static animations (pixelsPerSecond=0 and no movement config), position stays at initial centered value
+    }
+
+    /// <summary>
+    /// Re-computes only the A* animation path (no background zone rebuild).
+    /// Called on each full path traverse to pick a different route.
+    /// </summary>
+    private static void RebuildPathOnly(int variationSeed)
+    {
+        if (_backgroundMode != BackgroundMode.IconZone) return;
+        if (_detectedIcons.Count == 0) return;
+        if (_backgroundConfig == null) return;
+
+        int pathPaddingPx = _animHeight / 2;
+        if (_movementConfig?.Type == MovementType.SineWave)
+            pathPaddingPx += (int)Math.Ceiling(_movementConfig.WaveAmplitudePixels);
+
+        int iconImageW = Math.Max(0, GetSystemMetrics(SM_CXICON));
+        int iconImageH = Math.Max(0, GetSystemMetrics(SM_CYICON));
+
+        var layout = WaBiBaBuSy.WallpaperEngine.Desktop.ZonePlanner.Compute(
+            _detectedIcons, _detectedCellW, _detectedCellH, _width, _height,
+            _backgroundConfig.IconZonePaletteHexes, _backgroundConfig.IconCorridorColorHex,
+            paddingPx: pathPaddingPx,
+            visualPaddingPx: Math.Max(4, _detectedCellW / 10),
+            iconImageW: iconImageW,
+            iconImageH: iconImageH,
+            pathVariationSeed: variationSeed);
+
+        _animPath.Clear();
+        foreach (var wp in layout.Path)
+            _animPath.Add((wp.X, wp.Y));
+
+        // Shift to virtual-canvas space for sequential mode
+        if (_monitorOffsetX != 0)
+        {
+            for (int i = 0; i < _animPath.Count; i++)
+                _animPath[i] = (_animPath[i].X + _monitorOffsetX, _animPath[i].Y);
+        }
+
+        _animPathTotalLength = ComputePathLength(_animPath);
+        _logger?.LogInformation("[IconZone] Path rebuilt (traverse #{Seed}): {Pts} waypoints, totalLen={Len:F0}px",
+            variationSeed, _animPath.Count, _animPathTotalLength);
     }
 
     private static float ComputePathLength(List<(float X, float Y)> path)
@@ -2227,6 +2294,22 @@ class Program
                     }
                     else
                         Console.WriteLine("ERROR:Failed to deserialize PlayerCommandToggleDebugOverlay");
+                    break;
+
+                case "cmd_set_debug_overlay_flags":
+                    var flagsCmd = JsonConvert.DeserializeObject<PlayerCommandSetDebugOverlayFlags>(json);
+                    if (flagsCmd != null)
+                    {
+                        _debugOverlay.Enabled = flagsCmd.Enabled;
+                        _debugOverlay.ShowPath = flagsCmd.ShowPath;
+                        _debugOverlay.ShowIconRects = flagsCmd.ShowIconRects;
+                        _debugOverlay.ShowZoneBandOutlines = flagsCmd.ShowZoneBandOutlines;
+                        _debugOverlay.ShowInfoPanel = flagsCmd.ShowInfoPanel;
+                        _logger?.LogInformation("[Debug] Overlay flags updated: Enabled={E} Path={P} Rects={R} Zones={Z} Info={I}",
+                            flagsCmd.Enabled, flagsCmd.ShowPath, flagsCmd.ShowIconRects, flagsCmd.ShowZoneBandOutlines, flagsCmd.ShowInfoPanel);
+                    }
+                    else
+                        Console.WriteLine("ERROR:Failed to deserialize PlayerCommandSetDebugOverlayFlags");
                     break;
 
                 default:
@@ -2503,6 +2586,7 @@ class Program
         _debugInfoBrush?.Dispose();     _debugInfoBrush = null;
         _debugIconRectBrush?.Dispose(); _debugIconRectBrush = null;
         _debugTrailBrush?.Dispose();    _debugTrailBrush = null;
+        _debugZoneBandBrush?.Dispose(); _debugZoneBandBrush = null;
 
         // Dispose D2D/D3D resources (Stage 1 order)
         _d2dContext?.Dispose();
