@@ -1510,18 +1510,9 @@ class Program
                 // Each player keeps only icons whose cell rectangle intersects its own monitor rect
                 // [_monitorOffsetX, _monitorOffsetX + _width) × [_monitorOffsetY, _monitorOffsetY + _height),
                 // then shifts to local (monitor-relative) space.
-                var allIcons = DetectDesktopIconPositions();
-                var iconPositions = new List<(int X, int Y)>(allIcons.Count);
-                foreach (var (ix, iy) in allIcons)
-                {
-                    if (ix + cellW <= _monitorOffsetX) continue;
-                    if (ix >= _monitorOffsetX + _width) continue;
-                    if (iy + cellH <= _monitorOffsetY) continue;
-                    if (iy >= _monitorOffsetY + _height) continue;
-                    iconPositions.Add((ix - _monitorOffsetX, iy - _monitorOffsetY));
-                }
-                _logger?.LogInformation("[IconZone] Monitor offset={Offset}px kept {Kept} of {Total} icons, cell={W}x{H}px",
-                    _monitorOffsetX, iconPositions.Count, allIcons.Count, cellW, cellH);
+                var iconPositions = GetFilteredIconPositions();
+                _logger?.LogInformation("[IconZone] Monitor offset={Offset}px kept {Kept} icons, cell={W}x{H}px",
+                    _monitorOffsetX, iconPositions.Count, cellW, cellH);
 
                 _detectedIcons.Clear();
                 _detectedIcons.AddRange(iconPositions);
