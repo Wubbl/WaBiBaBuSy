@@ -1893,7 +1893,10 @@ class Program
             if (_animPathTotalLength > 0f)
             {
                 float fullDist = elapsedMs * speed / 1000f;
-                int newTraverseCount = (int)(fullDist / _animPathTotalLength);
+                float cycleDist = (_movementConfig?.Type == MovementType.Bounce)
+                    ? _animPathTotalLength * 2f
+                    : _animPathTotalLength;
+                int newTraverseCount = (int)(fullDist / cycleDist);
                 if (newTraverseCount > _traverseCount)
                 {
                     _traverseCount = newTraverseCount;
@@ -1995,7 +1998,6 @@ class Program
         if (_backgroundMode != BackgroundMode.IconZone) return;
         if (_detectedIcons.Count == 0) return;
         if (_backgroundConfig == null) return;
-        if (_d2dContext == null) return;
 
         int pathPaddingPx = _animHeight / 2;
         if (_movementConfig?.Type == MovementType.SineWave)

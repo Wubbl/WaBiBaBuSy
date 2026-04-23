@@ -308,6 +308,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         WaveAmplitude = movement.WaveAmplitudePixels;
         WaveFrequency = movement.WaveFrequencyHz;
         OrbitRadius = movement.OrbitRadiusPixels;
+        RandomWalkIterationSteps = movement.IterationStepCount;
 
         // Restore monitor selection from config
         var selectedIds = new HashSet<string>(config.SelectedMonitorIds);
