@@ -153,6 +153,13 @@ public partial class MainWindowViewModel : ViewModelBase
     private CrossScreenConfig? _crossScreenConfig;
     private string? _currentAnimationScheduleId;  // Track active animation schedule (Phase 3)
 
+    // Sequential IconZone lap-recompute state
+    private int _lastGlobalLap = -1;
+    private int _seqCellW, _seqCellH, _seqVirtualCanvasWidth, _seqVirtualH;
+    private int _seqPathPaddingPx, _seqVisualPaddingPx;
+    private List<string> _seqPaletteHexes = new();
+    private string _seqCorridorColorHex = "#1E1E1E";
+
     // Storage provider for file picker dialogs
     private IStorageProvider? _storageProvider;
 
@@ -2803,6 +2810,16 @@ public partial class MainWindowViewModel : ViewModelBase
                     };
 
                     Debug.WriteLine($"[CrossScreen] IconZone sequential: computed global path with {globalLayout.Path.Count} waypoints across {canvasManager.VirtualBounds.Width}px virtual canvas");
+
+                    // Save params for per-lap recompute
+                    _seqCellW              = cellW;
+                    _seqCellH              = cellH;
+                    _seqVirtualCanvasWidth = canvasManager.VirtualBounds.Width;
+                    _seqVirtualH           = virtualH;
+                    _seqPathPaddingPx      = pathPaddingPx;
+                    _seqVisualPaddingPx    = Math.Max(4, cellW / 10);
+                    _seqPaletteHexes       = _crossScreenConfig.Background.IconZonePaletteHexes.ToList();
+                    _seqCorridorColorHex   = _crossScreenConfig.Background.IconCorridorColorHex;
                 }
                 catch (Exception ex)
                 {
@@ -2865,6 +2882,10 @@ public partial class MainWindowViewModel : ViewModelBase
                     perMonitorMode: perMonitor,
                     explicitVirtualCanvasWidth: perMonitor ? null : canvasManager.VirtualBounds.Width,
                     explicitMonitorOffsetX: perMonitor ? null : virtualOffsetX);
+
+                // Subscribe for lap-completion recompute in sequential IconZone mode
+                if (!perMonitor && _crossScreenConfig.Background.Mode == BackgroundMode.IconZone)
+                    d2dService.GlobalLapCompleted += OnSequentialLapCompleted;
 
                 newServices.Add((monitorIndex, d2dService));
                 Debug.WriteLine($"[CrossScreen] Monitor {monitorIndex} initialized (virtualOffsetX={virtualOffsetX}, vcw={canvasManager.VirtualBounds.Width})");
@@ -3051,10 +3072,12 @@ public partial class MainWindowViewModel : ViewModelBase
             // Stop and dispose all D2D composition services
             foreach (var kvp in _d2dCompositionServices)
             {
+                kvp.Value.GlobalLapCompleted -= OnSequentialLapCompleted;
                 try { await kvp.Value.StopAsync(); } catch { }
                 try { kvp.Value.Dispose(); } catch { }
             }
             _d2dCompositionServices.Clear();
+            _lastGlobalLap = -1;
 
             IsCrossScreenRunning = false;
             ClearAllWallpapersCommand.NotifyCanExecuteChanged();
@@ -3111,6 +3134,42 @@ public partial class MainWindowViewModel : ViewModelBase
                 .LogError(ex, "[DistributedAnimation] Error in OnDistributedAnimationRender");
             throw;
         }
+    }
+
+    /// <summary>
+    /// Called by each D2DCompositionService when a global lap completes in sequential IconZone mode.
+    /// Recomputes the A* path with a new variation seed and broadcasts it to all players.
+    /// </summary>
+    private void OnSequentialLapCompleted(object? sender, int lapNum)
+    {
+        if (lapNum <= _lastGlobalLap) return;
+        _lastGlobalLap = lapNum;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var iconService = new WaBiBaBuSy.Core.Services.Desktop.DesktopIconService();
+                var allIcons = iconService.GetIconPositions();
+                var newLayout = WaBiBaBuSy.WallpaperEngine.Desktop.ZonePlanner.Compute(
+                    allIcons.Select(i => (i.PixelX, i.PixelY)),
+                    _seqCellW, _seqCellH,
+                    _seqVirtualCanvasWidth, _seqVirtualH,
+                    _seqPaletteHexes, _seqCorridorColorHex,
+                    paddingPx: _seqPathPaddingPx,
+                    visualPaddingPx: _seqVisualPaddingPx,
+                    pathVariationSeed: lapNum);
+
+                foreach (var (_, svc) in _d2dCompositionServices)
+                    await svc.BroadcastNewPathAsync(newLayout.Path);
+
+                Debug.WriteLine($"[SeqPath] Lap {lapNum}: broadcast {newLayout.Path.Count} waypoints");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SeqPath] Recompute failed for lap {lapNum}: {ex.Message}");
+            }
+        });
     }
 
     #endregion
