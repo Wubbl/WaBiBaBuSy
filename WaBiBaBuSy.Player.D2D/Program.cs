@@ -1533,6 +1533,8 @@ class Program
                 int pathPaddingPx = _animHeight / 2;
                 if (_movementConfig?.Type == MovementType.SineWave)
                     pathPaddingPx += (int)Math.Ceiling(_movementConfig.WaveAmplitudePixels);
+                if (_movementConfig?.Type == MovementType.RandomWalk && _movementConfig.WaveAmplitudePixels > 0)
+                    pathPaddingPx += (int)Math.Ceiling(_movementConfig.WaveAmplitudePixels);
                 // Always compute local zones for background rendering
                 var layout = WaBiBaBuSy.WallpaperEngine.Desktop.ZonePlanner.Compute(
                     iconPositions, cellW, cellH, _width, _height,
@@ -2048,6 +2050,8 @@ class Program
 
         int pathPaddingPx = _animHeight / 2;
         if (_movementConfig?.Type == MovementType.SineWave)
+            pathPaddingPx += (int)Math.Ceiling(_movementConfig.WaveAmplitudePixels);
+        if (_movementConfig?.Type == MovementType.RandomWalk && _movementConfig.WaveAmplitudePixels > 0)
             pathPaddingPx += (int)Math.Ceiling(_movementConfig.WaveAmplitudePixels);
 
         int iconImageW = Math.Max(0, GetSystemMetrics(SM_CXICON));
