@@ -406,6 +406,10 @@ class Program
     // Number of full A* path traversals completed; used to trigger per-traverse path variation
     private static int _traverseCount = 0;
 
+    // Pending path update from host (cmd_update_path); consumed at the top of UpdateAnimationPosition.
+    // Written by the stdin command thread, read by the render thread.
+    private static volatile List<WaypointF>? _pendingNewPath = null;
+
     // Actual movement trail — ring buffer of recent animation center positions in local space.
     // Shows the true trajectory including SineWave offsets, so it can be compared to the A* path.
     private const int MOVEMENT_TRAIL_CAPACITY = 180;
@@ -1467,6 +1471,7 @@ class Program
         _animPath.Clear();
         _animPathTotalLength = 0f;
         _traverseCount = 0;
+        _pendingNewPath = null;
 
         // Dispose previous background image
         _backgroundImageBitmap?.Dispose();
@@ -1903,6 +1908,16 @@ class Program
     /// </summary>
     private static void UpdateAnimationPosition(long elapsedMs)
     {
+        // Apply any pending path update from host before any position logic.
+        var pendingPath = Interlocked.Exchange(ref _pendingNewPath, null);
+        if (pendingPath != null && _backgroundMode == BackgroundMode.IconZone)
+        {
+            _animPath.Clear();
+            foreach (var wp in pendingPath) _animPath.Add((wp.X, wp.Y));
+            _animPathTotalLength = ComputePathLength(_animPath);
+            _logger?.LogInformation("[IconZone] Path refreshed from host: {Pts} waypoints", _animPath.Count);
+        }
+
         // IconZone: path-following. Path is in virtual-canvas space; subtract MonitorOffsetX to get local coords.
         if (_backgroundMode == BackgroundMode.IconZone && _animPath.Count >= 2)
         {
@@ -1921,6 +1936,11 @@ class Program
                 {
                     _traverseCount = newTraverseCount;
                     RebuildPathOnly(_traverseCount); // variationSeed = iteration number → different route each time
+                    if (_animationConfig?.PrecomputedPath?.Count > 0)
+                    {
+                        Console.Error.WriteLine($"SIGNAL:LAP_COMPLETE:{_traverseCount}");
+                        Console.Error.Flush();
+                    }
                 }
             }
 
@@ -2348,6 +2368,12 @@ class Program
                     }
                     else
                         Console.WriteLine("ERROR:Failed to deserialize PlayerCommandSetDebugOverlayFlags");
+                    break;
+
+                case "cmd_update_path":
+                    var pathCmd = JsonConvert.DeserializeObject<PlayerCommandUpdatePath>(json);
+                    if (pathCmd?.Path?.Count > 0)
+                        _pendingNewPath = pathCmd.Path;
                     break;
 
                 default:
