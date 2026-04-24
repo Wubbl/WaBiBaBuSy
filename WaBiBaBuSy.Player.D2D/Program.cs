@@ -51,7 +51,6 @@ class Program
     private const uint WM_ERASEBKGND = 0x0014;
     private const uint WM_DESTROY = 0x0002;
     private const uint WM_HOTKEY = 0x0312;
-    private const uint WM_SETTINGCHANGE = 0x001A;
     private const int IDC_ARROW = 32512;
 
     // Debug overlay hotkey (F11 — F12 is taken by Avalonia Dev Tools in the main UI)
@@ -108,8 +107,12 @@ class Program
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint crKey, byte bAlpha, uint dwFlags);
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern IntPtr GetParent(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    private static extern bool IsWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetAncestor(IntPtr hWnd, uint flags);
+    private const uint GA_ROOT = 2;
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);
@@ -313,14 +316,19 @@ class Program
     private static Color4 _currentColor = new(0, 0, 0, 1); // Default black
     private static volatile bool _windowShown = false;
     private static IntPtr _zOrderReference = IntPtr.Zero;
-    private static IntPtr _parentHwnd      = IntPtr.Zero;  // stored for re-parenting after desktop refresh
 
-    // Re-parent flags — set by WM_SETTINGCHANGE or periodic parent check, consumed by render loop
-    private static volatile bool _needsReparent    = false;
+    // IconZone refresh debouncing — consumed by render loop when the desktop icons move.
     private static volatile bool _needsIconRefresh = false;
     private static long _iconRefreshScheduledAt = 0;   // tick when refresh was last requested
     private const  long IconRefreshDebounceMs   = 400; // wait for desktop to settle before re-detecting
-    private static long _lastReparentCheckTick = 0;
+    private static long _lastIconPositionCheckTick = 0;
+
+    // Catastrophic-orphaning signal (Snipping Tool / display change / explorer restart).
+    // Player does NOT reparent itself — it signals the host, which owns desktop discovery.
+    private static long _lastOrphanCheckTick  = 0;
+    private static long _lastOrphanSignalTick = 0;
+    private const  long OrphanCheckIntervalMs    = 10_000;
+    private const  long OrphanSignalCooldownMs   = 30_000;
 
     // Pending PARENT command to be processed on main thread
     private static volatile string? _pendingParentCommand = null;
@@ -638,14 +646,6 @@ class Program
                     _logger?.LogInformation("[Debug] Overlay {State} via F11", _debugOverlay.Enabled ? "ON" : "OFF");
                 }
                 return IntPtr.Zero;
-            case WM_SETTINGCHANGE:
-                // Desktop can be rebuilt after screen capture tools (Snipping Tool etc.) finish.
-                // WM_SETTINGCHANGE fires for many unrelated events (volume, screensaver, clock, etc.).
-                // Only schedule a re-parent check; the actual icon refresh is triggered only if the
-                // parent window turns out to have actually changed (see reparent block in render loop).
-                if (_parentHwnd != IntPtr.Zero)
-                    _needsReparent = true;
-                return IntPtr.Zero;
             case WM_DESTROY:
                 _running = false;
                 return IntPtr.Zero;
@@ -748,7 +748,6 @@ class Program
                 SetLayeredWindowAttributes(_hwnd, 0, 255, LWA_ALPHA); // Full opacity
 
                 // SetParent to make us a child/sibling
-                _parentHwnd = parentHwnd;  // store so render loop can re-parent after desktop refresh
                 SetParent(_hwnd, parentHwnd);
 
                 // Position behind DefView or bottom
@@ -826,51 +825,49 @@ class Program
                     ProcessParentCommand(parentCmd);
                 }
 
-                // Periodic check — runs every 5 s:
-                //   1. Detect silent window detachment (no WM_SETTINGCHANGE fired).
-                //   2. In IconZone mode: compare live icon positions against the cached set;
-                //      rebuild zones ONLY if icons actually moved (not on every system event).
-                if (_parentHwnd != IntPtr.Zero && !_needsReparent)
+                // Periodic IconZone icon-position check — runs every 5 s.
+                // Compare live icon positions against the cached set; rebuild zones ONLY
+                // if icons actually moved. Never touches window parenting or Z-order.
+                if (_backgroundMode == BackgroundMode.IconZone && !_needsIconRefresh)
                 {
                     long nowTick = Environment.TickCount64;
-                    if (nowTick - _lastReparentCheckTick > 5000)
+                    if (nowTick - _lastIconPositionCheckTick > 5000)
                     {
-                        _lastReparentCheckTick = nowTick;
-
-                        if (GetParent(_hwnd) != _parentHwnd)
+                        _lastIconPositionCheckTick = nowTick;
+                        var fresh = GetFilteredIconPositions();
+                        if (IconPositionsChanged(fresh))
                         {
-                            _needsReparent = true;
-                            _logger?.LogWarning("[Reparent] Parent mismatch detected — will re-parent");
-                        }
-
-                        if (_backgroundMode == BackgroundMode.IconZone && !_needsIconRefresh)
-                        {
-                            var fresh = GetFilteredIconPositions();
-                            if (IconPositionsChanged(fresh))
-                            {
-                                _logger?.LogInformation("[IconRefresh] Icon positions changed — scheduling zone rebuild");
-                                _needsIconRefresh = true;
-                                _iconRefreshScheduledAt = Environment.TickCount64;
-                            }
+                            _logger?.LogInformation("[IconRefresh] Icon positions changed — scheduling zone rebuild");
+                            _needsIconRefresh = true;
+                            _iconRefreshScheduledAt = Environment.TickCount64;
                         }
                     }
                 }
 
-                // Re-parent if WM_SETTINGCHANGE or periodic check triggered it.
-                // Guard: WM_SETTINGCHANGE fires for many unrelated events (volume, screensaver…).
-                // Only issue SetParent/SetWindowPos when the parent actually changed to avoid
-                // Z-order disturbance that causes a visible flicker on every system event.
-                if (_needsReparent && _parentHwnd != IntPtr.Zero && _zOrderReference != IntPtr.Zero)
+                // Catastrophic-orphaning check — runs every 10 s.
+                // Signals the host ONLY when BOTH are true:
+                //   a) no valid ancestor window (GetAncestor returns our own HWND), and
+                //   b) stored z-order reference (DefView) is destroyed (!IsWindow).
+                // Both together mean the desktop tree was genuinely torn down (Snipping
+                // Tool rebuild, display config change, explorer restart). Host owns
+                // desktop discovery and will re-issue the PARENT command on receipt.
+                // Cooldown (30 s) prevents spam while the host re-parents.
+                if (_hwnd != IntPtr.Zero && _zOrderReference != IntPtr.Zero)
                 {
-                    _needsReparent = false;
-                    if (GetParent(_hwnd) != _parentHwnd)
+                    long nowTick = Environment.TickCount64;
+                    if (nowTick - _lastOrphanCheckTick > OrphanCheckIntervalMs)
                     {
-                        var exStyle = GetWindowLong(_hwnd, GWL_EXSTYLE);
-                        SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED);
-                        SetLayeredWindowAttributes(_hwnd, 0, 255, LWA_ALPHA);
-                        SetParent(_hwnd, _parentHwnd);
-                        SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
-                        _logger?.LogInformation("[Reparent] Restored parent={Parent} z={ZOrder}", _parentHwnd, _zOrderReference);
+                        _lastOrphanCheckTick = nowTick;
+                        bool noAncestor    = GetAncestor(_hwnd, GA_ROOT) == _hwnd;
+                        bool zOrderRefDead = !IsWindow(_zOrderReference);
+                        if (noAncestor && zOrderRefDead
+                            && nowTick - _lastOrphanSignalTick > OrphanSignalCooldownMs)
+                        {
+                            _lastOrphanSignalTick = nowTick;
+                            _logger?.LogWarning("[Reparent] Catastrophic orphaning detected — signaling host");
+                            Console.Error.WriteLine("SIGNAL:NEEDS_REPARENT");
+                            Console.Error.Flush();
+                        }
                     }
                 }
 

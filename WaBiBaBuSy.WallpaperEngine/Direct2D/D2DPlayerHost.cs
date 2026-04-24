@@ -254,6 +254,36 @@ public class D2DPlayerHost : IDisposable
     }
 
     /// <summary>
+    /// Re-runs desktop discovery and re-issues the PARENT command to the player.
+    /// Triggered by an unsolicited NEEDS_REPARENT signal from the player (desktop
+    /// tree was torn down by Snipping Tool / display change / explorer restart).
+    /// Fire-and-forget: we do NOT await the player's READY response, because this
+    /// runs from a background event and could race with in-flight command/response
+    /// pairs on stdout. All player responses are "READY", so at worst one future
+    /// command's ReadLineAsync picks up this stale READY harmlessly.
+    /// </summary>
+    private async Task ReissuePlayerParentingAsync()
+    {
+        if (_playerHwnd == IntPtr.Zero || _playerStdin == null) return;
+
+        var workerW = _desktopWindowManager.FindDesktopWorkerWindow();
+        if (workerW == IntPtr.Zero)
+        {
+            _logger.LogWarning("Reparent retry: WorkerW not found — skipping");
+            return;
+        }
+
+        var progman = _desktopWindowManager.ProgmanHandle;
+        var defView = _desktopWindowManager.ShellDllDefViewHandle;
+        var parentHwnd = _desktopWindowManager.IsLayeredDesktopMode ? progman : workerW;
+        var zOrderHwnd = _desktopWindowManager.IsLayeredDesktopMode ? defView : IntPtr.Zero;
+
+        _logger.LogInformation("Reparent retry: re-issuing PARENT:{Parent},{ZOrder}",
+            parentHwnd.ToInt64(), zOrderHwnd.ToInt64());
+        await SendCommandAsync($"PARENT:{parentHwnd.ToInt64()},{zOrderHwnd.ToInt64()}");
+    }
+
+    /// <summary>
     /// Sends a color command to the player to fill the screen with a solid color.
     /// </summary>
     /// <param name="color">The color to fill with</param>
@@ -598,6 +628,20 @@ public class D2DPlayerHost : IDisposable
         if (!string.IsNullOrEmpty(e.Data))
         {
             var line = e.Data;
+
+            // Control signals from the player (raw, no log prefix). The player emits
+            // these directly via Console.Error.WriteLine so they arrive ahead of any
+            // log-formatted line that describes the same event.
+            if (line == "SIGNAL:NEEDS_REPARENT")
+            {
+                _logger.LogWarning("[Player] NEEDS_REPARENT signal — re-issuing PARENT command");
+                _ = Task.Run(async () =>
+                {
+                    try { await ReissuePlayerParentingAsync(); }
+                    catch (Exception ex) { _logger.LogError(ex, "Failed to re-issue PARENT after player signal"); }
+                });
+                return;
+            }
 
             // Extract log level and strip .NET logging prefix
             // SimpleConsole SingleLine format: "HH:mm:ss info: Category[0] Actual message"
