@@ -1940,7 +1940,9 @@ class Program
 
             // Compute path tangent when either rotation or SineWave perpendicular offset
             // is active — both consume it.
-            bool needsTangent = _rotateWithPath || _movementConfig?.Type == MovementType.SineWave;
+            bool needsTangent = _rotateWithPath
+                || _movementConfig?.Type == MovementType.SineWave
+                || (_movementConfig?.Type == MovementType.RandomWalk && _movementConfig.WaveAmplitudePixels > 0);
             float tangentAngle = 0f;
             if (needsTangent && _animPathTotalLength > 0f)
             {
@@ -1965,6 +1967,22 @@ class Program
                 px += perpX * sinOffset;
                 py += perpY * sinOffset;
                 // Clamp the center coordinate so the bitmap stays on-screen.
+                py = Math.Clamp(py, _animHeight / 2f, Math.Max(_animHeight / 2f, _height - _animHeight / 2f));
+            }
+
+            if (_movementConfig?.Type == MovementType.RandomWalk && _movementConfig.WaveAmplitudePixels > 0)
+            {
+                float stepIntervalMs = MathF.Max(100f, _movementConfig.RandomStepIntervalMs);
+                int stepIndex  = (int)(elapsedMs / stepIntervalMs);
+                float withinStep = (elapsedMs % stepIntervalMs) / stepIntervalMs;  // 0..1
+                int lapSeed = _movementConfig.RandomSeed ^ (int)((uint)_traverseCount * 2246822519u);
+                float t0 = GeneratePerpOffset(lapSeed, stepIndex);
+                float t1 = GeneratePerpOffset(lapSeed, stepIndex + 1);
+                float perpOffset = (t0 + (t1 - t0) * withinStep) * _movementConfig.WaveAmplitudePixels;
+                float perpX = -MathF.Sin(tangentAngle);
+                float perpY =  MathF.Cos(tangentAngle);
+                px += perpX * perpOffset;
+                py += perpY * perpOffset;
                 py = Math.Clamp(py, _animHeight / 2f, Math.Max(_animHeight / 2f, _height - _animHeight / 2f));
             }
 
@@ -2064,6 +2082,15 @@ class Program
             total += MathF.Sqrt(dx * dx + dy * dy);
         }
         return total;
+    }
+
+    /// <summary>
+    /// Returns a deterministic value in [-1, 1] for the given seed and step index.
+    /// </summary>
+    private static float GeneratePerpOffset(int seed, int stepIndex)
+    {
+        var rng = new Random(seed ^ (int)((uint)stepIndex * 2654435761u));
+        return (float)(rng.NextDouble() * 2.0 - 1.0);
     }
 
     private static (float X, float Y) SamplePath(List<(float X, float Y)> path, float dist)
