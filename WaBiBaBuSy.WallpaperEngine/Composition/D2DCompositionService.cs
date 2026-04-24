@@ -28,6 +28,7 @@ public class D2DCompositionService : IDisposable
     private bool _isRunning;
     private int _monitorIndex;
     private int _lastBroadcastLap = -1;
+    private readonly object _lapLock = new();
 
     public D2DCompositionService(
         ILogger<D2DCompositionService> logger,
@@ -123,13 +124,18 @@ public class D2DCompositionService : IDisposable
 
             _playerHosts[screen.Order] = playerHost;
 
+            // No explicit unsubscribe needed: playerHost lifetime is bounded by this service's Dispose,
+            // which disposes all hosts. The lambda captures 'this' but cannot outlive the service.
             playerHost.LapCompleted += (_, lapNum) =>
             {
-                if (lapNum > _lastBroadcastLap)
+                bool shouldFire;
+                lock (_lapLock)
                 {
-                    _lastBroadcastLap = lapNum;
-                    GlobalLapCompleted?.Invoke(this, lapNum);
+                    shouldFire = lapNum > _lastBroadcastLap;
+                    if (shouldFire) _lastBroadcastLap = lapNum;
                 }
+                if (shouldFire)
+                    GlobalLapCompleted?.Invoke(this, lapNum);
             };
 
             _logger.LogInformation("Sending animation metadata to player {Order}", screen.Order);
@@ -295,6 +301,12 @@ public class D2DCompositionService : IDisposable
     /// </summary>
     public async Task BroadcastNewPathAsync(List<WaypointF> path)
     {
+        if (path.Count == 0)
+        {
+            _logger.LogWarning("BroadcastNewPathAsync called with empty path — ignoring");
+            return;
+        }
+
         foreach (var host in _playerHosts.Values)
         {
             if (!host.IsRunning) continue;
