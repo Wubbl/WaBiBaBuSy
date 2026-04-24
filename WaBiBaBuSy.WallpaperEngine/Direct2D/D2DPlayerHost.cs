@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Drawing;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using WaBiBaBuSy.Models.Wallpaper;
 using WaBiBaBuSy.Player.Common.Messages;
 using WaBiBaBuSy.WallpaperEngine.Composition;
 using WaBiBaBuSy.WallpaperEngine.Native;
@@ -53,6 +54,12 @@ public class D2DPlayerHost : IDisposable
     /// Must be set before calling InitializeAsync.
     /// </summary>
     public bool StaticMode { get; set; } = false;
+
+    /// <summary>
+    /// Raised when the player signals that a path lap has completed.
+    /// The event argument is the 1-based lap number reported by the player.
+    /// </summary>
+    public event EventHandler<int>? LapCompleted;
 
     /// <summary>
     /// Initializes the player process and parents its window to the desktop.
@@ -521,6 +528,17 @@ public class D2DPlayerHost : IDisposable
     }
 
     /// <summary>
+    /// Sends an updated waypoint path to the player. Fire-and-forget: no READY
+    /// response is awaited so the caller is not blocked during normal animation.
+    /// </summary>
+    public async Task SendUpdatePathAsync(List<WaypointF> path)
+    {
+        if (!IsRunning) return;
+        var cmd = new PlayerCommandUpdatePath { Path = path };
+        await SendCommandAsync(JsonConvert.SerializeObject(cmd));
+    }
+
+    /// <summary>
     /// Sends all five debug overlay flags explicitly to the player process.
     /// Fire-and-forget: we do not block waiting for a response so UI stays snappy even if
     /// a player is unresponsive.
@@ -640,6 +658,14 @@ public class D2DPlayerHost : IDisposable
                     try { await ReissuePlayerParentingAsync(); }
                     catch (Exception ex) { _logger.LogError(ex, "Failed to re-issue PARENT after player signal"); }
                 });
+                return;
+            }
+
+            if (line != null && line.StartsWith("SIGNAL:LAP_COMPLETE:") &&
+                int.TryParse(line[20..], out int lapNum))
+            {
+                _logger.LogInformation("[Player] LAP_COMPLETE signal: lap {Lap}", lapNum);
+                LapCompleted?.Invoke(this, lapNum);
                 return;
             }
 
