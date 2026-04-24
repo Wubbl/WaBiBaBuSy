@@ -2004,12 +2004,23 @@ class Program
     /// <summary>
     /// Re-computes only the A* animation path (no background zone rebuild).
     /// Called on each full path traverse to pick a different route.
+    ///
+    /// SEQUENTIAL MODE: the initial path is a *global* path computed by the host over
+    /// the full virtual canvas (all monitors' icons), delivered via AnimationConfig.
+    /// PrecomputedPath. Each player has only its own monitor's icons / bounds, so it
+    /// cannot regenerate a global path locally — if it tried, every monitor would
+    /// produce its own local path and each monitor would show its own animation
+    /// instead of the single spanning animation. So in sequential mode we keep the
+    /// original global path for the life of the session (no per-lap variation).
     /// </summary>
     private static void RebuildPathOnly(int variationSeed)
     {
         if (_backgroundMode != BackgroundMode.IconZone) return;
         if (_detectedIcons.Count == 0) return;
         if (_backgroundConfig == null) return;
+
+        // Sequential mode: keep the precomputed global path untouched. See method summary.
+        if (_animationConfig?.PrecomputedPath is { Count: > 0 }) return;
 
         int pathPaddingPx = _animHeight / 2;
         if (_movementConfig?.Type == MovementType.SineWave)
@@ -2030,13 +2041,6 @@ class Program
         _animPath.Clear();
         foreach (var wp in layout.Path)
             _animPath.Add((wp.X, wp.Y));
-
-        // Shift to virtual-canvas space for sequential mode
-        if (_monitorOffsetX != 0)
-        {
-            for (int i = 0; i < _animPath.Count; i++)
-                _animPath[i] = (_animPath[i].X + _monitorOffsetX, _animPath[i].Y);
-        }
 
         _animPathTotalLength = ComputePathLength(_animPath);
         _logger?.LogInformation("[IconZone] Path rebuilt (traverse #{Seed}): {Pts} waypoints, totalLen={Len:F0}px",
