@@ -27,6 +27,7 @@ public class D2DCompositionService : IDisposable
     private bool _disposed;
     private bool _isRunning;
     private int _monitorIndex;
+    private int _lastBroadcastLap = -1;
 
     public D2DCompositionService(
         ILogger<D2DCompositionService> logger,
@@ -42,6 +43,11 @@ public class D2DCompositionService : IDisposable
     /// Gets whether the service is currently running.
     /// </summary>
     public bool IsRunning => _isRunning;
+
+    /// <summary>
+    /// Raised once per lap, deduplicated across all player hosts.
+    /// </summary>
+    public event EventHandler<int>? GlobalLapCompleted;
 
     /// <summary>
     /// Gets the player window handle for the first (or only) player host.
@@ -116,6 +122,15 @@ public class D2DCompositionService : IDisposable
             await playerHost.InitializeAsync(cancellationToken);
 
             _playerHosts[screen.Order] = playerHost;
+
+            playerHost.LapCompleted += (_, lapNum) =>
+            {
+                if (lapNum > _lastBroadcastLap)
+                {
+                    _lastBroadcastLap = lapNum;
+                    GlobalLapCompleted?.Invoke(this, lapNum);
+                }
+            };
 
             _logger.LogInformation("Sending animation metadata to player {Order}", screen.Order);
 
@@ -230,6 +245,7 @@ public class D2DCompositionService : IDisposable
         }
 
         _isRunning = false;
+        _lastBroadcastLap = -1;
         _logger.LogInformation("D2D composition service stopped");
     }
 
@@ -270,6 +286,20 @@ public class D2DCompositionService : IDisposable
             {
                 _logger.LogError(ex, "Failed to set debug overlay flags on a player host");
             }
+        }
+    }
+
+    /// <summary>
+    /// Broadcasts a new path to all running players.
+    /// Fire-and-forget — errors are logged but do not throw.
+    /// </summary>
+    public async Task BroadcastNewPathAsync(List<WaypointF> path)
+    {
+        foreach (var host in _playerHosts.Values)
+        {
+            if (!host.IsRunning) continue;
+            try { await host.SendUpdatePathAsync(path); }
+            catch (Exception ex) { _logger.LogError(ex, "Failed to broadcast new path to player"); }
         }
     }
 
