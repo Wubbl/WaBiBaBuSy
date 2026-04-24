@@ -1045,12 +1045,18 @@ class Program
                             }
 
                             var destRect = new System.Drawing.RectangleF(_animX, _animY, _animWidth, _animHeight);
+                            bool hasRotation = _rotateWithPath && _animRotationRad != 0f && _animPath.Count >= 2;
+                            if (hasRotation)
+                                _d2dContext.Transform = Matrix3x2.CreateRotation(
+                                    _animRotationRad, new Vector2(_animX + _animWidth / 2f, _animY + _animHeight / 2f));
                             _d2dContext.DrawBitmap(
                                 _currentVideoD2DBitmap,
                                 destRect,
                                 1.0f,
                                 BitmapInterpolationMode.Linear,
                                 null);
+                            if (hasRotation)
+                                _d2dContext.Transform = Matrix3x2.Identity;
 
                             if (_frameCount % 60 == 0)
                             {

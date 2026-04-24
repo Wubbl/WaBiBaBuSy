@@ -2798,6 +2798,7 @@ public partial class MainWindowViewModel : ViewModelBase
                         CenterInitialPosition = _crossScreenConfig.Animation.CenterInitialPosition,
                         SpeedMultiplier       = _crossScreenConfig.Animation.SpeedMultiplier,
                         FitMode               = _crossScreenConfig.Animation.FitMode,
+                        RotateWithPath        = _crossScreenConfig.Animation.RotateWithPath,
                         PrecomputedPath       = globalLayout.Path
                     };
 
