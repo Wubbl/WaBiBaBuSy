@@ -155,6 +155,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     // Sequential IconZone lap-recompute state
     private int _lastGlobalLap = -1;
+    private readonly object _seqLapLock = new();
     private int _seqCellW, _seqCellH, _seqVirtualCanvasWidth, _seqVirtualH;
     private int _seqPathPaddingPx, _seqVisualPaddingPx;
     private List<string> _seqPaletteHexes = new();
@@ -3142,14 +3143,18 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void OnSequentialLapCompleted(object? sender, int lapNum)
     {
-        if (lapNum <= _lastGlobalLap) return;
-        _lastGlobalLap = lapNum;
+        lock (_seqLapLock)
+        {
+            if (lapNum <= _lastGlobalLap) return;
+            _lastGlobalLap = lapNum;
+        }
 
         _ = Task.Run(async () =>
         {
             try
             {
                 var iconService = new WaBiBaBuSy.Core.Services.Desktop.DesktopIconService();
+                // GetIconPositions uses only P/Invoke (no STA COM) — safe on thread pool threads.
                 var allIcons = iconService.GetIconPositions();
                 var newLayout = WaBiBaBuSy.WallpaperEngine.Desktop.ZonePlanner.Compute(
                     allIcons.Select(i => (i.PixelX, i.PixelY)),
