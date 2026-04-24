@@ -1936,7 +1936,11 @@ class Program
                 {
                     _traverseCount = newTraverseCount;
                     RebuildPathOnly(_traverseCount); // variationSeed = iteration number → different route each time
-                    if (_animationConfig?.PrecomputedPath?.Count > 0)
+                    // Signal only in sequential/precomputed mode. RebuildPathOnly() already returned early
+                    // here (it no-ops when PrecomputedPath is set); host needs the signal to recompute a
+                    // new A* path and broadcast it before the next lap starts.
+                    bool isPrecomputedMode = _animationConfig?.PrecomputedPath?.Count > 0;
+                    if (isPrecomputedMode)
                     {
                         Console.Error.WriteLine($"SIGNAL:LAP_COMPLETE:{_traverseCount}");
                         Console.Error.Flush();
