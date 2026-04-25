@@ -555,6 +555,13 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// True when any renderer (D2D, LibVLC, or cross-screen) is active locally.
+    /// Used to control "Clear Wallpaper" button visibility.
+    /// </summary>
+    public bool HasActiveRenderer =>
+        _d2dCompositionServices.Any() || _localWallpaperRenderers.Any() || IsCrossScreenRunning;
+
+    /// <summary>
     /// True when no wallpaper is selected but a cross-screen animation is running
     /// </summary>
     public bool ShowAnimationInfo => SelectedWallpaper == null && IsCrossScreenRunning && _crossScreenConfig != null;
@@ -587,6 +594,7 @@ public partial class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(ActiveDistributionMode));
         OnPropertyChanged(nameof(ActiveAnimationSpeed));
         OnPropertyChanged(nameof(ActiveBackgroundColor));
+        OnPropertyChanged(nameof(HasActiveRenderer));
         StartCrossScreenCommand.NotifyCanExecuteChanged();
         ClearAllWallpapersCommand.NotifyCanExecuteChanged();
     }
@@ -799,6 +807,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         // Force IsCrossScreenRunning back to a sane state even if StopCrossScreen couldn't.
         IsCrossScreenRunning = false;
+        OnPropertyChanged(nameof(HasActiveRenderer));
 
         Debug.WriteLine("[ClearAll] All wallpapers cleared");
     }
@@ -1091,6 +1100,7 @@ public partial class MainWindowViewModel : ViewModelBase
             // Store renderer for this monitor
             _localWallpaperRenderers[monitorIndex] = renderer;
             ClearAllWallpapersCommand.NotifyCanExecuteChanged();
+            OnPropertyChanged(nameof(HasActiveRenderer));
 
             // Set up thumbnail capture for live preview
             SetupThumbnailCapture(monitorIndex, renderer.WindowHandle, wallpaper.Name);
@@ -1259,6 +1269,7 @@ public partial class MainWindowViewModel : ViewModelBase
             // Store the service for later cleanup
             _d2dCompositionServices[monitorIndex] = d2dService;
             ClearAllWallpapersCommand.NotifyCanExecuteChanged();
+            OnPropertyChanged(nameof(HasActiveRenderer));
             StartFullscreenDetectionIfNeeded();
 
             // Set up thumbnail capture for live preview
@@ -1332,6 +1343,7 @@ public partial class MainWindowViewModel : ViewModelBase
             // Store renderer
             _localWallpaperRenderers[monitorIndex] = renderer;
             ClearAllWallpapersCommand.NotifyCanExecuteChanged();
+            OnPropertyChanged(nameof(HasActiveRenderer));
 
             // Set up thumbnail capture for live preview
             SetupThumbnailCapture(monitorIndex, renderer.WindowHandle, wallpaper.Name);
