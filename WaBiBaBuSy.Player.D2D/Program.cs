@@ -214,12 +214,17 @@ class Program
         var (cellW, cellH) = GetIconCellSize();
         var allIcons = DetectDesktopIconPositions();
         var result = new List<(int X, int Y)>(allIcons.Count);
+        // Center-based ownership: each icon belongs to exactly one monitor — the one whose
+        // rectangle contains the icon cell's center. Cell-rect overlap (the previous test)
+        // caused icons near a monitor boundary to be claimed by BOTH neighbors, so phantom
+        // zones appeared on the second monitor at coordinates derived from a negative
+        // ix - _monitorOffsetX (clamped to x = 0 by the planner).
         foreach (var (ix, iy) in allIcons)
         {
-            if (ix + cellW <= _monitorOffsetX) continue;
-            if (ix >= _monitorOffsetX + _width)  continue;
-            if (iy + cellH <= _monitorOffsetY) continue;
-            if (iy >= _monitorOffsetY + _height) continue;
+            int cx = ix + cellW / 2;
+            int cy = iy + cellH / 2;
+            if (cx < _monitorOffsetX || cx >= _monitorOffsetX + _width)  continue;
+            if (cy < _monitorOffsetY || cy >= _monitorOffsetY + _height) continue;
             result.Add((ix - _monitorOffsetX, iy - _monitorOffsetY));
         }
         return result;

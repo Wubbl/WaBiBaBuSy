@@ -118,42 +118,96 @@ public static class ZonePlanner
         bool[,] occ, int cols, int rows, int cellW, int cellH, int screenW, int screenH,
         int pathVariationSeed = 0)
     {
-        int midRow = rows / 2;
+        // Two-phase planning. The path must NEVER traverse an icon zone if any
+        // free corridor exists — even a long, S-curving one. Only when every
+        // possible route is blocked do we permit (heavily-penalised) crossings.
+        //
+        //   Phase 1: strict A* — occupied cells are impassable. The entry/exit
+        //            columns slide inward from the screen edges until at least
+        //            one free row exists; the planner extends the path back to
+        //            x = 0 / x = screenW with a horizontal segment so the
+        //            animation still spans the canvas.
+        //   Phase 2: fall back to cost-based traversal (very high penalty) so
+        //            heavily-cluttered desktops still produce *some* path.
+        //   Phase 3: last-resort straight line at midRow.
 
+        var strict = TryAStar(occ, cols, rows, cellW, cellH, screenW,
+                              pathVariationSeed, strictMode: true);
+        if (strict != null) return strict;
+
+        var penalised = TryAStar(occ, cols, rows, cellW, cellH, screenW,
+                                 pathVariationSeed, strictMode: false);
+        if (penalised != null) return penalised;
+
+        int midRow = rows / 2;
+        int sRow = FindNearestFreeRow(occ, 0,        rows, midRow);
+        int eRow = FindNearestFreeRow(occ, cols - 1, rows, midRow);
+        float sy = sRow * cellH + cellH * 0.5f;
+        float ey = eRow * cellH + cellH * 0.5f;
+        return new List<WaypointF>
+        {
+            new() { X = 0,       Y = sy },
+            new() { X = screenW, Y = ey },
+            new() { X = 0,       Y = sy }
+        };
+    }
+
+    /// <summary>
+    /// Runs one A* attempt. <paramref name="strictMode"/> controls whether occupied
+    /// cells are impassable (true) or merely very expensive (false).
+    /// Returns null when no path exists under the given mode.
+    /// </summary>
+    private static List<WaypointF>? TryAStar(
+        bool[,] occ, int cols, int rows, int cellW, int cellH, int screenW,
+        int pathVariationSeed, bool strictMode)
+    {
+        // Resolve entry/exit columns. In strict mode we slide inward from the
+        // screen edges to the first column with at least one free row, so a
+        // wall of icons hugging the edge can't force the path to start inside
+        // an icon zone. In non-strict mode, columns 0 and cols-1 are always
+        // usable because the planner can pay the penalty.
+        int startCol = strictMode ? FindFirstFreeColumn(occ, rows, cols, fromLeft: true)  : 0;
+        int endCol   = strictMode ? FindFirstFreeColumn(occ, rows, cols, fromLeft: false) : cols - 1;
+        if (startCol < 0 || endCol < 0 || startCol >= endCol) return null;
+
+        int midRow = rows / 2;
         int startRow, endRow;
         if (pathVariationSeed == 0)
         {
-            // Default: find nearest free row to midRow on each edge
-            startRow = FindNearestFreeRow(occ, col: 0,        rows, midRow);
-            endRow   = FindNearestFreeRow(occ, col: cols - 1, rows, midRow);
+            startRow = FindNearestFreeRow(occ, startCol, rows, midRow);
+            endRow   = FindNearestFreeRow(occ, endCol,   rows, midRow);
         }
         else
         {
-            // Variation: pick randomly from ALL free rows on each edge, seeded for determinism
-            var freeStartRows = Enumerable.Range(0, rows).Where(r => !IsOcc(occ, r, 0,        rows, cols)).ToList();
-            var freeEndRows   = Enumerable.Range(0, rows).Where(r => !IsOcc(occ, r, cols - 1, rows, cols)).ToList();
+            var freeStartRows = Enumerable.Range(0, rows).Where(r => !occ[r, startCol]).ToList();
+            var freeEndRows   = Enumerable.Range(0, rows).Where(r => !occ[r, endCol]).ToList();
             var rng = new Random(pathVariationSeed);
-            startRow = freeStartRows.Count > 0 ? freeStartRows[rng.Next(freeStartRows.Count)] : FindNearestFreeRow(occ, col: 0,        rows, midRow);
-            endRow   = freeEndRows.Count   > 0 ? freeEndRows  [rng.Next(freeEndRows.Count)]   : FindNearestFreeRow(occ, col: cols - 1, rows, midRow);
+            startRow = freeStartRows.Count > 0 ? freeStartRows[rng.Next(freeStartRows.Count)] : FindNearestFreeRow(occ, startCol, rows, midRow);
+            endRow   = freeEndRows.Count   > 0 ? freeEndRows  [rng.Next(freeEndRows.Count)]   : FindNearestFreeRow(occ, endCol,   rows, midRow);
         }
 
-        var gScore = new Dictionary<int, float>();    // key = r*cols+c
-        var parent = new Dictionary<int, int>();      // key → parent key, -1 = none
-        // MinHeap: (fScore, key)
+        // Strict mode: the chosen rows must actually be free, otherwise no path.
+        if (strictMode && (occ[startRow, startCol] || occ[endRow, endCol])) return null;
+
+        var gScore = new Dictionary<int, float>();
+        var parent = new Dictionary<int, int>();
         var open   = new MinHeap();
         var closed = new HashSet<int>();
 
-        int startKey = startRow * cols + 0;
-        int endKey   = endRow   * cols + (cols - 1);
+        int startKey = startRow * cols + startCol;
+        int endKey   = endRow   * cols + endCol;
 
         gScore[startKey] = 0f;
-        open.Push(Heuristic(startRow, 0, endRow, cols - 1), startKey);
+        open.Push(Heuristic(startRow, startCol, endRow, endCol), startKey);
         parent[startKey] = -1;
 
-        // 8-directional movement: (dr, dc, cost)
         int[]   dr      = { -1, -1, -1,  0,  0,  1,  1,  1 };
         int[]   dc      = { -1,  0,  1, -1,  1, -1,  0,  1 };
         float[] moveCost= { 1.4142f, 1f, 1.4142f, 1f, 1f, 1.4142f, 1f, 1.4142f };
+
+        // High enough that any reasonable detour is preferred over a single
+        // crossing — only used in non-strict mode.
+        const float OccupiedPenalty = 100000f;
 
         bool found = false;
         while (open.Count > 0)
@@ -172,7 +226,9 @@ public static class ZonePlanner
                 int nr = curR + dr[d], nc = curC + dc[d];
                 if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
 
-                // Avoid cutting through corners of occupied cells diagonally
+                bool nOcc = occ[nr, nc];
+                if (strictMode && nOcc) continue;
+
                 if (dr[d] != 0 && dc[d] != 0)
                     if (IsOcc(occ, curR + dr[d], curC, rows, cols) &&
                         IsOcc(occ, curR, curC + dc[d], rows, cols)) continue;
@@ -180,55 +236,63 @@ public static class ZonePlanner
                 int nKey = nr * cols + nc;
                 if (closed.Contains(nKey)) continue;
 
-                // Occupied cells are passable but very costly (last resort)
-                float extra = IsOcc(occ, nr, nc, rows, cols) ? 50f : 0f;
+                float extra = (!strictMode && nOcc) ? OccupiedPenalty : 0f;
                 float newG  = g + moveCost[d] + extra;
 
                 if (newG < gScore.GetValueOrDefault(nKey, float.MaxValue))
                 {
                     gScore[nKey] = newG;
                     parent[nKey] = curKey;
-                    open.Push(newG + Heuristic(nr, nc, endRow, cols - 1), nKey);
+                    open.Push(newG + Heuristic(nr, nc, endRow, endCol), nKey);
                 }
             }
         }
 
-        if (!found)
-        {
-            // Fallback: straight line from start to end
-            float sy = startRow * cellH + cellH * 0.5f;
-            float ey = endRow   * cellH + cellH * 0.5f;
-            return new List<WaypointF>
-            {
-                new() { X = 0,       Y = sy },
-                new() { X = screenW, Y = ey },
-                new() { X = 0,       Y = sy }   // loop closure
-            };
-        }
+        if (!found) return null;
 
-        // Reconstruct raw grid path
         var rawKeys = new List<int>();
         int k = endKey;
-        while (k != -1)
-        {
-            rawKeys.Add(k);
-            k = parent.GetValueOrDefault(k, -1);
-        }
+        while (k != -1) { rawKeys.Add(k); k = parent.GetValueOrDefault(k, -1); }
         rawKeys.Reverse();
 
-        // Convert grid cells to pixel centers
-        var pixels = rawKeys.Select(key =>
-            (X: (key % cols) * cellW + cellW * 0.5f,
-             Y: (key / cols) * cellH + cellH * 0.5f)).ToList();
+        var pixels = new List<(float X, float Y)>(rawKeys.Count + 2);
+        // Extend back to the literal screen edges when entry/exit slid inward,
+        // so the animation still enters and exits at x = 0 / x = screenW.
+        if (startCol > 0)
+            pixels.Add((0f, startRow * cellH + cellH * 0.5f));
+        foreach (var key in rawKeys)
+            pixels.Add(((key % cols) * cellW + cellW * 0.5f,
+                        (key / cols) * cellH + cellH * 0.5f));
+        if (endCol < cols - 1)
+            pixels.Add((screenW, endRow * cellH + cellH * 0.5f));
 
-        // String-pull: reduce waypoints via line-of-sight checks
         var smoothed = StringPull(pixels, occ, cols, rows, cellW, cellH);
 
-        // Close the loop
         if (smoothed.Count > 1)
             smoothed.Add(new WaypointF { X = smoothed[0].X, Y = smoothed[0].Y });
 
         return smoothed;
+    }
+
+    /// <summary>
+    /// Returns the first column from the chosen side that contains at least
+    /// one free row, or -1 if every column is fully occupied.
+    /// </summary>
+    private static int FindFirstFreeColumn(bool[,] occ, int rows, int cols, bool fromLeft)
+    {
+        if (fromLeft)
+        {
+            for (int c = 0; c < cols; c++)
+                for (int r = 0; r < rows; r++)
+                    if (!occ[r, c]) return c;
+        }
+        else
+        {
+            for (int c = cols - 1; c >= 0; c--)
+                for (int r = 0; r < rows; r++)
+                    if (!occ[r, c]) return c;
+        }
+        return -1;
     }
 
     private static int FindNearestFreeRow(bool[,] occ, int col, int rows, int preferRow)
