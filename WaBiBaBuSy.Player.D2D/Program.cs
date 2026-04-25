@@ -114,6 +114,12 @@ class Program
     private static extern IntPtr GetAncestor(IntPtr hWnd, uint flags);
     private const uint GA_ROOT = 2;
 
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+    private const uint GW_HWNDPREV = 3;
+    private const uint GW_CHILD    = 5;
+    private const uint GW_HWNDLAST = 1;
+
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);
     private const int SM_CXICON = 11;
@@ -316,6 +322,9 @@ class Program
     private static Color4 _currentColor = new(0, 0, 0, 1); // Default black
     private static volatile bool _windowShown = false;
     private static IntPtr _zOrderReference = IntPtr.Zero;
+    // True when parented under Progman with DefView as z-order ref (Win11 24H2+ raised desktop).
+    // False in legacy WorkerW mode where _zOrderReference is HWND_BOTTOM (= IntPtr(1), not a real window).
+    private static volatile bool _isLayeredMode = false;
 
     // IconZone refresh debouncing — consumed by render loop when the desktop icons move.
     private static volatile bool _needsIconRefresh = false;
@@ -323,12 +332,14 @@ class Program
     private const  long IconRefreshDebounceMs   = 400; // wait for desktop to settle before re-detecting
     private static long _lastIconPositionCheckTick = 0;
 
-    // Catastrophic-orphaning signal (Snipping Tool / display change / explorer restart).
-    // Player does NOT reparent itself — it signals the host, which owns desktop discovery.
-    private static long _lastOrphanCheckTick  = 0;
-    private static long _lastOrphanSignalTick = 0;
-    private const  long OrphanCheckIntervalMs    = 10_000;
-    private const  long OrphanSignalCooldownMs   = 30_000;
+    // Desktop-state poll: catastrophic-orphaning + z-order correctness.
+    //   - Catastrophic (parent or DefView destroyed) → signal host to re-issue PARENT.
+    //   - Z-order disturbance (we got bumped above DefView, e.g. by Snipping Tool) →
+    //     re-issue SetWindowPos locally (idempotent — no-op when already correct).
+    private static long _lastDesktopPollTick    = 0;
+    private static long _lastOrphanSignalTick   = 0;
+    private const  long DesktopPollIntervalMs   = 5_000;
+    private const  long OrphanSignalCooldownMs  = 30_000;
 
     // Pending PARENT command to be processed on main thread
     private static volatile string? _pendingParentCommand = null;
@@ -758,11 +769,13 @@ class Program
                 if (zOrderHwnd != IntPtr.Zero)
                 {
                     _zOrderReference = zOrderHwnd;
+                    _isLayeredMode = true;
                     SetWindowPos(_hwnd, zOrderHwnd, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
                 }
                 else
                 {
                     _zOrderReference = new IntPtr(1); // HWND_BOTTOM
+                    _isLayeredMode = false;
                     var HWND_BOTTOM = new IntPtr(1);
                     SetWindowPos(_hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
                 }
@@ -848,29 +861,78 @@ class Program
                     }
                 }
 
-                // Catastrophic-orphaning check — runs every 10 s.
-                // Signals the host ONLY when BOTH are true:
-                //   a) no valid ancestor window (GetAncestor returns our own HWND), and
-                //   b) stored z-order reference (DefView) is destroyed (!IsWindow).
-                // Both together mean the desktop tree was genuinely torn down (Snipping
-                // Tool rebuild, display config change, explorer restart). Host owns
-                // desktop discovery and will re-issue the PARENT command on receipt.
-                // Cooldown (30 s) prevents spam while the host re-parents.
+                // Desktop-state poll — runs every DesktopPollIntervalMs (5 s).
+                //
+                // Two distinct failure modes are checked here:
+                //
+                //   1. CATASTROPHIC orphaning (parent or DefView destroyed).
+                //      Cause: explorer restart, display reconfiguration, raised-desktop
+                //      teardown. Recovery requires the host to re-run desktop discovery
+                //      and re-issue the PARENT command, so we signal the host. A 30-s
+                //      cooldown prevents spam while the host re-parents.
+                //
+                //   2. Z-ORDER DISTURBANCE (parent + DefView intact, but our window has
+                //      been bumped above DefView).
+                //      Cause: Snipping Tool, fullscreen apps, other windows that mess
+                //      with desktop child z-order. Symptom: desktop icons appear to
+                //      vanish because our wallpaper now paints on top of DefView.
+                //      Recovery is local — re-issue SetWindowPos with the same z-order
+                //      reference. The call is idempotent (no-op if already correct),
+                //      which is why we can poll without causing flicker on unrelated
+                //      events (this was the regression from commit d775f9e).
                 if (_hwnd != IntPtr.Zero && _zOrderReference != IntPtr.Zero)
                 {
                     long nowTick = Environment.TickCount64;
-                    if (nowTick - _lastOrphanCheckTick > OrphanCheckIntervalMs)
+                    if (nowTick - _lastDesktopPollTick > DesktopPollIntervalMs)
                     {
-                        _lastOrphanCheckTick = nowTick;
-                        bool noAncestor    = GetAncestor(_hwnd, GA_ROOT) == _hwnd;
-                        bool zOrderRefDead = !IsWindow(_zOrderReference);
-                        if (noAncestor && zOrderRefDead
-                            && nowTick - _lastOrphanSignalTick > OrphanSignalCooldownMs)
+                        _lastDesktopPollTick = nowTick;
+
+                        bool noAncestor = GetAncestor(_hwnd, GA_ROOT) == _hwnd;
+                        // zOrderRefDead is only meaningful in layered mode where
+                        // _zOrderReference is a real DefView HWND. In legacy mode the
+                        // reference is HWND_BOTTOM (IntPtr(1), not a real window), so
+                        // IsWindow always returns false there — exclude that case.
+                        bool zOrderRefDead = _isLayeredMode && !IsWindow(_zOrderReference);
+                        bool catastrophic  = noAncestor || zOrderRefDead;
+
+                        if (catastrophic)
                         {
-                            _lastOrphanSignalTick = nowTick;
-                            _logger?.LogWarning("[Reparent] Catastrophic orphaning detected — signaling host");
-                            Console.Error.WriteLine("SIGNAL:NEEDS_REPARENT");
-                            Console.Error.Flush();
+                            if (nowTick - _lastOrphanSignalTick > OrphanSignalCooldownMs)
+                            {
+                                _lastOrphanSignalTick = nowTick;
+                                _logger?.LogWarning("[Reparent] Catastrophic state (noAncestor={NoAnc}, zOrderDead={ZDead}) — signaling host",
+                                    noAncestor, zOrderRefDead);
+                                Console.Error.WriteLine("SIGNAL:NEEDS_REPARENT");
+                                Console.Error.Flush();
+                            }
+                        }
+                        else if (_isLayeredMode)
+                        {
+                            // Layered mode: we expect DefView to be the window
+                            // immediately above us in z-order. If not, restore.
+                            if (GetWindow(_hwnd, GW_HWNDPREV) != _zOrderReference)
+                            {
+                                _logger?.LogInformation("[ZOrder] Layered z-order disturbed — restoring behind DefView");
+                                SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0,
+                                    SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
+                            }
+                        }
+                        else
+                        {
+                            // Legacy WorkerW mode: we expect to be the last child of
+                            // our parent (HWND_BOTTOM). If not, push back to bottom.
+                            var parent = GetAncestor(_hwnd, GA_ROOT);
+                            if (parent != IntPtr.Zero && parent != _hwnd
+                                && GetWindow(parent, GW_CHILD) != IntPtr.Zero)
+                            {
+                                var lastChild = GetWindow(GetWindow(parent, GW_CHILD), GW_HWNDLAST);
+                                if (lastChild != _hwnd)
+                                {
+                                    _logger?.LogInformation("[ZOrder] Legacy z-order disturbed — restoring HWND_BOTTOM");
+                                    SetWindowPos(_hwnd, new IntPtr(1) /* HWND_BOTTOM */, 0, 0, 0, 0,
+                                        SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
+                                }
+                            }
                         }
                     }
                 }
