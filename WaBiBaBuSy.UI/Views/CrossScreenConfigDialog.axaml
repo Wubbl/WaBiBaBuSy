@@ -190,6 +190,118 @@
                                   Content="Rotate animation with path direction (IconZone only)"
                                   IsEnabled="{Binding IsIconZoneMode}"
                                   Margin="0,2,0,0"/>
+
+                        <CheckBox IsChecked="{Binding IconZonePaletteEnabled}"
+                                  Content="Show icon-zone palette (debug colored bands; only in IconZone mode)"
+                                  IsEnabled="{Binding IsIconZoneMode}"
+                                  Margin="0,2,0,0"/>
+
+                        <!-- F4: Multiple source images -->
+                        <Expander Header="Multiple Source Images" IsExpanded="False" Margin="0,8,0,0">
+                            <StackPanel Spacing="6" Margin="0,8,0,0">
+                                <TextBlock FontSize="11" Foreground="#AAAAAA" TextWrapping="Wrap"
+                                           Text="The first image above is the primary source. Add more here for multi-image patterns or per-image scattering."/>
+                                <ItemsControl ItemsSource="{Binding AdditionalAnimationPaths}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                                                <TextBox Grid.Column="0" Text="{Binding}" IsReadOnly="True" Margin="0,0,8,0"/>
+                                                <Button Grid.Column="1" Content="Remove"
+                                                        Command="{Binding $parent[ItemsControl].((vm:CrossScreenConfigViewModel)DataContext).RemoveAdditionalImageCommand}"
+                                                        CommandParameter="{Binding}"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Button Content="Add Image..." Command="{Binding AddAdditionalImageCommand}" HorizontalAlignment="Left"/>
+
+                                <StackPanel Spacing="4" Margin="0,8,0,0">
+                                    <TextBlock Text="When pattern is OFF and multiple images are listed:" FontSize="11" Foreground="#888888"/>
+                                    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="4">
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Spread (px):" VerticalAlignment="Center"/>
+                                        <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding MultiImageSpread}" Minimum="0" Maximum="1000" Increment="10" HorizontalAlignment="Left" Width="120"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Phase jitter (ms):" VerticalAlignment="Center"/>
+                                        <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding MultiImagePhaseJitterMs}" Minimum="0" Maximum="5000" Increment="50" HorizontalAlignment="Left" Width="120"/>
+                                    </Grid>
+                                </StackPanel>
+                            </StackPanel>
+                        </Expander>
+
+                        <!-- F2: Color grading -->
+                        <Expander Header="Color Grading" IsExpanded="False" Margin="0,8,0,0">
+                            <StackPanel Spacing="8" Margin="0,8,0,0">
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                    <TextBlock Grid.Column="0" Text="Mode:" VerticalAlignment="Center"/>
+                                    <ComboBox Grid.Column="1" SelectedIndex="{Binding ColorGradingModeIndex}" Width="220" HorizontalAlignment="Left">
+                                        <ComboBoxItem Content="None"/>
+                                        <ComboBoxItem Content="Rainbow (tint sweep)"/>
+                                        <ComboBoxItem Content="Random Colors"/>
+                                        <ComboBoxItem Content="Gradient (ping-pong)"/>
+                                        <ComboBoxItem Content="Cycle Color List"/>
+                                    </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" IsVisible="{Binding !IsColorGradingNone}">
+                                    <TextBlock Grid.Column="0" Text="Cycles per second:" VerticalAlignment="Center"/>
+                                    <NumericUpDown Grid.Column="1" Value="{Binding ColorGradingCyclesPerSecond}" Minimum="0.01" Maximum="10" Increment="0.1" HorizontalAlignment="Left" Width="120"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,*,Auto,*" ColumnSpacing="8" IsVisible="{Binding IsColorGradingGradient}">
+                                    <TextBlock Grid.Column="0" Text="Color A:" VerticalAlignment="Center"/>
+                                    <TextBox Grid.Column="1" Text="{Binding ColorGradingGradientA}" Width="100" HorizontalAlignment="Left"/>
+                                    <TextBlock Grid.Column="2" Text="Color B:" VerticalAlignment="Center"/>
+                                    <TextBox Grid.Column="3" Text="{Binding ColorGradingGradientB}" Width="100" HorizontalAlignment="Left"/>
+                                </Grid>
+                                <StackPanel Spacing="4" IsVisible="{Binding IsColorGradingColorListMode}">
+                                    <TextBlock Text="Color list (comma-separated hex):" FontSize="11" Foreground="#888888"/>
+                                    <TextBox Text="{Binding ColorGradingColorListCsv}"/>
+                                </StackPanel>
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" IsVisible="{Binding !IsColorGradingNone}">
+                                    <TextBlock Grid.Column="0" Text="Seed:" VerticalAlignment="Center"/>
+                                    <NumericUpDown Grid.Column="1" Value="{Binding ColorGradingSeed}" Minimum="0" Maximum="999999" Increment="1" HorizontalAlignment="Left" Width="120"/>
+                                </Grid>
+                            </StackPanel>
+                        </Expander>
+
+                        <!-- F3: Pattern multiplier -->
+                        <Expander Header="Pattern Multiplier" IsExpanded="False" Margin="0,8,0,0">
+                            <StackPanel Spacing="8" Margin="0,8,0,0">
+                                <CheckBox IsChecked="{Binding PatternEnabled}"
+                                          Content="Enable pattern (tile the animation across the desktop)"/>
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" IsVisible="{Binding PatternEnabled}">
+                                    <TextBlock Grid.Column="0" Text="Sizing:" VerticalAlignment="Center"/>
+                                    <ComboBox Grid.Column="1" SelectedIndex="{Binding PatternSizingIndex}" Width="200" HorizontalAlignment="Left">
+                                        <ComboBoxItem Content="Fill (auto, edge-to-edge)"/>
+                                        <ComboBoxItem Content="Explicit count"/>
+                                    </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,*,Auto,*" ColumnSpacing="8" IsVisible="{Binding IsPatternExplicit}">
+                                    <TextBlock Grid.Column="0" Text="Count X:" VerticalAlignment="Center"/>
+                                    <NumericUpDown Grid.Column="1" Value="{Binding PatternCountX}" Minimum="1" Maximum="500" Increment="1" Width="100" HorizontalAlignment="Left"/>
+                                    <TextBlock Grid.Column="2" Text="Count Y:" VerticalAlignment="Center"/>
+                                    <NumericUpDown Grid.Column="3" Value="{Binding PatternCountY}" Minimum="1" Maximum="500" Increment="1" Width="100" HorizontalAlignment="Left"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,*,Auto,*" ColumnSpacing="8" IsVisible="{Binding PatternEnabled}">
+                                    <TextBlock Grid.Column="0" Text="Spacing X (px):" VerticalAlignment="Center"/>
+                                    <NumericUpDown Grid.Column="1" Value="{Binding PatternSpacingX}" Minimum="0" Maximum="2000" Increment="5" Width="100" HorizontalAlignment="Left"/>
+                                    <TextBlock Grid.Column="2" Text="Spacing Y (px):" VerticalAlignment="Center"/>
+                                    <NumericUpDown Grid.Column="3" Value="{Binding PatternSpacingY}" Minimum="0" Maximum="2000" Increment="5" Width="100" HorizontalAlignment="Left"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,*,Auto,*" ColumnSpacing="8" IsVisible="{Binding PatternEnabled}">
+                                    <TextBlock Grid.Column="0" Text="Margin (px):" VerticalAlignment="Center"/>
+                                    <NumericUpDown Grid.Column="1" Value="{Binding PatternMargin}" Minimum="0" Maximum="500" Increment="10" Width="100" HorizontalAlignment="Left"/>
+                                    <TextBlock Grid.Column="2" Text="Seed:" VerticalAlignment="Center"/>
+                                    <NumericUpDown Grid.Column="3" Value="{Binding PatternSeed}" Minimum="0" Maximum="999999" Increment="1" Width="100" HorizontalAlignment="Left"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,*,Auto,*" ColumnSpacing="8" IsVisible="{Binding PatternEnabled}">
+                                    <TextBlock Grid.Column="0" Text="Random offset (px):" VerticalAlignment="Center"/>
+                                    <NumericUpDown Grid.Column="1" Value="{Binding PatternRandomOffset}" Minimum="0" Maximum="500" Increment="5" Width="100" HorizontalAlignment="Left"/>
+                                    <TextBlock Grid.Column="2" Text="Random rot. (deg):" VerticalAlignment="Center"/>
+                                    <NumericUpDown Grid.Column="3" Value="{Binding PatternRandomRotation}" Minimum="0" Maximum="180" Increment="5" Width="100" HorizontalAlignment="Left"/>
+                                </Grid>
+                                <TextBlock FontSize="10" Foreground="#888888" TextWrapping="Wrap"
+                                           IsVisible="{Binding PatternEnabled}"
+                                           Text="In Fill mode the pattern auto-tiles edge-to-edge from canvas size, image size, and spacing — the whole grid moves as a unit. With IconZone background, icon-zone rectangles act as a clip mask so user desktop icons stay visible."/>
+                            </StackPanel>
+                        </Expander>
                     </StackPanel>
                 </Border>
 

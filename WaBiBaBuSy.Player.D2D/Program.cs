@@ -377,12 +377,31 @@ class Program
     private static volatile bool _compositionInitialized = false;
 
     // Stage 2: Native D2D GIF frame cache
-    private static ID2D1Bitmap[]? _d2dGifFrames;      // GPU-cached frames
+    private static ID2D1Bitmap[]? _d2dGifFrames;      // GPU-cached frames (primary source — for back-compat single-source paths)
     private static List<int>? _d2dGifDelays;            // Per-frame delay (ms)
     private static long _d2dGifTotalDurationMs;
     private static int _contentNativeWidth, _contentNativeHeight;
     private static double _gifSpeedMultiplier = 1.0;
     private static volatile bool _useNativeD2DComposition = false;
+
+    // Multi-source frame caches (one entry per AnimationPaths[i]). Always populated; for the
+    // single-source case the list has exactly one entry. The animation render loop uses these
+    // when Pattern is active OR multi-image mode is on.
+    private static readonly List<ID2D1Bitmap[]> _d2dFramesPerSource = new();
+    private static readonly List<List<int>>     _d2dDelaysPerSource = new();
+    private static readonly List<long>          _d2dTotalDurationPerSource = new();
+    private static readonly List<(int W, int H)> _sourceDimensions = new();
+
+    // F2: Color grading effect — lazy-created on first use, reused every frame.
+    private static ID2D1Effect? _colorMatrixEffect;
+    private static readonly byte[] _colorMatrixBytes = new byte[20 * sizeof(float)];
+
+    // F3a: Zone clip mask — when true, after drawing the pattern we cover icon-zone rects
+    // with corridor color so user desktop icons remain visible. Background is rendered plain
+    // (no palette) when UseZonePalette is false.
+    private static volatile bool _maskZones = false;
+    private static volatile bool _useZonePalette = false;
+    private static ID2D1SolidColorBrush? _zoneCoverBrush;
 
     // Stage 6: Native D2D video playback (LibVLC → raw buffer → CopyFromMemory → ID2D1Bitmap)
     private static LibVLC? _libVLC;
@@ -1043,31 +1062,16 @@ class Program
                             // Update animation position (Stage 4)
                             UpdateAnimationPosition(elapsedMs);
 
-                            // Get current GIF frame (Stage 2) - zero allocation, GPU blit
-                            int frameIdx = GetCurrentGifFrameIndex(elapsedMs);
-                            var destRect = new System.Drawing.RectangleF(_animX, _animY, _animWidth, _animHeight);
-
-                            bool hasRotation = _rotateWithPath && _animRotationRad != 0f && _animPath.Count >= 2;
-                            if (hasRotation)
-                            {
-                                float cx = _animX + _animWidth / 2f;
-                                float cy = _animY + _animHeight / 2f;
-                                _d2dContext.Transform = Matrix3x2.CreateRotation(
-                                    _animRotationRad, new Vector2(cx, cy));
-                            }
-                            _d2dContext.DrawBitmap(
-                                _d2dGifFrames[frameIdx],
-                                destRect,
-                                1.0f,
-                                BitmapInterpolationMode.Linear,
-                                null);
-                            if (hasRotation)
-                                _d2dContext.Transform = Matrix3x2.Identity;
+                            // Pattern/multi-image/grading-aware draw (falls back to single DrawBitmap when none active)
+                            DrawAnimationLayer(elapsedMs);
 
                             if (_frameCount % 60 == 0)
                             {
-                                _logger?.LogInformation("[D2D-NATIVE] Frame #{Frame} | GifFrame: {GifIdx}/{GifTotal} | Pos: ({X:F0},{Y:F0}) | Size: {W}x{H}",
-                                    _frameCount, frameIdx, _d2dGifFrames.Length, _animX, _animY, _animWidth, _animHeight);
+                                _logger?.LogInformation("[D2D-NATIVE] Frame #{Frame} | Sources: {Src} | Pattern: {Pat} | Grading: {Grad} | Pos: ({X:F0},{Y:F0})",
+                                    _frameCount, _d2dFramesPerSource.Count,
+                                    _animationConfig?.Pattern != null,
+                                    _animationConfig?.ColorGrading?.Mode != ColorGradingMode.None,
+                                    _animX, _animY);
                             }
 
                             // Show window on first frame
@@ -1115,24 +1119,14 @@ class Program
                                 }
                             }
 
-                            var destRect = new System.Drawing.RectangleF(_animX, _animY, _animWidth, _animHeight);
-                            bool hasRotation = _rotateWithPath && _animRotationRad != 0f && _animPath.Count >= 2;
-                            if (hasRotation)
-                                _d2dContext.Transform = Matrix3x2.CreateRotation(
-                                    _animRotationRad, new Vector2(_animX + _animWidth / 2f, _animY + _animHeight / 2f));
-                            _d2dContext.DrawBitmap(
-                                _currentVideoD2DBitmap,
-                                destRect,
-                                1.0f,
-                                BitmapInterpolationMode.Linear,
-                                null);
-                            if (hasRotation)
-                                _d2dContext.Transform = Matrix3x2.Identity;
+                            // Video uses single-cell path with optional grading; pattern is unsupported for video.
+                            DrawAnimationLayer(elapsedMs, videoBitmapOverride: _currentVideoD2DBitmap);
 
                             if (_frameCount % 60 == 0)
                             {
-                                _logger?.LogInformation("[D2D-VIDEO] Frame #{Frame} | Pos: ({X:F0},{Y:F0}) | Size: {W}x{H} | VideoReady: {Ready}",
-                                    _frameCount, _animX, _animY, _animWidth, _animHeight, _videoFrameReady);
+                                _logger?.LogInformation("[D2D-VIDEO] Frame #{Frame} | Pos: ({X:F0},{Y:F0}) | Size: {W}x{H} | Grading: {Grad}",
+                                    _frameCount, _animX, _animY, _animWidth, _animHeight,
+                                    _animationConfig?.ColorGrading?.Mode != ColorGradingMode.None);
                             }
 
                             if (!_windowShown)
@@ -1720,17 +1714,22 @@ class Program
 
             case BackgroundMode.IconZone:
                 _d2dContext.Clear(_iconCorridorBgColor);
-                foreach (var (zY, zH, zX, zW, isFree, zBrush) in _iconZoneBands)
-                    if (!isFree && zBrush != null)
-                    {
-                        float drawW = zW < 0 ? _width : zW;
-                        _d2dContext.FillRoundedRectangle(
-                            new Vortice.Direct2D1.RoundedRectangle
-                            {
-                                Rect = new System.Drawing.RectangleF(zX, zY, drawW, zH),
-                                RadiusX = 8f, RadiusY = 8f
-                            }, zBrush);
-                    }
+                // Skip the colored zone palette when zones are being used as a mask (pattern mode)
+                // OR when the user has not opted in to the palette (debug visualization).
+                if (!_maskZones && _useZonePalette)
+                {
+                    foreach (var (zY, zH, zX, zW, isFree, zBrush) in _iconZoneBands)
+                        if (!isFree && zBrush != null)
+                        {
+                            float drawW = zW < 0 ? _width : zW;
+                            _d2dContext.FillRoundedRectangle(
+                                new Vortice.Direct2D1.RoundedRectangle
+                                {
+                                    Rect = new System.Drawing.RectangleF(zX, zY, drawW, zH),
+                                    RadiusX = 8f, RadiusY = 8f
+                                }, zBrush);
+                        }
+                }
                 break;
         }
     }
@@ -1985,8 +1984,14 @@ class Program
             _logger?.LogInformation("[IconZone] Path refreshed from host: {Pts} waypoints", _animPath.Count);
         }
 
+        // F3a: when zones are used as a clip mask (Pattern + IconZone), skip path-following entirely
+        // — the pattern fills the desktop and zones are a composition mask only.
+        if (_maskZones)
+        {
+            // Fall through to standard MovementCalculator branch below (the pattern translates as a unit).
+        }
         // IconZone: path-following. Path is in virtual-canvas space; subtract MonitorOffsetX to get local coords.
-        if (_backgroundMode == BackgroundMode.IconZone && _animPath.Count >= 2)
+        else if (_backgroundMode == BackgroundMode.IconZone && _animPath.Count >= 2)
         {
             float speed = _movementConfig?.SpeedPixelsPerSecond ?? 300f;
 
@@ -2461,6 +2466,338 @@ class Program
         }
     }
 
+    /// <summary>
+    /// Drop all per-source frame/dimension caches. Disposes the GPU bitmaps too.
+    /// </summary>
+    private static void ClearPerSourceCaches()
+    {
+        // Don't dispose _d2dGifFrames here — DisposeNativeD2DResources() handles that path.
+        // We only need to clear the references in the multi-source lists; the underlying
+        // bitmap objects either come from _d2dGifFrames (already disposed) or were uploaded
+        // directly into the per-source lists (disposed below).
+        for (int i = 1; i < _d2dFramesPerSource.Count; i++)
+        {
+            var frames = _d2dFramesPerSource[i];
+            for (int f = 0; f < frames.Length; f++)
+            {
+                frames[f]?.Dispose();
+            }
+        }
+        _d2dFramesPerSource.Clear();
+        _d2dDelaysPerSource.Clear();
+        _d2dTotalDurationPerSource.Clear();
+        _sourceDimensions.Clear();
+    }
+
+    /// <summary>
+    /// Load any AdditionalAnimationPaths into the per-source caches. The primary source
+    /// has already been loaded into _d2dGifFrames and pushed onto the per-source lists.
+    /// </summary>
+    private static void LoadAdditionalAnimationSources(AnimationLayerConfig animConfig)
+    {
+        if (animConfig.AdditionalAnimationPaths == null || animConfig.AdditionalAnimationPaths.Count == 0)
+            return;
+
+        foreach (var path in animConfig.AdditionalAnimationPaths)
+        {
+            if (string.IsNullOrWhiteSpace(path)) continue;
+            try
+            {
+                var ext = Path.GetExtension(path).ToLowerInvariant();
+                if (ext is ".jpg" or ".jpeg" or ".png" or ".bmp")
+                {
+                    using var image = new MagickImage(path);
+                    using var gdi = image.ToBitmap();
+                    var bmp = UploadBitmapToD2D(gdi);
+                    _d2dFramesPerSource.Add(new[] { bmp });
+                    _d2dDelaysPerSource.Add(new List<int> { 1000 });
+                    _d2dTotalDurationPerSource.Add(1000);
+                    _sourceDimensions.Add(((int)image.Width, (int)image.Height));
+                    _logger?.LogInformation("[LOAD] Additional source loaded: {Path} ({W}x{H})", path, image.Width, image.Height);
+                }
+                else
+                {
+                    // For now, only static-image additional sources are supported. GIF/video
+                    // multi-source can be added later; the pattern picker will fall back to the
+                    // primary source for non-image additional paths.
+                    _logger?.LogWarning("[LOAD] Skipping non-image additional source: {Path} (extension {Ext})", path, ext);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "[LOAD] Failed to load additional source: {Path}", path);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Lazily create the ColorMatrix D2D effect. Reused across frames; only the matrix data
+    /// is updated each frame (cheap — the effect object itself is heavy to construct).
+    /// </summary>
+    private static unsafe void EnsureColorMatrixEffect()
+    {
+        if (_colorMatrixEffect != null || _d2dContext == null) return;
+        try
+        {
+            // Vortice 3.6.2 returns a raw nint from CreateEffect; wrap it in the typed COM interface.
+            nint ptr = _d2dContext.CreateEffect(EffectGuids.ColorMatrix);
+            if (ptr == IntPtr.Zero)
+            {
+                _logger?.LogError("[ColorGrading] CreateEffect returned null pointer");
+                return;
+            }
+            _colorMatrixEffect = new ID2D1Effect(ptr);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "[ColorGrading] Failed to create D2D ColorMatrix effect");
+        }
+    }
+
+    /// <summary>
+    /// Apply a 5x4 color matrix to the effect's parameter slot (D2D1_COLORMATRIX_PROP_COLOR_MATRIX = 0).
+    /// </summary>
+    private static unsafe void SetColorMatrixOnEffect(ColorMatrix5x4 m)
+    {
+        if (_colorMatrixEffect == null) return;
+        // Pack matrix into the persistent byte buffer (row-major, 20 floats).
+        var floats = MemoryMarshal.Cast<byte, float>(_colorMatrixBytes);
+        floats[0] = m.M11; floats[1] = m.M12; floats[2] = m.M13; floats[3] = m.M14;
+        floats[4] = m.M21; floats[5] = m.M22; floats[6] = m.M23; floats[7] = m.M24;
+        floats[8] = m.M31; floats[9] = m.M32; floats[10] = m.M33; floats[11] = m.M34;
+        floats[12] = m.M41; floats[13] = m.M42; floats[14] = m.M43; floats[15] = m.M44;
+        floats[16] = m.M51; floats[17] = m.M52; floats[18] = m.M53; floats[19] = m.M54;
+        try
+        {
+            _colorMatrixEffect.SetValueByName("ColorMatrix", PropertyType.Matrix5x4, _colorMatrixBytes, (uint)_colorMatrixBytes.Length);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "[ColorGrading] Failed to set color matrix");
+        }
+    }
+
+    /// <summary>
+    /// Get the current GIF frame index for a specific source, given total elapsed time.
+    /// </summary>
+    private static int GetCurrentFrameIndexForSource(int sourceIdx, long elapsedMs)
+    {
+        if (sourceIdx < 0 || sourceIdx >= _d2dFramesPerSource.Count) return 0;
+        var frames = _d2dFramesPerSource[sourceIdx];
+        if (frames.Length <= 1) return 0;
+
+        var delays = _d2dDelaysPerSource[sourceIdx];
+        long total = _d2dTotalDurationPerSource[sourceIdx];
+        if (total <= 0) return 0;
+
+        // Honor the same speed multiplier the primary source uses
+        long t = (long)(elapsedMs * _gifSpeedMultiplier) % total;
+        long acc = 0;
+        for (int i = 0; i < delays.Count; i++)
+        {
+            acc += delays[i];
+            if (t < acc) return Math.Min(i, frames.Length - 1);
+        }
+        return frames.Length - 1;
+    }
+
+    /// <summary>
+    /// Cover icon-zone rectangles with the corridor (plain) color so the pattern only shows
+    /// in free space and the user's desktop icons remain visible. No-op when MaskZones is off.
+    /// </summary>
+    private static void DrawZoneCoverIfMasked()
+    {
+        if (!_maskZones || _d2dContext == null) return;
+        if (_iconZoneBands.Count == 0) return;
+
+        if (_zoneCoverBrush == null)
+            _zoneCoverBrush = _d2dContext.CreateSolidColorBrush(_iconCorridorBgColor);
+
+        foreach (var (zY, zH, zX, zW, isFree, _) in _iconZoneBands)
+        {
+            if (isFree) continue;  // free bands are corridor — pattern stays
+            float drawW = zW < 0 ? _width : zW;
+            _d2dContext.FillRectangle(new System.Drawing.RectangleF(zX, zY, drawW, zH), _zoneCoverBrush);
+        }
+    }
+
+    /// <summary>
+    /// Draw the animation layer for the current frame. Handles single-source/no-pattern
+    /// (single DrawBitmap), multi-source/no-pattern (each image at a seeded offset), and
+    /// pattern-fill (infinite world-space grid via PatternLayout).
+    /// </summary>
+    private static void DrawAnimationLayer(long elapsedMs, ID2D1Bitmap? videoBitmapOverride = null)
+    {
+        if (_d2dContext == null || _animationConfig == null) return;
+
+        // Determine source bitmaps to use. For video, the override supersedes per-source frames.
+        bool useVideo = videoBitmapOverride != null;
+        int sourceCount = useVideo ? 1 : Math.Max(1, _d2dFramesPerSource.Count);
+        if (!useVideo && _d2dFramesPerSource.Count == 0) return;
+
+        // Color grading matrix (computed once per frame — same for every cell).
+        var grading = ColorGrader.Compute(_animationConfig.ColorGrading, elapsedMs);
+        bool gradingActive = _animationConfig.ColorGrading != null
+                             && _animationConfig.ColorGrading.Mode != ColorGradingMode.None;
+        if (gradingActive)
+        {
+            EnsureColorMatrixEffect();
+            SetColorMatrixOnEffect(grading);
+        }
+
+        // Decide draw mode.
+        var pattern = _animationConfig.Pattern;
+        bool patternActive = pattern != null && !useVideo;  // video skipped for now (single-cell)
+
+        if (patternActive)
+        {
+            // Cell size = max bounds across sources (with mixed-image sizes per spec, each cell
+            // still draws its own image at its own native size centered in this slot).
+            int cellW = _animWidth, cellH = _animHeight;
+            if (_sourceDimensions.Count > 0)
+            {
+                int maxW = 0, maxH = 0;
+                foreach (var (w, h) in _sourceDimensions)
+                {
+                    if (w > maxW) maxW = w;
+                    if (h > maxH) maxH = h;
+                }
+                if (maxW > 0) cellW = ScaleToTargetHeight(maxW, maxH).W;
+                if (maxH > 0) cellH = ScaleToTargetHeight(maxW, maxH).H;
+            }
+
+            var cells = PatternLayout.Compute(
+                pattern!,
+                anchorX: _animX, anchorY: _animY,
+                cellW: cellW, cellH: cellH,
+                virtualCanvasWidth: _virtualCanvasWidth, virtualCanvasHeight: _height,
+                monitorOffsetX: _monitorOffsetX,
+                monitorWidth: _width, monitorHeight: _height,
+                sourceImageCount: sourceCount);
+
+            foreach (var cell in cells)
+            {
+                int srcIdx = cell.SourceIndex % sourceCount;
+                int frameIdx = GetCurrentFrameIndexForSource(srcIdx, elapsedMs);
+                var frames = _d2dFramesPerSource[srcIdx];
+                if (frames.Length == 0) continue;
+                var bmp = frames[Math.Min(frameIdx, frames.Length - 1)];
+
+                var (drawW, drawH) = ComputeDrawSizeForSource(srcIdx);
+                DrawCellWithOptionalGrading(bmp, cell.ScreenX, cell.ScreenY, drawW, drawH, cell.RotationDeg, gradingActive);
+            }
+        }
+        else if (sourceCount > 1 && !useVideo)
+        {
+            // Multi-image without pattern: draw each source at a seeded offset around the anchor.
+            int seed = _animationConfig.Pattern?.Seed ?? 0;
+            float spread = Math.Max(0f, _animationConfig.MultiImageSpread);
+            float jitterMs = Math.Max(0f, _animationConfig.MultiImagePhaseJitterMs);
+
+            for (int srcIdx = 0; srcIdx < sourceCount; srcIdx++)
+            {
+                int hash = Hash2(seed, srcIdx);
+                float dx = ((((hash & 0xFFFF) / 65535f) * 2f) - 1f) * spread;
+                float dy = (((((hash >> 16) & 0xFFFF) / 65535f) * 2f) - 1f) * spread;
+                long phase = (long)(((srcIdx * 0.6180339887) % 1.0) * jitterMs);
+
+                int frameIdx = GetCurrentFrameIndexForSource(srcIdx, elapsedMs + phase);
+                var frames = _d2dFramesPerSource[srcIdx];
+                if (frames.Length == 0) continue;
+                var bmp = frames[Math.Min(frameIdx, frames.Length - 1)];
+
+                var (drawW, drawH) = ComputeDrawSizeForSource(srcIdx);
+                DrawCellWithOptionalGrading(bmp, _animX + dx, _animY + dy, drawW, drawH, 0f, gradingActive);
+            }
+        }
+        else
+        {
+            // Original single-source path. Honor RotateWithPath when active.
+            ID2D1Bitmap? bmp = useVideo ? videoBitmapOverride : (_d2dGifFrames != null && _d2dGifFrames.Length > 0
+                ? _d2dGifFrames[GetCurrentGifFrameIndex(elapsedMs)]
+                : null);
+            if (bmp == null) return;
+
+            float rotDeg = 0f;
+            bool hasPathRotation = _rotateWithPath && _animRotationRad != 0f && _animPath.Count >= 2;
+            if (hasPathRotation) rotDeg = _animRotationRad * 180f / MathF.PI;
+
+            DrawCellWithOptionalGrading(bmp, _animX, _animY, _animWidth, _animHeight, rotDeg, gradingActive);
+        }
+
+        // F3a: cover icon-zone rectangles with corridor color so user icons remain visible.
+        DrawZoneCoverIfMasked();
+    }
+
+    private static (int W, int H) ScaleToTargetHeight(int srcW, int srcH)
+    {
+        int targetH = _animationConfig?.TargetHeight ?? 720;
+        if (srcH <= 0) return (_animWidth, _animHeight);
+        float scale = (float)targetH / srcH;
+        return ((int)(srcW * scale), targetH);
+    }
+
+    private static (int W, int H) ComputeDrawSizeForSource(int srcIdx)
+    {
+        if (srcIdx < 0 || srcIdx >= _sourceDimensions.Count) return (_animWidth, _animHeight);
+        var (sw, sh) = _sourceDimensions[srcIdx];
+        return ScaleToTargetHeight(sw, sh);
+    }
+
+    /// <summary>
+    /// Draw one cell with optional rotation and color grading.
+    /// </summary>
+    private static void DrawCellWithOptionalGrading(
+        ID2D1Bitmap bmp, float x, float y, int w, int h,
+        float rotationDeg, bool gradingActive)
+    {
+        if (_d2dContext == null) return;
+
+        bool needsRotation = MathF.Abs(rotationDeg) > 0.01f;
+        Matrix3x2 prior = Matrix3x2.Identity;
+        if (needsRotation)
+        {
+            float cx = x + w / 2f;
+            float cy = y + h / 2f;
+            prior = _d2dContext.Transform;
+            _d2dContext.Transform = Matrix3x2.CreateRotation(rotationDeg * MathF.PI / 180f, new Vector2(cx, cy));
+        }
+
+        if (gradingActive && _colorMatrixEffect != null)
+        {
+            try
+            {
+                _colorMatrixEffect.SetInput(0, bmp, true);
+                // ID2D1Effect.Output is the ID2D1Image accepted by DrawImage.
+                _d2dContext.DrawImage(_colorMatrixEffect.Output, new Vector2(x, y), null, InterpolationMode.Linear, CompositeMode.SourceOver);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "[ColorGrading] DrawImage failed; falling back to DrawBitmap");
+                _d2dContext.DrawBitmap(bmp, new System.Drawing.RectangleF(x, y, w, h), 1f, BitmapInterpolationMode.Linear, null);
+            }
+        }
+        else
+        {
+            _d2dContext.DrawBitmap(bmp, new System.Drawing.RectangleF(x, y, w, h), 1f, BitmapInterpolationMode.Linear, null);
+        }
+
+        if (needsRotation) _d2dContext.Transform = prior;
+    }
+
+    private static int Hash2(int seed, int k)
+    {
+        unchecked
+        {
+            uint h = (uint)seed;
+            h ^= (uint)k * 2654435761u;
+            h ^= h >> 13;
+            h *= 2246822519u;
+            h ^= h >> 16;
+            return (int)h;
+        }
+    }
+
     private static void HandleLoadAnimationCommand(PlayerCommandLoadAnimation cmd)
     {
         try
@@ -2485,6 +2822,11 @@ class Program
                 _movementConfig = cmd.MovementConfig;
                 _virtualCanvasWidth = cmd.VirtualCanvasWidth;
                 _monitorOffsetX = cmd.MonitorOffsetX;
+                _maskZones = cmd.MaskZones;
+                _useZonePalette = cmd.UseZonePalette;
+
+                // Reset per-source caches before loading
+                ClearPerSourceCaches();
 
                 var filePath = cmd.AnimationConfig.AnimationPath;
                 var extension = Path.GetExtension(filePath).ToLowerInvariant();
@@ -2548,6 +2890,16 @@ class Program
                 {
                     _logger?.LogWarning("[LOAD] Unsupported format ({Ext}), no rendering available", extension);
                 }
+
+                // Populate per-source caches: primary source first, then any AdditionalAnimationPaths.
+                if (_d2dGifFrames != null)
+                {
+                    _d2dFramesPerSource.Add(_d2dGifFrames);
+                    _d2dDelaysPerSource.Add(_d2dGifDelays ?? new List<int> { 1000 });
+                    _d2dTotalDurationPerSource.Add(_d2dGifTotalDurationMs > 0 ? _d2dGifTotalDurationMs : 1000);
+                    _sourceDimensions.Add((_contentNativeWidth, _contentNativeHeight));
+                }
+                LoadAdditionalAnimationSources(cmd.AnimationConfig);
             }
 
             Console.WriteLine("READY");
@@ -2669,6 +3021,23 @@ class Program
         }
         _d2dGifDelays = null;
         _d2dGifTotalDurationMs = 0;
+
+        // Multi-source caches: dispose any additional bitmaps that were uploaded directly into
+        // _d2dFramesPerSource[1..]. Index 0 shares storage with _d2dGifFrames (already disposed above).
+        for (int i = 1; i < _d2dFramesPerSource.Count; i++)
+        {
+            var frames = _d2dFramesPerSource[i];
+            for (int f = 0; f < frames.Length; f++) frames[f]?.Dispose();
+        }
+        _d2dFramesPerSource.Clear();
+        _d2dDelaysPerSource.Clear();
+        _d2dTotalDurationPerSource.Clear();
+        _sourceDimensions.Clear();
+
+        _colorMatrixEffect?.Dispose();
+        _colorMatrixEffect = null;
+        _zoneCoverBrush?.Dispose();
+        _zoneCoverBrush = null;
 
         _backgroundImageBitmap?.Dispose();
         _backgroundImageBitmap = null;

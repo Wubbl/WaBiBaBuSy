@@ -147,6 +147,54 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     [ObservableProperty] private ObservableCollection<ZoneColorItem> _iconZonePalette = new();
     [ObservableProperty] private string _iconCorridorColorHex = "#1E1E1E";
     [ObservableProperty] private bool _rotateWithPath = true;
+    [ObservableProperty] private bool _iconZonePaletteEnabled = false;
+
+    // ── Color grading (F2) ───────────────────────────────────────────────────
+    // Index maps to ColorGradingMode: 0=None,1=Rainbow,2=RandomColors,3=Gradient,4=CycleColorList
+    [ObservableProperty] private int _colorGradingModeIndex = 0;
+    [ObservableProperty] private double _colorGradingCyclesPerSecond = 0.1;
+    [ObservableProperty] private string _colorGradingGradientA = "#FF0000";
+    [ObservableProperty] private string _colorGradingGradientB = "#0000FF";
+    [ObservableProperty] private int _colorGradingSeed = 1;
+    [ObservableProperty] private string _colorGradingColorListCsv = "#FF0000,#FFFF00,#00FF00,#00FFFF,#0000FF,#FF00FF";
+
+    public bool IsColorGradingNone           => ColorGradingModeIndex == 0;
+    public bool IsColorGradingGradient       => ColorGradingModeIndex == 3;
+    public bool IsColorGradingColorListMode  => ColorGradingModeIndex == 2 || ColorGradingModeIndex == 4;
+
+    partial void OnColorGradingModeIndexChanged(int value)
+    {
+        OnPropertyChanged(nameof(IsColorGradingNone));
+        OnPropertyChanged(nameof(IsColorGradingGradient));
+        OnPropertyChanged(nameof(IsColorGradingColorListMode));
+    }
+
+    // ── Pattern multiplier (F3) ──────────────────────────────────────────────
+    [ObservableProperty] private bool _patternEnabled = false;
+    // 0 = Fill (auto-derive counts), 1 = Explicit
+    [ObservableProperty] private int _patternSizingIndex = 0;
+    [ObservableProperty] private int _patternCountX = 5;
+    [ObservableProperty] private int _patternCountY = 3;
+    [ObservableProperty] private float _patternSpacingX = 20f;
+    [ObservableProperty] private float _patternSpacingY = 20f;
+    [ObservableProperty] private float _patternMargin = 0f;
+    [ObservableProperty] private float _patternRandomOffset = 0f;
+    [ObservableProperty] private float _patternRandomRotation = 0f;
+    [ObservableProperty] private int _patternSeed = 1;
+
+    public bool IsPatternFill => PatternSizingIndex == 0;
+    public bool IsPatternExplicit => PatternSizingIndex == 1;
+
+    partial void OnPatternSizingIndexChanged(int value)
+    {
+        OnPropertyChanged(nameof(IsPatternFill));
+        OnPropertyChanged(nameof(IsPatternExplicit));
+    }
+
+    // ── Multi-image (F4) ─────────────────────────────────────────────────────
+    [ObservableProperty] private ObservableCollection<string> _additionalAnimationPaths = new();
+    [ObservableProperty] private float _multiImageSpread = 0f;
+    [ObservableProperty] private float _multiImagePhaseJitterMs = 0f;
 
     public bool IsSolidColorMode => BackgroundModeIndex == 0;
     public bool IsImageMode => BackgroundModeIndex == 1 || BackgroundModeIndex == 2;
@@ -316,6 +364,43 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         {
             monitor.IsSelected = selectedIds.Contains(monitor.ClientId) || config.SelectedMonitorIds.Count == 0;
         }
+
+        // Color grading
+        var grading = config.Animation.ColorGrading ?? new ColorGradingConfig();
+        ColorGradingModeIndex = (int)grading.Mode;
+        ColorGradingCyclesPerSecond = grading.CyclesPerSecond;
+        ColorGradingGradientA = grading.GradientA;
+        ColorGradingGradientB = grading.GradientB;
+        ColorGradingSeed = grading.Seed;
+        ColorGradingColorListCsv = grading.ColorList.Count > 0
+            ? string.Join(",", grading.ColorList)
+            : "#FF0000,#FFFF00,#00FF00,#00FFFF,#0000FF,#FF00FF";
+
+        // Pattern
+        var pattern = config.Animation.Pattern;
+        PatternEnabled = pattern != null;
+        if (pattern != null)
+        {
+            PatternSizingIndex = (int)pattern.Sizing;
+            PatternCountX = Math.Max(1, pattern.CountX);
+            PatternCountY = Math.Max(1, pattern.CountY);
+            PatternSpacingX = pattern.SpacingX;
+            PatternSpacingY = pattern.SpacingY;
+            PatternMargin = pattern.Margin;
+            PatternRandomOffset = pattern.RandomOffsetMaxPx;
+            PatternRandomRotation = pattern.RandomRotationMaxDeg;
+            PatternSeed = pattern.Seed;
+        }
+
+        // Multi-image
+        AdditionalAnimationPaths.Clear();
+        foreach (var path in config.Animation.AdditionalAnimationPaths)
+            AdditionalAnimationPaths.Add(path);
+        MultiImageSpread = config.Animation.MultiImageSpread;
+        MultiImagePhaseJitterMs = config.Animation.MultiImagePhaseJitterMs;
+
+        // IconZone palette toggle
+        IconZonePaletteEnabled = config.Background.IconZonePaletteEnabled;
     }
 
     public CrossScreenConfig BuildConfig()
@@ -366,16 +451,43 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                 BottomZoneColorHex = BottomZoneColorHex,
                 CorridorColorHex   = CorridorColorHex,
                 IconCorridorColorHex  = IconCorridorColorHex,
-                IconZonePaletteHexes = IconZonePalette.Select(z => z.ColorHex).ToList()
+                IconZonePaletteHexes = IconZonePalette.Select(z => z.ColorHex).ToList(),
+                IconZonePaletteEnabled = IconZonePaletteEnabled
             },
             Animation = new AnimationLayerConfig
             {
                 AnimationPath = AnimationPath,
+                AdditionalAnimationPaths = AdditionalAnimationPaths.Where(p => !string.IsNullOrWhiteSpace(p)).ToList(),
                 TargetHeight = AnimationHeight,
                 FitMode = (ContentFitMode)FitModeIndex,
                 Loop = AnimationLoop,
                 VerticalAlign = verticalAlign,
-                RotateWithPath = RotateWithPath
+                RotateWithPath = RotateWithPath,
+                ColorGrading = new ColorGradingConfig
+                {
+                    Mode = (ColorGradingMode)ColorGradingModeIndex,
+                    CyclesPerSecond = ColorGradingCyclesPerSecond,
+                    GradientA = ColorGradingGradientA,
+                    GradientB = ColorGradingGradientB,
+                    Seed = ColorGradingSeed,
+                    ColorList = ColorGradingColorListCsv
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .ToList()
+                },
+                Pattern = PatternEnabled ? new PatternConfig
+                {
+                    Sizing = (PatternConfig.SizingMode)PatternSizingIndex,
+                    CountX = PatternCountX,
+                    CountY = PatternCountY,
+                    SpacingX = PatternSpacingX,
+                    SpacingY = PatternSpacingY,
+                    Margin = PatternMargin,
+                    RandomOffsetMaxPx = PatternRandomOffset,
+                    RandomRotationMaxDeg = PatternRandomRotation,
+                    Seed = PatternSeed
+                } : null,
+                MultiImageSpread = MultiImageSpread,
+                MultiImagePhaseJitterMs = MultiImagePhaseJitterMs
             },
             AnimationSpeedPxPerSecond = AnimationSpeed,
             SelectedMonitorIds = selectedMonitorIds,
@@ -427,8 +539,14 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
 
         var fileTypes = new FilePickerFileType[]
         {
-            new("Video Files") { Patterns = new[] { "*.mp4", "*.avi", "*.mkv", "*.mov", "*.wmv", "*.webm" } },
+            new("All Animations") { Patterns = new[] {
+                "*.mp4", "*.avi", "*.mkv", "*.mov", "*.wmv", "*.webm", "*.flv",
+                "*.gif",
+                "*.jpg", "*.jpeg", "*.png", "*.bmp"
+            } },
+            new("Video Files") { Patterns = new[] { "*.mp4", "*.avi", "*.mkv", "*.mov", "*.wmv", "*.webm", "*.flv" } },
             new("GIF Files") { Patterns = new[] { "*.gif" } },
+            new("Static Images") { Patterns = new[] { "*.jpg", "*.jpeg", "*.png", "*.bmp" } },
             new("All Files") { Patterns = new[] { "*.*" } }
         };
 
@@ -443,6 +561,39 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         {
             AnimationPath = files[0].Path.LocalPath;
         }
+    }
+
+    /// <summary>F4: add an additional image to the multi-image source list.</summary>
+    [RelayCommand]
+    private async Task AddAdditionalImage()
+    {
+        if (_storageProvider == null) return;
+
+        var fileTypes = new FilePickerFileType[]
+        {
+            new("Image Files") { Patterns = new[] { "*.jpg", "*.jpeg", "*.png", "*.bmp", "*.gif" } },
+            new("All Files") { Patterns = new[] { "*.*" } }
+        };
+
+        var files = await _storageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Add Source Image",
+            AllowMultiple = true,
+            FileTypeFilter = fileTypes
+        });
+
+        foreach (var file in files)
+        {
+            AdditionalAnimationPaths.Add(file.Path.LocalPath);
+        }
+    }
+
+    /// <summary>F4: remove an additional image from the multi-image source list.</summary>
+    [RelayCommand]
+    private void RemoveAdditionalImage(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+        AdditionalAnimationPaths.Remove(path);
     }
 
     /// <summary>

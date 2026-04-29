@@ -143,6 +143,10 @@ public class D2DCompositionService : IDisposable
             // Send LOAD_ANIMATION command with metadata
             // In per-monitor (simultaneous) mode: each player is its own independent canvas
             // In spanning (sequential) mode: players share a virtual canvas with offset
+            // F3a: when pattern + IconZone are combined, the pattern fills the desktop edge-to-edge
+            // and icon zones become a clip mask. A* pathing is skipped entirely.
+            bool maskZones = backgroundConfig.Mode == BackgroundMode.IconZone && animationConfig.Pattern != null;
+
             var loadCmd = new PlayerCommandLoadAnimation
             {
                 AnimationConfig = animationConfig,
@@ -153,7 +157,9 @@ public class D2DCompositionService : IDisposable
                     ? actualMonitorBounds.Width
                     : (canvasManager.VirtualBounds.Width > 0 ? canvasManager.VirtualBounds.Width : actualMonitorBounds.Width)),
                 MonitorOffsetX = explicitMonitorOffsetX ?? (perMonitorMode ? 0 : screen.VirtualBounds.X),
-                MovementConfig = _movementConfig
+                MovementConfig = _movementConfig,
+                MaskZones = maskZones,
+                UseZonePalette = backgroundConfig.IconZonePaletteEnabled
             };
 
             await playerHost.SendLoadAnimationAsync(loadCmd);

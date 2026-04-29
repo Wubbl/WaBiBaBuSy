@@ -50,4 +50,26 @@ public class PlayerCommandLoadAnimation : PlayerMessageBase
     /// When null, falls back to legacy PixelsPerSecond-based linear movement.
     /// </summary>
     public MovementConfig? MovementConfig { get; set; }
+
+    /// <summary>
+    /// Icon-zone rectangles in virtual-canvas coordinates. Populated by the orchestrator from
+    /// the ZonePlanner result. Used as a clip mask when <see cref="MaskZones"/> is true so that
+    /// pattern cells overlapping desktop icon regions are not drawn.
+    /// Null = no zones broadcast (player will detect locally if needed for legacy IconZone modes).
+    /// </summary>
+    public System.Collections.Generic.List<ZoneRect>? ZoneRects { get; set; }
+
+    /// <summary>
+    /// When true, the player builds a clip-mask geometry of (canvas \ union(ZoneRects)) and
+    /// pushes it as an ID2D1Layer around the animation/pattern draw. Set automatically when
+    /// BackgroundMode == IconZone AND AnimationConfig.Pattern != null.
+    /// </summary>
+    public bool MaskZones { get; set; } = false;
+
+    /// <summary>
+    /// When true, the player renders the colored per-cluster icon-zone palette rectangles.
+    /// Defaults to false — the palette is mostly a debug visualization. Mirrors
+    /// <see cref="BackgroundLayerConfig.IconZonePaletteEnabled"/>.
+    /// </summary>
+    public bool UseZonePalette { get; set; } = false;
 }

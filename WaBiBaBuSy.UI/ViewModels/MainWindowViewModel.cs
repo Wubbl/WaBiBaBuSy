@@ -3161,6 +3161,14 @@ public partial class MainWindowViewModel : ViewModelBase
             _lastGlobalLap = lapNum;
         }
 
+        // F3a: when pattern + IconZone are combined, the pattern fills the desktop and zones
+        // are used as a clip mask only — no A* path is needed, so skip the recompute/broadcast.
+        if (_crossScreenConfig?.Animation.Pattern != null
+            && _crossScreenConfig.Background.Mode == BackgroundMode.IconZone)
+        {
+            return;
+        }
+
         _ = Task.Run(async () =>
         {
             try

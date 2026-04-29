@@ -174,6 +174,13 @@ public class BackgroundLayerConfig
     public List<string> IconZonePaletteHexes  { get; set; } = new();
     /// <summary>Color for free corridor bands.</summary>
     public string       IconCorridorColorHex  { get; set; } = "#1E1E1E";
+
+    /// <summary>
+    /// When true, render the colored per-cluster palette rectangles in IconZone mode.
+    /// Default: false — the palette is mostly a debug visualization. When false, icon zones
+    /// render as plain corridor color (or are simply masked out from the animation layer).
+    /// </summary>
+    public bool IconZonePaletteEnabled { get; set; } = false;
 }
 
 /// <summary>
@@ -233,6 +240,51 @@ public class AnimationLayerConfig
     /// Only has effect in IconZone background mode with path-following active.
     /// </summary>
     public bool RotateWithPath { get; set; } = false;
+
+    /// <summary>
+    /// Additional animation file paths beyond <see cref="AnimationPath"/>.
+    /// Used by the multi-image feature: with <see cref="Pattern"/>, images are randomly distributed across cells;
+    /// without a pattern, each image moves with its own seeded offset/phase.
+    /// </summary>
+    public List<string> AdditionalAnimationPaths { get; set; } = new();
+
+    /// <summary>
+    /// All effective animation source paths (primary + additional, with empty entries filtered out).
+    /// Method — not serialized — keeps the Models layer free of serializer dependencies.
+    /// </summary>
+    public IReadOnlyList<string> GetAllAnimationPaths()
+    {
+        var list = new List<string>();
+        if (!string.IsNullOrWhiteSpace(AnimationPath)) list.Add(AnimationPath);
+        foreach (var p in AdditionalAnimationPaths)
+            if (!string.IsNullOrWhiteSpace(p)) list.Add(p);
+        return list;
+    }
+
+    /// <summary>
+    /// Color grading applied to the animation layer (rainbow tint, gradient, color cycle, etc.).
+    /// </summary>
+    public ColorGradingConfig ColorGrading { get; set; } = new();
+
+    /// <summary>
+    /// Pattern multiplier configuration. When set, the animation is tiled into a moving grid.
+    /// Null = single-instance behavior (back-compat).
+    /// </summary>
+    public PatternConfig? Pattern { get; set; }
+
+    /// <summary>
+    /// When multiple animation paths are configured AND Pattern is null, controls the maximum
+    /// per-image position spread (in pixels) around the base movement anchor.
+    /// 0 = all images stack on top of each other and move identically.
+    /// </summary>
+    public float MultiImageSpread { get; set; } = 0f;
+
+    /// <summary>
+    /// When multiple animation paths are configured AND Pattern is null, applies a per-image
+    /// elapsed-time phase offset so individual images animate slightly out of sync.
+    /// 0 = no jitter.
+    /// </summary>
+    public float MultiImagePhaseJitterMs { get; set; } = 0f;
 }
 
 /// <summary>
