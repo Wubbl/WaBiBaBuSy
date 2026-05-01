@@ -369,7 +369,7 @@ public class MovementConfig
     /// <summary>
     /// Movement pattern type
     /// </summary>
-    public MovementType Type { get; set; } = MovementType.Static;
+    public MovementType Type { get; set; } = MovementType.Linear;
 
     /// <summary>
     /// Movement speed in pixels per second

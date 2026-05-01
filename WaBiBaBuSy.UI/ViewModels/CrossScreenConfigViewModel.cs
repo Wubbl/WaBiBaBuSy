@@ -92,7 +92,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     /// True when AnimationHeight actually affects rendering. In Center mode the native
     /// resolution wins and the height field is ignored, so the UI hides it.
     /// </summary>
-    public bool IsAnimationHeightRelevant => (ContentFitMode)FitModeIndex != ContentFitMode.Center;
+    public bool IsAnimationHeightRelevant => FitModeIndex != 0; // 0 = Center; enum order differs from ComboBox order
 
     [ObservableProperty]
     private int _verticalAlignmentIndex = 1; // Center

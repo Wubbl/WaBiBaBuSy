@@ -125,6 +125,51 @@ class Program
     private const int SM_CXICON = 11;
     private const int SM_CYICON = 12;
 
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    private static extern bool EnumDisplaySettings(string deviceName, int modeNum, ref DEVMODE devMode);
+    private const int ENUM_CURRENT_SETTINGS = -1;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    private struct DEVMODE
+    {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmDeviceName;
+        public short dmSpecVersion;
+        public short dmDriverVersion;
+        public short dmSize;
+        public short dmDriverExtra;
+        public int   dmFields;
+        public int   dmPositionX;
+        public int   dmPositionY;
+        public int   dmDisplayOrientation;
+        public int   dmDisplayFixedOutput;
+        public short dmColor;
+        public short dmDuplex;
+        public short dmYResolution;
+        public short dmTTOption;
+        public short dmCollate;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmFormName;
+        public short dmLogPixels;
+        public int   dmBitsPerPel;
+        public int   dmPelsWidth;
+        public int   dmPelsHeight;
+        public int   dmDisplayFlags;
+        public int   dmDisplayFrequency;
+        public int   dmICMMethod;
+        public int   dmICMIntent;
+        public int   dmMediaType;
+        public int   dmDitherType;
+        public int   dmReserved1;
+        public int   dmReserved2;
+        public int   dmPanningWidth;
+        public int   dmPanningHeight;
+    }
+
+    private static int QueryDisplayRefreshHz(string deviceName)
+    {
+        var dm = new DEVMODE { dmSize = (short)Marshal.SizeOf<DEVMODE>() };
+        return EnumDisplaySettings(deviceName, ENUM_CURRENT_SETTINGS, ref dm) ? dm.dmDisplayFrequency : -1;
+    }
+
     private const int GWL_STYLE = -16;
     private const int GWL_EXSTYLE = -20;
     private const uint WS_CHILD = 0x40000000;
@@ -739,13 +784,40 @@ class Program
             BufferCount = 2,
             BufferUsage = Usage.RenderTargetOutput,
             SampleDescription = new SampleDescription(1, 0),
-            Scaling = Scaling.Stretch,
-            SwapEffect = SwapEffect.FlipSequential,
+            // Scaling.None + FlipDiscard are the two preconditions DWM checks before granting
+            // "independent flip" to a flip-model swap chain. Stretch forces a composited path
+            // that paces to the primary monitor's refresh rate, which causes tearing on
+            // secondary panels at a different rate (e.g. 165 Hz primary + 75 Hz secondary).
+            // Buffer dims (_width/_height) come straight from --bounds and match the window
+            // client area 1:1, so Scaling.None is safe here.
+            Scaling = Scaling.None,
+            SwapEffect = SwapEffect.FlipDiscard,
             AlphaMode = Vortice.DXGI.AlphaMode.Ignore,
             Flags = SwapChainFlags.None
         };
 
         _swapChain = dxgiFactory.CreateSwapChainForHwnd(_d3dDevice, _hwnd, swapChainDesc);
+
+        // Diagnostic (mixed-refresh-rate tearing investigation): which monitor did DXGI
+        // associate this swap chain with, and what is its current refresh rate? Present(1)
+        // syncs to *this* output's vblank — if it's the wrong one, we'd see tearing on the
+        // intended monitor.
+        try
+        {
+            using var output = _swapChain.GetContainingOutput();
+            var od = output.Description;
+            var r = od.DesktopCoordinates;
+            int refreshHz = QueryDisplayRefreshHz(od.DeviceName);
+            _logger?.LogInformation(
+                "[SwapChain] containingOutput={Name} rect=({L},{T})-({R},{B}) panel={W}x{H}@{Hz}Hz | buffer={BufW}x{BufH} scaling={Scaling} swapEffect={SwapEffect}",
+                od.DeviceName, r.Left, r.Top, r.Right, r.Bottom,
+                r.Right - r.Left, r.Bottom - r.Top, refreshHz,
+                _width, _height, swapChainDesc.Scaling, swapChainDesc.SwapEffect);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "[SwapChain] Failed to query containing output for diagnostics");
+        }
     }
 
     /// <summary>

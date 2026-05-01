@@ -27,6 +27,7 @@
                         <NativeMenuItem Header="Disconnect" Command="{Binding DisconnectCommand}"/>
                         <NativeMenuItemSeparator />
                         <NativeMenuItem Header="Settings" Command="{Binding SettingsCommand}"/>
+                        <NativeMenuItem Header="Open Log Folder" Command="{Binding OpenLogFolderCommand}"/>
                         <NativeMenuItem Header="Exit" Command="{Binding ExitCommand}"/>
                         <NativeMenuItemSeparator />
                         <NativeMenuItem Header="{Binding VersionText}" IsEnabled="False"/>

@@ -1,10 +1,13 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using WaBiBaBuSy.Common;
 using WaBiBaBuSy.Common.Version;
 using WaBiBaBuSy.Core.Services.Logging;
 using WaBiBaBuSy.Core.Interfaces;
@@ -94,7 +97,6 @@ public partial class TrayViewModel : ObservableObject
     [RelayCommand]
     private void ShowWindow()
     {
-        // Always create a new window if the old one doesn't exist or check if it's visible
         if (_mainWindow == null || !_mainWindow.IsVisible)
         {
             _mainWindow = new MainWindow
@@ -105,9 +107,21 @@ public partial class TrayViewModel : ObservableObject
         }
         else
         {
-            // Window exists and is visible, just activate it
+            if (_mainWindow.WindowState == WindowState.Minimized)
+                _mainWindow.WindowState = WindowState.Normal;
             _mainWindow.Activate();
         }
+    }
+
+    [RelayCommand]
+    private void OpenLogFolder()
+    {
+        var logPath = PathHelper.GetLogsPath();
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = logPath,
+            UseShellExecute = true
+        });
     }
 
     [RelayCommand]
