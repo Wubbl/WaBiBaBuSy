@@ -154,9 +154,40 @@
                             <TextBlock Text="Animation File:" FontSize="12"/>
                             <Grid ColumnDefinitions="*,Auto">
                                 <TextBox Grid.Column="0" Text="{Binding AnimationPath}" IsReadOnly="True" Margin="0,0,10,0"/>
-                                <Button Grid.Column="1" Content="Browse File..." Command="{Binding BrowseAnimationCommand}"/>
+                                <Button Grid.Column="1" Content="Select from Gallery" Command="{Binding SelectAnimationFromGalleryCommand}"/>
                             </Grid>
                         </StackPanel>
+
+                        <!-- F4: Multiple source images — placed next to Animation File -->
+                        <Expander Header="Multiple Source Images" IsExpanded="False" Margin="0,4,0,8">
+                            <StackPanel Spacing="6" Margin="0,8,0,0">
+                                <TextBlock FontSize="11" Foreground="#AAAAAA" TextWrapping="Wrap"
+                                           Text="The first image above is the primary source. Add more here for multi-image patterns or per-image scattering."/>
+                                <ItemsControl ItemsSource="{Binding AdditionalAnimationPaths}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                                                <TextBox Grid.Column="0" Text="{Binding}" IsReadOnly="True" Margin="0,0,8,0"/>
+                                                <Button Grid.Column="1" Content="Remove"
+                                                        Command="{Binding $parent[ItemsControl].((vm:CrossScreenConfigViewModel)DataContext).RemoveAdditionalImageCommand}"
+                                                        CommandParameter="{Binding}"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Button Content="Add from Gallery" Command="{Binding AddAdditionalImagesFromGalleryCommand}" HorizontalAlignment="Left"/>
+
+                                <StackPanel Spacing="4" Margin="0,8,0,0">
+                                    <TextBlock Text="When pattern is OFF and multiple images are listed:" FontSize="11" Foreground="#888888"/>
+                                    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="4">
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Spread (px):" VerticalAlignment="Center"/>
+                                        <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding MultiImageSpread}" Minimum="0" Maximum="1000" Increment="10" HorizontalAlignment="Left" Width="120"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Phase jitter (ms):" VerticalAlignment="Center"/>
+                                        <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding MultiImagePhaseJitterMs}" Minimum="0" Maximum="5000" Increment="50" HorizontalAlignment="Left" Width="120"/>
+                                    </Grid>
+                                </StackPanel>
+                            </StackPanel>
+                        </Expander>
 
                         <StackPanel Spacing="5">
                             <TextBlock Text="Fit Mode:" FontSize="12"/>
@@ -195,37 +226,6 @@
                                   Content="Show icon-zone palette (debug colored bands; only in IconZone mode)"
                                   IsEnabled="{Binding IsIconZoneMode}"
                                   Margin="0,2,0,0"/>
-
-                        <!-- F4: Multiple source images -->
-                        <Expander Header="Multiple Source Images" IsExpanded="False" Margin="0,8,0,0">
-                            <StackPanel Spacing="6" Margin="0,8,0,0">
-                                <TextBlock FontSize="11" Foreground="#AAAAAA" TextWrapping="Wrap"
-                                           Text="The first image above is the primary source. Add more here for multi-image patterns or per-image scattering."/>
-                                <ItemsControl ItemsSource="{Binding AdditionalAnimationPaths}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Grid ColumnDefinitions="*,Auto" Margin="0,2">
-                                                <TextBox Grid.Column="0" Text="{Binding}" IsReadOnly="True" Margin="0,0,8,0"/>
-                                                <Button Grid.Column="1" Content="Remove"
-                                                        Command="{Binding $parent[ItemsControl].((vm:CrossScreenConfigViewModel)DataContext).RemoveAdditionalImageCommand}"
-                                                        CommandParameter="{Binding}"/>
-                                            </Grid>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                                <Button Content="Add Image..." Command="{Binding AddAdditionalImageCommand}" HorizontalAlignment="Left"/>
-
-                                <StackPanel Spacing="4" Margin="0,8,0,0">
-                                    <TextBlock Text="When pattern is OFF and multiple images are listed:" FontSize="11" Foreground="#888888"/>
-                                    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="4">
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Spread (px):" VerticalAlignment="Center"/>
-                                        <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding MultiImageSpread}" Minimum="0" Maximum="1000" Increment="10" HorizontalAlignment="Left" Width="120"/>
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Phase jitter (ms):" VerticalAlignment="Center"/>
-                                        <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding MultiImagePhaseJitterMs}" Minimum="0" Maximum="5000" Increment="50" HorizontalAlignment="Left" Width="120"/>
-                                    </Grid>
-                                </StackPanel>
-                            </StackPanel>
-                        </Expander>
 
                         <!-- F2: Color grading -->
                         <Expander Header="Color Grading" IsExpanded="False" Margin="0,8,0,0">

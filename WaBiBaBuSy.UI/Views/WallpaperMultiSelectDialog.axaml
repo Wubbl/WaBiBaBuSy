@@ -78,7 +78,25 @@
                                 </Style>
                             </Border.Styles>
 
-                            <StackPanel Spacing="8" Cursor="Hand">
+                            <StackPanel Spacing="6" Cursor="Hand">
+                                <!-- Thumbnail -->
+                                <Border Height="90"
+                                        Background="#404040"
+                                        CornerRadius="3"
+                                        ClipToBounds="True">
+                                    <Panel>
+                                        <Image Source="{Binding Thumbnail}"
+                                               Stretch="UniformToFill"
+                                               IsVisible="{Binding Thumbnail, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                                        <TextBlock Text="{Binding TypeName}"
+                                                   Foreground="#AAAAAA"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="11"
+                                                   IsVisible="{Binding Thumbnail, Converter={x:Static ObjectConverters.IsNull}}"/>
+                                    </Panel>
+                                </Border>
+
                                 <!-- Checkbox and Type Badge -->
                                 <Grid ColumnDefinitions="Auto,*">
                                     <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}"/>

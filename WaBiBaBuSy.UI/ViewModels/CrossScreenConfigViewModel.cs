@@ -10,6 +10,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WaBiBaBuSy.Core.Services.Desktop;
 using WaBiBaBuSy.Models.Wallpaper;
+using WaBiBaBuSy.UI.Views;
 using WaBiBaBuSy.WallpaperEngine.Services;
 // Note: DesktopIconService / ZonePlanner are intentionally NOT used here.
 // Each Player.D2D node detects its own desktop icons at runtime.
@@ -49,6 +50,8 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
 {
     private IStorageProvider? _storageProvider;
     private Action? _closeAction;
+    private Avalonia.Controls.Window? _ownerWindow;
+    private List<WallpaperItemViewModel> _galleryWallpapers = new();
 
     private static readonly MovementTypeOption[] AllMovementOptions =
     [
@@ -80,11 +83,10 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     [ObservableProperty]
     private int _animationHeight = 720;
 
-    // 0 = Center (native resolution), 1 = Fit, 2 = Fill, 3 = Stretch
-    // Order matches ContentFitMode enum so the index maps directly.
+    // ComboBox order: 0=Center, 1=Fit, 2=Fill, 3=Stretch (does NOT match enum order)
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsAnimationHeightRelevant))]
-    private int _fitModeIndex = (int)ContentFitMode.Center;
+    private int _fitModeIndex = 0; // 0 = Center
 
     /// <summary>
     /// True when AnimationHeight actually affects rendering. In Center mode the native
@@ -255,6 +257,11 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         _storageProvider = storageProvider;
     }
 
+    public void SetOwnerWindow(Avalonia.Controls.Window? window) => _ownerWindow = window;
+
+    public void SetGalleryWallpapers(IEnumerable<WallpaperItemViewModel> wallpapers)
+        => _galleryWallpapers = wallpapers.ToList();
+
     public void SetCloseAction(Action closeAction)
     {
         _closeAction = closeAction;
@@ -329,7 +336,14 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         RotateWithPath = config.Animation.RotateWithPath;
         AnimationPath = config.Animation.AnimationPath;
         AnimationHeight = config.Animation.TargetHeight;
-        FitModeIndex = (int)config.Animation.FitMode;
+        FitModeIndex = config.Animation.FitMode switch
+        {
+            ContentFitMode.Center  => 0,
+            ContentFitMode.Fit     => 1,
+            ContentFitMode.Fill    => 2,
+            ContentFitMode.Stretch => 3,
+            _                      => 0
+        };
         AnimationLoop = config.Animation.Loop;
         AnimationSpeed = config.AnimationSpeedPxPerSecond;
 
@@ -459,7 +473,14 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                 AnimationPath = AnimationPath,
                 AdditionalAnimationPaths = AdditionalAnimationPaths.Where(p => !string.IsNullOrWhiteSpace(p)).ToList(),
                 TargetHeight = AnimationHeight,
-                FitMode = (ContentFitMode)FitModeIndex,
+                FitMode = FitModeIndex switch
+                {
+                    0 => ContentFitMode.Center,
+                    1 => ContentFitMode.Fit,
+                    2 => ContentFitMode.Fill,
+                    3 => ContentFitMode.Stretch,
+                    _ => ContentFitMode.Center
+                },
                 Loop = AnimationLoop,
                 VerticalAlign = verticalAlign,
                 RotateWithPath = RotateWithPath,
@@ -533,58 +554,42 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private async Task BrowseAnimation()
+    private async Task SelectAnimationFromGallery()
     {
-        if (_storageProvider == null) return;
+        if (_ownerWindow == null || _galleryWallpapers.Count == 0) return;
 
-        var fileTypes = new FilePickerFileType[]
-        {
-            new("All Animations") { Patterns = new[] {
-                "*.mp4", "*.avi", "*.mkv", "*.mov", "*.wmv", "*.webm", "*.flv",
-                "*.gif",
-                "*.jpg", "*.jpeg", "*.png", "*.bmp"
-            } },
-            new("Video Files") { Patterns = new[] { "*.mp4", "*.avi", "*.mkv", "*.mov", "*.wmv", "*.webm", "*.flv" } },
-            new("GIF Files") { Patterns = new[] { "*.gif" } },
-            new("Static Images") { Patterns = new[] { "*.jpg", "*.jpeg", "*.png", "*.bmp" } },
-            new("All Files") { Patterns = new[] { "*.*" } }
-        };
+        var dialogVm = new WallpaperMultiSelectDialogViewModel();
+        dialogVm.LoadWallpapers(_galleryWallpapers);
 
-        var files = await _storageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-        {
-            Title = "Select Animation File",
-            AllowMultiple = false,
-            FileTypeFilter = fileTypes
-        });
+        var dialog = new WallpaperMultiSelectDialog { DataContext = dialogVm };
+        dialogVm.SetCloseAction(() => dialog.Close());
+        await dialog.ShowDialog(_ownerWindow);
 
-        if (files.Count > 0)
+        if (dialogVm.DialogResult)
         {
-            AnimationPath = files[0].Path.LocalPath;
+            var selected = dialogVm.GetSelectedWallpapers();
+            if (selected.Count > 0)
+                AnimationPath = selected[0].FilePath;
         }
     }
 
-    /// <summary>F4: add an additional image to the multi-image source list.</summary>
+    /// <summary>F4: add images from gallery to the multi-image source list.</summary>
     [RelayCommand]
-    private async Task AddAdditionalImage()
+    private async Task AddAdditionalImagesFromGallery()
     {
-        if (_storageProvider == null) return;
+        if (_ownerWindow == null || _galleryWallpapers.Count == 0) return;
 
-        var fileTypes = new FilePickerFileType[]
-        {
-            new("Image Files") { Patterns = new[] { "*.jpg", "*.jpeg", "*.png", "*.bmp", "*.gif" } },
-            new("All Files") { Patterns = new[] { "*.*" } }
-        };
+        var dialogVm = new WallpaperMultiSelectDialogViewModel();
+        dialogVm.LoadWallpapers(_galleryWallpapers);
 
-        var files = await _storageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-        {
-            Title = "Add Source Image",
-            AllowMultiple = true,
-            FileTypeFilter = fileTypes
-        });
+        var dialog = new WallpaperMultiSelectDialog { DataContext = dialogVm };
+        dialogVm.SetCloseAction(() => dialog.Close());
+        await dialog.ShowDialog(_ownerWindow);
 
-        foreach (var file in files)
+        if (dialogVm.DialogResult)
         {
-            AdditionalAnimationPaths.Add(file.Path.LocalPath);
+            foreach (var item in dialogVm.GetSelectedWallpapers())
+                AdditionalAnimationPaths.Add(item.FilePath);
         }
     }
 
@@ -605,19 +610,10 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     {
         if (PreSelectedWallpaper == null) return;
 
-        // Auto-populate animation path for Video/GIF types
-        if ((PreSelectedWallpaper.Type == WallpaperType.Video || PreSelectedWallpaper.Type == WallpaperType.Gif)
-            && string.IsNullOrEmpty(AnimationPath))
+        // Auto-populate animation path for all media types (image/gif/video)
+        if (string.IsNullOrEmpty(AnimationPath))
         {
             AnimationPath = PreSelectedWallpaper.FilePath;
-        }
-
-        // Auto-populate background image path for Image types
-        if (PreSelectedWallpaper.Type == WallpaperType.Image && string.IsNullOrEmpty(BackgroundImagePath))
-        {
-            BackgroundImagePath = PreSelectedWallpaper.FilePath;
-            if (BackgroundModeIndex == 0) // Switch from solid color to stretched image
-                BackgroundModeIndex = 1;
         }
     }
 

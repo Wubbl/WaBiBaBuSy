@@ -2597,6 +2597,10 @@ public partial class MainWindowViewModel : ViewModelBase
             // Set available monitors/clients for selection
             viewModel.SetAvailableMonitors(Clients);
 
+            // Give the dialog access to owner window and gallery for the gallery picker
+            viewModel.SetOwnerWindow(_mainWindow);
+            viewModel.SetGalleryWallpapers(Wallpapers);
+
             // Pre-populate from selected wallpaper in gallery
             viewModel.PreSelectedWallpaper = SelectedWallpaper;
 

@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -34,6 +35,9 @@ public partial class WallpaperMultiSelectItem : ViewModelBase
 
     [ObservableProperty]
     private bool _isSelected = false;
+
+    [ObservableProperty]
+    private Bitmap? _thumbnail;
 
     /// <summary>
     /// Human-readable file size
@@ -154,7 +158,8 @@ public partial class WallpaperMultiSelectDialogViewModel : ViewModelBase
                 Type = wallpaper.Type,
                 Resolution = wallpaper.Resolution,
                 FileSizeBytes = wallpaper.FileSizeBytes,
-                IsSelected = false
+                IsSelected = false,
+                Thumbnail = wallpaper.Thumbnail
             };
 
             AllWallpapers.Add(item);
