@@ -1032,7 +1032,7 @@ class Program
                             _windowShown = true;
                             _d2dContext.EndDraw();
                             _d2dContext.Target = null;
-                            _swapChain.Present(0, PresentFlags.None);
+                            _swapChain.Present(1, PresentFlags.None);
 
                             if (_zOrderReference != IntPtr.Zero)
                                 SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
@@ -1046,9 +1046,8 @@ class Program
 
                         _d2dContext.EndDraw();
                         _d2dContext.Target = null;
-                        _swapChain.Present(0, PresentFlags.None);
+                        _swapChain.Present(1, PresentFlags.None); // VSync paces the loop
 
-                        Thread.Sleep(16);
                         _frameCount++;
                         continue; // Skip normal rendering
                     }
@@ -1103,7 +1102,7 @@ class Program
                                 _windowShown = true;
                                 _d2dContext.EndDraw();
                                 _d2dContext.Target = null;
-                                _swapChain.Present(0, PresentFlags.None);
+                                _swapChain.Present(1, PresentFlags.None);
 
                                 if (_zOrderReference != IntPtr.Zero)
                                     SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
@@ -1157,7 +1156,7 @@ class Program
                                 _windowShown = true;
                                 _d2dContext.EndDraw();
                                 _d2dContext.Target = null;
-                                _swapChain.Present(0, PresentFlags.None);
+                                _swapChain.Present(1, PresentFlags.None);
 
                                 if (_zOrderReference != IntPtr.Zero)
                                     SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
@@ -1210,7 +1209,7 @@ class Program
                                     _windowShown = true;
                                     _d2dContext.EndDraw();
                                     _d2dContext.Target = null;
-                                    _swapChain.Present(0, PresentFlags.None);
+                                    _swapChain.Present(1, PresentFlags.None);
 
                                     if (_zOrderReference != IntPtr.Zero)
                                         SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
@@ -1244,7 +1243,7 @@ class Program
 
                     _d2dContext.EndDraw();
                     _d2dContext.Target = null;
-                    _swapChain.Present(0, PresentFlags.None);
+                    _swapChain.Present(1, PresentFlags.None);
 
                     if (_frameCount % 60 == 0 && _frameCount > 0)
                     {
@@ -1256,9 +1255,14 @@ class Program
             catch (Exception ex)
             {
                 _logger?.LogError(ex, "Render loop error");
+                // After a render error we won't have hit Present(1) — sleep briefly so a
+                // persistent failure does not spin the CPU at 100%.
+                Thread.Sleep(16);
             }
 
-            Thread.Sleep(16);
+            // Pacing: when rendering succeeds, the loop is paced by Present(1) (VSync).
+            // No explicit sleep here — locks to the swap chain's monitor refresh rate
+            // (e.g. 60 Hz on a normal monitor, 165 Hz on a high-refresh monitor).
             _frameCount++;
         }
 
@@ -2118,8 +2122,8 @@ class Program
         if (_backgroundMode == BackgroundMode.IconZone && _animPath.Count < 2)
             _logger?.LogWarning("[IconZone] Path-following skipped: only {Count} waypoints available. Check icon detection and ZonePlanner output.", _animPath.Count);
 
-        // Standard movement via MovementCalculator
-        if (_movementConfig != null && _movementConfig.Type != MovementType.Static)
+        // Standard movement via MovementCalculator (Static returns a centered, time-invariant position).
+        if (_movementConfig != null)
         {
             var (vx, vy) = MovementCalculator.Calculate(
                 _movementConfig, elapsedMs,
@@ -2139,11 +2143,10 @@ class Program
         }
         else if (_pixelsPerSecond > 0)
         {
-            // Legacy backward compat: simple left-to-right scroll
+            // Legacy backward compat: simple left-to-right scroll for configs without MovementConfig.
             var elapsedSeconds = elapsedMs / 1000.0;
             _animX = (float)(-_animWidth + (elapsedSeconds * _pixelsPerSecond));
         }
-        // For static animations (pixelsPerSecond=0 and no movement config), position stays at initial centered value
     }
 
     /// <summary>

@@ -113,7 +113,8 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     private int _animationDistributionModeIndex = 0; // 0 = Sequential, 1 = Simultaneous
 
     [ObservableProperty]
-    private MovementTypeOption _selectedMovementType = AllMovementOptions[0];
+    private MovementTypeOption _selectedMovementType =
+        AllMovementOptions.First(o => o.Type == MovementType.Linear);
 
     [ObservableProperty]
     private float _movementAngle = 30f;

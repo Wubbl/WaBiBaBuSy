@@ -2815,15 +2815,20 @@ public partial class MainWindowViewModel : ViewModelBase
                     // Clone animation config with global path attached
                     animationConfig = new AnimationLayerConfig
                     {
-                        AnimationPath         = _crossScreenConfig.Animation.AnimationPath,
-                        TargetHeight          = _crossScreenConfig.Animation.TargetHeight,
-                        Loop                  = _crossScreenConfig.Animation.Loop,
-                        VerticalAlign         = _crossScreenConfig.Animation.VerticalAlign,
-                        CenterInitialPosition = _crossScreenConfig.Animation.CenterInitialPosition,
-                        SpeedMultiplier       = _crossScreenConfig.Animation.SpeedMultiplier,
-                        FitMode               = _crossScreenConfig.Animation.FitMode,
-                        RotateWithPath        = _crossScreenConfig.Animation.RotateWithPath,
-                        PrecomputedPath       = globalLayout.Path
+                        AnimationPath             = _crossScreenConfig.Animation.AnimationPath,
+                        AdditionalAnimationPaths  = _crossScreenConfig.Animation.AdditionalAnimationPaths,
+                        TargetHeight              = _crossScreenConfig.Animation.TargetHeight,
+                        Loop                      = _crossScreenConfig.Animation.Loop,
+                        VerticalAlign             = _crossScreenConfig.Animation.VerticalAlign,
+                        CenterInitialPosition     = _crossScreenConfig.Animation.CenterInitialPosition,
+                        SpeedMultiplier           = _crossScreenConfig.Animation.SpeedMultiplier,
+                        FitMode                   = _crossScreenConfig.Animation.FitMode,
+                        RotateWithPath            = _crossScreenConfig.Animation.RotateWithPath,
+                        PrecomputedPath           = globalLayout.Path,
+                        ColorGrading              = _crossScreenConfig.Animation.ColorGrading,
+                        Pattern                   = _crossScreenConfig.Animation.Pattern,
+                        MultiImageSpread          = _crossScreenConfig.Animation.MultiImageSpread,
+                        MultiImagePhaseJitterMs   = _crossScreenConfig.Animation.MultiImagePhaseJitterMs
                     };
 
                     Debug.WriteLine($"[CrossScreen] IconZone sequential: computed global path with {globalLayout.Path.Count} waypoints across {canvasManager.VirtualBounds.Width}px virtual canvas");
