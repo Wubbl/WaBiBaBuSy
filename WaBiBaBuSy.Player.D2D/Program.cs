@@ -932,9 +932,32 @@ class Program
                         }
                         else if (_isLayeredMode)
                         {
-                            // Layered mode: we expect DefView to be the window
-                            // immediately above us in z-order. If not, restore.
-                            if (GetWindow(_hwnd, GW_HWNDPREV) != _zOrderReference)
+                            // Layered mode: we expect DefView to be SOMEWHERE above us
+                            // in z-order — not necessarily immediately above. In multi-
+                            // monitor setups there is one wallpaper window per screen,
+                            // all parented as siblings under Progman/WorkerW; only one
+                            // can have DefView as its immediate GW_HWNDPREV. Requiring
+                            // immediacy caused a ping-pong where each window kept
+                            // restoring itself above DefView and displacing the others.
+                            //
+                            // Walk GW_HWNDPREV upward: if we hit DefView before running
+                            // out of siblings, we are correctly below the icon layer.
+                            // If we walk off the top without finding DefView, something
+                            // (Snipping Tool, fullscreen app) actually bumped us above
+                            // it — restore.
+                            bool defViewAbove = false;
+                            var cur = GetWindow(_hwnd, GW_HWNDPREV);
+                            while (cur != IntPtr.Zero)
+                            {
+                                if (cur == _zOrderReference)
+                                {
+                                    defViewAbove = true;
+                                    break;
+                                }
+                                cur = GetWindow(cur, GW_HWNDPREV);
+                            }
+
+                            if (!defViewAbove)
                             {
                                 _logger?.LogInformation("[ZOrder] Layered z-order disturbed — restoring behind DefView");
                                 SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0,
