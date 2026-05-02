@@ -377,15 +377,7 @@ public partial class MainWindow : Window
             Fill = new SolidColorBrush(statusColor),
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
         };
-        var statusText = new TextBlock
-        {
-            Text = client.IsConnected ? "Connected" : "Disconnected",
-            Foreground = new SolidColorBrush(Color.Parse("#AAAAAA")),
-            FontSize = 10,
-            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
-        };
         statusPanel.Children.Add(statusDot);
-        statusPanel.Children.Add(statusText);
         stackPanel.Children.Add(statusPanel);
 
         // Animation name indicator (shown when animating)
@@ -408,7 +400,6 @@ public partial class MainWindow : Window
             {
                 var color = client.IsConnected ? Color.Parse("#00FF00") : Color.Parse("#FF4444");
                 statusDot.Fill = new SolidColorBrush(color);
-                statusText.Text = client.IsConnected ? "Connected" : "Disconnected";
             }
             else if (e.PropertyName == nameof(client.IsAnimating))
             {

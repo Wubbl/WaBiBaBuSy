@@ -1613,7 +1613,9 @@ public partial class MainWindowViewModel : ViewModelBase
             UpdateStatusText = e.Status switch
             {
                 WaBiBaBuSy.Models.Update.UpdateStatusType.Checking => "Checking for updates...",
-                WaBiBaBuSy.Models.Update.UpdateStatusType.Downloading => $"Downloading... {e.ProgressPercent}%",
+                WaBiBaBuSy.Models.Update.UpdateStatusType.Downloading => e.ProgressPercent == 0
+                    ? "Server is preparing download..."
+                    : $"Downloading... {e.ProgressPercent}%",
                 WaBiBaBuSy.Models.Update.UpdateStatusType.Downloaded => "Download complete. Verifying...",
                 WaBiBaBuSy.Models.Update.UpdateStatusType.Verifying => "Verifying package integrity...",
                 WaBiBaBuSy.Models.Update.UpdateStatusType.Applying => "Applying update...",
@@ -2255,6 +2257,9 @@ public partial class MainWindowViewModel : ViewModelBase
         if (_enableNetworkTopologyDebugOutput)
             Debug.WriteLine($"[ShowLocalMachineNode] Detected {screens.Length} monitor(s)");
 
+        var nativeMonitors = WaBiBaBuSy.WallpaperEngine.Native.NativeMonitorInfo.GetAllMonitors();
+        var refreshByDevice = nativeMonitors.ToDictionary(m => m.DeviceName, m => m.RefreshRateHz);
+
         // Create screen configuration with all monitors
         var screenConfig = new WaBiBaBuSy.Grpc.ScreenConfiguration
         {
@@ -2267,6 +2272,7 @@ public partial class MainWindowViewModel : ViewModelBase
         for (int i = 0; i < screens.Length; i++)
         {
             var screen = screens[i];
+            refreshByDevice.TryGetValue(screen.DeviceName, out int refreshHz);
             screenConfig.Monitors.Add(new WaBiBaBuSy.Grpc.MonitorInfo
             {
                 Index = i,
@@ -2275,7 +2281,8 @@ public partial class MainWindowViewModel : ViewModelBase
                 X = screen.Bounds.X,
                 Y = screen.Bounds.Y,
                 IsPrimary = screen.Primary,
-                DeviceName = screen.DeviceName
+                DeviceName = screen.DeviceName,
+                RefreshRate = refreshHz
             });
         }
 

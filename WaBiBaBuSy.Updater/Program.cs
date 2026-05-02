@@ -15,13 +15,38 @@ namespace WaBiBaBuSy.Updater;
 /// </summary>
 class Program
 {
+    static StreamWriter? _logFile;
+
+    static void Log(string message)
+    {
+        var line = $"[{DateTime.Now:HH:mm:ss.fff}] {message}";
+        Console.WriteLine(line);
+        try { _logFile?.WriteLine(line); _logFile?.Flush(); } catch { /* best effort */ }
+    }
+
     static async Task<int> Main(string[] args)
     {
-        Console.WriteLine("=================================================");
-        Console.WriteLine("  WaBiBaBuSy Updater");
-        Console.WriteLine($"  Version: {GetVersion()}");
-        Console.WriteLine("=================================================");
-        Console.WriteLine();
+        // Initialize file log before anything else
+        try
+        {
+            var logDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "WaBiBaBuSy", "Logs");
+            Directory.CreateDirectory(logDir);
+            var logPath = Path.Combine(logDir, $"updater-{DateTime.Now:yyyyMMdd-HHmmss}.log");
+            _logFile = new StreamWriter(logPath, append: false) { AutoFlush = true };
+            Console.WriteLine($"Log file: {logPath}");
+        }
+        catch
+        {
+            // Logging failure must not prevent the update
+        }
+
+        Log("=================================================");
+        Log("  WaBiBaBuSy Updater");
+        Log($"  Version: {GetVersion()}");
+        Log("=================================================");
+        Log("");
 
         // Define command-line options
         var updateDirOption = new Option<string>("--update-dir")
@@ -93,29 +118,29 @@ class Program
         bool force,
         bool noLaunch)
     {
-        Console.WriteLine($"Update Directory: {updateDir}");
-        Console.WriteLine($"Install Directory: {installDir}");
-        Console.WriteLine($"Backup Directory: {backupDir}");
-        Console.WriteLine($"Target Process ID: {processId}");
-        Console.WriteLine();
+        Log($"Update Directory: {updateDir}");
+        Log($"Install Directory: {installDir}");
+        Log($"Backup Directory: {backupDir}");
+        Log($"Target Process ID: {processId}");
+        Log("");
 
         try
         {
             // Step 1: Validate directories
             if (!Directory.Exists(updateDir))
             {
-                Console.WriteLine($"ERROR: Update directory not found: {updateDir}");
+                Log($"ERROR: Update directory not found: {updateDir}");
                 return 1;
             }
 
             if (!Directory.Exists(installDir))
             {
-                Console.WriteLine($"ERROR: Installation directory not found: {installDir}");
+                Log($"ERROR: Installation directory not found: {installDir}");
                 return 1;
             }
 
             // Step 2: Wait for main application to exit
-            Console.WriteLine("Step 1/4: Waiting for main application to exit...");
+            Log("Step 1/4: Waiting for main application to exit...");
             var processMonitor = new ProcessMonitor(processId, "WaBiBaBuSy.UI");
             var exited = await processMonitor.WaitForProcessExitAsync(timeoutSeconds: 30);
 
@@ -123,83 +148,87 @@ class Program
             {
                 if (force)
                 {
-                    Console.WriteLine("Process did not exit gracefully. Force-killing...");
+                    Log("Process did not exit gracefully. Force-killing...");
                     if (!processMonitor.ForceKillProcess())
                     {
-                        Console.WriteLine("ERROR: Failed to terminate process");
+                        Log("ERROR: Failed to terminate process");
                         return 1;
                     }
                 }
                 else
                 {
-                    Console.WriteLine("ERROR: Process did not exit in time. Use --force to kill it.");
+                    Log("ERROR: Process did not exit in time. Use --force to kill it.");
                     return 1;
                 }
             }
 
             // Extra safety: wait a bit to ensure all file handles are released
-            Console.WriteLine("Waiting for file handles to be released...");
+            Log("Waiting for file handles to be released...");
             await Task.Delay(2000);
 
             // Step 3: Replace files
-            Console.WriteLine("Step 2/4: Replacing application files...");
+            Log("Step 2/4: Replacing application files...");
             var fileReplacer = new FileReplacer(installDir, backupDir);
             var replaceSuccess = await fileReplacer.ReplaceFilesAsync(updateDir, createBackup: true);
 
             if (!replaceSuccess)
             {
-                Console.WriteLine("ERROR: File replacement failed. Update aborted.");
+                Log("ERROR: File replacement failed. Update aborted.");
                 return 1;
             }
 
             // Step 4: Verify installation
-            Console.WriteLine("Step 3/4: Verifying installation...");
+            Log("Step 3/4: Verifying installation...");
             var mainExe = Path.Combine(installDir, "WaBiBaBuSy.UI.exe");
             if (!File.Exists(mainExe))
             {
-                Console.WriteLine($"ERROR: Main executable not found after update: {mainExe}");
-                Console.WriteLine("Attempting rollback...");
+                Log($"ERROR: Main executable not found after update: {mainExe}");
+                Log("Attempting rollback...");
                 await fileReplacer.RollbackAsync();
                 return 1;
             }
 
-            Console.WriteLine("Installation verified successfully");
+            Log("Installation verified successfully");
 
             // Step 5: Launch updated application
             if (!noLaunch)
             {
-                Console.WriteLine("Step 4/4: Launching updated application...");
+                Log("Step 4/4: Launching updated application...");
                 await Task.Delay(1000); // Brief pause before launch
 
                 if (processMonitor.LaunchApplication(mainExe, installDir))
                 {
-                    Console.WriteLine("Updated application launched successfully");
+                    Log("Updated application launched successfully");
                 }
                 else
                 {
-                    Console.WriteLine("WARNING: Failed to launch updated application");
-                    Console.WriteLine($"Please manually launch: {mainExe}");
+                    Log("WARNING: Failed to launch updated application");
+                    Log($"Please manually launch: {mainExe}");
                 }
             }
             else
             {
-                Console.WriteLine("Step 4/4: Skipping application launch (--no-launch specified)");
+                Log("Step 4/4: Skipping application launch (--no-launch specified)");
             }
 
             // Step 6: Self-cleanup (schedule this updater for deletion)
-            Console.WriteLine();
-            Console.WriteLine("Update completed successfully!");
-            Console.WriteLine("Scheduling updater cleanup...");
+            Log("");
+            Log("Update completed successfully!");
+            Log("Scheduling updater cleanup...");
             ScheduleSelfDelete();
 
             return 0;
         }
         catch (Exception ex)
         {
-            Console.WriteLine();
-            Console.WriteLine($"FATAL ERROR: {ex.Message}");
-            Console.WriteLine(ex.StackTrace);
+            Log("");
+            Log($"FATAL ERROR: {ex.Message}");
+            Log(ex.StackTrace ?? "");
             return 1;
+        }
+        finally
+        {
+            _logFile?.Dispose();
         }
     }
 
@@ -213,7 +242,7 @@ class Program
             var updaterPath = Process.GetCurrentProcess().MainModule?.FileName;
             if (updaterPath == null || !File.Exists(updaterPath))
             {
-                Console.WriteLine("WARNING: Cannot determine updater path for self-delete");
+                Log("WARNING: Cannot determine updater path for self-delete");
                 return;
             }
 
@@ -237,11 +266,11 @@ del /f /q ""%~f0""
             };
 
             Process.Start(startInfo);
-            Console.WriteLine("Cleanup scheduled");
+            Log("Cleanup scheduled");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"WARNING: Failed to schedule cleanup: {ex.Message}");
+            Log($"WARNING: Failed to schedule cleanup: {ex.Message}");
         }
     }
 
