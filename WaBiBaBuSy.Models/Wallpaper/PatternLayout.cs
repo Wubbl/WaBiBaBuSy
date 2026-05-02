@@ -142,7 +142,7 @@ public static class PatternLayout
     }
 
     /// <summary>3-input hash mixing the same Knuth multiplicative constant as MovementCalculator.</summary>
-    private static int Hash3(int seed, int i, int j)
+    internal static int Hash3(int seed, int i, int j)
     {
         unchecked
         {
