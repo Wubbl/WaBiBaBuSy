@@ -238,9 +238,12 @@
                                         <ComboBoxItem Content="Random Colors"/>
                                         <ComboBoxItem Content="Gradient (ping-pong)"/>
                                         <ComboBoxItem Content="Cycle Color List"/>
+                                        <ComboBoxItem Content="Traveling Colors (Rainbow)"/>
+                                        <ComboBoxItem Content="Traveling Colors (List)"/>
+                                        <ComboBoxItem Content="Traveling Colors (Random)"/>
                                     </ComboBox>
                                 </Grid>
-                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" IsVisible="{Binding !IsColorGradingNone}">
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" IsVisible="{Binding IsColorGradingTimeBased}">
                                     <TextBlock Grid.Column="0" Text="Cycles per second:" VerticalAlignment="Center"/>
                                     <NumericUpDown Grid.Column="1" Value="{Binding ColorGradingCyclesPerSecond}" Minimum="0.01" Maximum="10" Increment="0.1" HorizontalAlignment="Left" Width="120"/>
                                 </Grid>
