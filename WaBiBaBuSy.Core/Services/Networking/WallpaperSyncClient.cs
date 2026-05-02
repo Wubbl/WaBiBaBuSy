@@ -3,6 +3,7 @@ using Grpc.Net.Client;
 using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Grpc;
 using WaBiBaBuSy.Models.Configuration;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using Google.Protobuf;
 using AppVersionInfo = WaBiBaBuSy.Common.Version.VersionInfo;
@@ -845,7 +846,8 @@ public class WallpaperSyncClient : IDisposable
                 X = screen.Bounds.X,
                 Y = screen.Bounds.Y,
                 IsPrimary = screen.Primary,
-                DeviceName = screen.DeviceName
+                DeviceName = screen.DeviceName,
+                RefreshRate = QueryDisplayRefreshRate(screen.DeviceName)
             };
 
             config.Monitors.Add(monitorInfo);
@@ -855,6 +857,55 @@ public class WallpaperSyncClient : IDisposable
             config.MonitorCount, config.TotalWidth, config.TotalHeight);
 
         return config;
+    }
+
+    // EnumDisplaySettings P/Invoke for querying refresh rate (Hz) per monitor.
+    // Inlined here because WaBiBaBuSy.Core can't reference WaBiBaBuSy.WallpaperEngine.
+    private const int ENUM_CURRENT_SETTINGS = -1;
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    private static extern bool EnumDisplaySettings(string deviceName, int modeNum, ref DEVMODE devMode);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    private struct DEVMODE
+    {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmDeviceName;
+        public short dmSpecVersion;
+        public short dmDriverVersion;
+        public short dmSize;
+        public short dmDriverExtra;
+        public int   dmFields;
+        public int   dmPositionX;
+        public int   dmPositionY;
+        public int   dmDisplayOrientation;
+        public int   dmDisplayFixedOutput;
+        public short dmColor;
+        public short dmDuplex;
+        public short dmYResolution;
+        public short dmTTOption;
+        public short dmCollate;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmFormName;
+        public short dmLogPixels;
+        public int   dmBitsPerPel;
+        public int   dmPelsWidth;
+        public int   dmPelsHeight;
+        public int   dmDisplayFlags;
+        public int   dmDisplayFrequency;
+        public int   dmICMMethod;
+        public int   dmICMIntent;
+        public int   dmMediaType;
+        public int   dmDitherType;
+        public int   dmReserved1;
+        public int   dmReserved2;
+        public int   dmPanningWidth;
+        public int   dmPanningHeight;
+    }
+
+    private static int QueryDisplayRefreshRate(string deviceName)
+    {
+        if (string.IsNullOrEmpty(deviceName)) return 0;
+        var dm = new DEVMODE { dmSize = (short)Marshal.SizeOf<DEVMODE>() };
+        return EnumDisplaySettings(deviceName, ENUM_CURRENT_SETTINGS, ref dm) ? dm.dmDisplayFrequency : 0;
     }
 
     /// <summary>

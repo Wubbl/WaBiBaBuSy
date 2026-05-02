@@ -97,6 +97,7 @@ message MonitorInfo {
   int32 y = 5;
   bool is_primary = 6;
   string device_name = 7;
+  int32 refresh_rate = 8; // Current refresh rate in Hz; 0 if unknown.
 }
 
 // Registration response

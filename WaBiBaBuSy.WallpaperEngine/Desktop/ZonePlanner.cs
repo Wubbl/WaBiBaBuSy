@@ -83,7 +83,7 @@ public static class ZonePlanner
             // Height: icon image + generous 2-line label allowance, capped so zones don't overlap.
             //   tightH  = iconH + ~36 px label  →  covers icon image + two label lines.
             //   cap      = cellH - 4             →  leaves a small visible gap between zones.
-            int tightH = tight ? Math.Min(iconImageH + 36, cellH - 4) : cellH + 2 * visualPaddingPx;
+            int tightH = tight ? Math.Min(iconImageH + 36 + visualPaddingPx, cellH - 4) : cellH + 2 * visualPaddingPx;
             float zY = tight
                 ? Math.Max(0f, py)                  // anchor at icon image top (no upward shift)
                 : Math.Max(0f, r * cellH - visualPaddingPx);

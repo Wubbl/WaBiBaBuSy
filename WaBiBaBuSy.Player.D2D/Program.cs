@@ -191,6 +191,7 @@ class Program
 
     [DllImport("kernel32.dll")] private static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
     [DllImport("kernel32.dll")] private static extern bool   CloseHandle(IntPtr h);
+    [DllImport("kernel32.dll")] private static extern uint   WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
     [DllImport("kernel32.dll")] private static extern IntPtr VirtualAllocEx(IntPtr proc, IntPtr addr, uint size, uint type, uint protect);
     [DllImport("kernel32.dll")] private static extern bool   VirtualFreeEx(IntPtr proc, IntPtr addr, uint size, uint type);
     [DllImport("kernel32.dll")] private static extern bool   ReadProcessMemory(IntPtr proc, IntPtr baseAddr, [Out] byte[] buf, uint size, out uint read);
@@ -360,6 +361,10 @@ class Program
     private static ID3D11Device? _d3dDevice;
     private static ID3D11DeviceContext? _immediateContext;
     private static IDXGISwapChain1? _swapChain;
+    // Waitable object owned by the swap chain (FrameLatencyWaitableObject flag). Signaled
+    // when DWM is ready to consume our next frame. Closed automatically when _swapChain
+    // is disposed — do NOT CloseHandle it ourselves.
+    private static IntPtr _frameLatencyWaitable = IntPtr.Zero;
     private static ID2D1Factory1? _d2dFactory;
     private static ID2D1Device? _d2dDevice;
     private static ID2D1DeviceContext? _d2dContext;
@@ -793,10 +798,23 @@ class Program
             Scaling = Scaling.None,
             SwapEffect = SwapEffect.FlipDiscard,
             AlphaMode = Vortice.DXGI.AlphaMode.Ignore,
-            Flags = SwapChainFlags.None
+            // FrameLatencyWaitableObject lets us pace by waiting for DWM to be ready for a
+            // new frame before we start rendering, instead of letting Present(1) buffer up
+            // to ~3 frames in DWM's queue. Combined with SetMaximumFrameLatency(1) below
+            // this tightens the timing relationship with DWM's compositor — important on
+            // mixed-refresh-rate setups where DWM is forced to composite (layered/WorkerW
+            // wallpaper windows can never use independent flip on Win11 24H2+).
+            Flags = SwapChainFlags.FrameLatencyWaitableObject
         };
 
         _swapChain = dxgiFactory.CreateSwapChainForHwnd(_d3dDevice, _hwnd, swapChainDesc);
+
+        // Reduce DWM-side queue depth to 1 frame and grab the waitable handle.
+        using (var sc2 = _swapChain.QueryInterface<IDXGISwapChain2>())
+        {
+            sc2.MaximumFrameLatency = 1;
+            _frameLatencyWaitable = sc2.FrameLatencyWaitableObject;
+        }
 
         // Diagnostic (mixed-refresh-rate tearing investigation): which monitor did DXGI
         // associate this swap chain with, and what is its current refresh rate? Present(1)
@@ -901,6 +919,15 @@ class Program
 
         while (_running)
         {
+            // Pace the loop by DWM's FrameLatencyWaitableObject (signaled when DWM is ready
+            // for our next frame). 100 ms cap keeps us responsive during pauses; we'll only
+            // ever wait this long if DWM is hung. Replaces any "guess at refresh rate"
+            // pacing — DWM tells us exactly when to render.
+            if (_frameLatencyWaitable != IntPtr.Zero)
+            {
+                WaitForSingleObject(_frameLatencyWaitable, 100);
+            }
+
             // Log every second to verify loop is running
             var now = DateTime.UtcNow;
             if ((now - _lastLoopLogTime).TotalSeconds >= 1.0)
@@ -1691,11 +1718,11 @@ class Program
                 _detectedCellW = cellW;
                 _detectedCellH = cellH;
 
-                // Add padding equal to half the animation height so the A* path keeps the
-                // full animation bitmap clear of icon zone rects (not just the center point).
-                // SineWave adds a perpendicular oscillation, so include its amplitude here too
-                // — otherwise the oscillation pushes the animation into the icons.
-                int pathPaddingPx = _animHeight / 2;
+                // Padding around each icon zone rect. For pattern mode (_maskZones) the zones
+                // cover many visible cells, so double the padding for a noticeably larger
+                // exclusion area. For normal single-animation IconZone, half the anim height
+                // keeps the animation bitmap clear of the icon.
+                int pathPaddingPx = _maskZones ? _animHeight * 3 / 2 : _animHeight / 2;
                 if (_movementConfig?.Type == MovementType.SineWave)
                     pathPaddingPx += (int)Math.Ceiling(_movementConfig.WaveAmplitudePixels);
                 if (_movementConfig?.Type == MovementType.RandomWalk && _movementConfig.WaveAmplitudePixels > 0)
@@ -1705,7 +1732,7 @@ class Program
                     iconPositions, cellW, cellH, _width, _height,
                     config.IconZonePaletteHexes, config.IconCorridorColorHex,
                     paddingPx: pathPaddingPx,
-                    visualPaddingPx: Math.Max(4, cellW / 10),
+                    visualPaddingPx: Math.Max(20, cellW / 3),
                     iconImageW: iconImageW,
                     iconImageH: iconImageH);
 
@@ -2702,14 +2729,18 @@ class Program
     /// <summary>
     /// Cover icon-zone rectangles with the corridor (plain) color so the pattern only shows
     /// in free space and the user's desktop icons remain visible. No-op when MaskZones is off.
+    /// When gradientColor is provided the cover takes that color so the fade blends into the
+    /// current gradient hue rather than the static corridor background.
     /// </summary>
-    private static void DrawZoneCoverIfMasked()
+    private static void DrawZoneCoverIfMasked(Color4? gradientColor = null)
     {
         if (!_maskZones || _d2dContext == null) return;
         if (_iconZoneBands.Count == 0) return;
 
         if (_zoneCoverBrush == null)
             _zoneCoverBrush = _d2dContext.CreateSolidColorBrush(_iconCorridorBgColor);
+
+        _zoneCoverBrush.Color = gradientColor ?? _iconCorridorBgColor;
 
         foreach (var (zY, zH, zX, zW, isFree, _) in _iconZoneBands)
         {
@@ -2749,19 +2780,27 @@ class Program
 
         if (patternActive)
         {
-            // Cell size = max bounds across sources (with mixed-image sizes per spec, each cell
-            // still draws its own image at its own native size centered in this slot).
+            // Cell slot = FitMode-scaled animation dimensions (_animHeight), NOT TargetHeight.
+            // ScaleToTargetHeight was incorrect here: it scaled small logos up to 720+ px,
+            // collapsing many rows down to 1-2. Using _animHeight respects FitMode:
+            //   Center → native size (typical for patterns), Fill → screen height, etc.
             int cellW = _animWidth, cellH = _animHeight;
-            if (_sourceDimensions.Count > 0)
+            if (_sourceDimensions.Count > 0 && _animHeight > 0)
             {
-                int maxW = 0, maxH = 0;
-                foreach (var (w, h) in _sourceDimensions)
+                int maxNativeH = 0;
+                foreach (var (_, h) in _sourceDimensions)
+                    if (h > maxNativeH) maxNativeH = h;
+                if (maxNativeH > 0)
                 {
-                    if (w > maxW) maxW = w;
-                    if (h > maxH) maxH = h;
+                    float pScale = (float)_animHeight / maxNativeH;
+                    int maxScaledW = 0;
+                    foreach (var (w, _) in _sourceDimensions)
+                    {
+                        int sw = (int)(w * pScale);
+                        if (sw > maxScaledW) maxScaledW = sw;
+                    }
+                    if (maxScaledW > 0) cellW = maxScaledW;
                 }
-                if (maxW > 0) cellW = ScaleToTargetHeight(maxW, maxH).W;
-                if (maxH > 0) cellH = ScaleToTargetHeight(maxW, maxH).H;
             }
 
             var cells = PatternLayout.Compute(
@@ -2773,6 +2812,9 @@ class Program
                 monitorWidth: _width, monitorHeight: _height,
                 sourceImageCount: sourceCount);
 
+            bool hasFade = _maskZones && _iconZoneBands.Count > 0;
+            float fadeRadius = cellH > 0 ? cellH : 80f;
+
             foreach (var cell in cells)
             {
                 int srcIdx = cell.SourceIndex % sourceCount;
@@ -2781,8 +2823,14 @@ class Program
                 if (frames.Length == 0) continue;
                 var bmp = frames[Math.Min(frameIdx, frames.Length - 1)];
 
-                var (drawW, drawH) = ComputeDrawSizeForSource(srcIdx);
-                DrawCellWithOptionalGrading(bmp, cell.ScreenX, cell.ScreenY, drawW, drawH, cell.RotationDeg, gradingActive);
+                var (drawW, drawH) = ComputePatternDrawSize(srcIdx);
+
+                float alpha = hasFade
+                    ? ComputePatternCellAlpha(cell.ScreenX + drawW / 2f, cell.ScreenY + drawH / 2f, fadeRadius)
+                    : 1f;
+                if (alpha <= 0.01f) continue;
+
+                DrawCellWithOptionalGrading(bmp, cell.ScreenX, cell.ScreenY, drawW, drawH, cell.RotationDeg, gradingActive, alpha);
             }
         }
         else if (sourceCount > 1 && !useVideo)
@@ -2823,8 +2871,16 @@ class Program
             DrawCellWithOptionalGrading(bmp, _animX, _animY, _animWidth, _animHeight, rotDeg, gradingActive);
         }
 
-        // F3a: cover icon-zone rectangles with corridor color so user icons remain visible.
-        DrawZoneCoverIfMasked();
+        // F3a: cover icon-zone rectangles so user icons remain visible.
+        // When color grading is active, fill with the current gradient color so the fade
+        // blends into the live hue rather than the static corridor background.
+        Color4? gradientCover = null;
+        if (gradingActive && _animationConfig?.ColorGrading != null)
+        {
+            var (cr, cg, cb) = ColorGrader.ComputeCurrentColor(_animationConfig.ColorGrading, elapsedMs);
+            gradientCover = new Color4(cr, cg, cb, 1f);
+        }
+        DrawZoneCoverIfMasked(gradientCover);
     }
 
     private static (int W, int H) ScaleToTargetHeight(int srcW, int srcH)
@@ -2842,12 +2898,45 @@ class Program
         return ScaleToTargetHeight(sw, sh);
     }
 
+    // Pattern-specific draw size: scale each source proportionally to _animHeight (not TargetHeight).
+    private static (int W, int H) ComputePatternDrawSize(int srcIdx)
+    {
+        if (_animHeight <= 0 || srcIdx < 0 || srcIdx >= _sourceDimensions.Count)
+            return (_animWidth, _animHeight);
+        var (sw, sh) = _sourceDimensions[srcIdx];
+        if (sh <= 0) return (_animWidth, _animHeight);
+        float scale = (float)_animHeight / sh;
+        return ((int)(sw * scale), _animHeight);
+    }
+
+    // Returns [0..1] opacity for a pattern cell centered at (cx,cy).
+    // Dead zone: pattern stays invisible for 70% of fadeRadius beyond each zone edge.
+    // Blend zone: fades in over the next 50% using a quadratic ease for a snappier transition.
+    private static float ComputePatternCellAlpha(float cx, float cy, float fadeRadius)
+    {
+        float minDist = float.MaxValue;
+        foreach (var (zY, zH, zX, zW, isFree, _) in _iconZoneBands)
+        {
+            if (isFree) continue;
+            float rW = zW < 0 ? _width : zW;
+            float nearX = Math.Clamp(cx, zX, zX + rW);
+            float nearY = Math.Clamp(cy, zY, zY + zH);
+            float dx = cx - nearX, dy = cy - nearY;
+            float dist = MathF.Sqrt(dx * dx + dy * dy);
+            if (dist < minDist) minDist = dist;
+        }
+        float deadRadius = fadeRadius * 0.7f;
+        float blendRadius = fadeRadius * 0.5f;
+        float t = Math.Clamp((minDist - deadRadius) / blendRadius, 0f, 1f);
+        return t * t;
+    }
+
     /// <summary>
     /// Draw one cell with optional rotation and color grading.
     /// </summary>
     private static void DrawCellWithOptionalGrading(
         ID2D1Bitmap bmp, float x, float y, int w, int h,
-        float rotationDeg, bool gradingActive)
+        float rotationDeg, bool gradingActive, float alpha = 1f)
     {
         if (_d2dContext == null) return;
 
@@ -2861,23 +2950,25 @@ class Program
             _d2dContext.Transform = Matrix3x2.CreateRotation(rotationDeg * MathF.PI / 180f, new Vector2(cx, cy));
         }
 
-        if (gradingActive && _colorMatrixEffect != null)
+        // Color grading via DrawImage doesn't support per-draw opacity; fall back to
+        // DrawBitmap (with alpha) when the cell is being faded near an icon zone.
+        bool useGrading = gradingActive && _colorMatrixEffect != null && alpha >= 0.999f;
+        if (useGrading)
         {
             try
             {
-                _colorMatrixEffect.SetInput(0, bmp, true);
-                // ID2D1Effect.Output is the ID2D1Image accepted by DrawImage.
+                _colorMatrixEffect!.SetInput(0, bmp, true);
                 _d2dContext.DrawImage(_colorMatrixEffect.Output, new Vector2(x, y), null, InterpolationMode.Linear, CompositeMode.SourceOver);
             }
             catch (Exception ex)
             {
                 _logger?.LogError(ex, "[ColorGrading] DrawImage failed; falling back to DrawBitmap");
-                _d2dContext.DrawBitmap(bmp, new System.Drawing.RectangleF(x, y, w, h), 1f, BitmapInterpolationMode.Linear, null);
+                _d2dContext.DrawBitmap(bmp, new System.Drawing.RectangleF(x, y, w, h), alpha, BitmapInterpolationMode.Linear, null);
             }
         }
         else
         {
-            _d2dContext.DrawBitmap(bmp, new System.Drawing.RectangleF(x, y, w, h), 1f, BitmapInterpolationMode.Linear, null);
+            _d2dContext.DrawBitmap(bmp, new System.Drawing.RectangleF(x, y, w, h), alpha, BitmapInterpolationMode.Linear, null);
         }
 
         if (needsRotation) _d2dContext.Transform = prior;

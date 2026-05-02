@@ -52,7 +52,22 @@ public static class ColorGrader
     {
         if (config == null || config.Mode == ColorGradingMode.None)
             return ColorMatrix5x4.Identity;
+        var (r, g, b) = ComputeTintRgb(config, elapsedMs);
+        return TintMatrix(r, g, b);
+    }
 
+    /// <summary>
+    /// Returns the current tint color as normalized RGB (0..1) for the given config and time.
+    /// Returns (1,1,1) white when grading is off.
+    /// </summary>
+    public static (float R, float G, float B) ComputeCurrentColor(ColorGradingConfig? config, long elapsedMs)
+    {
+        if (config == null || config.Mode == ColorGradingMode.None) return (1f, 1f, 1f);
+        return ComputeTintRgb(config, elapsedMs);
+    }
+
+    private static (float R, float G, float B) ComputeTintRgb(ColorGradingConfig config, long elapsedMs)
+    {
         double phase = (elapsedMs / 1000.0) * Math.Max(0.0, config.CyclesPerSecond);
 
         switch (config.Mode)
@@ -61,46 +76,40 @@ public static class ColorGrader
             {
                 double hue = (phase % 1.0) * 360.0;
                 if (hue < 0) hue += 360.0;
-                var (r, g, b) = HsvToRgb(hue, 1.0, 1.0);
-                return TintMatrix(r, g, b);
+                return HsvToRgb(hue, 1.0, 1.0);
             }
 
             case ColorGradingMode.Gradient:
             {
                 double t = phase % 2.0;
                 if (t < 0) t += 2.0;
-                if (t > 1.0) t = 2.0 - t; // ping-pong
+                if (t > 1.0) t = 2.0 - t;
                 var (ar, ag, ab) = HexToRgb(config.GradientA);
                 var (br, bg, bb) = HexToRgb(config.GradientB);
                 float ft = (float)t;
-                return TintMatrix(
-                    ar + (br - ar) * ft,
-                    ag + (bg - ag) * ft,
-                    ab + (bb - ab) * ft);
+                return (ar + (br - ar) * ft, ag + (bg - ag) * ft, ab + (bb - ab) * ft);
             }
 
             case ColorGradingMode.CycleColorList:
             {
                 if (config.ColorList == null || config.ColorList.Count == 0)
-                    return ColorMatrix5x4.Identity;
+                    return (1f, 1f, 1f);
                 long step = (long)Math.Floor(phase) % config.ColorList.Count;
                 if (step < 0) step += config.ColorList.Count;
-                var (r, g, b) = HexToRgb(config.ColorList[(int)step]);
-                return TintMatrix(r, g, b);
+                return HexToRgb(config.ColorList[(int)step]);
             }
 
             case ColorGradingMode.RandomColors:
             {
                 if (config.ColorList == null || config.ColorList.Count == 0)
-                    return ColorMatrix5x4.Identity;
+                    return (1f, 1f, 1f);
                 long step = (long)Math.Floor(phase);
                 int idx = (int)((uint)Hash(config.Seed, (int)step) % (uint)config.ColorList.Count);
-                var (r, g, b) = HexToRgb(config.ColorList[idx]);
-                return TintMatrix(r, g, b);
+                return HexToRgb(config.ColorList[idx]);
             }
 
             default:
-                return ColorMatrix5x4.Identity;
+                return (1f, 1f, 1f);
         }
     }
 

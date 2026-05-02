@@ -65,4 +65,9 @@ public class MonitorInfo
     /// Monitor device name.
     /// </summary>
     public string DeviceName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Current refresh rate in Hz (e.g. 60, 75, 165). 0 if unknown.
+    /// </summary>
+    public int RefreshRate { get; set; }
 }

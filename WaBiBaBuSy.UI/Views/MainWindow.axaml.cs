@@ -352,9 +352,12 @@ public partial class MainWindow : Window
         };
         if (client.MonitorWidth > 0 && client.MonitorHeight > 0)
         {
+            var resolutionText = client.MonitorRefreshHz > 0
+                ? $"{client.MonitorWidth}x{client.MonitorHeight} @ {client.MonitorRefreshHz}Hz"
+                : $"{client.MonitorWidth}x{client.MonitorHeight}";
             statusPanel.Children.Add(new TextBlock
             {
-                Text = $"{client.MonitorWidth}x{client.MonitorHeight}",
+                Text = resolutionText,
                 Foreground = new SolidColorBrush(Color.Parse("#888888")),
                 FontSize = 10,
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center

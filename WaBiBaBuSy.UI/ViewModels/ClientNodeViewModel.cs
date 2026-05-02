@@ -58,6 +58,12 @@ public partial class ClientNodeViewModel : ObservableObject
     [ObservableProperty]
     private bool _isPrimaryMonitor;
 
+    /// <summary>
+    /// Refresh rate of this monitor in Hz. 0 if unknown / not yet reported by client.
+    /// </summary>
+    [ObservableProperty]
+    private int _monitorRefreshHz;
+
     [ObservableProperty]
     private bool _isAnimating;
 
@@ -101,7 +107,8 @@ public partial class ClientNodeViewModel : ObservableObject
                 return "All Monitors";
 
             var primary = IsPrimaryMonitor ? " (Primary)" : "";
-            return $"Monitor {MonitorIndex + 1}: {MonitorWidth}x{MonitorHeight}{primary}";
+            var hz = MonitorRefreshHz > 0 ? $" @ {MonitorRefreshHz}Hz" : "";
+            return $"Monitor {MonitorIndex + 1}: {MonitorWidth}x{MonitorHeight}{hz}{primary}";
         }
     }
 

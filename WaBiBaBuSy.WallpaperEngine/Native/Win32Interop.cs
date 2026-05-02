@@ -287,6 +287,55 @@ internal static class Win32Interop
 
     public const uint MONITORINFOF_PRIMARY = 1;
 
+    // Refresh rate query via EnumDisplaySettings + DEVMODE.dmDisplayFrequency.
+    public const int ENUM_CURRENT_SETTINGS = -1;
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    public static extern bool EnumDisplaySettings(string deviceName, int modeNum, ref DEVMODE devMode);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    public struct DEVMODE
+    {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmDeviceName;
+        public short dmSpecVersion;
+        public short dmDriverVersion;
+        public short dmSize;
+        public short dmDriverExtra;
+        public int   dmFields;
+        public int   dmPositionX;
+        public int   dmPositionY;
+        public int   dmDisplayOrientation;
+        public int   dmDisplayFixedOutput;
+        public short dmColor;
+        public short dmDuplex;
+        public short dmYResolution;
+        public short dmTTOption;
+        public short dmCollate;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmFormName;
+        public short dmLogPixels;
+        public int   dmBitsPerPel;
+        public int   dmPelsWidth;
+        public int   dmPelsHeight;
+        public int   dmDisplayFlags;
+        public int   dmDisplayFrequency;
+        public int   dmICMMethod;
+        public int   dmICMIntent;
+        public int   dmMediaType;
+        public int   dmDitherType;
+        public int   dmReserved1;
+        public int   dmReserved2;
+        public int   dmPanningWidth;
+        public int   dmPanningHeight;
+    }
+
+    /// <summary>Returns the current refresh rate (Hz) for a display device, or 0 if it cannot be queried.</summary>
+    public static int GetDisplayRefreshRate(string deviceName)
+    {
+        if (string.IsNullOrEmpty(deviceName)) return 0;
+        var dm = new DEVMODE { dmSize = (short)Marshal.SizeOf<DEVMODE>() };
+        return EnumDisplaySettings(deviceName, ENUM_CURRENT_SETTINGS, ref dm) ? dm.dmDisplayFrequency : 0;
+    }
+
     // ── Desktop icon detection ───────────────────────────────────────────────
 
     // ListView messages
@@ -346,6 +395,11 @@ public class NativeMonitorInfo
     public float PixelsPerCm { get; init; }
 
     /// <summary>
+    /// Current refresh rate in Hz (e.g. 60, 75, 165). 0 if it could not be queried.
+    /// </summary>
+    public int RefreshRateHz { get; init; }
+
+    /// <summary>
     /// Get all monitors using native Win32 API (no WinForms dependency).
     /// Sorted left-to-right by X position. DPI is queried per-monitor.
     /// </summary>
@@ -379,7 +433,8 @@ public class NativeMonitorInfo
                         info.rcWork.Bottom - info.rcWork.Top),
                     DeviceName = info.szDevice,
                     IsPrimary = (info.dwFlags & Win32Interop.MONITORINFOF_PRIMARY) != 0,
-                    PixelsPerCm = pixelsPerCm
+                    PixelsPerCm = pixelsPerCm,
+                    RefreshRateHz = Win32Interop.GetDisplayRefreshRate(info.szDevice)
                 });
             }
             return true;

@@ -569,6 +569,38 @@ public partial class MainWindowViewModel : ViewModelBase
     public string ActiveAnimationFileName => _crossScreenConfig?.Animation.AnimationPath != null
         ? Path.GetFileName(_crossScreenConfig.Animation.AnimationPath) : string.Empty;
 
+    /// <summary>
+    /// Warning text when this machine has 2+ monitors at different refresh rates.
+    /// On Win11 24H2+, layered+WorkerW-parented wallpaper windows are forced through DWM
+    /// composition, which paces to the primary monitor's refresh rate — secondary panels
+    /// at lower refresh rates show tearing on horizontal-scrolling animations. Null when
+    /// only one monitor exists or all monitors share the same rate. See OpenIssues.md.
+    /// </summary>
+    public string? LocalRefreshRateMismatchWarning
+    {
+        get
+        {
+            try
+            {
+                var monitors = NativeMonitorInfo.GetAllMonitors();
+                var rates = monitors
+                    .Select(m => m.RefreshRateHz)
+                    .Where(hz => hz > 0)
+                    .Distinct()
+                    .OrderByDescending(hz => hz)
+                    .ToArray();
+                if (rates.Length < 2) return null;
+                return $"Mixed refresh rates on local monitors ({string.Join(" + ", rates.Select(r => $"{r} Hz"))}). The slower panel may show tearing — match rates in Windows Display settings to fix.";
+            }
+            catch
+            {
+                return null;
+            }
+        }
+    }
+
+    public bool HasLocalRefreshRateMismatch => LocalRefreshRateMismatchWarning != null;
+
     public string ActiveDistributionMode => _crossScreenConfig?.DistributionMode switch
     {
         WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Sequential => "Sequential",
@@ -2325,6 +2357,7 @@ public partial class MainWindowViewModel : ViewModelBase
                     int monitorWidth = 0;
                     int monitorHeight = 0;
                     bool isPrimary = false;
+                    int monitorRefreshHz = 0;
 
                     // Check if this is a monitor-specific node (LOCAL_MACHINE_MONITOR_X, SERVER_LOCALHOST_MONITOR_X, or ClientId_MONITOR_X)
                     string? monitorSuffix = null;
@@ -2345,6 +2378,7 @@ public partial class MainWindowViewModel : ViewModelBase
                             monitorWidth = monitorInfo.Width;
                             monitorHeight = monitorInfo.Height;
                             isPrimary = monitorInfo.IsPrimary;
+                            monitorRefreshHz = monitorInfo.RefreshRate;
                         }
                     }
                     else if (grpcClient.ScreenConfig?.Monitors.Count == 1)
@@ -2356,6 +2390,7 @@ public partial class MainWindowViewModel : ViewModelBase
                         monitorWidth = monitorInfo.Width;
                         monitorHeight = monitorInfo.Height;
                         isPrimary = monitorInfo.IsPrimary;
+                        monitorRefreshHz = monitorInfo.RefreshRate;
                     }
 
                     var newClient = new ClientNodeViewModel
@@ -2375,6 +2410,7 @@ public partial class MainWindowViewModel : ViewModelBase
                         MonitorName = monitorName,
                         MonitorWidth = monitorWidth,
                         MonitorHeight = monitorHeight,
+                        MonitorRefreshHz = monitorRefreshHz,
                         IsPrimaryMonitor = isPrimary
                     };
 
