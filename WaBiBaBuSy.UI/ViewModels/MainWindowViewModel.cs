@@ -2096,6 +2096,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
                 // Enumerate local monitors for the server machine
                 var screens = System.Windows.Forms.Screen.AllScreens;
+                var nativeMonitorsServer = WaBiBaBuSy.WallpaperEngine.Native.NativeMonitorInfo.GetAllMonitors();
+                var serverRefreshByDevice = nativeMonitorsServer.ToDictionary(m => m.DeviceName, m => m.RefreshRateHz);
                 var serverScreenConfig = new WaBiBaBuSy.Grpc.ScreenConfiguration
                 {
                     MonitorCount = screens.Length,
@@ -2105,6 +2107,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 for (int i = 0; i < screens.Length; i++)
                 {
                     var screen = screens[i];
+                    serverRefreshByDevice.TryGetValue(screen.DeviceName, out int serverRefreshHz);
                     serverScreenConfig.Monitors.Add(new WaBiBaBuSy.Grpc.MonitorInfo
                     {
                         Index = i,
@@ -2113,7 +2116,8 @@ public partial class MainWindowViewModel : ViewModelBase
                         X = screen.Bounds.X,
                         Y = screen.Bounds.Y,
                         IsPrimary = screen.Primary,
-                        DeviceName = screen.DeviceName
+                        DeviceName = screen.DeviceName,
+                        RefreshRate = serverRefreshHz
                     });
                 }
 
