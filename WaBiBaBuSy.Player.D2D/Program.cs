@@ -2765,18 +2765,18 @@ class Program
         if (!useVideo && _d2dFramesPerSource.Count == 0) return;
 
         // Color grading: compute one matrix per frame for time-based modes; per-cell for Traveling modes.
-        bool gradingActive = _animationConfig.ColorGrading != null
-                             && _animationConfig.ColorGrading.Mode != ColorGradingMode.None;
-        bool isTraveling = _animationConfig.ColorGrading != null &&
-                           (_animationConfig.ColorGrading.Mode == ColorGradingMode.TravelingRainbow ||
-                            _animationConfig.ColorGrading.Mode == ColorGradingMode.TravelingList ||
-                            _animationConfig.ColorGrading.Mode == ColorGradingMode.TravelingRandom);
+        var colorGrading = _animationConfig.ColorGrading;
+        bool gradingActive = colorGrading != null && colorGrading.Mode != ColorGradingMode.None;
+        bool isTraveling   = colorGrading != null &&
+                             (colorGrading.Mode == ColorGradingMode.TravelingRainbow ||
+                              colorGrading.Mode == ColorGradingMode.TravelingList ||
+                              colorGrading.Mode == ColorGradingMode.TravelingRandom);
         if (gradingActive)
         {
             EnsureColorMatrixEffect();
             if (!isTraveling)
             {
-                var grading = ColorGrader.Compute(_animationConfig.ColorGrading, elapsedMs);
+                var grading = ColorGrader.Compute(colorGrading!, elapsedMs);
                 SetColorMatrixOnEffect(grading);
             }
         }
@@ -2839,7 +2839,7 @@ class Program
 
                 if (isTraveling && gradingActive)
                 {
-                    var cellMatrix = ColorGrader.ComputeForCell(_animationConfig.ColorGrading, cell.LogicalI, cell.LogicalJ);
+                    var cellMatrix = ColorGrader.ComputeForCell(colorGrading!, cell.LogicalI, cell.LogicalJ);
                     SetColorMatrixOnEffect(cellMatrix);
                 }
                 DrawCellWithOptionalGrading(bmp, cell.ScreenX, cell.ScreenY, drawW, drawH, cell.RotationDeg, gradingActive, alpha);
@@ -2865,7 +2865,7 @@ class Program
                 var bmp = frames[Math.Min(frameIdx, frames.Length - 1)];
 
                 var (drawW, drawH) = ComputeDrawSizeForSource(srcIdx);
-                DrawCellWithOptionalGrading(bmp, _animX + dx, _animY + dy, drawW, drawH, 0f, gradingActive);
+                DrawCellWithOptionalGrading(bmp, _animX + dx, _animY + dy, drawW, drawH, 0f, gradingActive && !isTraveling);
             }
         }
         else
@@ -2880,7 +2880,7 @@ class Program
             bool hasPathRotation = _rotateWithPath && _animRotationRad != 0f && _animPath.Count >= 2;
             if (hasPathRotation) rotDeg = _animRotationRad * 180f / MathF.PI;
 
-            DrawCellWithOptionalGrading(bmp, _animX, _animY, _animWidth, _animHeight, rotDeg, gradingActive);
+            DrawCellWithOptionalGrading(bmp, _animX, _animY, _animWidth, _animHeight, rotDeg, gradingActive && !isTraveling);
         }
 
         // F3a: cover icon-zone rectangles so user icons remain visible.

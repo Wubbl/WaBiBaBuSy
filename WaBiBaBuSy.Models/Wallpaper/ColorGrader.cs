@@ -136,7 +136,8 @@ public static class ColorGrader
             {
                 if (config.ColorList == null || config.ColorList.Count == 0)
                     return ColorMatrix5x4.Identity;
-                int idx = (Math.Abs(logicalI) + Math.Abs(logicalJ)) % config.ColorList.Count;
+                uint sum = unchecked((uint)logicalI + (uint)logicalJ);
+                int idx = (int)(sum % (uint)config.ColorList.Count);
                 var (r, g, b) = HexToRgb(config.ColorList[idx]);
                 return TintMatrix(r, g, b);
             }

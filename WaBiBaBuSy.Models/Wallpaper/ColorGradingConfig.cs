@@ -29,7 +29,8 @@ public enum ColorGradingMode
     TravelingRainbow,
 
     /// <summary>Each pattern cell gets a fixed color from <see cref="ColorGradingConfig.ColorList"/>,
-    /// chosen by hashing its grid identity. Colors travel with the cell as it moves.</summary>
+    /// chosen by its diagonal grid position (LogicalI + LogicalJ) mod count — produces a stripe pattern.
+    /// Colors travel with the cell as it moves.</summary>
     TravelingList,
 
     /// <summary>Each pattern cell gets a fixed color from <see cref="ColorGradingConfig.ColorList"/>,
