@@ -2764,14 +2764,21 @@ class Program
         int sourceCount = useVideo ? 1 : Math.Max(1, _d2dFramesPerSource.Count);
         if (!useVideo && _d2dFramesPerSource.Count == 0) return;
 
-        // Color grading matrix (computed once per frame — same for every cell).
-        var grading = ColorGrader.Compute(_animationConfig.ColorGrading, elapsedMs);
+        // Color grading: compute one matrix per frame for time-based modes; per-cell for Traveling modes.
         bool gradingActive = _animationConfig.ColorGrading != null
                              && _animationConfig.ColorGrading.Mode != ColorGradingMode.None;
+        bool isTraveling = _animationConfig.ColorGrading != null &&
+                           (_animationConfig.ColorGrading.Mode == ColorGradingMode.TravelingRainbow ||
+                            _animationConfig.ColorGrading.Mode == ColorGradingMode.TravelingList ||
+                            _animationConfig.ColorGrading.Mode == ColorGradingMode.TravelingRandom);
         if (gradingActive)
         {
             EnsureColorMatrixEffect();
-            SetColorMatrixOnEffect(grading);
+            if (!isTraveling)
+            {
+                var grading = ColorGrader.Compute(_animationConfig.ColorGrading, elapsedMs);
+                SetColorMatrixOnEffect(grading);
+            }
         }
 
         // Decide draw mode.
@@ -2830,6 +2837,11 @@ class Program
                     : 1f;
                 if (alpha <= 0.01f) continue;
 
+                if (isTraveling && gradingActive)
+                {
+                    var cellMatrix = ColorGrader.ComputeForCell(_animationConfig.ColorGrading, cell.LogicalI, cell.LogicalJ);
+                    SetColorMatrixOnEffect(cellMatrix);
+                }
                 DrawCellWithOptionalGrading(bmp, cell.ScreenX, cell.ScreenY, drawW, drawH, cell.RotationDeg, gradingActive, alpha);
             }
         }
