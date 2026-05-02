@@ -22,7 +22,19 @@ public enum ColorGradingMode
     Gradient,
 
     /// <summary>Step through <see cref="ColorGradingConfig.ColorList"/> in order, looping.</summary>
-    CycleColorList
+    CycleColorList,
+
+    /// <summary>Each pattern cell gets a fixed hue derived from its grid identity (LogicalI, LogicalJ).
+    /// Colors travel with the cell as it moves — full hue spectrum distributed across cells.</summary>
+    TravelingRainbow,
+
+    /// <summary>Each pattern cell gets a fixed color from <see cref="ColorGradingConfig.ColorList"/>,
+    /// chosen by hashing its grid identity. Colors travel with the cell as it moves.</summary>
+    TravelingList,
+
+    /// <summary>Each pattern cell gets a fixed color from <see cref="ColorGradingConfig.ColorList"/>,
+    /// chosen by hashing its grid identity (scattered distribution). Colors travel with the cell as it moves.</summary>
+    TravelingRandom
 }
 
 /// <summary>
