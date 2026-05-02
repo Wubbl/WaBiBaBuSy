@@ -153,7 +153,8 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     [ObservableProperty] private bool _iconZonePaletteEnabled = false;
 
     // ── Color grading (F2) ───────────────────────────────────────────────────
-    // Index maps to ColorGradingMode: 0=None,1=Rainbow,2=RandomColors,3=Gradient,4=CycleColorList
+    // Index maps to ColorGradingMode: 0=None,1=Rainbow,2=RandomColors,3=Gradient,4=CycleColorList,
+    //   5=TravelingRainbow, 6=TravelingList, 7=TravelingRandom
     [ObservableProperty] private int _colorGradingModeIndex = 0;
     [ObservableProperty] private double _colorGradingCyclesPerSecond = 0.1;
     [ObservableProperty] private string _colorGradingGradientA = "#FF0000";
@@ -163,13 +164,17 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
 
     public bool IsColorGradingNone           => ColorGradingModeIndex == 0;
     public bool IsColorGradingGradient       => ColorGradingModeIndex == 3;
-    public bool IsColorGradingColorListMode  => ColorGradingModeIndex == 2 || ColorGradingModeIndex == 4;
+    public bool IsColorGradingColorListMode  => ColorGradingModeIndex == 2 || ColorGradingModeIndex == 4
+                                             || ColorGradingModeIndex == 6 || ColorGradingModeIndex == 7;
+    // Traveling modes (5-7) are time-independent — hide the CyclesPerSecond control for them.
+    public bool IsColorGradingTimeBased      => ColorGradingModeIndex >= 1 && ColorGradingModeIndex <= 4;
 
     partial void OnColorGradingModeIndexChanged(int value)
     {
         OnPropertyChanged(nameof(IsColorGradingNone));
         OnPropertyChanged(nameof(IsColorGradingGradient));
         OnPropertyChanged(nameof(IsColorGradingColorListMode));
+        OnPropertyChanged(nameof(IsColorGradingTimeBased));
     }
 
     // ── Pattern multiplier (F3) ──────────────────────────────────────────────
