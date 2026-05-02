@@ -114,6 +114,41 @@ public static class ColorGrader
     }
 
     /// <summary>
+    /// Compute the color matrix for a single pattern cell identified by its logical grid coordinates.
+    /// Called once per cell when a Traveling color mode is active. Returns a deterministic, time-independent
+    /// matrix — the same (i, j) always yields the same color regardless of elapsed time.
+    /// </summary>
+    public static ColorMatrix5x4 ComputeForCell(ColorGradingConfig config, int logicalI, int logicalJ)
+    {
+        if (config == null) return ColorMatrix5x4.Identity;
+
+        switch (config.Mode)
+        {
+            case ColorGradingMode.TravelingRainbow:
+            {
+                int rawHash = PatternLayout.Hash3(config.Seed, logicalI, logicalJ);
+                double hue = (uint)rawHash % 360u;
+                var (r, g, b) = HsvToRgb(hue, 1.0, 1.0);
+                return TintMatrix(r, g, b);
+            }
+
+            case ColorGradingMode.TravelingList:
+            case ColorGradingMode.TravelingRandom:
+            {
+                if (config.ColorList == null || config.ColorList.Count == 0)
+                    return ColorMatrix5x4.Identity;
+                int rawHash = PatternLayout.Hash3(config.Seed, logicalI, logicalJ);
+                int idx = (int)((uint)rawHash % (uint)config.ColorList.Count);
+                var (r, g, b) = HexToRgb(config.ColorList[idx]);
+                return TintMatrix(r, g, b);
+            }
+
+            default:
+                return ColorMatrix5x4.Identity;
+        }
+    }
+
+    /// <summary>
     /// Tint matrix: output rgb = luminance(input) * tint, alpha preserved.
     /// On a monochrome (grayscale) logo with alpha, this paints the logo with the chosen color.
     /// </summary>

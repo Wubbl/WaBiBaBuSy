@@ -52,8 +52,9 @@ public class ColorGradingConfig
     public double CyclesPerSecond { get; set; } = 0.1;
 
     /// <summary>
-    /// List of hex colors used by <see cref="ColorGradingMode.RandomColors"/> and
-    /// <see cref="ColorGradingMode.CycleColorList"/>.
+    /// List of hex colors used by <see cref="ColorGradingMode.RandomColors"/>,
+    /// <see cref="ColorGradingMode.CycleColorList"/>, <see cref="ColorGradingMode.TravelingList"/>,
+    /// and <see cref="ColorGradingMode.TravelingRandom"/>.
     /// </summary>
     public List<string> ColorList { get; set; } = new();
 
