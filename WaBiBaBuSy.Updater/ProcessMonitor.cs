@@ -23,6 +23,12 @@ public class ProcessMonitor
     /// <returns>True if process exited, false if timeout</returns>
     public async Task<bool> WaitForProcessExitAsync(int timeoutSeconds = 30)
     {
+        if (_processId <= 0)
+        {
+            Console.WriteLine($"[ProcessMonitor] No target process (ID={_processId}), skipping wait");
+            return true;
+        }
+
         Console.WriteLine($"[ProcessMonitor] Waiting for process {_processId} ({_processName}) to exit...");
 
         try
