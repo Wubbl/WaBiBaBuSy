@@ -127,12 +127,20 @@ public static class ColorGrader
             case ColorGradingMode.TravelingRainbow:
             {
                 int rawHash = PatternLayout.Hash3(config.Seed, logicalI, logicalJ);
-                double hue = (uint)rawHash % 360u;
+                double hue = ((uint)rawHash / (double)uint.MaxValue) * 360.0;
                 var (r, g, b) = HsvToRgb(hue, 1.0, 1.0);
                 return TintMatrix(r, g, b);
             }
 
             case ColorGradingMode.TravelingList:
+            {
+                if (config.ColorList == null || config.ColorList.Count == 0)
+                    return ColorMatrix5x4.Identity;
+                int idx = (Math.Abs(logicalI) + Math.Abs(logicalJ)) % config.ColorList.Count;
+                var (r, g, b) = HexToRgb(config.ColorList[idx]);
+                return TintMatrix(r, g, b);
+            }
+
             case ColorGradingMode.TravelingRandom:
             {
                 if (config.ColorList == null || config.ColorList.Count == 0)
