@@ -429,6 +429,38 @@ public class WallpaperSyncCoordinator
     }
 
     /// <summary>
+    /// Send a Stop command to a specific client to terminate its cross-screen D2D player.
+    /// </summary>
+    public async Task StopCrossScreenOnClientAsync(string clientId, string contentId)
+    {
+        if (_syncService == null)
+        {
+            _logger.LogWarning("Cannot stop cross-screen on client {ClientId}: sync service not initialized", clientId);
+            return;
+        }
+
+        var command = new SyncCommand
+        {
+            Type = CommandType.Stop,
+            TimestampUtc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            SequenceNumber = System.Threading.Interlocked.Increment(ref _sequenceNumber),
+            ContentId = contentId,
+            Params = new SyncParameters()
+        };
+
+        _logger.LogInformation("Sending cross-screen Stop to client {ClientId}, contentId={ContentId}", clientId, contentId);
+
+        try
+        {
+            await _syncService.SendCommandToClientAsync(clientId, command);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error sending Stop command to client {ClientId}", clientId);
+        }
+    }
+
+    /// <summary>
     /// Send a cross-screen frame to a specific client
     /// </summary>
     public async Task SendCrossScreenFrameAsync(

@@ -38,6 +38,12 @@ public class WallpaperPlaybackService : IDisposable
     /// </summary>
     public Func<string, int, string, int, int, int, long, int, bool, int, Task>? D2DCrossScreenApplyDelegate { get; set; }
 
+    /// <summary>
+    /// Delegate invoked when the server sends a Stop command that targets cross-screen D2D content.
+    /// The UI layer sets this to tear down _remoteD2DServices on the client side.
+    /// </summary>
+    public Func<Task>? D2DCrossScreenStopDelegate { get; set; }
+
     // Drift detection state
     private CancellationTokenSource? _driftMonitorCts;
     private Task? _driftMonitorTask;
@@ -387,18 +393,23 @@ public class WallpaperPlaybackService : IDisposable
     {
         try
         {
+            // Stop cross-screen D2D services on the client (tracked in ViewModel, not in _renderers)
+            if (D2DCrossScreenStopDelegate != null)
+            {
+                await D2DCrossScreenStopDelegate();
+                _logger.LogInformation("Cross-screen D2D stopped via delegate: {ContentId}", command.ContentId);
+            }
+
             if (!_renderers.TryGetValue(command.ContentId, out var monitorRenderers))
             {
-                _logger.LogWarning("No renderers found for content {ContentId}", command.ContentId);
+                _logger.LogInformation("No renderer-based content found for {ContentId} (may have been cross-screen D2D only)", command.ContentId);
                 return;
             }
 
             _logger.LogInformation("Stopping wallpaper: {ContentId}", command.ContentId);
 
-            // Stop drift monitoring when stopped
             StopDriftMonitoring();
 
-            // Stop all monitors
             foreach (var (monitorIndex, renderer) in monitorRenderers)
             {
                 await renderer.StopAsync();

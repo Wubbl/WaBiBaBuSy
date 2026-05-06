@@ -75,6 +75,16 @@ public class WaBiBaBuSyService : IDisposable
     }
 
     /// <summary>
+    /// Set the cross-screen D2D stop delegate on the playback service.
+    /// Called when the server sends a Stop command so the client tears down its D2D players.
+    /// </summary>
+    public void SetD2DCrossScreenStopDelegate(Func<Task>? d2dCrossScreenStop)
+    {
+        if (_playbackService != null)
+            _playbackService.D2DCrossScreenStopDelegate = d2dCrossScreenStop;
+    }
+
+    /// <summary>
     /// Get the wallpaper sync client (only available in client mode)
     /// </summary>
     public WallpaperSyncClient? Client => _client;

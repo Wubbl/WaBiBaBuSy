@@ -152,6 +152,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private CrossScreenConfig? _crossScreenConfig;
     private string? _currentAnimationScheduleId;  // Track active animation schedule (Phase 3)
+    private string? _crossScreenContentId;         // ContentId sent to remote clients at start (used for stop)
 
     // Sequential IconZone lap-recompute state
     private int _lastGlobalLap = -1;
@@ -1861,7 +1862,10 @@ public partial class MainWindowViewModel : ViewModelBase
 
             var connected = await _service.DiscoverAndConnectAsync(address, port, ApplyD2DFromRemoteAsync);
             if (connected)
+            {
                 _service.SetD2DCrossScreenApplyDelegate(ApplyCrossScreenD2DFromRemoteAsync);
+                _service.SetD2DCrossScreenStopDelegate(StopRemoteCrossScreenD2DAsync);
+            }
 
             if (connected)
             {
@@ -1988,6 +1992,22 @@ public partial class MainWindowViewModel : ViewModelBase
 
         _remoteD2DServices[monitorIndex] = d2dService;
         Debug.WriteLine($"[D2D-CrossScreen] SUCCESS: Cross-screen D2D started on monitor {monitorIndex}");
+    }
+
+    /// <summary>
+    /// Stop delegate invoked when the server sends a Stop command for cross-screen D2D.
+    /// Tears down all D2D services that were started via ApplyCrossScreenD2DFromRemoteAsync.
+    /// </summary>
+    private async Task StopRemoteCrossScreenD2DAsync()
+    {
+        Debug.WriteLine($"[D2D-CrossScreen] Stopping {_remoteD2DServices.Count} remote D2D service(s)");
+        foreach (var kvp in _remoteD2DServices)
+        {
+            try { await kvp.Value.StopAsync(); } catch { }
+            try { kvp.Value.Dispose(); } catch { }
+        }
+        _remoteD2DServices.Clear();
+        Debug.WriteLine("[D2D-CrossScreen] All remote D2D services stopped");
     }
 
     /// <summary>
@@ -2758,12 +2778,14 @@ public partial class MainWindowViewModel : ViewModelBase
                 ? Clients.Where(c => selectedMonitorIds.Contains(c.ClientId))
                 : Clients;
 
-            // Split clients into local monitors and remote nodes
+            // Split clients into local monitors and remote nodes.
+            // Use IsLocalMonitor() to cover both LOCAL_MACHINE_MONITOR_ (standalone) and
+            // SERVER_LOCALHOST_MONITOR_ (server mode) so local nodes are never sent gRPC commands.
             var localClientsUnordered = clientsToUse
-                .Where(c => c.ClientId.StartsWith("LOCAL_MACHINE_MONITOR_"))
+                .Where(c => IsLocalMonitor(c.ClientId))
                 .ToList();
             var remoteClients = clientsToUse
-                .Where(c => !c.ClientId.StartsWith("LOCAL_MACHINE_MONITOR_"))
+                .Where(c => !IsLocalMonitor(c.ClientId))
                 .ToList();
 
             List<ClientNodeViewModel> localClients;
@@ -2986,6 +3008,7 @@ public partial class MainWindowViewModel : ViewModelBase
             if (remoteClients.Count > 0 && _service.SyncCoordinator != null)
             {
                 var contentId = System.IO.Path.GetFileName(_crossScreenConfig.Animation.AnimationPath);
+                _crossScreenContentId = contentId;
                 var bgColor = _crossScreenConfig.Background.ColorHex ?? "#000000";
                 var movementTypeInt = (int)_crossScreenConfig.Movement.Type;
 
@@ -3147,6 +3170,28 @@ public partial class MainWindowViewModel : ViewModelBase
             }
             _d2dCompositionServices.Clear();
             _lastGlobalLap = -1;
+
+            // Send stop command to remote clients that were part of this session
+            if (_service.SyncCoordinator != null && _crossScreenConfig != null && !string.IsNullOrEmpty(_crossScreenContentId))
+            {
+                var selectedIds = new HashSet<string>(_crossScreenConfig.SelectedMonitorIds);
+                var remoteToStop = Clients
+                    .Where(c => !IsLocalMonitor(c.ClientId) && (selectedIds.Count == 0 || selectedIds.Contains(c.ClientId)))
+                    .ToList();
+
+                foreach (var remote in remoteToStop)
+                {
+                    try
+                    {
+                        await _service.SyncCoordinator.StopCrossScreenOnClientAsync(remote.ClientId, _crossScreenContentId);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[CrossScreen] Failed to send stop to remote {remote.ClientId}: {ex.Message}");
+                    }
+                }
+            }
+            _crossScreenContentId = null;
 
             IsCrossScreenRunning = false;
             ClearAllWallpapersCommand.NotifyCanExecuteChanged();
