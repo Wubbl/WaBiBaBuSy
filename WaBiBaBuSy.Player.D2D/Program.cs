@@ -451,6 +451,7 @@ class Program
     // (no palette) when UseZonePalette is false.
     private static volatile bool _maskZones = false;
     private static volatile bool _useZonePalette = false;
+    private static int _iconFadePaddingPx = 0;
     private static ID2D1SolidColorBrush? _zoneCoverBrush;
 
     // Stage 6: Native D2D video playback (LibVLC → raw buffer → CopyFromMemory → ID2D1Bitmap)
@@ -2727,6 +2728,58 @@ class Program
     }
 
     /// <summary>
+    /// Draw a stepped gradient overlay outside each icon zone so the pattern feathers
+    /// smoothly into the zone cover rather than cells popping on/off at a hard boundary.
+    /// Each zone edge gets <see cref="_iconFadePaddingPx"/> pixels of N-step fade using
+    /// the same corridor color as the solid zone cover.
+    /// </summary>
+    private static void DrawZoneFadeOverlay(float fadePaddingPx, Color4 coverColor)
+    {
+        if (!_maskZones || _d2dContext == null) return;
+        if (_iconZoneBands.Count == 0 || fadePaddingPx < 1f) return;
+
+        if (_zoneCoverBrush == null)
+            _zoneCoverBrush = _d2dContext.CreateSolidColorBrush(coverColor);
+
+        const int Steps = 12;
+        float sliceSize = fadePaddingPx / Steps;
+
+        foreach (var (zY, zH, zX, zW, isFree, _) in _iconZoneBands)
+        {
+            if (isFree) continue;
+            float rW = zW < 0 ? _width : zW;
+
+            for (int i = 0; i < Steps; i++)
+            {
+                // Step 0 is at the zone edge (alpha ≈ 1.0), step N-1 is farthest out (alpha ≈ 0)
+                float t = (float)(Steps - i) / Steps;
+                _zoneCoverBrush.Color = new Color4(coverColor.R, coverColor.G, coverColor.B, t);
+
+                // Right edge
+                _d2dContext.FillRectangle(new System.Drawing.RectangleF(
+                    zX + rW + i * sliceSize, zY, sliceSize, zH), _zoneCoverBrush);
+
+                // Left edge
+                _d2dContext.FillRectangle(new System.Drawing.RectangleF(
+                    zX - (i + 1) * sliceSize, zY, sliceSize, zH), _zoneCoverBrush);
+
+                // Top edge — extended in X to cover corners
+                _d2dContext.FillRectangle(new System.Drawing.RectangleF(
+                    zX - fadePaddingPx, zY - (i + 1) * sliceSize,
+                    rW + 2 * fadePaddingPx, sliceSize), _zoneCoverBrush);
+
+                // Bottom edge — extended in X to cover corners
+                _d2dContext.FillRectangle(new System.Drawing.RectangleF(
+                    zX - fadePaddingPx, zY + zH + i * sliceSize,
+                    rW + 2 * fadePaddingPx, sliceSize), _zoneCoverBrush);
+            }
+        }
+
+        // Restore brush to full opacity so DrawZoneCoverIfMasked reuses it correctly
+        _zoneCoverBrush.Color = coverColor;
+    }
+
+    /// <summary>
     /// Cover icon-zone rectangles with the corridor (plain) color so the pattern only shows
     /// in free space and the user's desktop icons remain visible. No-op when MaskZones is off.
     /// When gradientColor is provided the cover takes that color so the fade blends into the
@@ -2832,17 +2885,36 @@ class Program
 
                 var (drawW, drawH) = ComputePatternDrawSize(srcIdx);
 
-                float alpha = hasFade
-                    ? ComputePatternCellAlpha(cell.ScreenX + drawW / 2f, cell.ScreenY + drawH / 2f, fadeRadius)
-                    : 1f;
-                if (alpha <= 0.01f) continue;
-
-                if (isTraveling && gradingActive)
+                // When gradient overlay fade is active, cells draw at full opacity — the gradient
+                // overlay handles the soft transition at zone edges. Otherwise fall back to the
+                // legacy per-cell alpha so zones at least get hidden when padding is 0.
+                bool useGradientFade = hasFade && _iconFadePaddingPx > 0;
+                if (hasFade && !useGradientFade)
                 {
-                    var cellMatrix = ColorGrader.ComputeForCell(colorGrading!, cell.LogicalI, cell.LogicalJ);
-                    SetColorMatrixOnEffect(cellMatrix);
+                    float alpha = ComputePatternCellAlpha(cell.ScreenX + drawW / 2f, cell.ScreenY + drawH / 2f, fadeRadius);
+                    if (alpha <= 0.01f) continue;
+                    if (isTraveling && gradingActive)
+                    {
+                        var cellMatrix = ColorGrader.ComputeForCell(colorGrading!, cell.LogicalI, cell.LogicalJ);
+                        SetColorMatrixOnEffect(cellMatrix);
+                    }
+                    DrawCellWithOptionalGrading(bmp, cell.ScreenX, cell.ScreenY, drawW, drawH, cell.RotationDeg, gradingActive, alpha);
                 }
-                DrawCellWithOptionalGrading(bmp, cell.ScreenX, cell.ScreenY, drawW, drawH, cell.RotationDeg, gradingActive, alpha);
+                else
+                {
+                    // Skip cells whose center is fully inside a zone (will be covered anyway)
+                    if (useGradientFade)
+                    {
+                        float check = ComputePatternCellAlpha(cell.ScreenX + drawW / 2f, cell.ScreenY + drawH / 2f, fadeRadius);
+                        if (check <= 0.01f) continue;
+                    }
+                    if (isTraveling && gradingActive)
+                    {
+                        var cellMatrix = ColorGrader.ComputeForCell(colorGrading!, cell.LogicalI, cell.LogicalJ);
+                        SetColorMatrixOnEffect(cellMatrix);
+                    }
+                    DrawCellWithOptionalGrading(bmp, cell.ScreenX, cell.ScreenY, drawW, drawH, cell.RotationDeg, gradingActive, 1f);
+                }
             }
         }
         else if (sourceCount > 1 && !useVideo)
@@ -2892,6 +2964,8 @@ class Program
             var (cr, cg, cb) = ColorGrader.ComputeCurrentColor(_animationConfig.ColorGrading, elapsedMs);
             gradientCover = new Color4(cr, cg, cb, 1f);
         }
+        if (_iconFadePaddingPx > 0)
+            DrawZoneFadeOverlay(_iconFadePaddingPx, gradientCover ?? _iconCorridorBgColor);
         DrawZoneCoverIfMasked(gradientCover);
     }
 
@@ -2962,11 +3036,25 @@ class Program
             _d2dContext.Transform = Matrix3x2.CreateRotation(rotationDeg * MathF.PI / 180f, new Vector2(cx, cy));
         }
 
-        // Color grading via DrawImage doesn't support per-draw opacity; fall back to
-        // DrawBitmap (with alpha) when the cell is being faded near an icon zone.
-        bool useGrading = gradingActive && _colorMatrixEffect != null && alpha >= 0.999f;
+        bool useGrading = gradingActive && _colorMatrixEffect != null;
         if (useGrading)
         {
+            // Apply color grading via ColorMatrix effect. When partial opacity is needed,
+            // wrap in a D2D layer so the effect output is blended at the requested alpha.
+            bool needsLayer = alpha < 0.999f;
+            if (needsLayer)
+            {
+                var lp = new Vortice.Direct2D1.LayerParameters1
+                {
+                    ContentBounds = new Vortice.RawRectF(
+                        float.NegativeInfinity, float.NegativeInfinity,
+                        float.PositiveInfinity, float.PositiveInfinity),
+                    MaskTransform = System.Numerics.Matrix3x2.Identity,
+                    Opacity = alpha,
+                    LayerOptions = Vortice.Direct2D1.LayerOptions1.None
+                };
+                _d2dContext.PushLayer(ref lp, null!);
+            }
             try
             {
                 _colorMatrixEffect!.SetInput(0, bmp, true);
@@ -2976,6 +3064,10 @@ class Program
             {
                 _logger?.LogError(ex, "[ColorGrading] DrawImage failed; falling back to DrawBitmap");
                 _d2dContext.DrawBitmap(bmp, new System.Drawing.RectangleF(x, y, w, h), alpha, BitmapInterpolationMode.Linear, null);
+            }
+            finally
+            {
+                if (needsLayer) _d2dContext.PopLayer();
             }
         }
         else
@@ -3025,6 +3117,7 @@ class Program
                 _monitorOffsetX = cmd.MonitorOffsetX;
                 _maskZones = cmd.MaskZones;
                 _useZonePalette = cmd.UseZonePalette;
+                _iconFadePaddingPx = cmd.IconFadePaddingPx;
 
                 // Reset per-source caches before loading
                 ClearPerSourceCaches();

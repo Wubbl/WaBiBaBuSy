@@ -181,6 +181,14 @@ public class BackgroundLayerConfig
     /// render as plain corridor color (or are simply masked out from the animation layer).
     /// </summary>
     public bool IconZonePaletteEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Width in pixels of the feathered fade zone outside each icon zone rectangle.
+    /// Pattern cells in this band are drawn at full opacity but then overlaid with a
+    /// stepped gradient from the corridor color (opaque at zone edge) to transparent.
+    /// 0 = no feathering (legacy per-cell fade behavior). 40–120 px is a good range.
+    /// </summary>
+    public int IconFadePaddingPx { get; set; } = 0;
 }
 
 /// <summary>

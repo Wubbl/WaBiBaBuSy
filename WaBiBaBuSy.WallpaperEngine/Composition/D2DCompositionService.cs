@@ -159,7 +159,8 @@ public class D2DCompositionService : IDisposable
                 MonitorOffsetX = explicitMonitorOffsetX ?? (perMonitorMode ? 0 : screen.VirtualBounds.X),
                 MovementConfig = _movementConfig,
                 MaskZones = maskZones,
-                UseZonePalette = backgroundConfig.IconZonePaletteEnabled
+                UseZonePalette = backgroundConfig.IconZonePaletteEnabled,
+                IconFadePaddingPx = maskZones ? backgroundConfig.IconFadePaddingPx : 0
             };
 
             await playerHost.SendLoadAnimationAsync(loadCmd);

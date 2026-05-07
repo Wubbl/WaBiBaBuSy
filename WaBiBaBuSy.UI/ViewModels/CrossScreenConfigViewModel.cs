@@ -189,14 +189,21 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     [ObservableProperty] private float _patternRandomOffset = 0f;
     [ObservableProperty] private float _patternRandomRotation = 0f;
     [ObservableProperty] private int _patternSeed = 1;
+    [ObservableProperty] private int _iconFadePaddingPx = 0;
 
     public bool IsPatternFill => PatternSizingIndex == 0;
     public bool IsPatternExplicit => PatternSizingIndex == 1;
+    public bool IsPatternWithIconZone => PatternEnabled && IsIconZoneMode;
 
     partial void OnPatternSizingIndexChanged(int value)
     {
         OnPropertyChanged(nameof(IsPatternFill));
         OnPropertyChanged(nameof(IsPatternExplicit));
+    }
+
+    partial void OnPatternEnabledChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsPatternWithIconZone));
     }
 
     // ── Multi-image (F4) ─────────────────────────────────────────────────────
@@ -236,6 +243,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsImageMode));
         OnPropertyChanged(nameof(IsThreeZoneMode));
         OnPropertyChanged(nameof(IsIconZoneMode));
+        OnPropertyChanged(nameof(IsPatternWithIconZone));
         // If Circular was selected and user switches to ThreeZone/IconZone, fall back to Bounce first
         bool hideCircular = IsThreeZoneMode || IsIconZoneMode;
         if (hideCircular && SelectedMovementType?.Type == MovementType.Circular)
@@ -421,6 +429,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
 
         // IconZone palette toggle
         IconZonePaletteEnabled = config.Background.IconZonePaletteEnabled;
+        IconFadePaddingPx = config.Background.IconFadePaddingPx;
     }
 
     public CrossScreenConfig BuildConfig()
@@ -472,7 +481,8 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                 CorridorColorHex   = CorridorColorHex,
                 IconCorridorColorHex  = IconCorridorColorHex,
                 IconZonePaletteHexes = IconZonePalette.Select(z => z.ColorHex).ToList(),
-                IconZonePaletteEnabled = IconZonePaletteEnabled
+                IconZonePaletteEnabled = IconZonePaletteEnabled,
+                IconFadePaddingPx = IconFadePaddingPx
             },
             Animation = new AnimationLayerConfig
             {
