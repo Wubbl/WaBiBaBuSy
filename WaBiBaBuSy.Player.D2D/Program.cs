@@ -452,9 +452,12 @@ class Program
     private static volatile bool _maskZones = false;
     private static volatile bool _useZonePalette = false;
     private static int _iconFadePaddingPx = 0;
+    private static int _iconZoneExpansionPx = 0;
     private static ID2D1SolidColorBrush? _zoneCoverBrush;
     private static ID2D1LinearGradientBrush? _zoneFadeGradientBrush;
     private static Color4 _zoneFadeGradientColor; // track which color the brush was built for
+    private static ID2D1Bitmap? _zoneFadeMaskBitmap;
+    private static ID2D1BitmapBrush? _zoneFadeOpacityBrush;
 
     // Stage 6: Native D2D video playback (LibVLC → raw buffer → CopyFromMemory → ID2D1Bitmap)
     private static LibVLC? _libVLC;
@@ -2787,6 +2790,76 @@ class Program
     }
 
     /// <summary>
+    /// Builds a screen-sized premultiplied BGRA bitmap where each pixel's alpha encodes its
+    /// Euclidean distance to the nearest icon zone edge, after subtracting _iconZoneExpansionPx
+    /// (the invisible hard zone), normalized to [0,1] over _iconFadePaddingPx (the fade border).
+    /// Used as an ID2D1BitmapBrush opacity mask in PushLayer so each pattern cell's pixels
+    /// fade individually — no whole-cell alpha, no dark overlay, natural circular corners.
+    /// Neighbouring zones that overlap after expansion are handled automatically via min-alpha.
+    /// </summary>
+    private static void EnsureZoneFadeMask()
+    {
+        if (_zoneFadeOpacityBrush != null) return;
+        if (_d2dContext == null || _iconZoneBands.Count == 0) return;
+
+        int w = _width, h = _height;
+        int stride = w * 4;
+        byte[] pixels = new byte[h * stride];
+        Array.Fill(pixels, (byte)255); // start fully opaque (premultiplied white)
+
+        float expansionPx = _iconZoneExpansionPx;
+        float fadePx      = _iconFadePaddingPx;
+        float totalReach  = expansionPx + fadePx; // how far from zone edge we process
+
+        foreach (var (zY, zH, zX, zW, isFree, _) in _iconZoneBands)
+        {
+            if (isFree) continue;
+            float rW = zW < 0 ? w : zW;
+
+            int x0 = Math.Max(0, (int)(zX - totalReach) - 1);
+            int x1 = Math.Min(w - 1, (int)(zX + rW + totalReach) + 1);
+            int y0 = Math.Max(0, (int)(zY - totalReach) - 1);
+            int y1 = Math.Min(h - 1, (int)(zY + zH + totalReach) + 1);
+
+            for (int py = y0; py <= y1; py++)
+            {
+                for (int px = x0; px <= x1; px++)
+                {
+                    float nearX = Math.Clamp((float)px, zX, zX + rW);
+                    float nearY = Math.Clamp((float)py, zY, zY + zH);
+                    float dx = px - nearX, dy = py - nearY;
+                    float dist = MathF.Sqrt(dx * dx + dy * dy);
+                    // dist < expansionPx → inside expanded zone → alpha=0
+                    // dist in [expansionPx, expansionPx+fadePx] → fade 0→1
+                    // dist > expansionPx+fadePx → alpha=1 (outside bounding box, not reached)
+                    float alpha = fadePx > 0
+                        ? Math.Clamp((dist - expansionPx) / fadePx, 0f, 1f)
+                        : (dist > expansionPx ? 1f : 0f);
+                    byte a = (byte)(alpha * 255f + 0.5f);
+                    int offset = (py * w + px) * 4;
+                    if (a < pixels[offset + 3]) // take minimum when zones overlap
+                    {
+                        pixels[offset + 0] = a; // B
+                        pixels[offset + 1] = a; // G
+                        pixels[offset + 2] = a; // R
+                        pixels[offset + 3] = a; // A (premultiplied)
+                    }
+                }
+            }
+        }
+
+        var bitmapProps = new BitmapProperties(
+            new Vortice.DCommon.PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied), 96f, 96f);
+        var handle = GCHandle.Alloc(pixels, GCHandleType.Pinned);
+        try
+        {
+            _zoneFadeMaskBitmap = _d2dContext.CreateBitmap(new SizeI(w, h), handle.AddrOfPinnedObject(), (uint)stride, bitmapProps);
+        }
+        finally { handle.Free(); }
+        _zoneFadeOpacityBrush = _d2dContext.CreateBitmapBrush(_zoneFadeMaskBitmap);
+    }
+
+    /// <summary>
     /// Cover icon-zone rectangles with the corridor (plain) color so the pattern only shows
     /// in free space and the user's desktop icons remain visible. No-op when MaskZones is off.
     /// When gradientColor is provided the cover takes that color so the fade blends into the
@@ -2881,6 +2954,24 @@ class Program
 
             bool hasFade = _maskZones && _iconZoneBands.Count > 0;
             float fadeRadius = cellH > 0 ? cellH : 80f;
+            bool usePerPixelFade = hasFade && (_iconFadePaddingPx > 0 || _iconZoneExpansionPx > 0) && _d2dContext != null;
+
+            if (usePerPixelFade)
+            {
+                EnsureZoneFadeMask();
+                if (_zoneFadeOpacityBrush != null)
+                {
+                    var lp = new LayerParameters1
+                    {
+                        ContentBounds = new Vortice.RawRectF(0f, 0f, _width, _height),
+                        MaskTransform = Matrix3x2.Identity,
+                        Opacity = 1f,
+                        OpacityBrush = _zoneFadeOpacityBrush,
+                        LayerOptions = LayerOptions1.None
+                    };
+                    _d2dContext!.PushLayer(ref lp, null!);
+                }
+            }
 
             foreach (var cell in cells)
             {
@@ -2892,41 +2983,13 @@ class Program
 
                 var (drawW, drawH) = ComputePatternDrawSize(srcIdx);
 
-                // Gradient overlay active: draw every cell at full opacity so colors are always
-                // preserved. Only skip cells whose CENTER is actually inside a zone rectangle
-                // (they will be covered by DrawZoneCoverIfMasked anyway). Do NOT use
-                // ComputePatternCellAlpha here — its 70%-deadRadius skip would hide cells that
-                // are still outside the zone, causing logos to pop in/out far from the zone edge.
-                bool useGradientFade = hasFade && _iconFadePaddingPx > 0;
-                if (useGradientFade)
+                float alpha = 1f;
+                if (hasFade && !usePerPixelFade)
                 {
                     float cx = cell.ScreenX + drawW / 2f;
                     float cy = cell.ScreenY + drawH / 2f;
-                    bool insideZone = false;
-                    foreach (var (zY, zH2, zX, zW2, isFreeZ, _) in _iconZoneBands)
-                    {
-                        if (isFreeZ) continue;
-                        float rW2 = zW2 < 0 ? _width : zW2;
-                        if (cx >= zX && cx <= zX + rW2 && cy >= zY && cy <= zY + zH2)
-                        {
-                            insideZone = true;
-                            break;
-                        }
-                    }
-                    if (insideZone) continue;
-                }
-                else if (hasFade)
-                {
-                    // Legacy per-cell alpha fade (IconFadePaddingPx == 0)
-                    float alpha = ComputePatternCellAlpha(cell.ScreenX + drawW / 2f, cell.ScreenY + drawH / 2f, fadeRadius);
+                    alpha = ComputePatternCellAlpha(cx, cy, fadeRadius);
                     if (alpha <= 0.01f) continue;
-                    if (isTraveling && gradingActive)
-                    {
-                        var cellMatrix = ColorGrader.ComputeForCell(colorGrading!, cell.LogicalI, cell.LogicalJ);
-                        SetColorMatrixOnEffect(cellMatrix);
-                    }
-                    DrawCellWithOptionalGrading(bmp, cell.ScreenX, cell.ScreenY, drawW, drawH, cell.RotationDeg, gradingActive, alpha);
-                    continue;
                 }
 
                 if (isTraveling && gradingActive)
@@ -2934,8 +2997,11 @@ class Program
                     var cellMatrix = ColorGrader.ComputeForCell(colorGrading!, cell.LogicalI, cell.LogicalJ);
                     SetColorMatrixOnEffect(cellMatrix);
                 }
-                DrawCellWithOptionalGrading(bmp, cell.ScreenX, cell.ScreenY, drawW, drawH, cell.RotationDeg, gradingActive, 1f);
+                DrawCellWithOptionalGrading(bmp, cell.ScreenX, cell.ScreenY, drawW, drawH, cell.RotationDeg, gradingActive, alpha);
             }
+
+            if (usePerPixelFade && _zoneFadeOpacityBrush != null)
+                _d2dContext?.PopLayer();
         }
         else if (sourceCount > 1 && !useVideo)
         {
@@ -2987,9 +3053,10 @@ class Program
             var (cr, cg, cb) = ColorGrader.ComputeCurrentColor(_animationConfig.ColorGrading, elapsedMs);
             gradientCover = new Color4(cr, cg, cb, 1f);
         }
-        if (_iconFadePaddingPx > 0)
-            DrawZoneFadeOverlay(_iconFadePaddingPx);
-        DrawZoneCoverIfMasked(gradientCover);
+        // Per-pixel fade: opacity mask already makes cells transparent near zones,
+        // leaving the corridor background visible — no extra cover needed.
+        if (!(_maskZones && (_iconFadePaddingPx > 0 || _iconZoneExpansionPx > 0)))
+            DrawZoneCoverIfMasked(gradientCover);
     }
 
     private static (int W, int H) ScaleToTargetHeight(int srcW, int srcH)
@@ -3141,6 +3208,9 @@ class Program
                 _maskZones = cmd.MaskZones;
                 _useZonePalette = cmd.UseZonePalette;
                 _iconFadePaddingPx = cmd.IconFadePaddingPx;
+                _iconZoneExpansionPx = cmd.IconZoneExpansionPx;
+                _zoneFadeOpacityBrush?.Dispose(); _zoneFadeOpacityBrush = null;
+                _zoneFadeMaskBitmap?.Dispose();   _zoneFadeMaskBitmap   = null;
 
                 // Reset per-source caches before loading
                 ClearPerSourceCaches();
@@ -3357,6 +3427,10 @@ class Program
         _zoneCoverBrush = null;
         _zoneFadeGradientBrush?.Dispose();
         _zoneFadeGradientBrush = null;
+        _zoneFadeOpacityBrush?.Dispose();
+        _zoneFadeOpacityBrush = null;
+        _zoneFadeMaskBitmap?.Dispose();
+        _zoneFadeMaskBitmap = null;
 
         _backgroundImageBitmap?.Dispose();
         _backgroundImageBitmap = null;

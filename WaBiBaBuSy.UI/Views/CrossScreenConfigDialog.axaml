@@ -300,16 +300,26 @@
                                     <TextBlock Grid.Column="2" Text="Random rot. (deg):" VerticalAlignment="Center"/>
                                     <NumericUpDown Grid.Column="3" Value="{Binding PatternRandomRotation}" Minimum="0" Maximum="180" Increment="5" Width="100" HorizontalAlignment="Left"/>
                                 </Grid>
-                                <!-- Zone fade padding: only meaningful when Pattern + IconZone are both active -->
+                                <!-- Zone size + fade border: only meaningful when Pattern + IconZone are both active -->
                                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8"
                                       IsVisible="{Binding IsPatternWithIconZone}">
-                                    <TextBlock Grid.Column="0" Text="Zone fade padding (px):" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="0" Text="Zone size (px):" VerticalAlignment="Center"/>
+                                    <NumericUpDown Grid.Column="1" Value="{Binding IconZoneExpansionPx}"
+                                                   Minimum="0" Maximum="500" Increment="10" Width="100"
+                                                   HorizontalAlignment="Left"/>
+                                    <TextBlock Grid.Column="2" FontSize="10" Foreground="#888888"
+                                               VerticalAlignment="Center"
+                                               Text="expand invisible zone beyond detected icons"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8"
+                                      IsVisible="{Binding IsPatternWithIconZone}">
+                                    <TextBlock Grid.Column="0" Text="Fade border (px):" VerticalAlignment="Center"/>
                                     <NumericUpDown Grid.Column="1" Value="{Binding IconFadePaddingPx}"
                                                    Minimum="0" Maximum="500" Increment="10" Width="100"
                                                    HorizontalAlignment="Left"/>
                                     <TextBlock Grid.Column="2" FontSize="10" Foreground="#888888"
                                                VerticalAlignment="Center"
-                                               Text="0 = off; 40–120 px recommended"/>
+                                               Text="0 = hard edge; 40–120 px recommended"/>
                                 </Grid>
                                 <TextBlock FontSize="10" Foreground="#888888" TextWrapping="Wrap"
                                            IsVisible="{Binding PatternEnabled}"

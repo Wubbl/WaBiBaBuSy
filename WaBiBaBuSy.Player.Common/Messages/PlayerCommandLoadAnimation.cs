@@ -77,5 +77,11 @@ public class PlayerCommandLoadAnimation : PlayerMessageBase
     /// Width in pixels of the feathered gradient zone outside each icon zone rectangle.
     /// 0 = off (legacy per-cell alpha fade). Mirrors <see cref="BackgroundLayerConfig.IconFadePaddingPx"/>.
     /// </summary>
-    public int IconFadePaddingPx { get; set; } = 0;
+    public int IconFadePaddingPx { get; set; } = 50;
+
+    /// <summary>
+    /// Pixels to expand each icon zone rectangle beyond its detected bounds before applying fade.
+    /// Mirrors <see cref="BackgroundLayerConfig.IconZoneExpansionPx"/>.
+    /// </summary>
+    public int IconZoneExpansionPx { get; set; } = 10;
 }

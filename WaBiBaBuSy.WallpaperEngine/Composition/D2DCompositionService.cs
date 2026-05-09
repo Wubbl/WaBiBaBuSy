@@ -160,7 +160,8 @@ public class D2DCompositionService : IDisposable
                 MovementConfig = _movementConfig,
                 MaskZones = maskZones,
                 UseZonePalette = backgroundConfig.IconZonePaletteEnabled,
-                IconFadePaddingPx = maskZones ? backgroundConfig.IconFadePaddingPx : 0
+                IconFadePaddingPx = maskZones ? backgroundConfig.IconFadePaddingPx : 0,
+                IconZoneExpansionPx = maskZones ? backgroundConfig.IconZoneExpansionPx : 0
             };
 
             await playerHost.SendLoadAnimationAsync(loadCmd);

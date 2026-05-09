@@ -188,7 +188,14 @@ public class BackgroundLayerConfig
     /// stepped gradient from the corridor color (opaque at zone edge) to transparent.
     /// 0 = no feathering (legacy per-cell fade behavior). 40–120 px is a good range.
     /// </summary>
-    public int IconFadePaddingPx { get; set; } = 0;
+    public int IconFadePaddingPx { get; set; } = 50;
+
+    /// <summary>
+    /// Pixels to expand each icon zone rectangle beyond its detected bounds.
+    /// Zones from neighbouring icons that overlap after expansion merge into one invisible region.
+    /// 0 = use detected zone size as-is.
+    /// </summary>
+    public int IconZoneExpansionPx { get; set; } = 10;
 }
 
 /// <summary>

@@ -189,7 +189,8 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     [ObservableProperty] private float _patternRandomOffset = 0f;
     [ObservableProperty] private float _patternRandomRotation = 0f;
     [ObservableProperty] private int _patternSeed = 1;
-    [ObservableProperty] private int _iconFadePaddingPx = 0;
+    [ObservableProperty] private int _iconFadePaddingPx = 50;
+    [ObservableProperty] private int _iconZoneExpansionPx = 10;
 
     public bool IsPatternFill => PatternSizingIndex == 0;
     public bool IsPatternExplicit => PatternSizingIndex == 1;
@@ -430,6 +431,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         // IconZone palette toggle
         IconZonePaletteEnabled = config.Background.IconZonePaletteEnabled;
         IconFadePaddingPx = config.Background.IconFadePaddingPx;
+        IconZoneExpansionPx = config.Background.IconZoneExpansionPx;
     }
 
     public CrossScreenConfig BuildConfig()
@@ -482,7 +484,8 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                 IconCorridorColorHex  = IconCorridorColorHex,
                 IconZonePaletteHexes = IconZonePalette.Select(z => z.ColorHex).ToList(),
                 IconZonePaletteEnabled = IconZonePaletteEnabled,
-                IconFadePaddingPx = IconFadePaddingPx
+                IconFadePaddingPx = IconFadePaddingPx,
+                IconZoneExpansionPx = IconZoneExpansionPx
             },
             Animation = new AnimationLayerConfig
             {
