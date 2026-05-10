@@ -463,4 +463,11 @@ public class MovementConfig
     /// All monitors use the same iteration index (derived from elapsed time), so sync is maintained.
     /// </summary>
     public int IterationStepCount { get; set; } = 20;
+
+    /// <summary>
+    /// When true, Linear movement travels from right-to-left in virtual canvas space,
+    /// which appears as left-to-right visually (first node → last node).
+    /// Default false = left-to-right virtual (right-to-left visual, last node → first node).
+    /// </summary>
+    public bool Reversed { get; set; } = false;
 }

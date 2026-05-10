@@ -531,6 +531,10 @@ class Program
     private static int _monitorOffsetY = 0;
     private static bool _rotateWithPath;
     private static float _animRotationRad;
+    // Tile-align step for seamless loop snapping (Issue 3): cellW + SpacingX, 0 = disabled.
+    private static float _tileAlignStepX = 0f;
+    // True when a Traveling color mode is active — cached to avoid re-checking config in UpdateAnimationPosition.
+    private static bool _isTravelingMode = false;
 
     // Animation state
     private static volatile bool _isPlaying = false;
@@ -2234,7 +2238,8 @@ class Program
             var (vx, vy) = MovementCalculator.Calculate(
                 _movementConfig, elapsedMs,
                 _animWidth, _animHeight,
-                _virtualCanvasWidth, _height);
+                _virtualCanvasWidth, _height,
+                tileAlignStepX: _isTravelingMode ? _tileAlignStepX : 0f);
             _animX = vx - _monitorOffsetX;
             _animY = vy;
 
@@ -2944,9 +2949,13 @@ class Program
                 }
             }
 
+            // Pass the VIRTUAL anchor (vx = _animX + _monitorOffsetX) so each monitor
+            // shows a different portion of the infinite cell grid in Sequential mode.
+            // Without this, monitorOffsetX cancels inside PatternLayout and both monitors
+            // render identical cells — colors never travel from node to node.
             var cells = PatternLayout.Compute(
                 pattern!,
-                anchorX: _animX, anchorY: _animY,
+                anchorX: _animX + _monitorOffsetX, anchorY: _animY,
                 cellW: cellW, cellH: cellH,
                 virtualCanvasWidth: _virtualCanvasWidth, virtualCanvasHeight: _height,
                 monitorOffsetX: _monitorOffsetX,
@@ -2995,10 +3004,23 @@ class Program
 
                 if (isTraveling && gradingActive)
                 {
-                    var cellMatrix = ColorGrader.ComputeForCell(colorGrading!, cell.LogicalI, cell.LogicalJ);
-                    SetColorMatrixOnEffect(cellMatrix);
+                    // ColoredCellPercentage: deterministic per-cell decision so the same cells
+                    // are always colored regardless of scroll position or frame.
+                    bool shouldColor = colorGrading!.ColoredCellPercentage >= 1.0f
+                        || (uint)PatternLayout.Hash3(colorGrading.Seed ^ 0x55AA55AA, cell.LogicalI, cell.LogicalJ) % 100
+                            < (uint)(colorGrading.ColoredCellPercentage * 100f);
+
+                    if (shouldColor)
+                    {
+                        var cellMatrix = ColorGrader.ComputeForCell(colorGrading!, cell.LogicalI, cell.LogicalJ);
+                        SetColorMatrixOnEffect(cellMatrix);
+                    }
+                    DrawCellWithOptionalGrading(bmp, cell.ScreenX, cell.ScreenY, drawW, drawH, cell.RotationDeg, gradingActive && shouldColor, alpha);
                 }
-                DrawCellWithOptionalGrading(bmp, cell.ScreenX, cell.ScreenY, drawW, drawH, cell.RotationDeg, gradingActive, alpha);
+                else
+                {
+                    DrawCellWithOptionalGrading(bmp, cell.ScreenX, cell.ScreenY, drawW, drawH, cell.RotationDeg, gradingActive, alpha);
+                }
             }
 
             if (usePerPixelFade && _zoneFadeOpacityBrush != null)
@@ -3288,6 +3310,40 @@ class Program
                     _sourceDimensions.Add((_contentNativeWidth, _contentNativeHeight));
                 }
                 LoadAdditionalAnimationSources(cmd.AnimationConfig);
+
+                // Compute tile-align step and traveling-mode flag for seamless loop snapping.
+                // _animWidth is set by CalculateAnimationLayout; _sourceDimensions may refine cellW below.
+                var cgMode = cmd.AnimationConfig.ColorGrading?.Mode ?? ColorGradingMode.None;
+                _isTravelingMode = cgMode is ColorGradingMode.TravelingRainbow
+                                             or ColorGradingMode.TravelingList
+                                             or ColorGradingMode.TravelingRandom;
+                if (_isTravelingMode && cmd.AnimationConfig.Pattern != null)
+                {
+                    // Mirror the cellW logic from DrawAnimationLayer so we get the correct step.
+                    int cellW = _animWidth;
+                    if (_sourceDimensions.Count > 0 && _animHeight > 0)
+                    {
+                        int maxNativeH = 0;
+                        foreach (var (_, h) in _sourceDimensions)
+                            if (h > maxNativeH) maxNativeH = h;
+                        if (maxNativeH > 0)
+                        {
+                            float pScale = (float)_animHeight / maxNativeH;
+                            int maxScaledW = 0;
+                            foreach (var (w, _) in _sourceDimensions)
+                            {
+                                int sw = (int)(w * pScale);
+                                if (sw > maxScaledW) maxScaledW = sw;
+                            }
+                            if (maxScaledW > 0) cellW = maxScaledW;
+                        }
+                    }
+                    _tileAlignStepX = cellW + cmd.AnimationConfig.Pattern.SpacingX;
+                }
+                else
+                {
+                    _tileAlignStepX = 0f;
+                }
             }
 
             Console.WriteLine("READY");

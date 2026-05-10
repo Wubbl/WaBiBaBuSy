@@ -23,12 +23,13 @@ public static class MovementCalculator
         MovementConfig config,
         long elapsedMs,
         int animWidth, int animHeight,
-        int canvasWidth, int canvasHeight)
+        int canvasWidth, int canvasHeight,
+        float tileAlignStepX = 0f)
     {
         return config.Type switch
         {
             MovementType.Static => CalculateStatic(animWidth, animHeight, canvasWidth, canvasHeight),
-            MovementType.Linear => CalculateLinear(config, elapsedMs, animWidth, animHeight, canvasWidth, canvasHeight),
+            MovementType.Linear => CalculateLinear(config, elapsedMs, animWidth, animHeight, canvasWidth, canvasHeight, tileAlignStepX),
             MovementType.Bounce => CalculateBounce(config, elapsedMs, animWidth, animHeight, canvasWidth, canvasHeight),
             MovementType.SineWave => CalculateSineWave(config, elapsedMs, animWidth, animHeight, canvasWidth, canvasHeight),
             MovementType.Circular => CalculateCircular(config, elapsedMs, animWidth, animHeight, canvasWidth, canvasHeight),
@@ -47,12 +48,14 @@ public static class MovementCalculator
 
     private static (float X, float Y) CalculateLinear(
         MovementConfig config, long elapsedMs,
-        int animWidth, int animHeight, int canvasWidth, int canvasHeight)
+        int animWidth, int animHeight, int canvasWidth, int canvasHeight,
+        float tileAlignStepX = 0f)
     {
-        float startX = config.StartX ?? -animWidth;
+        // Reversed=true → cells travel left-to-right visually (first node → last node)
+        float startX = config.StartX ?? (config.Reversed ? canvasWidth  : -animWidth);
         float startY = config.StartY ?? (canvasHeight - animHeight) / 2f;
-        float endX = config.EndX ?? canvasWidth;
-        float endY = config.EndY ?? (canvasHeight - animHeight) / 2f;
+        float endX   = config.EndX   ?? (config.Reversed ? -animWidth   : canvasWidth);
+        float endY   = config.EndY   ?? (canvasHeight - animHeight) / 2f;
 
         float dx = endX - startX;
         float dy = endY - startY;
@@ -66,7 +69,15 @@ public static class MovementCalculator
 
         if (config.Loop && totalDistance > 0)
         {
-            traveledDistance %= totalDistance;
+            // Snap the loop period to the nearest multiple of the tile step so visible cell
+            // indices (LogicalI) are identical at the wrap boundary → no abrupt color jump.
+            float period = totalDistance;
+            if (tileAlignStepX > 0f)
+            {
+                float snapped = MathF.Round(totalDistance / tileAlignStepX) * tileAlignStepX;
+                if (snapped > 0f) period = snapped;
+            }
+            traveledDistance %= period;
         }
         else
         {

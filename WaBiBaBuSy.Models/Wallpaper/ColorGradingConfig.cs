@@ -67,4 +67,11 @@ public class ColorGradingConfig
 
     /// <summary>Seed for <see cref="ColorGradingMode.RandomColors"/> — same seed yields the same sequence.</summary>
     public int Seed { get; set; } = 1;
+
+    /// <summary>
+    /// Fraction of pattern cells that receive traveling color (0.0 = none, 1.0 = all). Default 1.0.
+    /// Only used with Traveling modes. Uncolored cells are drawn monochrome.
+    /// The selection is deterministic per (LogicalI, LogicalJ) so the same cells are always colored.
+    /// </summary>
+    public float ColoredCellPercentage { get; set; } = 1.0f;
 }

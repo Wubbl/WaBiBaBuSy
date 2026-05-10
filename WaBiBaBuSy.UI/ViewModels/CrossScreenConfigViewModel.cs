@@ -131,6 +131,11 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     [ObservableProperty]
     private int _randomWalkIterationSteps = 20;
 
+    // When true, Linear movement is reversed so cells travel from first node to last node.
+    [ObservableProperty] private bool _isMovementReversed = false;
+
+    public bool IsLinearMode => SelectedMovementType?.Type == MovementType.Linear;
+
     [ObservableProperty]
     private int _corridorTopPx = 324;
 
@@ -162,12 +167,17 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     [ObservableProperty] private int _colorGradingSeed = 1;
     [ObservableProperty] private string _colorGradingColorListCsv = "#FF0000,#FFFF00,#00FF00,#00FFFF,#0000FF,#FF00FF";
 
+    // Fraction of cells to color in Traveling modes (0.0–1.0, default 1.0 = all).
+    [ObservableProperty] private float _colorGradingColoredCellPercentage = 1.0f;
+
     public bool IsColorGradingNone           => ColorGradingModeIndex == 0;
     public bool IsColorGradingGradient       => ColorGradingModeIndex == 3;
     public bool IsColorGradingColorListMode  => ColorGradingModeIndex == 2 || ColorGradingModeIndex == 4
                                              || ColorGradingModeIndex == 6 || ColorGradingModeIndex == 7;
     // Traveling modes (5-7) are time-independent — hide the CyclesPerSecond control for them.
     public bool IsColorGradingTimeBased      => ColorGradingModeIndex >= 1 && ColorGradingModeIndex <= 4;
+    // Density slider is only meaningful for traveling modes.
+    public bool IsColorGradingTraveling      => ColorGradingModeIndex >= 5;
 
     partial void OnColorGradingModeIndexChanged(int value)
     {
@@ -175,6 +185,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsColorGradingGradient));
         OnPropertyChanged(nameof(IsColorGradingColorListMode));
         OnPropertyChanged(nameof(IsColorGradingTimeBased));
+        OnPropertyChanged(nameof(IsColorGradingTraveling));
     }
 
     // ── Pattern multiplier (F3) ──────────────────────────────────────────────
@@ -265,6 +276,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsSineWaveMode));
         OnPropertyChanged(nameof(IsCircularMode));
         OnPropertyChanged(nameof(IsRandomWalkMode));
+        OnPropertyChanged(nameof(IsLinearMode));
     }
 
     public void SetStorageProvider(IStorageProvider storageProvider)
@@ -386,6 +398,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         WaveFrequency = movement.WaveFrequencyHz;
         OrbitRadius = movement.OrbitRadiusPixels;
         RandomWalkIterationSteps = movement.IterationStepCount;
+        IsMovementReversed = movement.Reversed;
 
         // Restore monitor selection from config
         var selectedIds = new HashSet<string>(config.SelectedMonitorIds);
@@ -404,6 +417,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         ColorGradingColorListCsv = grading.ColorList.Count > 0
             ? string.Join(",", grading.ColorList)
             : "#FF0000,#FFFF00,#00FF00,#00FFFF,#0000FF,#FF00FF";
+        ColorGradingColoredCellPercentage = grading.ColoredCellPercentage;
 
         // Pattern
         var pattern = config.Animation.Pattern;
@@ -512,7 +526,8 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                     Seed = ColorGradingSeed,
                     ColorList = ColorGradingColorListCsv
                         .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                        .ToList()
+                        .ToList(),
+                    ColoredCellPercentage = ColorGradingColoredCellPercentage
                 },
                 Pattern = PatternEnabled ? new PatternConfig
                 {
@@ -543,7 +558,8 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                 Loop = AnimationLoop,
                 RandomSeed = 42,
                 RandomStepIntervalMs = 1000f,
-                IterationStepCount = RandomWalkIterationSteps
+                IterationStepCount = RandomWalkIterationSteps,
+                Reversed = IsMovementReversed
             }
         };
     }

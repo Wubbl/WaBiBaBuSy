@@ -261,6 +261,19 @@
                                     <TextBlock Grid.Column="0" Text="Seed:" VerticalAlignment="Center"/>
                                     <NumericUpDown Grid.Column="1" Value="{Binding ColorGradingSeed}" Minimum="0" Maximum="999999" Increment="1" HorizontalAlignment="Left" Width="120"/>
                                 </Grid>
+                                <!-- Traveling-only: colored cell density -->
+                                <StackPanel Spacing="4" IsVisible="{Binding IsColorGradingTraveling}">
+                                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                        <TextBlock Grid.Column="0" Text="Colored cells:" VerticalAlignment="Center"/>
+                                        <Slider Grid.Column="1" Minimum="0" Maximum="1" TickFrequency="0.01"
+                                                Value="{Binding ColorGradingColoredCellPercentage}"
+                                                VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2" VerticalAlignment="Center" MinWidth="40"
+                                                   Text="{Binding ColorGradingColoredCellPercentage, StringFormat={}{0:P0}}"/>
+                                    </Grid>
+                                    <TextBlock Text="100% = all cells colored  ·  10% = sparse colored cells among monochrome"
+                                               FontSize="10" Foreground="#888888"/>
+                                </StackPanel>
                             </StackPanel>
                         </Expander>
 
@@ -387,6 +400,14 @@
                                            Minimum="0" Maximum="360"
                                            Increment="15"
                                            Width="150" HorizontalAlignment="Left"/>
+                        </StackPanel>
+
+                        <!-- Reverse direction (Linear only — makes colors travel first → last node) -->
+                        <StackPanel Spacing="4" IsVisible="{Binding IsLinearMode}">
+                            <CheckBox IsChecked="{Binding IsMovementReversed}"
+                                      Content="Reverse direction (first node → last node)"/>
+                            <TextBlock Text="Check this so traveling pattern cells scroll from node 1 toward node N instead of the default N→1."
+                                       FontSize="10" Foreground="#888888" TextWrapping="Wrap"/>
                         </StackPanel>
 
                         <!-- Wave params (for SineWave) -->
