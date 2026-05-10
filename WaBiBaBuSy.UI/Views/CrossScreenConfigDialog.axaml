@@ -410,6 +410,14 @@
                                        FontSize="10" Foreground="#888888" TextWrapping="Wrap"/>
                         </StackPanel>
 
+                        <!-- Endless mode (Linear only — no loop reset, infinite color sequence) -->
+                        <StackPanel Spacing="4" IsVisible="{Binding IsLinearMode}">
+                            <CheckBox IsChecked="{Binding IsMovementEndless}"
+                                      Content="Endless (no loop reset)"/>
+                            <TextBlock Text="Pattern scrolls indefinitely — each cell gets a unique color, the sequence never repeats or jumps. Requires a Traveling color mode."
+                                       FontSize="10" Foreground="#888888" TextWrapping="Wrap"/>
+                        </StackPanel>
+
                         <!-- Wave params (for SineWave) -->
                         <StackPanel Spacing="5" IsVisible="{Binding IsSineWaveMode}">
                             <TextBlock Text="Wave Amplitude (px):" FontSize="12"/>

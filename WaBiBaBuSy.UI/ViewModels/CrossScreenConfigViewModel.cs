@@ -134,6 +134,9 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     // When true, Linear movement is reversed so cells travel from first node to last node.
     [ObservableProperty] private bool _isMovementReversed = false;
 
+    // When true, the pattern scrolls endlessly with no loop reset (requires Linear + Traveling mode).
+    [ObservableProperty] private bool _isMovementEndless = false;
+
     public bool IsLinearMode => SelectedMovementType?.Type == MovementType.Linear;
 
     [ObservableProperty]
@@ -399,6 +402,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         OrbitRadius = movement.OrbitRadiusPixels;
         RandomWalkIterationSteps = movement.IterationStepCount;
         IsMovementReversed = movement.Reversed;
+        IsMovementEndless = movement.Endless;
 
         // Restore monitor selection from config
         var selectedIds = new HashSet<string>(config.SelectedMonitorIds);
@@ -559,7 +563,8 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                 RandomSeed = 42,
                 RandomStepIntervalMs = 1000f,
                 IterationStepCount = RandomWalkIterationSteps,
-                Reversed = IsMovementReversed
+                Reversed = IsMovementReversed,
+                Endless = IsMovementEndless
             }
         };
     }

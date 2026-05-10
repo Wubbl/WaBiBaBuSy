@@ -57,7 +57,8 @@ public static class PatternLayout
         int cellW, int cellH,
         int virtualCanvasWidth, int virtualCanvasHeight,
         int monitorOffsetX, int monitorWidth, int monitorHeight,
-        int sourceImageCount)
+        int sourceImageCount,
+        int cellLogicalOffsetI = 0)
     {
         var result = new List<PatternCell>();
         if (config == null) return result;
@@ -89,7 +90,7 @@ public static class PatternLayout
             {
                 for (int i = iMin; i <= iMax; i++)
                 {
-                    AddCell(result, config, i, j, stepX, stepY, anchorX, anchorY, monitorOffsetX, srcCount);
+                    AddCell(result, config, i, j, stepX, stepY, anchorX, anchorY, monitorOffsetX, srcCount, cellLogicalOffsetI);
                 }
             }
         }
@@ -101,7 +102,7 @@ public static class PatternLayout
             {
                 for (int i = 0; i < countX; i++)
                 {
-                    AddCell(result, config, i, j, stepX, stepY, anchorX, anchorY, monitorOffsetX, srcCount);
+                    AddCell(result, config, i, j, stepX, stepY, anchorX, anchorY, monitorOffsetX, srcCount, cellLogicalOffsetI);
                 }
             }
         }
@@ -114,9 +115,10 @@ public static class PatternLayout
         int i, int j,
         float stepX, float stepY,
         float anchorX, float anchorY,
-        int monitorOffsetX, int srcCount)
+        int monitorOffsetX, int srcCount,
+        int cellLogicalOffsetI = 0)
     {
-        // Per-cell jitter (stable per logical (i, j))
+        // Per-cell jitter uses the grid position (i, j) — stable regardless of scroll offset.
         float jitterX = 0f, jitterY = 0f, jitterRot = 0f;
         if (config.RandomOffsetMaxPx > 0f || config.RandomRotationMaxDeg > 0f)
         {
@@ -130,15 +132,18 @@ public static class PatternLayout
             jitterRot = rrot * config.RandomRotationMaxDeg;
         }
 
-        // World position of this cell, then translate to local screen coords.
+        // World position uses grid position i (not offset) so geometry stays precise.
         float worldX = i * stepX;
         float worldY = j * stepY;
         float screenX = worldX - anchorX - monitorOffsetX + jitterX;
         float screenY = worldY - anchorY + jitterY;
 
-        int sourceIdx = (int)((uint)Hash3(config.Seed, i, j) % (uint)Math.Max(1, srcCount));
+        // LogicalI = i + offset for color hashing — grows indefinitely in endless mode,
+        // ensuring each cell gets a unique color and never repeats on loop.
+        int logicalI = i + cellLogicalOffsetI;
+        int sourceIdx = (int)((uint)Hash3(config.Seed, logicalI, j) % (uint)Math.Max(1, srcCount));
 
-        result.Add(new PatternCell(screenX, screenY, jitterRot, sourceIdx, i, j));
+        result.Add(new PatternCell(screenX, screenY, jitterRot, sourceIdx, logicalI, j));
     }
 
     /// <summary>3-input hash mixing the same Knuth multiplicative constant as MovementCalculator.</summary>

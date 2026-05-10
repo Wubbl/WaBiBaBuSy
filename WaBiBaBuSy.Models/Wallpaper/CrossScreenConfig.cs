@@ -470,4 +470,11 @@ public class MovementConfig
     /// Default false = left-to-right virtual (right-to-left visual, last node → first node).
     /// </summary>
     public bool Reversed { get; set; } = false;
+
+    /// <summary>
+    /// When true, the pattern scrolls endlessly without ever resetting. Requires Linear movement
+    /// and a Traveling color mode. Uses a phase+cell-offset approach so float precision stays perfect
+    /// and LogicalI values grow indefinitely — each new cell gets a unique color, never repeating.
+    /// </summary>
+    public bool Endless { get; set; } = false;
 }

@@ -535,6 +535,8 @@ class Program
     private static float _tileAlignStepX = 0f;
     // True when a Traveling color mode is active — cached to avoid re-checking config in UpdateAnimationPosition.
     private static bool _isTravelingMode = false;
+    // Endless mode state: integer cell offset (LogicalI bias) so colors never repeat on loop.
+    private static int _endlessCellOffsetI = 0;
 
     // Animation state
     private static volatile bool _isPlaying = false;
@@ -2235,21 +2237,39 @@ class Program
         // Standard movement via MovementCalculator (Static returns a centered, time-invariant position).
         if (_movementConfig != null)
         {
-            var (vx, vy) = MovementCalculator.Calculate(
-                _movementConfig, elapsedMs,
-                _animWidth, _animHeight,
-                _virtualCanvasWidth, _height,
-                tileAlignStepX: _isTravelingMode ? _tileAlignStepX : 0f);
-            _animX = vx - _monitorOffsetX;
-            _animY = vy;
-
-            // Clamp Y to corridor when ThreeZone background is active
-            if (_hasCorridorConstraint && _corridorHeightPx > 0)
+            // Endless mode: separate motion into a small float phase + a growing integer cell offset.
+            // phaseX stays in [0, stepX) so float precision is always perfect regardless of runtime.
+            // LogicalI grows unboundedly → every new cell has a unique color, no loop reset ever visible.
+            if (_isTravelingMode && _tileAlignStepX > 0f
+                && _movementConfig.Endless && _movementConfig.Type == MovementType.Linear)
             {
-                float minY = _corridorTopPx;
-                float maxY = _corridorTopPx + _corridorHeightPx - _animHeight;
-                if (maxY < minY) maxY = minY;
-                _animY = Math.Clamp(_animY, minY, maxY);
+                double scrolledD = (double)elapsedMs * _movementConfig.SpeedPixelsPerSecond / 1000.0;
+                long scrolledCells = (long)(scrolledD / _tileAlignStepX);
+                float phaseX = (float)(scrolledD - (double)scrolledCells * _tileAlignStepX);
+                _endlessCellOffsetI = _movementConfig.Reversed ? -(int)scrolledCells : (int)scrolledCells;
+                float vx = _movementConfig.Reversed ? -phaseX : phaseX;
+                _animX = vx - _monitorOffsetX;
+                _animY = _movementConfig.StartY ?? (_height - _animHeight) / 2f;
+            }
+            else
+            {
+                _endlessCellOffsetI = 0;
+                var (vx, vy) = MovementCalculator.Calculate(
+                    _movementConfig, elapsedMs,
+                    _animWidth, _animHeight,
+                    _virtualCanvasWidth, _height,
+                    tileAlignStepX: _isTravelingMode ? _tileAlignStepX : 0f);
+                _animX = vx - _monitorOffsetX;
+                _animY = vy;
+
+                // Clamp Y to corridor when ThreeZone background is active
+                if (_hasCorridorConstraint && _corridorHeightPx > 0)
+                {
+                    float minY = _corridorTopPx;
+                    float maxY = _corridorTopPx + _corridorHeightPx - _animHeight;
+                    if (maxY < minY) maxY = minY;
+                    _animY = Math.Clamp(_animY, minY, maxY);
+                }
             }
         }
         else if (_pixelsPerSecond > 0)
@@ -2960,7 +2980,8 @@ class Program
                 virtualCanvasWidth: _virtualCanvasWidth, virtualCanvasHeight: _height,
                 monitorOffsetX: _monitorOffsetX,
                 monitorWidth: _width, monitorHeight: _height,
-                sourceImageCount: sourceCount);
+                sourceImageCount: sourceCount,
+                cellLogicalOffsetI: _endlessCellOffsetI);
 
             bool hasFade = _maskZones && _iconZoneBands.Count > 0;
             float fadeRadius = cellH > 0 ? cellH : 80f;
