@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Core.Interfaces;
 using WaBiBaBuSy.Models;
 using WaBiBaBuSy.WallpaperEngine.Native;
+using WaBiBaBuSy.WallpaperEngine.Services;
 
 namespace WaBiBaBuSy.WallpaperEngine.Renderers;
 
@@ -91,7 +92,7 @@ public class ImageWallpaperRendererLibVLC : IWallpaperRenderer
             _logger.LogInformation("Normal mode - initializing LibVLC for direct rendering");
 
             // Initialize LibVLC
-            LibVLCSharp.Shared.Core.Initialize();
+            LibVLCSharp.Shared.Core.Initialize(LibVLCPreloader.GetLibDirectory());
             _libVLC = new LibVLC(enableDebugLogs: false,
                 "--no-video-title-show",  // Don't show video title
                 "--no-audio",             // No audio

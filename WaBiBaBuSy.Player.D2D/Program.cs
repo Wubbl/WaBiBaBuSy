@@ -15,6 +15,7 @@ using Newtonsoft.Json;
 using LibVLCSharp.Shared;
 using WaBiBaBuSy.Player.Common.Messages;
 using WaBiBaBuSy.WallpaperEngine.Composition;
+using WaBiBaBuSy.WallpaperEngine.Services;
 using WaBiBaBuSy.Models.Wallpaper;
 
 namespace WaBiBaBuSy.Player.D2D;
@@ -1527,7 +1528,7 @@ class Program
         _logger?.LogInformation("[VIDEO-INIT] Initializing LibVLC for native D2D video: {Path}", filePath);
 
         // Initialize LibVLC
-        LibVLCSharp.Shared.Core.Initialize();
+        LibVLCSharp.Shared.Core.Initialize(LibVLCPreloader.GetLibDirectory());
         _libVLC = new LibVLC(enableDebugLogs: false,
             "--no-video-title-show",
             "--no-audio",

@@ -138,4 +138,32 @@
     </ItemGroup>
     <Copy SourceFiles="@(FFmpegFilesPublish)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="Exists('ffmpeg\ffmpeg.exe')" />
   </Target>
+
+  <!--
+    Move libvlc native DLLs out of the Avalonia previewer shadow-copy scope.
+    The shadow copy covers net9.0-windows\ only. Moving to bin\{Config}\vlc-libs\
+    keeps the DLLs reachable at runtime via Core.Initialize() while hiding them from
+    the Avalonia previewer host's PreloadAssembliesForXaml, which tries to load every
+    *.dll it finds (including native Win32 DLLs) and crashes on BadImageFormatException.
+  -->
+  <Target Name="MoveLibVLCOutsideShadowCopyScope" AfterTargets="CopyPlayerD2DExecutables">
+    <ItemGroup>
+      <_LibVLCBuildFiles Include="$(OutputPath)libvlc\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_LibVLCBuildFiles)"
+          DestinationFolder="$(OutputPath)..\vlc-libs\%(RecursiveDir)"
+          SkipUnchangedFiles="true" />
+    <RemoveDir Directories="$(OutputPath)libvlc" Condition="Exists('$(OutputPath)libvlc')" />
+  </Target>
+
+  <Target Name="MoveLibVLCOnPublish" AfterTargets="CopyPlayerD2DExecutablesOnPublish">
+    <ItemGroup>
+      <_LibVLCPublishFiles Include="$(PublishDir)libvlc\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_LibVLCPublishFiles)"
+          DestinationFolder="$(PublishDir)vlc-libs\%(RecursiveDir)"
+          SkipUnchangedFiles="true" />
+    <RemoveDir Directories="$(PublishDir)libvlc" Condition="Exists('$(PublishDir)libvlc')" />
+  </Target>
+
 </Project>

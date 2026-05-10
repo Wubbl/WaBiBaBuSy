@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading.Tasks;
 using LibVLCSharp.Shared;
 using Microsoft.Extensions.Logging;
@@ -13,6 +14,25 @@ public static class LibVLCPreloader
 {
     private static bool _isInitialized = false;
     private static readonly object _lock = new object();
+
+    /// <summary>
+    /// Returns the directory containing libvlc.dll for the current platform.
+    /// Checks the production layout (vlc-libs/ next to the exe) first, then the
+    /// development layout (vlc-libs/ one level above the TFM output directory, which
+    /// keeps it outside the Avalonia previewer's shadow-copy scope).
+    /// </summary>
+    public static string GetLibDirectory()
+    {
+        string platform = Environment.Is64BitProcess ? "win-x64" : "win-x86";
+        string[] candidates =
+        [
+            Path.Combine(AppContext.BaseDirectory, "vlc-libs", platform),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "vlc-libs", platform)),
+            Path.Combine(AppContext.BaseDirectory, "libvlc", platform),
+        ];
+        return Array.Find(candidates, Directory.Exists)
+               ?? Path.Combine(AppContext.BaseDirectory, "libvlc", platform);
+    }
 
     /// <summary>
     /// Pre-initialize LibVLC in the background. Safe to call multiple times.
@@ -35,7 +55,7 @@ public static class LibVLCPreloader
                     var startTime = DateTime.Now;
 
                     // This is the slow call (~9 seconds)
-                    LibVLCSharp.Shared.Core.Initialize();
+                    LibVLCSharp.Shared.Core.Initialize(GetLibDirectory());
 
                     var elapsed = DateTime.Now - startTime;
                     logger?.LogInformation("LibVLC pre-initialized successfully in {ElapsedMs}ms", elapsed.TotalMilliseconds);

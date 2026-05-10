@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Core.Interfaces;
 using WaBiBaBuSy.Models;
 using WaBiBaBuSy.WallpaperEngine.Native;
+using WaBiBaBuSy.WallpaperEngine.Services;
 
 namespace WaBiBaBuSy.WallpaperEngine.Renderers;
 
@@ -114,7 +115,7 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
             }
 
             // Initialize LibVLC with optimized options for faster loading
-            LibVLCSharp.Shared.Core.Initialize();
+            LibVLCSharp.Shared.Core.Initialize(LibVLCPreloader.GetLibDirectory());
             _libVLC = new LibVLC(enableDebugLogs: false,
                 "--no-video-title-show",  // Don't show video title on video
                 "--no-audio",              // No audio for wallpaper
