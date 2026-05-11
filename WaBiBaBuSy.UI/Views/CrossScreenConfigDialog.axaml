@@ -402,11 +402,11 @@
                                            Width="150" HorizontalAlignment="Left"/>
                         </StackPanel>
 
-                        <!-- Reverse direction (Linear only — makes colors travel first → last node) -->
-                        <StackPanel Spacing="4" IsVisible="{Binding IsLinearMode}">
+                        <!-- Reverse direction (Linear/SineWave/Circular) -->
+                        <StackPanel Spacing="4" IsVisible="{Binding IsReversibleMode}">
                             <CheckBox IsChecked="{Binding IsMovementReversed}"
-                                      Content="Reverse direction (first node → last node)"/>
-                            <TextBlock Text="Check this so traveling pattern cells scroll from node 1 toward node N instead of the default N→1."
+                                      Content="Reverse direction"/>
+                            <TextBlock Text="Linear: swaps start/end (first node → last node).  SineWave: right-to-left.  Circular: counter-clockwise."
                                        FontSize="10" Foreground="#888888" TextWrapping="Wrap"/>
                         </StackPanel>
 

@@ -138,6 +138,10 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     [ObservableProperty] private bool _isMovementEndless = false;
 
     public bool IsLinearMode => SelectedMovementType?.Type == MovementType.Linear;
+    // Reversed is meaningful for Linear (swaps start/end), SineWave (flips horizontal travel), and Circular (CW↔CCW).
+    public bool IsReversibleMode => SelectedMovementType?.Type is MovementType.Linear
+                                                                or MovementType.SineWave
+                                                                or MovementType.Circular;
 
     [ObservableProperty]
     private int _corridorTopPx = 324;
@@ -280,6 +284,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsCircularMode));
         OnPropertyChanged(nameof(IsRandomWalkMode));
         OnPropertyChanged(nameof(IsLinearMode));
+        OnPropertyChanged(nameof(IsReversibleMode));
     }
 
     public void SetStorageProvider(IStorageProvider storageProvider)

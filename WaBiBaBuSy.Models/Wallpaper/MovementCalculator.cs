@@ -147,18 +147,21 @@ public static class MovementCalculator
     {
         float elapsedSec = elapsedMs / 1000f;
 
-        // X: linear left-to-right travel (wrapping)
-        float totalXDistance = canvasWidth + animWidth; // from off-screen left to off-screen right
+        // X: horizontal travel across the full canvas width (wrapping).
+        // Reversed=true → right-to-left (starts at canvasWidth, moves left).
+        float totalXDistance = canvasWidth + animWidth;
         float xTraveled = elapsedSec * config.SpeedPixelsPerSecond;
 
         float x;
         if (config.Loop)
         {
-            x = -animWidth + (xTraveled % totalXDistance);
+            float phase = xTraveled % totalXDistance;
+            x = config.Reversed ? (canvasWidth - phase) : (-animWidth + phase);
         }
         else
         {
-            x = -animWidth + MathF.Min(xTraveled, totalXDistance);
+            float phase = MathF.Min(xTraveled, totalXDistance);
+            x = config.Reversed ? (canvasWidth - phase) : (-animWidth + phase);
         }
 
         // Y: sine wave oscillation centered vertically
@@ -184,9 +187,10 @@ public static class MovementCalculator
 
         float elapsedSec = elapsedMs / 1000f;
 
-        // Angular velocity: omega = speed / radius (radians per second)
+        // Angular velocity: omega = speed / radius (radians per second).
+        // Reversed=true → counter-clockwise (negate angle).
         float omega = config.SpeedPixelsPerSecond / radius;
-        float angle = omega * elapsedSec;
+        float angle = (config.Reversed ? -1f : 1f) * omega * elapsedSec;
 
         // Position is the top-left corner of the animation bounding box
         float x = centerX + radius * MathF.Cos(angle) - animWidth / 2f;
