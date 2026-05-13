@@ -11,6 +11,9 @@
     <!-- Updater should be small and self-contained -->
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>false</SelfContained>
+
+    <!-- Require admin to write to C:\Program Files\ -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>

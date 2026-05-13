@@ -65,12 +65,14 @@ public class UpdateApplicator
 
             _logger.LogInformation("Launching updater with arguments: {Arguments}", arguments);
 
-            // Launch updater process
+            // Launch updater process — Verb="runas" ensures UAC elevation so the updater
+            // can write to C:\Program Files\ (manifest also requests requireAdministrator)
             var startInfo = new ProcessStartInfo
             {
                 FileName = updaterExePath,
                 Arguments = arguments,
                 UseShellExecute = true,
+                Verb = "runas",
                 WorkingDirectory = Path.GetDirectoryName(updaterExePath) ?? AppDomain.CurrentDomain.BaseDirectory
             };
 
