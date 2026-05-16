@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Timers;
 using Avalonia.Controls;
@@ -1912,7 +1913,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private async Task ApplyCrossScreenD2DFromRemoteAsync(
         string filePath, int monitorIndex, string backgroundColor, int fitMode,
         int virtualCanvasWidth, int monitorOffsetX, long sharedStartTimestampMs,
-        int pixelsPerSecond, bool perMonitorMode, int movementType)
+        int pixelsPerSecond, bool perMonitorMode, int movementType,
+        string patternJson = "", string colorGradingJson = "")
     {
         Debug.WriteLine($"[D2D-CrossScreen] Received: file={filePath}, monitor={monitorIndex}, canvas={virtualCanvasWidth}px, offset={monitorOffsetX}px, ts={sharedStartTimestampMs}ms, speed={pixelsPerSecond}px/s, perMonitor={perMonitorMode}, movType={movementType}");
 
@@ -1954,6 +1956,20 @@ public partial class MainWindowViewModel : ViewModelBase
             ColorHex = backgroundColor
         };
 
+        PatternConfig? pattern = null;
+        if (!string.IsNullOrEmpty(patternJson))
+        {
+            try { pattern = JsonSerializer.Deserialize<PatternConfig>(patternJson); }
+            catch { Debug.WriteLine("[D2D-CrossScreen] Failed to deserialize PatternConfig"); }
+        }
+
+        ColorGradingConfig colorGrading = new();
+        if (!string.IsNullOrEmpty(colorGradingJson))
+        {
+            try { colorGrading = JsonSerializer.Deserialize<ColorGradingConfig>(colorGradingJson) ?? new(); }
+            catch { Debug.WriteLine("[D2D-CrossScreen] Failed to deserialize ColorGradingConfig"); }
+        }
+
         var animationConfig = new AnimationLayerConfig
         {
             AnimationPath = filePath,
@@ -1961,7 +1977,9 @@ public partial class MainWindowViewModel : ViewModelBase
             Loop = true,
             VerticalAlign = VerticalAlignment.Center,
             CenterInitialPosition = true,
-            FitMode = (ContentFitMode)fitMode
+            FitMode = (ContentFitMode)fitMode,
+            Pattern = pattern,
+            ColorGrading = colorGrading
         };
 
         var movementConfig = movementType == 0
@@ -3030,7 +3048,9 @@ public partial class MainWindowViewModel : ViewModelBase
                         sharedStartTimestampMs: sharedStartTimestamp,
                         pixelsPerSecond: pixelsPerSecond,
                         perMonitorMode: !isSequential,
-                        movementType: movementTypeInt);
+                        movementType: movementTypeInt,
+                        pattern: _crossScreenConfig.Animation.Pattern,
+                        colorGrading: _crossScreenConfig.Animation.ColorGrading);
                 }
             }
             else if (remoteClients.Count > 0)

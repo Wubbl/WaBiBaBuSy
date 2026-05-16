@@ -33,10 +33,10 @@ public class WallpaperPlaybackService : IDisposable
     /// <summary>
     /// Delegate for cross-screen D2D rendering.
     /// (filePath, monitorIndex, backgroundColor, fitMode, virtualCanvasWidth, monitorOffsetX,
-    ///  sharedStartTimestampMs, pixelsPerSecond, perMonitorMode, movementType) → Task
+    ///  sharedStartTimestampMs, pixelsPerSecond, perMonitorMode, movementType, patternJson, colorGradingJson) → Task
     /// Set by the UI layer to enable synchronized cross-screen D2D animation on this client.
     /// </summary>
-    public Func<string, int, string, int, int, int, long, int, bool, int, Task>? D2DCrossScreenApplyDelegate { get; set; }
+    public Func<string, int, string, int, int, int, long, int, bool, int, string, string, Task>? D2DCrossScreenApplyDelegate { get; set; }
 
     /// <summary>
     /// Delegate invoked when the server sends a Stop command that targets cross-screen D2D content.
@@ -232,11 +232,13 @@ public class WallpaperPlaybackService : IDisposable
                     var pxPerSec = command.Params?.PixelsPerSecond ?? 0;
                     var perMonitor = command.Params?.PerMonitorMode ?? false;
                     var movType = command.Params?.MovementType ?? 0;
+                    var patternJson = command.Params?.PatternJson ?? string.Empty;
+                    var colorGradingJson = command.Params?.ColorGradingJson ?? string.Empty;
                     _logger.LogInformation(
                         "[Playback:LOAD] Cross-screen D2D: canvas={VCW}px, offset={Offset}px, ts={Ts}ms, speed={Speed}px/s, perMonitor={PerMonitor}, movType={MovType}",
                         virtualCanvasWidth, monitorOffsetX, sharedStartTs, pxPerSec, perMonitor, movType);
                     await D2DCrossScreenApplyDelegate(filePath, monitorIndex, bgColor, fitMode,
-                        virtualCanvasWidth, monitorOffsetX, sharedStartTs, pxPerSec, perMonitor, movType);
+                        virtualCanvasWidth, monitorOffsetX, sharedStartTs, pxPerSec, perMonitor, movType, patternJson, colorGradingJson);
                     _logger.LogInformation("[Playback:LOAD] Cross-screen D2D applied: {ContentId}", command.ContentId);
                 }
                 else

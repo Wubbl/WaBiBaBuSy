@@ -166,6 +166,8 @@ message SyncParameters {
   int32 pixels_per_second = 13;         // Animation movement speed
   bool per_monitor_mode = 14;           // false=spanning/sequential, true=simultaneous
   int32 movement_type = 15;             // 0=Static,1=Linear,2=Bounce,3=SineWave,4=Circular,5=RandomWalk
+  string pattern_json = 16;            // JSON-serialized PatternConfig (empty = no pattern)
+  string color_grading_json = 17;      // JSON-serialized ColorGradingConfig (empty = default/None)
 }
 
 // Sync response (client acknowledgment)

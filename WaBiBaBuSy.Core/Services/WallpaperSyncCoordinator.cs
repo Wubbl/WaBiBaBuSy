@@ -1,6 +1,8 @@
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Grpc;
 using WaBiBaBuSy.Grpc.Services;
+using WaBiBaBuSy.Models.Wallpaper;
 
 namespace WaBiBaBuSy.Core.Services;
 
@@ -383,7 +385,9 @@ public class WallpaperSyncCoordinator
         long sharedStartTimestampMs,
         int pixelsPerSecond,
         bool perMonitorMode,
-        int movementType)
+        int movementType,
+        PatternConfig? pattern = null,
+        ColorGradingConfig? colorGrading = null)
     {
         if (_syncService == null)
         {
@@ -410,7 +414,9 @@ public class WallpaperSyncCoordinator
                 SharedStartTimestampMs = sharedStartTimestampMs,
                 PixelsPerSecond = pixelsPerSecond,
                 PerMonitorMode = perMonitorMode,
-                MovementType = movementType
+                MovementType = movementType,
+                PatternJson = pattern != null ? JsonSerializer.Serialize(pattern) : string.Empty,
+                ColorGradingJson = colorGrading != null ? JsonSerializer.Serialize(colorGrading) : string.Empty
             }
         };
 

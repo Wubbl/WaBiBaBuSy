@@ -66,9 +66,9 @@ public class WaBiBaBuSyService : IDisposable
     /// Enables synchronized cross-screen D2D animation on this client.
     /// Signature: (filePath, monitorIndex, backgroundColor, fitMode,
     ///             virtualCanvasWidth, monitorOffsetX, sharedStartTimestampMs,
-    ///             pixelsPerSecond, perMonitorMode, movementType) → Task
+    ///             pixelsPerSecond, perMonitorMode, movementType, patternJson, colorGradingJson) → Task
     /// </summary>
-    public void SetD2DCrossScreenApplyDelegate(Func<string, int, string, int, int, int, long, int, bool, int, Task>? d2dCrossScreenApply)
+    public void SetD2DCrossScreenApplyDelegate(Func<string, int, string, int, int, int, long, int, bool, int, string, string, Task>? d2dCrossScreenApply)
     {
         if (_playbackService != null)
             _playbackService.D2DCrossScreenApplyDelegate = d2dCrossScreenApply;
