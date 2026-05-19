@@ -1140,19 +1140,15 @@ public partial class MainWindow : Window
 
     private void OnFileDragOver(object? sender, DragEventArgs e)
     {
-#pragma warning disable CS0618 // Avalonia 11.x: Data is deprecated but DataTransfer requires IAsyncDataTransfer
-        e.DragEffects = e.Data.Contains(DataFormats.Files)
+        e.DragEffects = e.DataTransfer.Contains(DataFormat.File)
             ? DragDropEffects.Copy
             : DragDropEffects.None;
-#pragma warning restore CS0618
     }
 
     private void OnFileDrop(object? sender, DragEventArgs e)
     {
         if (DataContext is not MainWindowViewModel vm) return;
-#pragma warning disable CS0618
-        var files = e.Data.GetFiles();
-#pragma warning restore CS0618
+        var files = e.DataTransfer.TryGetFiles();
         if (files == null) return;
         foreach (var item in files)
         {
