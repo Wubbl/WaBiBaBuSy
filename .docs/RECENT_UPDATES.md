@@ -4,6 +4,19 @@
 
 ---
 
+## 2026-07-07 — Tier 1 Reliability: Trustworthy Multi-Machine Sync
+
+Plan: `.docs/plans/2026-07-07-tier1-reliability.md`. New `WaBiBaBuSy.Tests` xunit project (12 tests).
+
+- **NEW: Clock-offset compensation** — every heartbeat feeds an NTP-style min-RTT `ClockOffsetEstimator` (Models.Networking); incoming command timestamps (`TimestampUtc`, `SharedStartTimestampMs`) are converted from server-clock to local-clock terms at the sync-stream boundary. The ±50ms target no longer requires machines to have synced Windows clocks.
+- **NEW: Auto-reconnection** — `WallpaperSyncClient` reconnects with 1s..30s exponential backoff on sync-stream loss or 3 consecutive heartbeat failures; fires `ConnectionStatusChanged` immediately (previously it stayed a "connected" zombie).
+- **NEW: Session resume** — the coordinator remembers the active cross-screen command per client and re-sends it when the client re-registers; epoch back-dating lands the rejoining machine at the correct mid-animation position.
+- **FIXED: Remote parameter parity** — `SyncParameters` gains `movement_json`/`animation_json`/`background_json`/`target_monitor_index`; remote clients now receive the full `MovementConfig` (Reversed/Endless/wave/orbit/seed), `AnimationLayerConfig` (TargetHeight, SpeedMultiplier, precomputed IconZone A* path, pattern, color grading) and `BackgroundLayerConfig`. Delegate is now `Func<CrossScreenApplyRequest, Task>` (new Models DTO).
+- **FIXED: Simultaneous mode on remotes** — per-monitor mode no longer receives the spanning canvas/offset overrides (was silently rendering as Sequential on remote machines).
+- **FIXED: Server hardening** — bind failures surface (`await app.StartAsync()`); per-client `SemaphoreSlim` serializes gRPC stream writes (overlapping writes silently dropped commands); 10s sweep removes clients with heartbeat >30s old; client/host `Dispose` no longer risks UI deadlock.
+- **NEW: Real remote monitor geometry** — clients report physical pixels-per-cm per monitor (`GetDpiForMonitor`) at registration; server gap math uses it instead of assuming its own monitor model.
+- **Known remaining gaps:** background images / multi-image sources are not file-transferred to remotes (graceful fallback); TimingSynchronizer drift loop still dead code; float-precision folding + RandomWalk seed-rotation continuity still open (see OpenIssues).
+
 ## 2026-07-07 — Documentation Audit (retroactive changelog)
 
 The changelog was not maintained between 2026-03-29 and 2026-05-19. The entries below reconstruct that period from git history. Version 2.0 → 2.6.3 during this window.
