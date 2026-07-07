@@ -23,6 +23,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WaBiBaBuSy.D2DTest", "WaBiB
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WaBiBaBuSy.Player.D2D", "WaBiBaBuSy.Player.D2D\WaBiBaBuSy.Player.D2D.csproj", "{272AC6E2-0430-4D6A-83E2-30713C83D87F}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WaBiBaBuSy.Tests", "WaBiBaBuSy.Tests\WaBiBaBuSy.Tests.csproj", "{003D8085-E986-4845-89AC-767ADD66E434}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -153,6 +155,18 @@ Global
 		{272AC6E2-0430-4D6A-83E2-30713C83D87F}.Release|x64.Build.0 = Release|Any CPU
 		{272AC6E2-0430-4D6A-83E2-30713C83D87F}.Release|x86.ActiveCfg = Release|Any CPU
 		{272AC6E2-0430-4D6A-83E2-30713C83D87F}.Release|x86.Build.0 = Release|Any CPU
+		{003D8085-E986-4845-89AC-767ADD66E434}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{003D8085-E986-4845-89AC-767ADD66E434}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{003D8085-E986-4845-89AC-767ADD66E434}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{003D8085-E986-4845-89AC-767ADD66E434}.Debug|x64.Build.0 = Debug|Any CPU
+		{003D8085-E986-4845-89AC-767ADD66E434}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{003D8085-E986-4845-89AC-767ADD66E434}.Debug|x86.Build.0 = Debug|Any CPU
+		{003D8085-E986-4845-89AC-767ADD66E434}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{003D8085-E986-4845-89AC-767ADD66E434}.Release|Any CPU.Build.0 = Release|Any CPU
+		{003D8085-E986-4845-89AC-767ADD66E434}.Release|x64.ActiveCfg = Release|Any CPU
+		{003D8085-E986-4845-89AC-767ADD66E434}.Release|x64.Build.0 = Release|Any CPU
+		{003D8085-E986-4845-89AC-767ADD66E434}.Release|x86.ActiveCfg = Release|Any CPU
+		{003D8085-E986-4845-89AC-767ADD66E434}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
