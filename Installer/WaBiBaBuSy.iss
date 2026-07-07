@@ -4,7 +4,7 @@
 #define MyAppName "WaBiBaBuSy"
 ; MyAppVersion is passed from Build-Installer.ps1 via /D flag; fallback if building manually
 #ifndef MyAppVersion
-  #define MyAppVersion "2.3.1"
+  #define MyAppVersion "2.6.3"
 #endif
 ; MyBuildNumber is passed from Build-Installer.ps1 via /D flag
 #ifndef MyBuildNumber

@@ -1,18 +1,23 @@
 # WaBiBaBuSy - Wallpaper Synchronization System
 
 **Project Name:** WallpaperBiBaBuSync (BiBaBu = our club name)
-**Version:** 2.0 | **Framework:** .NET 8.0 | **Status:** MVP ~99% Complete
-**Last Updated:** 2026-03-24 | **Next:** E2E Multi-Client Testing, file logging validation
+**Version:** 2.6.3 | **Framework:** .NET 9.0 | **Status:** MVP complete + post-MVP visual features
+**Last Updated:** 2026-07-07 | **Next:** E2E Multi-Client Testing, remote parameter parity, reconnection
 
 WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5% server CPU, ±50ms drift tolerance, and distributed client-side rendering. Supports images (JPG/PNG/BMP), videos (MP4/AVI/MKV), and GIFs across multi-monitor setups.
 
 ## Key Capabilities
 
 - Synchronized wallpaper playback across multiple Windows machines
-- Server-client architecture with visual network topology management
+- Server-client architecture with visual network topology management (client ordering, physical distance/bezel gaps, refresh-rate display)
 - Hardware-accelerated Direct2D rendering with separate player process
-- Precise timing synchronization with drift detection (±50ms tolerance)
+- Precise timing synchronization via shared UTC start timestamp + deterministic math (±50ms tolerance)
 - Multi-monitor support: Sequential (spanning) and Simultaneous (per-monitor) modes
+- 6 movement types (Static, Linear, Bounce, SineWave, Circular, RandomWalk) with Reversed/Endless options
+- Pattern grid multiplier: tile the animation into an infinite deterministic world-space grid (spacing, jitter, rotation, multi-image)
+- Color grading: 8 modes — time-based (Rainbow, RandomColors, Gradient, CycleColorList) and per-cell Traveling Colors (Rainbow/List/Random)
+- Backgrounds: SolidColor, StretchedImage, TiledImage, ThreeZone corridor, IconZone (A* pathfinding around real desktop icons)
+- Debug overlay in player (F11 / IPC): A* path, icon rects, zone bands, movement trail, info panel
 - Auto-update system with SHA-256 verification and rollback
 - System tray operation with minimal UI footprint
 
@@ -28,11 +33,18 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 - **[Animation Movement System](.docs/ANIMATION_MOVEMENT_SYSTEM.md)** — Deterministic position calculation
 
 ### Project Tracking
+- **[Feature Overview & Roadmap](.docs/2026.07_FEATURE_OVERVIEW.md)** — Verified inventory of all animation features + feature-completeness roadmap (2026-07 audit)
 - **[Open Issues](.docs/2025.12_OpenIssues.md)** — Active bugs and items needing validation
 - **[Missing Features](.docs/2025.12_MissingFeatures.md)** — Feature roadmap and TODO tracking
-- **[Active Tasks](.docs/2026.01_TODO_ACTIVE.md)** — Current task list with priorities
 - **[Recent Updates](.docs/RECENT_UPDATES.md)** — Historical changelog of all milestones
+- **[IconZone Animation Issues](.docs/2026.04_IconZoneAnimation_TODO.md)** — Open IconZone bugs (April 2026)
 - **[D2D Issues & Fixes](.docs/2026.02_D2D_ISSUES.md)** — D2D-specific bug fixes (2026-02)
+- **[Archived Task List](.docs/2026.01_TODO_ACTIVE.md)** — Jan–Mar 2026 sprint (historical)
+
+### Feature Designs (`.docs/plans/`)
+- **[Corridor Animation System](.docs/plans/corridor-animation-system.md)** — ThreeZone background + corridor-constrained animation (implemented 2026-04)
+- **[IconZone Path Variation](.docs/plans/2026-04-24-iconzone-path-variation-plan.md)** / **[Variation Rotation](.docs/plans/2026-04-24-iconzone-variation-rotation-design.md)** — IconZone A* path design
+- **[Traveling Colors](.docs/plans/2026-05-01-traveling-colors.md)** — Per-cell color grading design (implemented 2026-05)
 
 ### Historical Reference
 - **[`.docs/_archive/`](.docs/_archive/)** — 33 archived docs (planning, diagnostics, session summaries, superseded designs)
@@ -73,6 +85,7 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 - **Separate process**: `WaBiBaBuSy.Player.D2D.exe` runs in its own process. DXGI swap chain windows in the main process crash `explorer.exe` on Windows 11 24H2+. NEVER move DXGI rendering back into the main process.
 - **Metadata-based IPC**: Main process sends animation metadata (file path, canvas size, offsets, movement config) to player processes via stdin/stdout JSON. Players render locally. Main process does NOT compose or send frames.
 - **Deterministic positioning**: All player processes independently calculate animation position from `elapsedTime + MovementCalculator`. No per-frame position IPC. This is what enables multi-monitor sync.
+- **Deterministic visuals everywhere**: Pattern layout (`PatternLayout.Hash3`), color grading (`ColorGrader`/`ComputeForCell`), and RandomWalk are all pure seeded functions of `(config, elapsedMs, cell identity)`. NEVER introduce `Random` without a shared seed, `DateTime.Now`, or per-machine state into these paths — remote machines must compute pixel-identical results.
 
 ### Animation Distribution Modes
 **There are exactly two modes. Their meaning is precise:**
@@ -112,19 +125,19 @@ dotnet run --project WaBiBaBuSy.UI
 
 ## Current Work (Priority Order)
 
-1. **VALIDATE: File logging** — Enable LogToFile, verify files at `%LOCALAPPDATA%\WaBiBaBuSy\Logs\`
-2. **VALIDATE: Distribution modes** — Test Sequential + Simultaneous with 2+ monitors
+1. **Remote parameter parity** — Remote clients receive only `movement_type` (int) + bg color; full `MovementConfig` (Reversed, Endless, wave/orbit/seed params) and non-solid backgrounds (StretchedImage/Tiled/ThreeZone/IconZone) never reach them → visuals diverge from server-local monitors when non-default settings are used
+2. **Auto-reconnection** — No reconnect logic exists in `WallpaperSyncClient` (backoff strategy in guidelines is aspirational)
 3. **E2E Multi-Client Testing** — Test with 1-3 real clients over network
-4. **Installer Testing** — Validate on clean Windows 10/11 systems
-5. **Video placeholder frames** — Replace with actual LibVLC frame capture in D2D mode
+4. **VALIDATE: File logging** — Enable LogToFile, verify files at `%LOCALAPPDATA%\WaBiBaBuSy\Logs\`
+5. **Installer Testing** — Validate on clean Windows 10/11 systems
 
-## MVP Success Criteria (6/6 Complete)
+## MVP Success Criteria (5/6 Complete)
 
 - 2+ machines sync video wallpaper playback
 - Drift under 50ms for 10+ minutes
 - CPU <15%, GPU <10%
 - Server UI allows client ordering and content selection
-- Graceful network disconnect recovery
+- Graceful network disconnect recovery — **NOT met**: no reconnection logic implemented yet
 - Installer works on clean Windows 10/11 (Inno Setup, see `/Installer/`)
 
 ## Performance Targets
@@ -137,7 +150,7 @@ dotnet run --project WaBiBaBuSy.UI
 | Memory | <200MB per client | Achieved |
 | Network | <1 Mbps during sync | Achieved |
 | Startup | <3 seconds | Achieved |
-| Reconnection | <5 seconds | Needs testing |
+| Reconnection | <5 seconds | Not implemented (no reconnect logic) |
 
 ## graphify
 

@@ -1,6 +1,6 @@
 # WaBiBaBuSy - Software Architecture
 
-**Last Updated:** 2026-03-24
+**Last Updated:** 2026-07-07
 
 This document describes the complete software architecture of WaBiBaBuSy. For project overview and development guidelines, see the root `CLAUDE.md`.
 
@@ -91,6 +91,8 @@ WaBiBaBuSy/
 │   ├── Native/
 │   │   ├── DesktopWindowManager.cs           # WorkerW desktop integration
 │   │   └── Win32Interop.cs                   # Win32 P/Invoke declarations
+│   ├── Desktop/
+│   │   └── ZonePlanner.cs                    # IconZone occupancy grid + A* pathfinding
 │   ├── Services/
 │   │   ├── BackgroundColorDetector.cs        # Edge pixel color auto-detection
 │   │   └── LibVLCPreloader.cs                # LibVLC pre-initialization
@@ -142,8 +144,12 @@ WaBiBaBuSy/
 │   │   ├── ClientConfiguration.cs      # Client-specific config
 │   │   └── LoggingConfiguration.cs     # Logging config model
 │   ├── Wallpaper/
-│   │   ├── CrossScreenConfig.cs        # Multi-monitor config
-│   │   ├── MovementCalculator.cs       # Deterministic position math
+│   │   ├── CrossScreenConfig.cs        # Multi-monitor config (MovementType/MovementConfig, BackgroundMode incl. ThreeZone/IconZone, ContentFitMode)
+│   │   ├── MovementCalculator.cs       # Deterministic position math (6 movement types)
+│   │   ├── PatternConfig.cs            # Pattern grid multiplier config
+│   │   ├── PatternLayout.cs            # Deterministic world-space cell grid (Hash3)
+│   │   ├── ColorGradingConfig.cs       # 8 color grading modes (incl. Traveling Colors)
+│   │   ├── ColorGrader.cs              # Per-frame + per-cell (ComputeForCell) tint matrices
 │   │   ├── WallpaperGallery.cs         # Gallery model
 │   │   └── WallpaperGalleryItem.cs     # Gallery item model
 │   ├── Animation/
@@ -176,7 +182,7 @@ WaBiBaBuSy/
 
 | Component | Technology |
 |-----------|-----------|
-| **Framework** | .NET 8.0 |
+| **Framework** | .NET 9.0 (`net9.0-windows` for UI/Core/Player/Engine, `net9.0` for Models/Grpc/Common) |
 | **UI** | Avalonia 11.x + CommunityToolkit.Mvvm |
 | **Communication** | gRPC + Protobuf |
 | **Rendering** | Vortice.Windows (Direct3D11/Direct2D) + LibVLCSharp (video) + Magick.NET (GIF) |

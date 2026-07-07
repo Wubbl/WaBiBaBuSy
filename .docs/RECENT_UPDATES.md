@@ -1,6 +1,40 @@
 # WaBiBaBuSy - Recent Updates & Changelog
 
-**Last Updated:** 2026-03-29
+**Last Updated:** 2026-07-07
+
+---
+
+## 2026-07-07 — Documentation Audit (retroactive changelog)
+
+The changelog was not maintained between 2026-03-29 and 2026-05-19. The entries below reconstruct that period from git history. Version 2.0 → 2.6.3 during this window.
+
+## 2026-05-13 to 2026-05-19 — Remote Networking Fixes + Maintenance
+
+- **FIXED: Remote networking — Pattern and Coloring modes** (`237cc4d`) — `PatternConfig` and `ColorGradingConfig` now serialized as JSON (`pattern_json` / `color_grading_json` in `SyncParameters`) so remote clients render the same pattern grid and colors as local monitors. **Known gap:** full `MovementConfig` (Reversed/Endless/wave/orbit/seed) and non-solid backgrounds are still NOT transmitted to remote clients — only `movement_type` int + bg color.
+- **Updater fixed again** (`8437cde`), **NuGet packages updated** (`abcad3d`), **Graphify knowledge graph set up** (`f338c21`).
+
+## 2026-05-02 to 2026-05-11 — Traveling Colors + Pattern Polish
+
+- **NEW: Traveling Colors** (plan: `.docs/plans/2026-05-01-traveling-colors.md`) — three per-cell `ColorGradingMode` values (`TravelingRainbow`, `TravelingList`, `TravelingRandom`): each pattern cell gets a fixed color from its `(LogicalI, LogicalJ)` grid identity via `ColorGrader.ComputeForCell`, so colors travel with elements across monitors instead of cycling uniformly. Fixes in the series: hue distribution, TravelingList overflow, stale matrix in non-pattern paths.
+- **Pattern fixes** — Pattern Life fixed, pattern gradient + white icon zones fixed, pattern fading improvements, "best fading logic".
+- **Reverse option** extended to all applicable movement types (Linear, SineWave, Circular) (`81d6a21`).
+- **Remote node fixes** (`0c27fd6`); refresh rate now always shown in topology nodes (`97d707e`) with mismatch warning (see tearing issue in OpenIssues).
+
+## 2026-04-04 to 2026-04-24 — Corridor + IconZone Animation Systems
+
+- **NEW: Corridor Animation System** (v1 → v2.3; plan: `.docs/plans/corridor-animation-system.md`) — `ThreeZone` background mode (top zone / darker middle corridor / bottom zone) constrains the animation path to a user-defined horizontal band so it avoids desktop-icon areas.
+- **NEW: IconZone Animation** (v2.4 → v2.5; open issues: `.docs/2026.04_IconZoneAnimation_TODO.md`) — `IconZone` background mode reads real desktop icon positions (`SysListView32` / `LVM_GETITEMPOSITION`), builds occupancy zones (`ZonePlanner`), and routes the animation along an **A\* path** through icon-free space. Dynamic zone sizing, zone merge/expansion, feathered fades, per-cluster palettes (debug), desktop-refresh handling.
+- **Sequential pathing** — corridor/A* path regenerates per traverse; RandomWalk iteration seed rotation; traverse-detection fix preventing 1-frame position jumps; Bounce traverse formula fix; sequential pathing reset fix.
+- **FIXED: Flickering** — `ValidateRect` in `WM_PAINT` prevents invalidation feedback loop.
+- **Debug overlay** — per-flag controls in main window toolbar (path, icon rects, zone band outlines, info panel); `ShowZoneBandOutlines` rendering implemented; `ToggleDebugOverlay` state sync fixed.
+- **UI** — Animation Config dialog rework, uniform 28px toolbar control heights, icon zone config layout fixes.
+- **Maintenance** — NuGets with vulnerabilities updated; `.worktrees/` gitignored.
+
+## 2026-03-30 to 2026-03-31 — Static Images + Updater + Remote Animation
+
+- **FIXED: Static image rendering** — JPG/PNG/BMP load as a single Magick.NET frame through the native D2D GIF pipeline.
+- **Updater fixes** (multiple rounds), player deployment issues fixed, Bezier arrow head in topology view fixed, remote animation fixes.
+- **Docs updated** with rendering architecture (`ab1b1bc`).
 
 ---
 
