@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-07-07 — Movement Polish + mDNS Server Browser (Tier 2 start)
+
+- **FIXED: Long-uptime float precision** — `MovementCalculator` folds elapsed time into each movement's period in double before float math; positions stay sub-pixel accurate after weeks of uptime (previously multi-pixel stutter after ~2 days, unit-tested at 40 days).
+- **FIXED: RandomWalk seed-rotation teleport** — boundary waypoints pinned to the previous iteration's seed; the walk is now continuous across seed rotations while still never repeating.
+- **FIXED: Drift telemetry computed as 0** in `ClientAnimationRenderer`; `TimingSynchronizer` latent bugs fixed (session-scoped clients, CS1998) — the loop itself remains unwired (orchestrator path only).
+- **NEW: mDNS Server Browser** — "Find..." button next to Connect opens a live dialog of discovered servers (`ServerBrowserDialog`); double-click connects. Uses the existing `MdnsClientDiscoveryService`.
+- Tests: 19 total (7 new movement determinism/precision tests).
+
 ## 2026-07-07 — Tier 1 Reliability: Trustworthy Multi-Machine Sync
 
 Plan: `.docs/plans/2026-07-07-tier1-reliability.md`. New `WaBiBaBuSy.Tests` xunit project (12 tests).

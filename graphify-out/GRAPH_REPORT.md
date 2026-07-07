@@ -1,16 +1,16 @@
 # Graph Report - WaBiBaBuSy  (2026-07-07)
 
 ## Corpus Check
-- 1000 files · ~2,799,578 words
+- 1009 files · ~2,801,468 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 5427 nodes · 8042 edges · 745 communities (493 shown, 252 thin omitted)
+- 5464 nodes · 8083 edges · 760 communities (500 shown, 260 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 11 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `673b4c8d`
+- Built from commit: `e15d8613`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -36,7 +36,8 @@
 - [[_COMMUNITY_Community 18|Community 18]]
 - [[_COMMUNITY_Community 19|Community 19]]
 - [[_COMMUNITY_Community 20|Community 20]]
-- [[_COMMUNITY_Community 21|Community 21]]
+- [[_COMMUNITY_Community 24|Community 24]]
+- [[_COMMUNITY_Community 25|Community 25]]
 - [[_COMMUNITY_Community 26|Community 26]]
 - [[_COMMUNITY_Community 27|Community 27]]
 - [[_COMMUNITY_Community 28|Community 28]]
@@ -73,10 +74,10 @@
 - [[_COMMUNITY_Community 59|Community 59]]
 - [[_COMMUNITY_Community 60|Community 60]]
 - [[_COMMUNITY_Community 61|Community 61]]
+- [[_COMMUNITY_Community 62|Community 62]]
 - [[_COMMUNITY_Community 63|Community 63]]
 - [[_COMMUNITY_Community 64|Community 64]]
 - [[_COMMUNITY_Community 65|Community 65]]
-- [[_COMMUNITY_Community 66|Community 66]]
 - [[_COMMUNITY_Community 67|Community 67]]
 - [[_COMMUNITY_Community 68|Community 68]]
 - [[_COMMUNITY_Community 69|Community 69]]
@@ -88,7 +89,6 @@
 - [[_COMMUNITY_Community 75|Community 75]]
 - [[_COMMUNITY_Community 76|Community 76]]
 - [[_COMMUNITY_Community 77|Community 77]]
-- [[_COMMUNITY_Community 78|Community 78]]
 - [[_COMMUNITY_Community 79|Community 79]]
 - [[_COMMUNITY_Community 80|Community 80]]
 - [[_COMMUNITY_Community 81|Community 81]]
@@ -115,7 +115,6 @@
 - [[_COMMUNITY_Community 102|Community 102]]
 - [[_COMMUNITY_Community 103|Community 103]]
 - [[_COMMUNITY_Community 104|Community 104]]
-- [[_COMMUNITY_Community 105|Community 105]]
 - [[_COMMUNITY_Community 106|Community 106]]
 - [[_COMMUNITY_Community 107|Community 107]]
 - [[_COMMUNITY_Community 108|Community 108]]
@@ -124,6 +123,8 @@
 - [[_COMMUNITY_Community 111|Community 111]]
 - [[_COMMUNITY_Community 112|Community 112]]
 - [[_COMMUNITY_Community 113|Community 113]]
+- [[_COMMUNITY_Community 114|Community 114]]
+- [[_COMMUNITY_Community 115|Community 115]]
 - [[_COMMUNITY_Community 116|Community 116]]
 - [[_COMMUNITY_Community 117|Community 117]]
 - [[_COMMUNITY_Community 118|Community 118]]
@@ -136,26 +137,25 @@
 - [[_COMMUNITY_Community 125|Community 125]]
 - [[_COMMUNITY_Community 126|Community 126]]
 - [[_COMMUNITY_Community 127|Community 127]]
+- [[_COMMUNITY_Community 128|Community 128]]
 - [[_COMMUNITY_Community 129|Community 129]]
 - [[_COMMUNITY_Community 130|Community 130]]
 - [[_COMMUNITY_Community 131|Community 131]]
 - [[_COMMUNITY_Community 132|Community 132]]
 - [[_COMMUNITY_Community 133|Community 133]]
 - [[_COMMUNITY_Community 134|Community 134]]
+- [[_COMMUNITY_Community 135|Community 135]]
 - [[_COMMUNITY_Community 136|Community 136]]
 - [[_COMMUNITY_Community 137|Community 137]]
-- [[_COMMUNITY_Community 138|Community 138]]
-- [[_COMMUNITY_Community 139|Community 139]]
-- [[_COMMUNITY_Community 140|Community 140]]
 - [[_COMMUNITY_Community 141|Community 141]]
 - [[_COMMUNITY_Community 142|Community 142]]
 - [[_COMMUNITY_Community 143|Community 143]]
 - [[_COMMUNITY_Community 144|Community 144]]
 - [[_COMMUNITY_Community 145|Community 145]]
+- [[_COMMUNITY_Community 146|Community 146]]
 - [[_COMMUNITY_Community 147|Community 147]]
 - [[_COMMUNITY_Community 148|Community 148]]
 - [[_COMMUNITY_Community 149|Community 149]]
-- [[_COMMUNITY_Community 150|Community 150]]
 - [[_COMMUNITY_Community 151|Community 151]]
 - [[_COMMUNITY_Community 152|Community 152]]
 - [[_COMMUNITY_Community 153|Community 153]]
@@ -164,6 +164,7 @@
 - [[_COMMUNITY_Community 156|Community 156]]
 - [[_COMMUNITY_Community 157|Community 157]]
 - [[_COMMUNITY_Community 158|Community 158]]
+- [[_COMMUNITY_Community 159|Community 159]]
 - [[_COMMUNITY_Community 160|Community 160]]
 - [[_COMMUNITY_Community 161|Community 161]]
 - [[_COMMUNITY_Community 162|Community 162]]
@@ -203,6 +204,7 @@
 - [[_COMMUNITY_Community 196|Community 196]]
 - [[_COMMUNITY_Community 197|Community 197]]
 - [[_COMMUNITY_Community 198|Community 198]]
+- [[_COMMUNITY_Community 199|Community 199]]
 - [[_COMMUNITY_Community 200|Community 200]]
 - [[_COMMUNITY_Community 201|Community 201]]
 - [[_COMMUNITY_Community 202|Community 202]]
@@ -303,7 +305,6 @@
 - [[_COMMUNITY_Community 297|Community 297]]
 - [[_COMMUNITY_Community 298|Community 298]]
 - [[_COMMUNITY_Community 299|Community 299]]
-- [[_COMMUNITY_Community 300|Community 300]]
 - [[_COMMUNITY_Community 301|Community 301]]
 - [[_COMMUNITY_Community 302|Community 302]]
 - [[_COMMUNITY_Community 303|Community 303]]
@@ -334,11 +335,8 @@
 - [[_COMMUNITY_Community 328|Community 328]]
 - [[_COMMUNITY_Community 329|Community 329]]
 - [[_COMMUNITY_Community 330|Community 330]]
-- [[_COMMUNITY_Community 331|Community 331]]
 - [[_COMMUNITY_Community 332|Community 332]]
 - [[_COMMUNITY_Community 333|Community 333]]
-- [[_COMMUNITY_Community 334|Community 334]]
-- [[_COMMUNITY_Community 335|Community 335]]
 - [[_COMMUNITY_Community 336|Community 336]]
 - [[_COMMUNITY_Community 337|Community 337]]
 - [[_COMMUNITY_Community 338|Community 338]]
@@ -380,6 +378,8 @@
 - [[_COMMUNITY_Community 374|Community 374]]
 - [[_COMMUNITY_Community 375|Community 375]]
 - [[_COMMUNITY_Community 376|Community 376]]
+- [[_COMMUNITY_Community 377|Community 377]]
+- [[_COMMUNITY_Community 378|Community 378]]
 - [[_COMMUNITY_Community 379|Community 379]]
 - [[_COMMUNITY_Community 380|Community 380]]
 - [[_COMMUNITY_Community 381|Community 381]]
@@ -412,13 +412,22 @@
 - [[_COMMUNITY_Community 408|Community 408]]
 - [[_COMMUNITY_Community 409|Community 409]]
 - [[_COMMUNITY_Community 410|Community 410]]
+- [[_COMMUNITY_Community 411|Community 411]]
+- [[_COMMUNITY_Community 412|Community 412]]
+- [[_COMMUNITY_Community 413|Community 413]]
+- [[_COMMUNITY_Community 414|Community 414]]
+- [[_COMMUNITY_Community 415|Community 415]]
+- [[_COMMUNITY_Community 416|Community 416]]
+- [[_COMMUNITY_Community 417|Community 417]]
+- [[_COMMUNITY_Community 418|Community 418]]
+- [[_COMMUNITY_Community 419|Community 419]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `Program` - 133 edges
-2. `int` - 105 edges
-3. `bool` - 105 edges
-4. `string` - 105 edges
-5. `MainWindowViewModel` - 105 edges
+2. `int` - 107 edges
+3. `MainWindowViewModel` - 107 edges
+4. `string` - 106 edges
+5. `bool` - 105 edges
 6. `NativeMethods` - 104 edges
 7. `MainViewModel` - 55 edges
 8. `WinDesktopCore` - 54 edges
@@ -430,22 +439,22 @@
   Lively-reference/src/Lively/Lively.Common/Helpers/Pinvoke/NativeMethods.cs → WaBiBaBuSy.WallpaperEngine/Renderers/VideoWallpaperRenderer.cs
 - `Weather` --references--> `string`  [EXTRACTED]
   Lively-reference/src/Lively/Lively.Common/Constants.cs → WaBiBaBuSy.WallpaperEngine/Direct2D/D2DVorticeRenderer.cs
+- `WindowStyles` --references--> `uint`  [EXTRACTED]
+  Lively-reference/src/Lively/Lively.Common/Helpers/Pinvoke/NativeMethods.cs → WaBiBaBuSy.WallpaperEngine/Native/Win32Interop.cs
+- `WaBiBaBuSyService` --references--> `MdnsClientDiscoveryService`  [EXTRACTED]
+  WaBiBaBuSy.Core/Services/WaBiBaBuSyService.cs → WaBiBaBuSy.UI/ViewModels/ServerBrowserViewModel.cs
 - `BackgroundLayerConfig` --references--> `BackgroundMode`  [EXTRACTED]
   WaBiBaBuSy.Grpc/obj/Release/net9.0/Protos/Wabibabusy.cs → WaBiBaBuSy.Player.D2D/Program.cs
-- `Program` --references--> `ushort`  [EXTRACTED]
-  WaBiBaBuSy.Player.D2D/Program.cs → WaBiBaBuSy.WallpaperEngine/Direct2D/D2DVorticeRenderer.cs
-- `Program` --references--> `ID3D11Device`  [EXTRACTED]
-  WaBiBaBuSy.Player.D2D/Program.cs → WaBiBaBuSy.WallpaperEngine/Direct2D/D2DVorticeRenderer.cs
 
-## Communities (745 total, 252 thin omitted)
+## Communities (760 total, 260 thin omitted)
 
 ### Community 0 - "Community 0"
 Cohesion: 0.04
-Nodes (39): ClientStatusEnum, IEquatable, int, DisplayMonitor, Lively.Models, pb, pbc, pbr (+31 more)
+Nodes (35): ClientStatusEnum, int, ReconnectBackoff, pb, pbc, pbr, AnimationStatusRequest, AnimationStopRequest (+27 more)
 
 ### Community 2 - "Community 2"
-Cohesion: 0.04
-Nodes (45): ApiErrors, Lively.Models.Gallery.API, AppRules, Bitmap, bool, ContentPageType, float, Lively.UI.Shared.ViewModels (+37 more)
+Cohesion: 0.03
+Nodes (52): ApiErrors, Lively.Models.Gallery.API, AppRules, Bitmap, bool, ContentPageType, float, Lively.UI.Shared.ViewModels (+44 more)
 
 ### Community 3 - "Community 3"
 Cohesion: 0.04
@@ -461,279 +470,275 @@ Nodes (8): ConcurrentDictionary<int, IWallpaperRenderer>, ConcurrentDictionary<i
 
 ### Community 6 - "Community 6"
 Cohesion: 0.05
-Nodes (19): Lively.UI.Shared.ViewModels, WallpaperLayoutViewModel, DispatcherQueue, IDesktopCoreClient, IDispatcherService, IDisplayManagerClient, IUserSettingsClient, LanguageModel (+11 more)
+Nodes (26): GalleryLoginViewModel, Lively.UI.Shared.ViewModels, GallerySubscriptionViewModel, Lively.UI.Shared.ViewModels, GalleryViewModel, Lively.UI.Shared.ViewModels, Lively.UI.Shared.ViewModels, ReportWallpaperViewModel (+18 more)
 
 ### Community 7 - "Community 7"
 Cohesion: 0.06
-Nodes (12): HttpClient, ITokenStore, GalleryClient, Lively.Gallery.Client, JsonTokenStore, Lively.Gallery.Client, ManualResetEventSlim, Server (+4 more)
+Nodes (9): DwmThumbnailWindow, IAppUpdaterService, GithubUpdaterService, Lively.Common.Services, AppUpdateServer, Lively.RPC, Lively.Services, ScreensaverService (+1 more)
 
 ### Community 8 - "Community 8"
+Cohesion: 0.04
+Nodes (31): Lively.UI.WinUI.Views.Pages.ControlPanel, WallpaperLayoutCustomiseView, GalleryLoginView, Lively.UI.WinUI.Views.Pages.Gallery, GallerySubscriptionView, Lively.UI.WinUI.Views.Pages.Gallery, Lively.UI.WinUI.Views.Pages.Gallery, ManageAccountView (+23 more)
+
+### Community 9 - "Community 9"
+Cohesion: 0.06
+Nodes (12): HttpClient, ITokenStore, GalleryClient, Lively.Gallery.Client, JsonTokenStore, Lively.Gallery.Client, ManualResetEventSlim, Server (+4 more)
+
+### Community 10 - "Community 10"
+Cohesion: 0.05
+Nodes (17): Lively.UI.Shared.ViewModels, WallpaperLayoutViewModel, DispatcherQueue, IDesktopCoreClient, IDispatcherService, IUserSettingsClient, LanguageModel, Languages (+9 more)
+
+### Community 11 - "Community 11"
 Cohesion: 0.36
 Nodes (10): browse(), sendBatchVLMCmd(), sendCommand(), sendEQCmd(), sendVLMCmd(), updateArt(), updateEQ(), updatePlayList() (+2 more)
 
-### Community 10 - "Community 10"
-Cohesion: 0.04
-Nodes (29): GalleryLibraryView, Lively.UI.WinUI.Views.Pages.Gallery, GalleryLoginView, Lively.UI.WinUI.Views.Pages.Gallery, GallerySubscriptionView, Lively.UI.WinUI.Views.Pages.Gallery, Lively.UI.WinUI.Views.Pages.Gallery, ManageAccountView (+21 more)
-
-### Community 11 - "Community 11"
+### Community 12 - "Community 12"
 Cohesion: 0.07
 Nodes (15): AccentPolicy, Color, BackgroundLayerRenderer, IDictionary, ProfessionalColorTable, Lively.Services, TranslucentTBService, TaskbarTheme (+7 more)
 
-### Community 12 - "Community 12"
-Cohesion: 0.06
-Nodes (25): GalleryLoginViewModel, Lively.UI.Shared.ViewModels, GallerySubscriptionViewModel, Lively.UI.Shared.ViewModels, GalleryViewModel, Lively.UI.Shared.ViewModels, Lively.UI.Shared.ViewModels, ReportWallpaperViewModel (+17 more)
-
-### Community 14 - "Community 14"
-Cohesion: 0.07
-Nodes (9): IAudioSessionControl2, IAudioSessionEnumerator, IAudioSessionManager2, IMMDevice, IMMDeviceEnumerator, ISimpleAudioVolume, Lively.Common.Helpers, MMDeviceEnumerator (+1 more)
-
 ### Community 15 - "Community 15"
-Cohesion: 0.22
-Nodes (5): createElementLi(), format_time(), isMobile(), setIntv(), toFloat()
-
-### Community 16 - "Community 16"
-Cohesion: 0.06
-Nodes (8): ClientConfiguration, MdnsClientDiscoveryService, WaBiBaBuSyService, UpdateApplicator, UpdateManager, WallpaperPlaybackService, WallpaperSyncCoordinator, WallpaperSyncServerHost
-
-### Community 18 - "Community 18"
 Cohesion: 0.06
 Nodes (13): Application, AppTheme, IServiceProvider, App, Lively, App, Lively.Player.Wmf, App (+5 more)
 
+### Community 16 - "Community 16"
+Cohesion: 0.07
+Nodes (9): IAudioSessionControl2, IAudioSessionEnumerator, IAudioSessionManager2, IMMDevice, IMMDeviceEnumerator, ISimpleAudioVolume, Lively.Common.Helpers, MMDeviceEnumerator (+1 more)
+
+### Community 17 - "Community 17"
+Cohesion: 0.22
+Nodes (5): createElementLi(), format_time(), isMobile(), setIntv(), toFloat()
+
 ### Community 19 - "Community 19"
-Cohesion: 0.1
-Nodes (6): AsyncDuplexStreamingCall, ClockOffsetEstimator, GrpcChannel, WallpaperSyncClient, ReconnectBackoff, ThumbnailCaptureService
+Cohesion: 0.09
+Nodes (7): AsyncDuplexStreamingCall, ClientConfiguration, ClockOffsetEstimator, GrpcChannel, WallpaperSyncClient, ReconnectBackoff, ThumbnailCaptureService
 
 ### Community 20 - "Community 20"
-Cohesion: 0.09
-Nodes (6): DwmThumbnailWindow, GithubUpdaterService, Lively.Common.Services, Lively.Services, ScreensaverService, Timer
+Cohesion: 0.06
+Nodes (6): WaBiBaBuSyService, UpdateApplicator, UpdateManager, WallpaperPlaybackService, WallpaperSyncCoordinator, WallpaperSyncServerHost
 
-### Community 26 - "Community 26"
-Cohesion: 0.07
+### Community 28 - "Community 28"
+Cohesion: 0.08
 Nodes (15): BackgroundMode, Color4, CompositionRenderer, ContentFitMode, DebugOverlayState, GCHandle, ID2D1Bitmap, ID2D1BitmapBrush (+7 more)
 
 ### Community 29 - "Community 29"
-Cohesion: 0.06
-Nodes (20): AddWallpaperCreateModel, AdvancedCollectionView, ApplicationsFactory, Lively.Common.Factories, AppThemeFactory, IApplicationsFactory, IAppThemeFactory, ICommandsClient (+12 more)
-
-### Community 30 - "Community 30"
 Cohesion: 0.07
 Nodes (6): INotifyPropertyChanged, IStorageProvider, MovementTypeOption, Lively.Common.Helpers.MVVM, ObservableObject, CrossScreenConfigViewModel
 
-### Community 31 - "Community 31"
+### Community 30 - "Community 30"
 Cohesion: 0.07
 Nodes (4): InAppNotificationModel, MainNavigationItem, Lively.UI.Shared.ViewModels, MainViewModel
 
-### Community 32 - "Community 32"
+### Community 31 - "Community 31"
 Cohesion: 0.07
 Nodes (6): IMainNavigator, IServiceScopeFactory, DialogService, Lively.UI.WinUI.Services, Lively.UI.WinUI.Services, MainNavigator
 
-### Community 33 - "Community 33"
+### Community 32 - "Community 32"
 Cohesion: 0.08
 Nodes (6): EventHandler, IMediaFormatConverter, Lively.UI.WinUI.Services, MediaFormatConverter, LibraryViewModel, Lively.UI.Shared.ViewModels
 
-### Community 34 - "Community 34"
-Cohesion: 0.09
-Nodes (14): Image, MainWindow, WaBiBaBuSy.Player.Image, MainWindow, WaBiBaBuSy.Player.Image, MainWindow, WaBiBaBuSy.Player.Image, MainWindow (+6 more)
-
-### Community 35 - "Community 35"
-Cohesion: 0.06
-Nodes (11): BackgroundLayerConfig, long, AnimationCompleteReport, AnimationMetadata, AnimationPrepare, AnimationReady, AnimationTimingSync, ClientInfo (+3 more)
-
-### Community 37 - "Community 37"
+### Community 33 - "Community 33"
 Cohesion: 0.07
-Nodes (17): GalleryFeaturedView, Lively.UI.WinUI.Views.Pages.Gallery, Lively.UI.WinUI.Views.Pages.Gallery, Lively.UI.WinUI.Views.Pages.Gallery, ReportWallpaperView, Lively.UI.WinUI.Views.Pages.Gallery, ShareWallpaperView, Media (+9 more)
+Nodes (16): GalleryFeaturedView, Lively.UI.WinUI.Views.Pages.Gallery, Lively.UI.WinUI.Views.Pages.Gallery, Lively.UI.WinUI.Views.Pages.Gallery, ReportWallpaperView, MainWindow, MainWindow, MainWindow (+8 more)
 
-### Community 38 - "Community 38"
-Cohesion: 0.11
+### Community 34 - "Community 34"
+Cohesion: 0.1
 Nodes (5): Border, Canvas, ClientNodeViewModel, Point, MainWindow
 
-### Community 39 - "Community 39"
+### Community 35 - "Community 35"
+Cohesion: 0.1
+Nodes (15): Image, Media, WaBiBaBuSy.Player.Image, WaBiBaBuSy.Player.Image, WaBiBaBuSy.Player.Image, WaBiBaBuSy.Player.Image, WaBiBaBuSy.Player.Image, WaBiBaBuSy.Player.Image (+7 more)
+
+### Community 37 - "Community 37"
+Cohesion: 0.09
+Nodes (6): Action, DiscoveredServerItem, MdnsClientDiscoveryService, DiscoveredServerItem, ServerBrowserViewModel, WallpaperMultiSelectDialogViewModel
+
+### Community 38 - "Community 38"
 Cohesion: 0.08
 Nodes (12): ACLineStatus, BatteryFlag, byte, Lively.Helpers.Hardware, PowerUtil, SystemPowerStatus, EncryptUtil, Lively.Common.Helpers (+4 more)
 
-### Community 40 - "Community 40"
+### Community 39 - "Community 39"
 Cohesion: 0.07
 Nodes (17): Exception, ScreenNotFoundException, Lively.Common.Exceptions, WallpaperFileException, WallpaperNotAllowedException, WallpaperNotFoundException, WallpaperPluginException, WallpaperPluginMediaCodecException (+9 more)
 
-### Community 41 - "Community 41"
+### Community 40 - "Community 40"
 Cohesion: 0.07
 Nodes (20): ControlModel, IDropdownItem, ButtonModel, Lively.Models.LivelyControls, CheckboxModel, Lively.Models.LivelyControls, ColorPickerModel, Lively.Models.LivelyControls (+12 more)
 
-### Community 43 - "Community 43"
+### Community 41 - "Community 41"
+Cohesion: 0.07
+Nodes (11): CommandType, CompressionType, long, AnimationCompleteReport, AnimationTimingSync, CrossScreenFrame, RegistrationResponse, SyncCommand (+3 more)
+
+### Community 42 - "Community 42"
+Cohesion: 0.08
+Nodes (17): AddWallpaperCreateModel, AdvancedCollectionView, ApplicationsFactory, Lively.Common.Factories, AppThemeFactory, IApplicationsFactory, IAppThemeFactory, IResourceService (+9 more)
+
+### Community 44 - "Community 44"
 Cohesion: 0.07
 Nodes (26): Application Files, Build Command, code:powershell (cd Installer), code:powershell (cd C:\Users\Patrick\Documents\GitHub\WaBiBaBuSy), code:powershell (# Run the installer), code:block4 (C:\Program Files\WaBiBaBuSy\), code:block5 (%LOCALAPPDATA%\WaBiBaBuSy\), Distribution (+18 more)
-
-### Community 45 - "Community 45"
-Cohesion: 0.1
-Nodes (9): IAppUpdaterService, IDownloadService, IHttpClientFactory, HttpDownloadService, Lively.Common.Services, AppUpdateServer, Lively.RPC, DepthEstimateWallpaperViewModel (+1 more)
 
 ### Community 46 - "Community 46"
 Cohesion: 0.08
 Nodes (25): 1. **Did you see ANYTHING on the desktop?**, 2. **Console Output - Copy All of These Logs:**, 3. **Pixel Values**, code:csharp (// Create D2D composition service (metadata-based, no Compos), code:block2 ([Player] info: D2DPlayer starting: bounds=(0,0,1920,1080), s), code:block3 ([Player] warn: [FRAME-0-FALLBACK] Composition not ready, ren), code:block4 ([Player] info: [LIBVLC-PIXEL] DisplayCallback #30 | Center p), code:block5 ([Player] info: D2DPlayer starting: ...) (+17 more)
 
 ### Community 47 - "Community 47"
-Cohesion: 0.14
-Nodes (3): Lively.Core.Wallpapers, MpvCommand, VideoMpvPlayer
-
-### Community 48 - "Community 48"
-Cohesion: 0.11
-Nodes (6): IWatchdogService, Process, Lively.Services, RunnerService, Lively.Core.Watchdog, WatchdogProcess
-
-### Community 49 - "Community 49"
 Cohesion: 0.08
 Nodes (4): AnimationService, AnimationFileDownloader, AnimationOrchestrator, ClientAnimationRenderer
 
-### Community 50 - "Community 50"
+### Community 48 - "Community 48"
 Cohesion: 0.08
 Nodes (13): PlayerCommandClose, PlayerCommandLoad, PlayerCommandLoadAnimation, PlayerCommandPlay, PlayerCommandRefresh, PlayerCommandSetDebugOverlayFlags, PlayerCommandStartAnimation, PlayerCommandStopAnimation (+5 more)
 
-### Community 51 - "Community 51"
-Cohesion: 0.11
-Nodes (12): D2DVorticeRenderer, OpenFileName, ID2D1Factory1, ID2D1RenderTarget, ID3D11Device, ID3D11DeviceContext, IDXGISwapChain1, IntPtr (+4 more)
-
-### Community 52 - "Community 52"
+### Community 49 - "Community 49"
 Cohesion: 0.11
 Nodes (6): AppMusicExclusionRuleModel, AudioDevice, AudioDeviceFactory, IAudioDeviceFactory, Lively.UI.Shared.ViewModels, SettingsWallpaperViewModel
 
-### Community 53 - "Community 53"
+### Community 50 - "Community 50"
+Cohesion: 0.11
+Nodes (6): Lively.UI.Shared.ViewModels, ScreensaverLayoutViewModel, DisplayServiceClient, IDisplayManagerClient, DisplayManagerClient, Lively.Grpc.Client
+
+### Community 51 - "Community 51"
+Cohesion: 0.17
+Nodes (4): IPlayback, PlaybackPolicy, Lively.Core.Suspend, Playback
+
+### Community 52 - "Community 52"
 Cohesion: 0.09
 Nodes (22): About, Automation, Contents, Designer, Download, Features, [Installer (Windows 10 1903 or above)](https://github.com/rocksdanister/lively/releases/latest), Join Discussions: (+14 more)
 
 ### Community 54 - "Community 54"
-Cohesion: 0.18
-Nodes (3): PlaybackPolicy, Lively.Core.Suspend, Playback
+Cohesion: 0.13
+Nodes (5): ChromiumWebBrowser, Form1, Lively.Player.CefSharp, WallpaperPlaybackState, StartArgs
 
-### Community 56 - "Community 56"
+### Community 55 - "Community 55"
 Cohesion: 0.09
 Nodes (21): Animation Distribution Modes, Architectural Invariants (DO NOT BREAK), code:bash (dotnet restore && dotnet build), Core Architecture, Current Work (Priority Order), D2D Player Architecture, Development Guidelines, Documentation Map (+13 more)
 
-### Community 58 - "Community 58"
+### Community 57 - "Community 57"
 Cohesion: 0.1
 Nodes (9): ControlPanelView, Lively.UI.WinUI.Views.Pages.ControlPanel, ControlPanelViewModel, Lively.UI.Shared.ViewModels, DialogNavigationItem, DialogPageType, IDialogNavigator, DialogNavigator (+1 more)
+
+### Community 58 - "Community 58"
+Cohesion: 0.13
+Nodes (9): D2DVorticeRenderer, ID2D1Factory1, ID2D1RenderTarget, ID3D11Device, ID3D11DeviceContext, IDXGISwapChain1, ScreenMapping, ushort (+1 more)
 
 ### Community 59 - "Community 59"
 Cohesion: 0.13
 Nodes (4): IWindowNative, Lively.Extensions, Lively.UI.WinUI.Extensions, WindowExtensions
 
-### Community 60 - "Community 60"
+### Community 61 - "Community 61"
+Cohesion: 0.15
+Nodes (15): EventArgs, DiscoveredServer, ServerDiscoveredEventArgs, ServerLostEventArgs, AnimationPrepareReceivedEventArgs, AnimationStartReceivedEventArgs, ConnectionStatusChangedEventArgs, CrossScreenFrameReceivedEventArgs (+7 more)
+
+### Community 62 - "Community 62"
 Cohesion: 0.1
 Nodes (3): DesktopWallpaperClass, IDesktopWallpaper, Lively.Common.Com
 
-### Community 61 - "Community 61"
+### Community 63 - "Community 63"
+Cohesion: 0.14
+Nodes (6): IAudioVisualizerService, IMMNotificationClient, Lively.Common.Services, NAudioVisualizerService, MMDeviceEnumerator, WasapiLoopbackCapture
+
+### Community 64 - "Community 64"
+Cohesion: 0.11
+Nodes (4): ICommandsClient, Lively.UI.Shared.ViewModels, SettingsSystemViewModel, MainWindow
+
+### Community 65 - "Community 65"
 Cohesion: 0.12
 Nodes (5): Icon, NotifyIcon, Random, Lively.Services, Systray
 
-### Community 64 - "Community 64"
-Cohesion: 0.15
-Nodes (6): Func, ILoggerProvider, FileLogger, FileLoggerProvider, StreamWriter, Program
-
-### Community 66 - "Community 66"
-Cohesion: 0.16
-Nodes (3): ChromiumWebBrowser, Form1, StartArgs
-
-### Community 67 - "Community 67"
-Cohesion: 0.15
-Nodes (5): IMMNotificationClient, Lively.Common.Services, NAudioVisualizerService, MMDeviceEnumerator, WasapiLoopbackCapture
-
 ### Community 68 - "Community 68"
-Cohesion: 0.13
-Nodes (3): IDesktopCore, Lively.RPC, WinDesktopCoreServer
+Cohesion: 0.16
+Nodes (3): Form, INowPlayingService, Form1
 
 ### Community 69 - "Community 69"
 Cohesion: 0.13
-Nodes (7): GridViewItemClickBehavior, DependencyProperty, UserControl, ColorPickerButton, Lively.UI.WinUI.UserControls, FolderView, Lively.UI.WinUI.UserControls
+Nodes (3): IDesktopCore, Lively.RPC, WinDesktopCoreServer
 
 ### Community 70 - "Community 70"
 Cohesion: 0.12
 Nodes (5): DesktopWallpaperPosition, IDesktopWallpaper, Lively.Core.Wallpapers, PictureWinApi, WinWallpaper
 
-### Community 72 - "Community 72"
-Cohesion: 0.14
-Nodes (3): DesktopServiceClient, Lively.Grpc.Client, WinDesktopCoreClient
-
-### Community 73 - "Community 73"
-Cohesion: 0.19
-Nodes (3): Lively.Grpc.Client, UserSettingsClient, SettingsServiceClient
-
 ### Community 74 - "Community 74"
-Cohesion: 0.11
-Nodes (9): IContainer, Form1, Lively.Player.CefSharp, Form1, Lively.Player.Vlc, Form1, Lively.Player.WebView2, PictureBox (+1 more)
-
-### Community 76 - "Community 76"
-Cohesion: 0.21
-Nodes (3): CommandHandler, Lively.Commandline, IPlayback
-
-### Community 78 - "Community 78"
-Cohesion: 0.18
-Nodes (13): EventArgs, DiscoveredServer, ServerDiscoveredEventArgs, ServerLostEventArgs, AnimationPrepareReceivedEventArgs, AnimationStartReceivedEventArgs, ConnectionStatusChangedEventArgs, CrossScreenFrameReceivedEventArgs (+5 more)
-
-### Community 81 - "Community 81"
 Cohesion: 0.11
 Nodes (11): DebugLog, Lively.Views, DiagnosticMenu, Lively.Views, Lively.Views, ScreenSaverPreview, SettingsWindow, Lively.Views (+3 more)
 
-### Community 83 - "Community 83"
+### Community 75 - "Community 75"
+Cohesion: 0.19
+Nodes (3): Lively.Grpc.Client, UserSettingsClient, SettingsServiceClient
+
+### Community 79 - "Community 79"
+Cohesion: 0.14
+Nodes (3): DesktopServiceClient, Lively.Grpc.Client, WinDesktopCoreClient
+
+### Community 80 - "Community 80"
+Cohesion: 0.11
+Nodes (9): IContainer, Form1, Lively.Player.CefSharp, Form1, Lively.Player.Vlc, Form1, Lively.Player.WebView2, PictureBox (+1 more)
+
+### Community 81 - "Community 81"
 Cohesion: 0.11
 Nodes (17): Alternative: Command Line Build, Building the Installer, "Cannot open file" error, code:powershell (dotnet publish WaBiBaBuSy.UI\WaBiBaBuSy.UI.csproj --configur), code:block2 (publish\installer\WaBiBaBuSy-Setup-2.0.0.exe), code:powershell ("C:\Program Files (x86)\Inno Setup 6\ISCC.exe" WaBiBaBuSy.is), Customization, Distribution (+9 more)
 
-### Community 84 - "Community 84"
-Cohesion: 0.16
-Nodes (4): IShellItem, IShellItemImageFactory, Lively.Common.Helpers.Shell, ThumbnailUtil
-
-### Community 85 - "Community 85"
-Cohesion: 0.12
-Nodes (6): JsonConverter, IpcMessageConverter, Lively.Common.JsonConverters, Lively.Common.JsonConverters, LivelyControlModelConverter, PlayerMessageConverter
-
-### Community 86 - "Community 86"
-Cohesion: 0.12
-Nodes (3): CommandsServiceClient, CommandsClient, Lively.Grpc.Client
-
-### Community 87 - "Community 87"
-Cohesion: 0.15
-Nodes (3): FrameDimension, GifWallpaperRenderer, WallpaperConfig
-
-### Community 88 - "Community 88"
-Cohesion: 0.17
-Nodes (7): INowPlayingService, Lively.Common.Services, NpsmNowPlayingService, MediaPlaybackDataSource, NowPlayingEventArgs, NowPlayingSession, NowPlayingSessionManager
-
-### Community 89 - "Community 89"
+### Community 83 - "Community 83"
 Cohesion: 0.12
 Nodes (6): Lively.Player.CefSharp.Extensions.CefSharp.DevTools, TaskMethodDevToolsMessageObserver, ContentDialogExtensions, Lively.UI.WinUI.Extensions, IDevToolsMessageObserver, TaskCompletionSource
 
-### Community 90 - "Community 90"
+### Community 84 - "Community 84"
 Cohesion: 0.17
 Nodes (3): IWallpaper, Lively.Core.Wallpapers, VideoWmfProcess
 
-### Community 91 - "Community 91"
+### Community 85 - "Community 85"
 Cohesion: 0.15
 Nodes (3): BlankWindow, DwmThumbnailPlayer, Lively.Core.Wallpapers
 
-### Community 93 - "Community 93"
+### Community 86 - "Community 86"
+Cohesion: 0.16
+Nodes (4): IShellItem, IShellItemImageFactory, Lively.Common.Helpers.Shell, ThumbnailUtil
+
+### Community 87 - "Community 87"
+Cohesion: 0.12
+Nodes (6): JsonConverter, IpcMessageConverter, Lively.Common.JsonConverters, Lively.Common.JsonConverters, LivelyControlModelConverter, PlayerMessageConverter
+
+### Community 88 - "Community 88"
+Cohesion: 0.12
+Nodes (3): CommandsServiceClient, CommandsClient, Lively.Grpc.Client
+
+### Community 90 - "Community 90"
 Cohesion: 0.15
 Nodes (6): ILogger, UpdateApplicator, UpdateDownloader, UpdateManager, UpdateDownloader, UpdateVerifier
 
-### Community 94 - "Community 94"
-Cohesion: 0.19
-Nodes (6): grpc, __Helper_MessageCache, WaBiBaBuSy.Grpc, WallpaperSync, ClientListChangedEventArgs, UpdateProgressEventArgs
+### Community 91 - "Community 91"
+Cohesion: 0.15
+Nodes (7): Func, ILoggerProvider, FileLogger, FileLoggerProvider, object, LibVLCPreloader, StreamWriter
 
-### Community 95 - "Community 95"
+### Community 92 - "Community 92"
+Cohesion: 0.13
+Nodes (3): ConcurrentDictionary<string, SyncCommand>, WallpaperSyncCoordinator, WallpaperSyncService
+
+### Community 93 - "Community 93"
 Cohesion: 0.13
 Nodes (10): CultureInfo, Icons, Lively.Properties, Lively.Player.CefSharp.Properties, Lively.Player.Vlc.Properties, Lively.Player.WebView2.Properties, Lively.Player.Wmf.Properties, Lively.Properties (+2 more)
 
-### Community 99 - "Community 99"
+### Community 97 - "Community 97"
+Cohesion: 0.18
+Nodes (6): Lively.Common.Services, NpsmNowPlayingService, MediaPlaybackDataSource, NowPlayingEventArgs, NowPlayingSession, NowPlayingSessionManager
+
+### Community 98 - "Community 98"
+Cohesion: 0.17
+Nodes (6): IDownloadService, IHttpClientFactory, HttpDownloadService, Lively.Common.Services, DepthEstimateWallpaperViewModel, Lively.UI.Shared.ViewModels
+
+### Community 101 - "Community 101"
+Cohesion: 0.15
+Nodes (4): MdnsClientDiscoveryService, MdnsServerService, ServiceDiscovery, ServiceProfile
+
+### Community 103 - "Community 103"
 Cohesion: 0.24
 Nodes (3): ContentCacheManager, WallpaperPlaybackService, WallpaperSyncClient
 
-### Community 102 - "Community 102"
-Cohesion: 0.15
-Nodes (7): IHost, MdnsServerService, MdnsServerService, ServerStatusChangedEventArgs, WallpaperSyncServerHost, ServerConfiguration, ServiceProfile
-
 ### Community 104 - "Community 104"
-Cohesion: 0.14
-Nodes (3): ConcurrentDictionary<string, SyncCommand>, WallpaperSyncCoordinator, WallpaperSyncService
-
-### Community 106 - "Community 106"
 Cohesion: 0.12
 Nodes (5): ConcurrentDictionary<int, D2DCompositionService>, IClassicDesktopStyleApplicationLifetime, MainWindow, TrayViewModel, WaBiBaBuSyService
+
+### Community 107 - "Community 107"
+Cohesion: 0.21
+Nodes (6): grpc, __Helper_MessageCache, WaBiBaBuSy.Grpc, WallpaperSync, ClientListChangedEventArgs, UpdateProgressEventArgs
 
 ### Community 109 - "Community 109"
 Cohesion: 0.16
@@ -745,203 +750,207 @@ Nodes (3): IEnumerable, FolderDropdown, Lively.UI.WinUI.UserControls
 
 ### Community 112 - "Community 112"
 Cohesion: 0.17
-Nodes (4): AnimationLayerRenderer, ILoggerFactory, IWallpaperRenderer, MovementConfig
+Nodes (3): AnimationOrchestrator, AnimationSchedule, AnimationDistributor
 
 ### Community 113 - "Community 113"
 Cohesion: 0.23
 Nodes (3): FileLoggerProvider, AppLogger, LoggingConfiguration
 
+### Community 115 - "Community 115"
+Cohesion: 0.18
+Nodes (5): AnimationLayerRenderer, BackgroundLayerRenderer, CompositionRenderer, ILoggerFactory, VirtualCanvasManager
+
 ### Community 116 - "Community 116"
-Cohesion: 0.15
-Nodes (4): LibVLC, MediaPlayer, ImageWallpaperRendererLibVLC, WallpaperState
+Cohesion: 0.17
+Nodes (4): AnimationLayerConfig, AnimationLayerRenderer, IWallpaperRenderer, MovementConfig
 
 ### Community 117 - "Community 117"
-Cohesion: 0.18
-Nodes (3): AppUpdateStatus, AppUpdateViewModel, Lively.UI.Shared.ViewModels
+Cohesion: 0.14
+Nodes (5): LibVLC, MediaPlayer, ImageWallpaperRendererLibVLC, WallpaperConfig, WallpaperState
 
-### Community 118 - "Community 118"
+### Community 119 - "Community 119"
 Cohesion: 0.16
 Nodes (6): ApplicationRulesModel, ApplicationsRulesFactory, Lively.Common.Factories, IApplicationsRulesFactory, Lively.UI.Shared.ViewModels, SettingsPerformanceViewModel
 
-### Community 121 - "Community 121"
+### Community 120 - "Community 120"
+Cohesion: 0.18
+Nodes (3): AppUpdateStatus, AppUpdateViewModel, Lively.UI.Shared.ViewModels
+
+### Community 122 - "Community 122"
 Cohesion: 0.16
 Nodes (4): ICommandHandler, IScreensaverService, CommandsServer, Lively.RPC
 
-### Community 124 - "Community 124"
-Cohesion: 0.18
-Nodes (4): TimingSynchronizer, TimingSyncSession, AnimationDistributor, ConcurrentDictionary
+### Community 125 - "Community 125"
+Cohesion: 0.19
+Nodes (3): TimingSynchronizer, TimingSyncSession, ConcurrentDictionary
 
 ### Community 127 - "Community 127"
+Cohesion: 0.17
+Nodes (5): IAppUpdaterClient, AppUpdaterClient, Lively.Grpc.Client, SemaphoreSlim, UpdateServiceClient
+
+### Community 128 - "Community 128"
 Cohesion: 0.15
-Nodes (5): GalleryView, List, Lively.Gallery.Client, SearchQueryBuilder, SortingType
+Nodes (7): DataTemplateSelector, ExplorerItemTemplateSelector, Lively.UI.WinUI.Helpers, Lively.UI.WinUI.Helpers, LivelyControlTemplateSelector, Lively.UI.WinUI.Helpers, NavigationMenuItemTemplateSelector
 
 ### Community 130 - "Community 130"
 Cohesion: 0.15
 Nodes (4): IDesktopCoreClient, Lively.Grpc.Client, WallpaperData, WallpaperUpdatedData
 
-### Community 132 - "Community 132"
-Cohesion: 0.15
-Nodes (7): DataTemplateSelector, ExplorerItemTemplateSelector, Lively.UI.WinUI.Helpers, Lively.UI.WinUI.Helpers, LivelyControlTemplateSelector, Lively.UI.WinUI.Helpers, NavigationMenuItemTemplateSelector
+### Community 131 - "Community 131"
+Cohesion: 0.17
+Nodes (7): IDisposable, IDisplayManagerClient, Lively.Grpc.Client, IAudioVisualizerService, Lively.Common.Services, Playback, PlaybackDeferrer
 
 ### Community 134 - "Community 134"
-Cohesion: 0.22
-Nodes (3): AnimationLayerRenderer, BackgroundLayerRenderer, CompositionRenderer
-
-### Community 138 - "Community 138"
-Cohesion: 0.26
-Nodes (3): CancellationTokenSource, HwndSource, MainWindow
-
-### Community 139 - "Community 139"
-Cohesion: 0.18
-Nodes (4): IAppUpdaterClient, AppUpdaterClient, Lively.Grpc.Client, UpdateServiceClient
-
-### Community 141 - "Community 141"
 Cohesion: 0.2
 Nodes (5): DebugLog, DiagnosticMenu, IRunnerService, Lively.Services, WindowService
 
-### Community 144 - "Community 144"
-Cohesion: 0.17
-Nodes (3): AnimationLayerConfig, D2DCompositionService, VirtualCanvasManager
-
-### Community 145 - "Community 145"
+### Community 141 - "Community 141"
 Cohesion: 0.17
 Nodes (11): code:csharp (public static ColorMatrix5x4 ComputeForCell(ColorGradingConf), code:csharp (bool isTraveling = config.ColorGrading.Mode is), code:csharp (var cellMatrix = ColorGrader.ComputeForCell(config.ColorGrad), ColorGrader Changes, New Enum Values, Non-Goals, Overview, Performance (+3 more)
 
-### Community 147 - "Community 147"
-Cohesion: 0.18
-Nodes (10): AppDefaults, ApplicationType, CommonPartialPaths, CommonPaths, Constants, Lively.Common, MachineLearning, PlayerPartialPaths (+2 more)
-
-### Community 149 - "Community 149"
+### Community 142 - "Community 142"
 Cohesion: 0.24
 Nodes (4): ResourceLoader, Lively.Services, Lively.UI.WinUI.Services, ResourceService
 
-### Community 151 - "Community 151"
+### Community 143 - "Community 143"
 Cohesion: 0.18
-Nodes (6): EyeDropper, Lively.UI.WinUI.Views.LivelyProperty, Lively.UI.WinUI.Views.LivelyProperty, LivelyPropertiesTray, LowLevelMouseHook, WindowEx
+Nodes (5): double, BlankWindow, Lively.Views, Lively.Views, SplashWindow
+
+### Community 144 - "Community 144"
+Cohesion: 0.18
+Nodes (3): LibraryPreviewViewModel, LibraryPreview, Lively.Views
+
+### Community 145 - "Community 145"
+Cohesion: 0.18
+Nodes (3): DwmThumbnailWrapper, DwmThumbnailWindow, Lively.Views
+
+### Community 146 - "Community 146"
+Cohesion: 0.18
+Nodes (10): AppDefaults, ApplicationType, CommonPartialPaths, CommonPaths, Constants, Lively.Common, MachineLearning, PlayerPartialPaths (+2 more)
 
 ### Community 152 - "Community 152"
 Cohesion: 0.18
-Nodes (3): Lively.UI.WinUI.Views.Pages, PatreonSupportersView, PatreonSupportersViewModel
+Nodes (6): EyeDropper, Lively.UI.WinUI.Views.LivelyProperty, Lively.UI.WinUI.Views.LivelyProperty, LivelyPropertiesTray, LowLevelMouseHook, WindowEx
 
 ### Community 153 - "Community 153"
+Cohesion: 0.18
+Nodes (3): Lively.UI.WinUI.Views.Pages, PatreonSupportersView, PatreonSupportersViewModel
+
+### Community 154 - "Community 154"
 Cohesion: 0.18
 Nodes (3): AppUpdateViewModel, AppUpdateView, Lively.UI.WinUI.Views.Pages
 
 ### Community 155 - "Community 155"
-Cohesion: 0.18
-Nodes (5): double, BlankWindow, Lively.Views, Lively.Views, SplashWindow
+Cohesion: 0.27
+Nodes (4): IWatchdogService, Process, Lively.Core.Watchdog, WatchdogProcess
 
 ### Community 156 - "Community 156"
-Cohesion: 0.18
-Nodes (3): DwmThumbnailWrapper, DwmThumbnailWindow, Lively.Views
+Cohesion: 0.22
+Nodes (8): char, COMRECT, GetParentProcess(), Lively.Common.Helpers.Pinvoke, MONITORINFOEX, NtQueryInformationProcess(), WindowStyles, RECT
 
 ### Community 157 - "Community 157"
-Cohesion: 0.18
-Nodes (3): LibraryPreviewViewModel, LibraryPreview, Lively.Views
-
-### Community 158 - "Community 158"
-Cohesion: 0.2
-Nodes (4): ViewModelBase, MonitorSelectionItem, ZoneColorItem, SettingsViewModel
-
-### Community 160 - "Community 160"
 Cohesion: 0.2
 Nodes (9): AppOptions, CloseWallpaperOptions, CommandlineArgs, CustomiseWallpaperOptions, Lively.Common, ScreenSaverOptions, ScreenshotOptions, SeekWallpaperOptions (+1 more)
 
-### Community 165 - "Community 165"
-Cohesion: 0.22
-Nodes (4): ClockOffsetEstimator, object, Queue, LibVLCPreloader
-
-### Community 166 - "Community 166"
+### Community 158 - "Community 158"
 Cohesion: 0.2
 Nodes (6): Lively.Player.WebView2, WallpaperPlaybackState, WebView, Lively.Player.WebView2.Extensions.WebView2, DevToolsExtensions, Lively.Player.WebView2.Extensions.WebView2
 
-### Community 168 - "Community 168"
+### Community 160 - "Community 160"
 Cohesion: 0.24
 Nodes (3): IWallpaperLibraryFactory, LibraryPreviewViewModel, Lively.ViewModels
 
-### Community 170 - "Community 170"
+### Community 161 - "Community 161"
+Cohesion: 0.24
+Nodes (3): CheckBoxCheckedChangedBehavior, Lively.UI.WinUI.Behaviors, DependencyProperty
+
+### Community 163 - "Community 163"
+Cohesion: 0.2
+Nodes (3): Lively.Gallery.Client, SearchQueryBuilder, SortingType
+
+### Community 166 - "Community 166"
 Cohesion: 0.2
 Nodes (5): AnimationAck, AnimationCompleteReport, AnimationStatusRequest, AnimationStatusResponse, AnimationStopRequest
 
-### Community 173 - "Community 173"
+### Community 174 - "Community 174"
 Cohesion: 0.22
 Nodes (4): ApplicationActivationManager, Lively.Common.Com, Lively.Utility.Screensaver.Com, IApplicationActivationManager
 
-### Community 175 - "Community 175"
-Cohesion: 0.28
-Nodes (3): PackageUtil, WindowStyles, uint
-
 ### Community 176 - "Community 176"
-Cohesion: 0.25
-Nodes (7): char, COMRECT, GetParentProcess(), Lively.Common.Helpers.Pinvoke, MONITORINFOEX, NtQueryInformationProcess(), RECT
-
-### Community 177 - "Community 177"
-Cohesion: 0.22
-Nodes (5): IDisposable, IDisplayManagerClient, Lively.Grpc.Client, IAudioVisualizerService, Lively.Common.Services
-
-### Community 178 - "Community 178"
-Cohesion: 0.28
-Nodes (4): DisplayServiceClient, DisplayManagerClient, Lively.Grpc.Client, SemaphoreSlim
-
-### Community 179 - "Community 179"
 Cohesion: 0.28
 Nodes (4): Lively.ML.DepthEstimate, MiDaS, IDepthEstimate, InferenceSession
 
-### Community 180 - "Community 180"
-Cohesion: 0.31
-Nodes (4): DesktopWindowManager, Form, CrossScreenFrameRenderer, Stopwatch
-
-### Community 181 - "Community 181"
+### Community 177 - "Community 177"
 Cohesion: 0.25
 Nodes (5): Lively.Player.CefSharp.Properties, Lively.Player.Vlc.Properties, Lively.Player.WebView2.Properties, Lively.Player.Wmf.Properties, Settings
 
-### Community 185 - "Community 185"
+### Community 181 - "Community 181"
 Cohesion: 0.25
 Nodes (3): IWindowService, DiagnosticViewModel, Lively.ViewModels
 
-### Community 191 - "Community 191"
+### Community 185 - "Community 185"
 Cohesion: 0.25
-Nodes (5): KeyboardClickRawArgs, Lively.Views.WindowMsg, MouseClickRawArgs, MouseRawArgs, RawInputMsgWindow
+Nodes (5): IHost, MdnsServerService, ServerStatusChangedEventArgs, WallpaperSyncServerHost, ServerConfiguration
 
-### Community 194 - "Community 194"
+### Community 189 - "Community 189"
+Cohesion: 0.22
+Nodes (3): BackgroundLayerConfig, AnimationMetadata, AnimationPrepare
+
+### Community 190 - "Community 190"
+Cohesion: 0.19
+Nodes (3): AnimationStatus, AnimationStatusResponse, LogReceiveResponse
+
+### Community 192 - "Community 192"
 Cohesion: 0.22
 Nodes (7): AnimationLayerConfig, BackgroundLayerConfig, CrossScreenConfig, MovementConfig, WaypointF, ZoneLayout, ZoneRect
 
-### Community 197 - "Community 197"
+### Community 194 - "Community 194"
 Cohesion: 0.31
 Nodes (3): PaletteGenerator, Dictionary, LocalizationLanguage
+
+### Community 195 - "Community 195"
+Cohesion: 0.25
+Nodes (5): KeyboardClickRawArgs, Lively.Views.WindowMsg, MouseClickRawArgs, MouseRawArgs, RawInputMsgWindow
 
 ### Community 201 - "Community 201"
 Cohesion: 0.25
 Nodes (3): IApplicationActivationManager, Lively.Common.Com, Lively.Utility.Screensaver.Com
 
-### Community 208 - "Community 208"
+### Community 207 - "Community 207"
 Cohesion: 0.25
 Nodes (3): Lively.Player.CefSharp.Extensions.CefSharp, MenuHandler, IContextMenuHandler
 
-### Community 209 - "Community 209"
+### Community 208 - "Community 208"
 Cohesion: 0.25
 Nodes (3): Lively.Player.CefSharp.Extensions.CefSharp, PopUpHandle, ILifeSpanHandler
 
-### Community 210 - "Community 210"
+### Community 212 - "Community 212"
+Cohesion: 0.29
+Nodes (3): CancellationTokenSource, Task, ProcessCommunicator
+
+### Community 214 - "Community 214"
 Cohesion: 0.29
 Nodes (4): Lively.UI.WinUI.Helpers, MicaCustomBackdrop, MicaController, SystemBackdrop
 
 ### Community 216 - "Community 216"
-Cohesion: 0.29
-Nodes (3): BooleanToVisibilityConverter, Lively.Converters, Lively.UI.WinUI.Helpers.Converters
+Cohesion: 0.36
+Nodes (3): DesktopWindowManager, CrossScreenFrameRenderer, Stopwatch
 
 ### Community 218 - "Community 218"
 Cohesion: 0.29
+Nodes (3): BooleanToVisibilityConverter, Lively.Converters, Lively.UI.WinUI.Helpers.Converters
+
+### Community 220 - "Community 220"
+Cohesion: 0.29
 Nodes (3): FileTypeModel, FileTypes, Lively.Common
 
-### Community 225 - "Community 225"
-Cohesion: 0.29
-Nodes (3): IPlayback, Lively.Core.Suspend, WallpaperControlEventArgs
-
-### Community 232 - "Community 232"
+### Community 230 - "Community 230"
 Cohesion: 0.38
 Nodes (3): ApplicationModel, Lively.Helpers, WindowsStartup
+
+### Community 231 - "Community 231"
+Cohesion: 0.38
+Nodes (3): Lively.Utility.Watchdog, Program, UInt32
 
 ### Community 233 - "Community 233"
 Cohesion: 0.33
@@ -951,88 +960,92 @@ Nodes (4): IInitializeWithWindow, IWindowNative, Lively.UI.WinUI.Extensions, Win
 Cohesion: 0.29
 Nodes (3): AddWallpaperViewModel, AddWallpaperView, Lively.UI.WinUI.Views.Pages
 
-### Community 235 - "Community 235"
-Cohesion: 0.38
-Nodes (3): Lively.Utility.Watchdog, Program, UInt32
-
-### Community 238 - "Community 238"
-Cohesion: 0.33
-Nodes (3): Lively.UI.WinUI.Helpers.Converters, WallpaperTypeEnumToStringConverter, IValueConverter
-
 ### Community 239 - "Community 239"
+Cohesion: 0.29
+Nodes (3): IPlayback, Lively.Core.Suspend, WallpaperControlEventArgs
+
+### Community 240 - "Community 240"
 Cohesion: 0.33
 Nodes (3): AudioVolumeGlyphConverter, Lively.UI.WinUI.Helpers.Converters, FontIcon
 
-### Community 246 - "Community 246"
-Cohesion: 0.4
-Nodes (3): Lively.UI.WinUI.Views.Pages.Settings, SettingsWallpaperView, SettingsWallpaperViewModel
-
-### Community 249 - "Community 249"
+### Community 241 - "Community 241"
 Cohesion: 0.33
-Nodes (3): CommandType, SyncCommand, SyncParameters
+Nodes (3): Lively.UI.WinUI.Helpers.Converters, StringToInfoBarSeverityConverter, IValueConverter
 
-### Community 250 - "Community 250"
-Cohesion: 0.33
-Nodes (5): AppConfiguration, ClientConfig, LoggingConfig, ServerConfig, WallpaperRenderConfig
-
-### Community 252 - "Community 252"
+### Community 242 - "Community 242"
 Cohesion: 0.33
 Nodes (3): Lively.Views.WindowMsg, WindowMessageEventArgs, WndProcMsgWindow
 
-### Community 264 - "Community 264"
+### Community 248 - "Community 248"
+Cohesion: 0.33
+Nodes (3): UserControl, ColorPickerButton, Lively.UI.WinUI.UserControls
+
+### Community 254 - "Community 254"
+Cohesion: 0.33
+Nodes (5): AppConfiguration, ClientConfig, LoggingConfig, ServerConfig, WallpaperRenderConfig
+
+### Community 256 - "Community 256"
+Cohesion: 0.4
+Nodes (3): Lively.UI.WinUI.Views.Pages.Settings, SettingsWallpaperView, SettingsWallpaperViewModel
+
+### Community 269 - "Community 269"
 Cohesion: 0.4
 Nodes (3): Lively.Extensions, LocalizedStringExtension, MarkupExtension
 
-### Community 270 - "Community 270"
+### Community 272 - "Community 272"
+Cohesion: 0.4
+Nodes (4): Lively.Common.Helpers.Files, OpenFileName, IntPtr, short
+
+### Community 276 - "Community 276"
 Cohesion: 0.4
 Nodes (3): FileData, Lively.Common.Helpers.Archive, ZipCreate
 
-### Community 275 - "Community 275"
+### Community 280 - "Community 280"
 Cohesion: 0.4
 Nodes (3): INavigator, IDialogNavigator, IMainNavigator
 
-### Community 286 - "Community 286"
+### Community 294 - "Community 294"
 Cohesion: 0.4
 Nodes (3): Lively.UI.WinUI.Views.Pages.ControlPanel, WallpaperLayoutView, WallpaperLayoutViewModel
 
-### Community 288 - "Community 288"
+### Community 295 - "Community 295"
 Cohesion: 0.4
 Nodes (3): Lively.UI.WinUI.Views.Pages.Settings, SettingsGeneralView, SettingsGeneralViewModel
 
-### Community 289 - "Community 289"
+### Community 296 - "Community 296"
 Cohesion: 0.4
 Nodes (3): CustomiseWallpaperViewModel, Lively.UI.WinUI.Views.LivelyProperty, LivelyPropertiesView
 
-### Community 290 - "Community 290"
+### Community 297 - "Community 297"
 Cohesion: 0.4
 Nodes (3): Lively.UI.WinUI.Views.Pages.ControlPanel, ScreensaverLayoutView, ScreensaverLayoutViewModel
 
-### Community 300 - "Community 300"
+### Community 303 - "Community 303"
 Cohesion: 0.4
 Nodes (4): Alternative: Use FFmpeg from System PATH, FFmpeg Binaries, File List, Quick Setup
 
-### Community 315 - "Community 315"
+### Community 318 - "Community 318"
 Cohesion: 0.5
-Nodes (3): IpcMessage, Lively.Models.Message, LivelyDropdownScaler
+Nodes (3): IpcMessage, Lively.Models.Message, LivelyResumeCmd
 
-### Community 327 - "Community 327"
+### Community 332 - "Community 332"
 Cohesion: 0.5
 Nodes (3): Reporting a Vulnerability, Security Policy, Supported Versions
 
 ## Knowledge Gaps
 - **705 isolated node(s):** `Lively`, `NamedPipeServer`, `Mutex`, `Lively`, `Lively.Commandline` (+700 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **252 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **260 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `bool` connect `Community 2` to `Community 0`, `Community 3`, `Community 4`, `Community 5`, `Community 6`, `Community 134`, `Community 137`, `Community 11`, `Community 139`, `Community 141`, `Community 12`, `Community 144`, `Community 19`, `Community 20`, `Community 26`, `Community 29`, `Community 158`, `Community 31`, `Community 30`, `Community 33`, `Community 34`, `Community 35`, `Community 165`, `Community 38`, `Community 168`, `Community 45`, `Community 47`, `Community 48`, `Community 178`, `Community 179`, `Community 52`, `Community 51`, `Community 54`, `Community 311`, `Community 180`, `Community 185`, `Community 58`, `Community 57`, `Community 61`, `Community 190`, `Community 63`, `Community 65`, `Community 66`, `Community 322`, `Community 71`, `Community 72`, `Community 75`, `Community 77`, `Community 79`, `Community 87`, `Community 88`, `Community 90`, `Community 92`, `Community 94`, `Community 229`, `Community 102`, `Community 106`, `Community 107`, `Community 110`, `Community 111`, `Community 112`, `Community 116`, `Community 117`, `Community 118`, `Community 120`, `Community 125`, `Community 127`?**
-  _High betweenness centrality (0.141) - this node is a cross-community bridge._
-- **Why does `int` connect `Community 0` to `Community 1`, `Community 2`, `Community 3`, `Community 4`, `Community 5`, `Community 6`, `Community 137`, `Community 9`, `Community 12`, `Community 144`, `Community 17`, `Community 18`, `Community 19`, `Community 20`, `Community 26`, `Community 29`, `Community 30`, `Community 31`, `Community 158`, `Community 35`, `Community 36`, `Community 165`, `Community 38`, `Community 39`, `Community 168`, `Community 295`, `Community 296`, `Community 47`, `Community 176`, `Community 51`, `Community 179`, `Community 52`, `Community 180`, `Community 59`, `Community 317`, `Community 63`, `Community 192`, `Community 193`, `Community 66`, `Community 67`, `Community 322`, `Community 324`, `Community 65`, `Community 71`, `Community 75`, `Community 77`, `Community 79`, `Community 87`, `Community 89`, `Community 90`, `Community 92`, `Community 98`, `Community 99`, `Community 104`, `Community 107`, `Community 108`, `Community 237`, `Community 112`, `Community 118`, `Community 120`, `Community 249`, `Community 252`, `Community 127`?**
-  _High betweenness centrality (0.104) - this node is a cross-community bridge._
-- **Why does `string` connect `Community 2` to `Community 0`, `Community 3`, `Community 4`, `Community 5`, `Community 6`, `Community 7`, `Community 12`, `Community 17`, `Community 147`, `Community 19`, `Community 26`, `Community 29`, `Community 158`, `Community 31`, `Community 30`, `Community 33`, `Community 35`, `Community 39`, `Community 168`, `Community 295`, `Community 296`, `Community 172`, `Community 45`, `Community 47`, `Community 48`, `Community 51`, `Community 179`, `Community 52`, `Community 184`, `Community 64`, `Community 192`, `Community 322`, `Community 67`, `Community 193`, `Community 70`, `Community 79`, `Community 80`, `Community 82`, `Community 84`, `Community 212`, `Community 214`, `Community 213`, `Community 93`, `Community 94`, `Community 97`, `Community 99`, `Community 227`, `Community 107`, `Community 237`, `Community 110`, `Community 111`, `Community 117`, `Community 249`, `Community 127`?**
-  _High betweenness centrality (0.100) - this node is a cross-community bridge._
+- **Why does `bool` connect `Community 2` to `Community 0`, `Community 131`, `Community 4`, `Community 3`, `Community 134`, `Community 7`, `Community 132`, `Community 6`, `Community 10`, `Community 5`, `Community 12`, `Community 19`, `Community 28`, `Community 29`, `Community 30`, `Community 160`, `Community 32`, `Community 33`, `Community 35`, `Community 34`, `Community 37`, `Community 41`, `Community 169`, `Community 176`, `Community 49`, `Community 50`, `Community 51`, `Community 53`, `Community 181`, `Community 54`, `Community 57`, `Community 185`, `Community 58`, `Community 60`, `Community 189`, `Community 190`, `Community 191`, `Community 64`, `Community 65`, `Community 67`, `Community 68`, `Community 324`, `Community 325`, `Community 71`, `Community 72`, `Community 73`, `Community 79`, `Community 82`, `Community 84`, `Community 212`, `Community 216`, `Community 91`, `Community 97`, `Community 98`, `Community 101`, `Community 104`, `Community 106`, `Community 107`, `Community 108`, `Community 110`, `Community 111`, `Community 115`, `Community 116`, `Community 117`, `Community 118`, `Community 119`, `Community 120`, `Community 127`?**
+  _High betweenness centrality (0.143) - this node is a cross-community bridge._
+- **Why does `int` connect `Community 0` to `Community 1`, `Community 2`, `Community 3`, `Community 4`, `Community 132`, `Community 6`, `Community 7`, `Community 5`, `Community 10`, `Community 14`, `Community 15`, `Community 272`, `Community 18`, `Community 19`, `Community 25`, `Community 156`, `Community 28`, `Community 30`, `Community 29`, `Community 160`, `Community 34`, `Community 163`, `Community 36`, `Community 292`, `Community 38`, `Community 37`, `Community 168`, `Community 41`, `Community 42`, `Community 169`, `Community 58`, `Community 302`, `Community 176`, `Community 49`, `Community 50`, `Community 188`, `Community 53`, `Community 54`, `Community 186`, `Community 59`, `Community 187`, `Community 189`, `Community 190`, `Community 63`, `Community 320`, `Community 64`, `Community 191`, `Community 67`, `Community 68`, `Community 325`, `Community 71`, `Community 72`, `Community 73`, `Community 82`, `Community 83`, `Community 84`, `Community 216`, `Community 92`, `Community 102`, `Community 103`, `Community 106`, `Community 235`, `Community 114`, `Community 242`, `Community 116`, `Community 119`?**
+  _High betweenness centrality (0.112) - this node is a cross-community bridge._
+- **Why does `string` connect `Community 2` to `Community 0`, `Community 3`, `Community 4`, `Community 5`, `Community 6`, `Community 9`, `Community 10`, `Community 14`, `Community 272`, `Community 146`, `Community 19`, `Community 18`, `Community 28`, `Community 29`, `Community 30`, `Community 160`, `Community 32`, `Community 163`, `Community 292`, `Community 37`, `Community 38`, `Community 164`, `Community 41`, `Community 42`, `Community 176`, `Community 49`, `Community 180`, `Community 53`, `Community 186`, `Community 187`, `Community 188`, `Community 189`, `Community 190`, `Community 63`, `Community 58`, `Community 325`, `Community 70`, `Community 76`, `Community 77`, `Community 209`, `Community 210`, `Community 211`, `Community 86`, `Community 90`, `Community 91`, `Community 95`, `Community 98`, `Community 103`, `Community 107`, `Community 108`, `Community 237`, `Community 110`, `Community 111`, `Community 235`, `Community 120`?**
+  _High betweenness centrality (0.096) - this node is a cross-community bridge._
 - **What connects `Lively`, `NamedPipeServer`, `Mutex` to the rest of the system?**
   _705 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Community 0` be split into smaller, more focused modules?**
@@ -1040,4 +1053,4 @@ _Questions this graph is uniquely positioned to answer:_
 - **Should `Community 1` be split into smaller, more focused modules?**
   _Cohesion score 0.02 - nodes in this community are weakly interconnected._
 - **Should `Community 2` be split into smaller, more focused modules?**
-  _Cohesion score 0.04 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.03 - nodes in this community are weakly interconnected._
