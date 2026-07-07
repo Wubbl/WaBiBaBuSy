@@ -16,6 +16,13 @@ public class WallpaperSyncCoordinator
     private int _sequenceNumber = 0;
 
     /// <summary>
+    /// Last cross-screen D2D command sent per client. Re-sent when the client
+    /// re-registers after a connection loss so it rejoins the running animation
+    /// (deterministic epoch back-dating lands it at the correct position).
+    /// </summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, SyncCommand> _activeCrossScreenCommands = new();
+
+    /// <summary>
     /// Default animation speed in cm/s (can be adjusted based on visual effect desired)
     /// For example: 100 cm/s = 1 meter per second
     /// </summary>
@@ -27,6 +34,37 @@ public class WallpaperSyncCoordinator
     {
         _logger = logger;
         _syncService = syncService;
+
+        if (_syncService != null)
+            _syncService.ClientRegistered += OnClientRegistered;
+    }
+
+    /// <summary>
+    /// Resume an active cross-screen animation on a client that just (re-)registered.
+    /// The SyncStream opens shortly after registration, so retry until it exists.
+    /// </summary>
+    private async void OnClientRegistered(object? sender, string clientId)
+    {
+        try
+        {
+            if (!_activeCrossScreenCommands.TryGetValue(clientId, out var command))
+                return;
+
+            for (int attempt = 0; attempt < 10; attempt++)
+            {
+                await Task.Delay(500);
+                if (_syncService != null && await _syncService.SendCommandToClientAsync(clientId, command))
+                {
+                    _logger.LogInformation("Resumed active cross-screen animation on reconnected client {ClientId}", clientId);
+                    return;
+                }
+            }
+            _logger.LogWarning("Could not resume animation on reconnected client {ClientId} — sync stream never came up", clientId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resuming animation on reconnected client {ClientId}", clientId);
+        }
     }
 
     /// <summary>
@@ -187,6 +225,8 @@ public class WallpaperSyncCoordinator
         if (!clients.Any()) return;
 
         _logger.LogInformation("Broadcasting STOP command for content {ContentId}", contentId);
+
+        _activeCrossScreenCommands.Clear();
 
         var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var sequenceNum = System.Threading.Interlocked.Increment(ref _sequenceNumber);
@@ -420,6 +460,9 @@ public class WallpaperSyncCoordinator
             }
         };
 
+        // Remember the command so a reconnecting client resumes the animation.
+        _activeCrossScreenCommands[clientId] = command;
+
         _logger.LogInformation(
             "Starting cross-screen D2D on client {ClientId}: canvas={VCW}px, offset={Offset}px, ts={Ts}ms, speed={Speed}px/s, perMonitor={PerMonitor}",
             clientId, virtualCanvasWidth, monitorOffsetX, sharedStartTimestampMs, pixelsPerSecond, perMonitorMode);
@@ -444,6 +487,8 @@ public class WallpaperSyncCoordinator
             _logger.LogWarning("Cannot stop cross-screen on client {ClientId}: sync service not initialized", clientId);
             return;
         }
+
+        _activeCrossScreenCommands.TryRemove(clientId, out _);
 
         var command = new SyncCommand
         {

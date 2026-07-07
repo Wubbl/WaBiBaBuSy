@@ -21,7 +21,18 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     private readonly ConcurrentDictionary<string, string> _contentRegistry; // contentId -> server file path
     private readonly ConcurrentDictionary<string, ClientLogData> _clientLogs; // clientId -> latest logs
     private readonly ConcurrentDictionary<string, int> _serverLocalMonitorOrders = new(); // SERVER_LOCALHOST_MONITOR_* order overrides
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _writeLocks = new(); // per-client gRPC stream write serialization
+    private readonly Timer _heartbeatSweepTimer;
     private int _nextClientOrder = 1;
+
+    /// <summary>Clients whose last heartbeat is older than this are considered dead and swept.</summary>
+    private const int HeartbeatTimeoutSeconds = 30;
+
+    /// <summary>
+    /// Raised after a client registers (or re-registers) successfully.
+    /// Used e.g. to resume an active cross-screen animation after a reconnect.
+    /// </summary>
+    public event EventHandler<string>? ClientRegistered;
 
     public WallpaperSyncService(
         ILogger<WallpaperSyncService> logger,
@@ -37,6 +48,36 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
 
         // Ensure content directory exists
         Directory.CreateDirectory(_serverConfig.ContentDirectory);
+
+        // Sweep clients that died without a TCP reset (power loss, sleep) —
+        // stream teardown never fires for those, so LastHeartbeat is the only signal.
+        _heartbeatSweepTimer = new Timer(SweepDeadClients, null,
+            TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+    }
+
+    /// <summary>
+    /// Remove clients whose heartbeat stopped. Registration seeds LastHeartbeat,
+    /// so freshly registered clients are never swept prematurely.
+    /// </summary>
+    private void SweepDeadClients(object? state)
+    {
+        try
+        {
+            var cutoff = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - HeartbeatTimeoutSeconds;
+            foreach (var kvp in _connectedClients)
+            {
+                if (kvp.Value.LastHeartbeat < cutoff)
+                {
+                    _logger.LogWarning("Client {ClientId} ({Hostname}) heartbeat timed out (> {Timeout}s) — removing from topology",
+                        kvp.Key, kvp.Value.Hostname, HeartbeatTimeoutSeconds);
+                    RemoveClient(kvp.Key);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during dead-client sweep");
+        }
     }
 
     /// <summary>
@@ -124,6 +165,8 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
 
             _logger.LogInformation("Client {ClientId} registered successfully. Order position: {OrderPosition}",
                 clientId, connectedClient.OrderPosition);
+
+            ClientRegistered?.Invoke(this, clientId);
 
             return new RegistrationResponse
             {
@@ -553,7 +596,30 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         }
         _clientCommandStreams.TryRemove(clientId, out _);
         _clientThumbnails.TryRemove(clientId, out _);
+        // Drop (don't Dispose) the write lock: a concurrent writer may still hold it,
+        // and releasing a disposed SemaphoreSlim throws.
+        _writeLocks.TryRemove(clientId, out _);
         return removed;
+    }
+
+    /// <summary>
+    /// Write a command to a client's response stream. IServerStreamWriter forbids
+    /// overlapping writes, so all writes to one client are serialized through a
+    /// per-client semaphore — otherwise concurrent senders (broadcast racing a
+    /// direct send) throw and the command is silently lost.
+    /// </summary>
+    private async Task WriteToClientStreamAsync(string clientId, IServerStreamWriter<SyncCommand> stream, SyncCommand command)
+    {
+        var gate = _writeLocks.GetOrAdd(clientId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        try
+        {
+            await stream.WriteAsync(command);
+        }
+        finally
+        {
+            gate.Release();
+        }
     }
 
     /// <summary>
@@ -565,7 +631,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         {
             try
             {
-                await stream.WriteAsync(command);
+                await WriteToClientStreamAsync(clientId, stream, command);
                 _logger.LogDebug("Sent {CommandType} command to client {ClientId}", command.Type, clientId);
                 return true;
             }
@@ -596,7 +662,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
             {
                 try
                 {
-                    await stream.WriteAsync(command);
+                    await WriteToClientStreamAsync(clientId, stream, command);
                     _logger.LogDebug("Sent {CommandType} command to client {ClientId}", command.Type, clientId);
                 }
                 catch (Exception ex)

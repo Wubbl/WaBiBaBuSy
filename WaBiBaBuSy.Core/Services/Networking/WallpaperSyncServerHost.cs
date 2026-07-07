@@ -89,12 +89,10 @@ public class WallpaperSyncServerHost : IDisposable
             // Add health check endpoint
             app.MapGet("/", () => "WaBiBaBuSy gRPC Server is running. Use a gRPC client to connect.");
 
-            // Start the host in background
+            // Start the host and await the bind — a port-in-use or firewall failure
+            // must surface here instead of vanishing into an unobserved task.
             _host = app;
-            _ = _host.RunAsync();
-
-            // Wait a moment to ensure server started
-            await Task.Delay(500);
+            await app.StartAsync();
 
             _isRunning = true;
 
@@ -160,7 +158,9 @@ public class WallpaperSyncServerHost : IDisposable
 
     public void Dispose()
     {
-        StopAsync().Wait();
+        // Run on the thread pool so blocking here cannot deadlock a UI
+        // SynchronizationContext waiting on its own continuations.
+        Task.Run(() => StopAsync()).Wait(TimeSpan.FromSeconds(10));
     }
 }
 
