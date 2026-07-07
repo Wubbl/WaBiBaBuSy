@@ -427,7 +427,11 @@ public class WallpaperSyncCoordinator
         bool perMonitorMode,
         int movementType,
         PatternConfig? pattern = null,
-        ColorGradingConfig? colorGrading = null)
+        ColorGradingConfig? colorGrading = null,
+        MovementConfig? movement = null,
+        AnimationLayerConfig? animation = null,
+        Models.Wallpaper.BackgroundLayerConfig? background = null,
+        int targetMonitorIndex = 0)
     {
         if (_syncService == null)
         {
@@ -456,7 +460,14 @@ public class WallpaperSyncCoordinator
                 PerMonitorMode = perMonitorMode,
                 MovementType = movementType,
                 PatternJson = pattern != null ? JsonSerializer.Serialize(pattern) : string.Empty,
-                ColorGradingJson = colorGrading != null ? JsonSerializer.Serialize(colorGrading) : string.Empty
+                ColorGradingJson = colorGrading != null ? JsonSerializer.Serialize(colorGrading) : string.Empty,
+                // Full configs as JSON — remote clients must compute the exact same
+                // deterministic math as local players (Reversed/Endless/wave/orbit/
+                // seed/TargetHeight/backgrounds all matter for sync).
+                MovementJson = movement != null ? JsonSerializer.Serialize(movement) : string.Empty,
+                AnimationJson = animation != null ? JsonSerializer.Serialize(animation) : string.Empty,
+                BackgroundJson = background != null ? JsonSerializer.Serialize(background) : string.Empty,
+                TargetMonitorIndex = targetMonitorIndex
             }
         };
 

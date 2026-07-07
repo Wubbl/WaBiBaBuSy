@@ -168,6 +168,10 @@ message SyncParameters {
   int32 movement_type = 15;             // 0=Static,1=Linear,2=Bounce,3=SineWave,4=Circular,5=RandomWalk
   string pattern_json = 16;            // JSON-serialized PatternConfig (empty = no pattern)
   string color_grading_json = 17;      // JSON-serialized ColorGradingConfig (empty = default/None)
+  string movement_json = 18;           // JSON-serialized MovementConfig (empty = derive from movement_type + pixels_per_second)
+  string animation_json = 19;          // JSON-serialized AnimationLayerConfig (AnimationPath is overridden client-side with the cached file)
+  string background_json = 20;         // JSON-serialized BackgroundLayerConfig (empty = solid background_color)
+  int32 target_monitor_index = 21;     // Which monitor of the remote client renders this (default 0 = primary)
 }
 
 // Sync response (client acknowledgment)

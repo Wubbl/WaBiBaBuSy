@@ -4,6 +4,7 @@ using WaBiBaBuSy.Core.Interfaces;
 using WaBiBaBuSy.Core.Services.Networking;
 using WaBiBaBuSy.Grpc;
 using WaBiBaBuSy.Models;
+using WaBiBaBuSy.Models.Wallpaper;
 
 namespace WaBiBaBuSy.Core.Services;
 
@@ -31,12 +32,11 @@ public class WallpaperPlaybackService : IDisposable
     public Func<string, int, string, int, Task>? D2DApplyDelegate { get; set; }
 
     /// <summary>
-    /// Delegate for cross-screen D2D rendering.
-    /// (filePath, monitorIndex, backgroundColor, fitMode, virtualCanvasWidth, monitorOffsetX,
-    ///  sharedStartTimestampMs, pixelsPerSecond, perMonitorMode, movementType, patternJson, colorGradingJson) → Task
+    /// Delegate for cross-screen D2D rendering. Receives the full request
+    /// (canvas geometry, shared timestamp, movement/animation/background JSON).
     /// Set by the UI layer to enable synchronized cross-screen D2D animation on this client.
     /// </summary>
-    public Func<string, int, string, int, int, int, long, int, bool, int, string, string, Task>? D2DCrossScreenApplyDelegate { get; set; }
+    public Func<CrossScreenApplyRequest, Task>? D2DCrossScreenApplyDelegate { get; set; }
 
     /// <summary>
     /// Delegate invoked when the server sends a Stop command that targets cross-screen D2D content.
@@ -226,19 +226,30 @@ public class WallpaperPlaybackService : IDisposable
             {
                 if (D2DCrossScreenApplyDelegate != null)
                 {
-                    var virtualCanvasWidth = command.Params?.VirtualCanvasWidth ?? 1920;
-                    var monitorOffsetX = command.Params?.MonitorOffsetX ?? 0;
-                    var sharedStartTs = command.Params?.SharedStartTimestampMs ?? 0L;
-                    var pxPerSec = command.Params?.PixelsPerSecond ?? 0;
-                    var perMonitor = command.Params?.PerMonitorMode ?? false;
-                    var movType = command.Params?.MovementType ?? 0;
-                    var patternJson = command.Params?.PatternJson ?? string.Empty;
-                    var colorGradingJson = command.Params?.ColorGradingJson ?? string.Empty;
+                    var request = new CrossScreenApplyRequest
+                    {
+                        FilePath = filePath,
+                        MonitorIndex = command.Params?.TargetMonitorIndex ?? 0,
+                        BackgroundColor = bgColor,
+                        FitMode = fitMode,
+                        VirtualCanvasWidth = command.Params?.VirtualCanvasWidth ?? 1920,
+                        MonitorOffsetX = command.Params?.MonitorOffsetX ?? 0,
+                        SharedStartTimestampMs = command.Params?.SharedStartTimestampMs ?? 0L,
+                        PixelsPerSecond = command.Params?.PixelsPerSecond ?? 0,
+                        PerMonitorMode = command.Params?.PerMonitorMode ?? false,
+                        MovementType = command.Params?.MovementType ?? 0,
+                        PatternJson = command.Params?.PatternJson ?? string.Empty,
+                        ColorGradingJson = command.Params?.ColorGradingJson ?? string.Empty,
+                        MovementJson = command.Params?.MovementJson ?? string.Empty,
+                        AnimationJson = command.Params?.AnimationJson ?? string.Empty,
+                        BackgroundJson = command.Params?.BackgroundJson ?? string.Empty
+                    };
                     _logger.LogInformation(
-                        "[Playback:LOAD] Cross-screen D2D: canvas={VCW}px, offset={Offset}px, ts={Ts}ms, speed={Speed}px/s, perMonitor={PerMonitor}, movType={MovType}",
-                        virtualCanvasWidth, monitorOffsetX, sharedStartTs, pxPerSec, perMonitor, movType);
-                    await D2DCrossScreenApplyDelegate(filePath, monitorIndex, bgColor, fitMode,
-                        virtualCanvasWidth, monitorOffsetX, sharedStartTs, pxPerSec, perMonitor, movType, patternJson, colorGradingJson);
+                        "[Playback:LOAD] Cross-screen D2D: canvas={VCW}px, offset={Offset}px, ts={Ts}ms, speed={Speed}px/s, perMonitor={PerMonitor}, movType={MovType}, monitor={Monitor}, hasMovementJson={HasMov}, hasAnimJson={HasAnim}, hasBgJson={HasBg}",
+                        request.VirtualCanvasWidth, request.MonitorOffsetX, request.SharedStartTimestampMs,
+                        request.PixelsPerSecond, request.PerMonitorMode, request.MovementType, request.MonitorIndex,
+                        request.MovementJson.Length > 0, request.AnimationJson.Length > 0, request.BackgroundJson.Length > 0);
+                    await D2DCrossScreenApplyDelegate(request);
                     _logger.LogInformation("[Playback:LOAD] Cross-screen D2D applied: {ContentId}", command.ContentId);
                 }
                 else

@@ -1910,13 +1910,10 @@ public partial class MainWindowViewModel : ViewModelBase
     /// Creates a D2D player on this client with the server-provided virtual canvas parameters
     /// so all nodes share the same coordinate space and start timestamp.
     /// </summary>
-    private async Task ApplyCrossScreenD2DFromRemoteAsync(
-        string filePath, int monitorIndex, string backgroundColor, int fitMode,
-        int virtualCanvasWidth, int monitorOffsetX, long sharedStartTimestampMs,
-        int pixelsPerSecond, bool perMonitorMode, int movementType,
-        string patternJson = "", string colorGradingJson = "")
+    private async Task ApplyCrossScreenD2DFromRemoteAsync(CrossScreenApplyRequest req)
     {
-        Debug.WriteLine($"[D2D-CrossScreen] Received: file={filePath}, monitor={monitorIndex}, canvas={virtualCanvasWidth}px, offset={monitorOffsetX}px, ts={sharedStartTimestampMs}ms, speed={pixelsPerSecond}px/s, perMonitor={perMonitorMode}, movType={movementType}");
+        var monitorIndex = req.MonitorIndex;
+        Debug.WriteLine($"[D2D-CrossScreen] Received: file={req.FilePath}, monitor={monitorIndex}, canvas={req.VirtualCanvasWidth}px, offset={req.MonitorOffsetX}px, ts={req.SharedStartTimestampMs}ms, speed={req.PixelsPerSecond}px/s, perMonitor={req.PerMonitorMode}, movType={req.MovementType}");
 
         // Dispose previous cross-screen service for this monitor
         if (_remoteD2DServices.TryRemove(monitorIndex, out var existing))
@@ -1950,66 +1947,105 @@ public partial class MainWindowViewModel : ViewModelBase
         var canvasManager = new VirtualCanvasManager(AppLogger.CreateLogger<VirtualCanvasManager>());
         canvasManager.CalculateLayout(new[] { screenConfig });
 
-        var backgroundConfig = new BackgroundLayerConfig
+        // ── Background: full config when transmitted, solid-color fallback otherwise ──
+        var backgroundConfig = DeserializeRemoteConfig<BackgroundLayerConfig>(req.BackgroundJson, "BackgroundLayerConfig")
+            ?? new BackgroundLayerConfig { Mode = BackgroundMode.SolidColor, ColorHex = req.BackgroundColor };
+        if ((backgroundConfig.Mode == BackgroundMode.StretchedImage || backgroundConfig.Mode == BackgroundMode.TiledImage)
+            && (string.IsNullOrEmpty(backgroundConfig.ImagePath) || !File.Exists(backgroundConfig.ImagePath)))
         {
-            Mode = BackgroundMode.SolidColor,
-            ColorHex = backgroundColor
-        };
-
-        PatternConfig? pattern = null;
-        if (!string.IsNullOrEmpty(patternJson))
-        {
-            try { pattern = JsonSerializer.Deserialize<PatternConfig>(patternJson); }
-            catch { Debug.WriteLine("[D2D-CrossScreen] Failed to deserialize PatternConfig"); }
+            // Background images are not transferred to clients (only animation content is);
+            // a server-local path won't exist here. Degrade gracefully to solid color.
+            Debug.WriteLine($"[D2D-CrossScreen] Background image '{backgroundConfig.ImagePath}' not available locally — falling back to solid color");
+            backgroundConfig = new BackgroundLayerConfig { Mode = BackgroundMode.SolidColor, ColorHex = req.BackgroundColor };
         }
 
-        ColorGradingConfig colorGrading = new();
-        if (!string.IsNullOrEmpty(colorGradingJson))
+        // ── Animation: full config when transmitted (TargetHeight/SpeedMultiplier/
+        //    VerticalAlign/RotateWithPath/PrecomputedPath/pattern/colors all matter
+        //    for cross-machine determinism), legacy reconstruction otherwise ──
+        var animationConfig = DeserializeRemoteConfig<AnimationLayerConfig>(req.AnimationJson, "AnimationLayerConfig");
+        if (animationConfig != null)
         {
-            try { colorGrading = JsonSerializer.Deserialize<ColorGradingConfig>(colorGradingJson) ?? new(); }
-            catch { Debug.WriteLine("[D2D-CrossScreen] Failed to deserialize ColorGradingConfig"); }
-        }
-
-        var animationConfig = new AnimationLayerConfig
-        {
-            AnimationPath = filePath,
-            TargetHeight = screen.Bounds.Height,
-            Loop = true,
-            VerticalAlign = VerticalAlignment.Center,
-            CenterInitialPosition = true,
-            FitMode = (ContentFitMode)fitMode,
-            Pattern = pattern,
-            ColorGrading = colorGrading
-        };
-
-        var movementConfig = movementType == 0
-            ? null
-            : new MovementConfig
+            // The animation file was downloaded into this client's cache — the config
+            // still carries the server-local path, so always override it.
+            animationConfig.AnimationPath = req.FilePath;
+            var missing = animationConfig.AdditionalAnimationPaths.Where(p => !File.Exists(p)).ToList();
+            if (missing.Count > 0)
             {
-                Type = (MovementType)movementType,
-                SpeedPixelsPerSecond = pixelsPerSecond
+                // Multi-image sources are not transferred yet (only the primary file is).
+                Debug.WriteLine($"[D2D-CrossScreen] Dropping {missing.Count} additional animation path(s) not available locally: {string.Join(", ", missing)}");
+                animationConfig.AdditionalAnimationPaths = animationConfig.AdditionalAnimationPaths.Where(File.Exists).ToList();
+            }
+        }
+        else
+        {
+            PatternConfig? pattern = DeserializeRemoteConfig<PatternConfig>(req.PatternJson, "PatternConfig");
+            ColorGradingConfig colorGrading = DeserializeRemoteConfig<ColorGradingConfig>(req.ColorGradingJson, "ColorGradingConfig") ?? new();
+            animationConfig = new AnimationLayerConfig
+            {
+                AnimationPath = req.FilePath,
+                TargetHeight = screen.Bounds.Height,
+                Loop = true,
+                VerticalAlign = VerticalAlignment.Center,
+                CenterInitialPosition = true,
+                FitMode = (ContentFitMode)req.FitMode,
+                Pattern = pattern,
+                ColorGrading = colorGrading
             };
+        }
 
-        Debug.WriteLine($"[D2D-CrossScreen] Initializing D2D service: bounds={actualBounds}, vcw={virtualCanvasWidth}, offsetX={monitorOffsetX}");
+        // ── Movement: full config when transmitted, legacy type+speed otherwise ──
+        var movementConfig = DeserializeRemoteConfig<MovementConfig>(req.MovementJson, "MovementConfig")
+            ?? (req.MovementType == 0
+                ? null
+                : new MovementConfig
+                {
+                    Type = (MovementType)req.MovementType,
+                    SpeedPixelsPerSecond = req.PixelsPerSecond
+                });
+
+        Debug.WriteLine($"[D2D-CrossScreen] Initializing D2D service: bounds={actualBounds}, vcw={req.VirtualCanvasWidth}, offsetX={req.MonitorOffsetX}, perMonitor={req.PerMonitorMode}");
         var d2dService = new D2DCompositionService(
             AppLogger.CreateLogger<D2DCompositionService>(),
             AppLogger.Factory,
             _desktopManager);
 
+        // Simultaneous (per-monitor) mode must NOT receive the spanning canvas
+        // overrides — the service derives canvas = this monitor's width, offset = 0,
+        // exactly like the local path does (see StartCrossScreenAnimation).
         await d2dService.InitializeAsync(
             canvasManager, backgroundConfig, animationConfig, actualBounds,
             monitorIndex, movementConfig,
-            perMonitorMode: perMonitorMode,
-            explicitVirtualCanvasWidth: virtualCanvasWidth,
-            explicitMonitorOffsetX: monitorOffsetX);
+            perMonitorMode: req.PerMonitorMode,
+            explicitVirtualCanvasWidth: req.PerMonitorMode ? null : req.VirtualCanvasWidth,
+            explicitMonitorOffsetX: req.PerMonitorMode ? null : req.MonitorOffsetX);
 
         await Task.Delay(100);
 
-        Debug.WriteLine($"[D2D-CrossScreen] Starting playback at ts={sharedStartTimestampMs}ms");
-        await d2dService.StartAsync(startTimestampMs: sharedStartTimestampMs, pixelsPerSecond: pixelsPerSecond);
+        // Same speed convention as the local start path: Static → 0.
+        var pixelsPerSecond = movementConfig == null || movementConfig.Type == MovementType.Static
+            ? 0
+            : (int)movementConfig.SpeedPixelsPerSecond;
+
+        Debug.WriteLine($"[D2D-CrossScreen] Starting playback at ts={req.SharedStartTimestampMs}ms, speed={pixelsPerSecond}px/s");
+        await d2dService.StartAsync(startTimestampMs: req.SharedStartTimestampMs, pixelsPerSecond: pixelsPerSecond);
 
         _remoteD2DServices[monitorIndex] = d2dService;
         Debug.WriteLine($"[D2D-CrossScreen] SUCCESS: Cross-screen D2D started on monitor {monitorIndex}");
+    }
+
+    /// <summary>Deserialize a JSON config received from the server; null on empty or malformed input.</summary>
+    private static T? DeserializeRemoteConfig<T>(string json, string name) where T : class
+    {
+        if (string.IsNullOrEmpty(json)) return null;
+        try
+        {
+            return JsonSerializer.Deserialize<T>(json);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[D2D-CrossScreen] Failed to deserialize {name}: {ex.Message}");
+            return null;
+        }
     }
 
     /// <summary>
@@ -3050,7 +3086,14 @@ public partial class MainWindowViewModel : ViewModelBase
                         perMonitorMode: !isSequential,
                         movementType: movementTypeInt,
                         pattern: _crossScreenConfig.Animation.Pattern,
-                        colorGrading: _crossScreenConfig.Animation.ColorGrading);
+                        colorGrading: _crossScreenConfig.Animation.ColorGrading,
+                        // Full configs so the remote computes identical deterministic math.
+                        // animationConfig is the (possibly IconZone-cloned) config, so the
+                        // precomputed global A* path now reaches remote machines too.
+                        movement: _crossScreenConfig.Movement,
+                        animation: animationConfig,
+                        background: _crossScreenConfig.Background,
+                        targetMonitorIndex: remoteClient.MonitorIndex);
                 }
             }
             else if (remoteClients.Count > 0)
