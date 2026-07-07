@@ -64,6 +64,14 @@ public partial class ClientNodeViewModel : ObservableObject
     [ObservableProperty]
     private int _monitorRefreshHz;
 
+    /// <summary>
+    /// Physical pixels per cm of this monitor (from the client's GetDpiForMonitor).
+    /// 0 if unknown — the server then falls back to its own first monitor's DPI
+    /// for bezel/distance gap math.
+    /// </summary>
+    [ObservableProperty]
+    private float _pixelsPerCm;
+
     [ObservableProperty]
     private bool _isAnimating;
 

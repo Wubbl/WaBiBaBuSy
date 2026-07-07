@@ -98,6 +98,7 @@ message MonitorInfo {
   bool is_primary = 6;
   string device_name = 7;
   int32 refresh_rate = 8; // Current refresh rate in Hz; 0 if unknown.
+  float pixels_per_cm = 9; // Physical pixels per cm (from GetDpiForMonitor); 0 if unknown. Used for bezel/distance gap math.
 }
 
 // Registration response

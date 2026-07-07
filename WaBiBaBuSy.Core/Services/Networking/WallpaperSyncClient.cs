@@ -965,6 +965,10 @@ public class WallpaperSyncClient : IDisposable
             config.TotalHeight = maxY - minY;
         }
 
+        // Physical DPI per display device — lets the server use real bezel/gap
+        // math for this client instead of assuming its own monitor model.
+        var pixelsPerCmByDevice = MonitorDpiHelper.GetPixelsPerCmByDevice();
+
         // Add monitor information in left-to-right order
         for (int i = 0; i < sortedScreens.Length; i++)
         {
@@ -978,7 +982,8 @@ public class WallpaperSyncClient : IDisposable
                 Y = screen.Bounds.Y,
                 IsPrimary = screen.Primary,
                 DeviceName = screen.DeviceName,
-                RefreshRate = QueryDisplayRefreshRate(screen.DeviceName)
+                RefreshRate = QueryDisplayRefreshRate(screen.DeviceName),
+                PixelsPerCm = pixelsPerCmByDevice.TryGetValue(screen.DeviceName, out var ppcm) ? ppcm : 0f
             };
 
             config.Monitors.Add(monitorInfo);

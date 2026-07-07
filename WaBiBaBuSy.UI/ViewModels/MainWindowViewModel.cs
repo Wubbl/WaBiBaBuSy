@@ -2443,6 +2443,7 @@ public partial class MainWindowViewModel : ViewModelBase
                     int monitorHeight = 0;
                     bool isPrimary = false;
                     int monitorRefreshHz = 0;
+                    float monitorPixelsPerCm = 0f;
 
                     // Check if this is a monitor-specific node (LOCAL_MACHINE_MONITOR_X, SERVER_LOCALHOST_MONITOR_X, or ClientId_MONITOR_X)
                     string? monitorSuffix = null;
@@ -2464,6 +2465,7 @@ public partial class MainWindowViewModel : ViewModelBase
                             monitorHeight = monitorInfo.Height;
                             isPrimary = monitorInfo.IsPrimary;
                             monitorRefreshHz = monitorInfo.RefreshRate;
+                            monitorPixelsPerCm = monitorInfo.PixelsPerCm;
                         }
                     }
                     else if (grpcClient.ScreenConfig?.Monitors.Count == 1)
@@ -2476,6 +2478,7 @@ public partial class MainWindowViewModel : ViewModelBase
                         monitorHeight = monitorInfo.Height;
                         isPrimary = monitorInfo.IsPrimary;
                         monitorRefreshHz = monitorInfo.RefreshRate;
+                        monitorPixelsPerCm = monitorInfo.PixelsPerCm;
                     }
 
                     var newClient = new ClientNodeViewModel
@@ -2496,7 +2499,8 @@ public partial class MainWindowViewModel : ViewModelBase
                         MonitorWidth = monitorWidth,
                         MonitorHeight = monitorHeight,
                         MonitorRefreshHz = monitorRefreshHz,
-                        IsPrimaryMonitor = isPrimary
+                        IsPrimaryMonitor = isPrimary,
+                        PixelsPerCm = monitorPixelsPerCm
                     };
 
                     Debug.WriteLine($"[UpdateClientList] About to add client to Clients collection");
@@ -2884,10 +2888,11 @@ public partial class MainWindowViewModel : ViewModelBase
                 PhysicalDistanceCm = c.PhysicalDistanceCm,
                 Hostname = c.Hostname,
                 MonitorIndex = c.MonitorIndex,
-                // Local: look up by monitor index; Remote: use first local monitor as fallback
+                // Local: look up by monitor index; Remote: use the DPI the client
+                // reported at registration; first local monitor only as last resort.
                 PixelsPerCm = c.ClientId.StartsWith("LOCAL_MACHINE_MONITOR_")
                     ? (c.MonitorIndex < nativeMonitors.Length ? nativeMonitors[c.MonitorIndex].PixelsPerCm : fallbackPixelsPerCm)
-                    : fallbackPixelsPerCm
+                    : (c.PixelsPerCm > 0f ? c.PixelsPerCm : fallbackPixelsPerCm)
             }).ToList();
 
             // Create virtual canvas spanning ALL nodes.
@@ -3093,7 +3098,8 @@ public partial class MainWindowViewModel : ViewModelBase
                         movement: _crossScreenConfig.Movement,
                         animation: animationConfig,
                         background: _crossScreenConfig.Background,
-                        targetMonitorIndex: remoteClient.MonitorIndex);
+                        // MonitorIndex is -1 for whole-machine nodes → render on primary.
+                        targetMonitorIndex: Math.Max(0, remoteClient.MonitorIndex));
                 }
             }
             else if (remoteClients.Count > 0)
