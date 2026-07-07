@@ -1889,6 +1889,36 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// Open the mDNS server browser; on selection, fill address/port and connect.
+    /// </summary>
+    [RelayCommand]
+    private async Task FindServers()
+    {
+        if (_mainWindow == null) return;
+
+        var viewModel = new ServerBrowserViewModel();
+        try
+        {
+            var dialog = new Views.ServerBrowserDialog { DataContext = viewModel };
+            viewModel.SetCloseAction(() => dialog.Close());
+
+            await dialog.ShowDialog(_mainWindow);
+
+            if (viewModel.DialogResult && viewModel.SelectedServer != null)
+            {
+                ConnectServerAddress = viewModel.SelectedServer.ConnectAddress;
+                if (viewModel.SelectedServer.Port > 0)
+                    ConnectServerPort = viewModel.SelectedServer.Port;
+                await ConnectToServer();
+            }
+        }
+        finally
+        {
+            viewModel.Dispose();
+        }
+    }
+
     [RelayCommand]
     private async Task DisconnectFromServer()
     {

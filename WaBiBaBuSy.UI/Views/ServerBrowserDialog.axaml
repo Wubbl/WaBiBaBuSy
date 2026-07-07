@@ -1,0 +1,47 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:WaBiBaBuSy.UI.ViewModels"
+        x:Class="WaBiBaBuSy.UI.Views.ServerBrowserDialog"
+        x:DataType="vm:ServerBrowserViewModel"
+        Title="Find Servers"
+        Width="420" Height="360"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="#1E1E1E">
+
+    <Grid RowDefinitions="Auto,*,Auto" Margin="12" RowSpacing="10">
+
+        <!-- Status + refresh -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+            <TextBlock Grid.Column="0" Text="{Binding StatusText}"
+                       Foreground="#AAAAAA" FontSize="12" VerticalAlignment="Center"/>
+            <Button Grid.Column="1" Command="{Binding RefreshCommand}"
+                    Padding="10,4" FontSize="11" Content="Refresh"/>
+        </Grid>
+
+        <!-- Discovered servers -->
+        <Border Grid.Row="1" Background="#252526" BorderBrush="#3E3E42" BorderThickness="1" CornerRadius="5">
+            <ListBox ItemsSource="{Binding Servers}"
+                     SelectedItem="{Binding SelectedServer}"
+                     Background="Transparent"
+                     DoubleTapped="OnListDoubleTapped">
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DiscoveredServerItem">
+                        <StackPanel Orientation="Vertical" Spacing="2" Margin="4,3">
+                            <TextBlock Text="{Binding DisplayName}" FontSize="13" FontWeight="SemiBold" Foreground="#FFFFFF"/>
+                            <TextBlock Text="{Binding DisplayEndpoint}" FontSize="11" Foreground="#888888"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Border>
+
+        <!-- Actions -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button Command="{Binding CancelCommand}" Padding="14,5" FontSize="12" Content="Cancel"/>
+            <Button Command="{Binding ConnectCommand}" Padding="14,5" FontSize="12"
+                    Content="Connect" Classes="accent"/>
+        </StackPanel>
+
+    </Grid>
+</Window>
