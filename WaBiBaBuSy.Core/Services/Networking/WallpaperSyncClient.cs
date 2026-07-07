@@ -3,6 +3,7 @@ using Grpc.Net.Client;
 using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Grpc;
 using WaBiBaBuSy.Models.Configuration;
+using WaBiBaBuSy.Models.Networking;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using Google.Protobuf;
@@ -31,10 +32,20 @@ public class WallpaperSyncClient : IDisposable
     private CancellationTokenSource? _thumbnailCts;
     private Task? _thumbnailTask;
     private ThumbnailCaptureService? _thumbnailCaptureService;
+    private readonly ClockOffsetEstimator _clockOffset = new();
+    private readonly ReconnectBackoff _backoff = new();
+    private string? _serverAddress;
+    private int _serverPort;
+    private volatile bool _userDisconnected;
+    private int _reconnecting;
+    private int _heartbeatFailures;
 
     public bool IsConnected { get; private set; }
     public bool IsCrossScreenActive { get; private set; }
     public string? ClientId => _clientId;
+
+    /// <summary>Estimated (server - client) clock offset in ms, from heartbeat round-trips.</summary>
+    public long ClockOffsetMs => _clockOffset.OffsetMs;
 
     /// <summary>
     /// Get the raw gRPC client stub for direct RPC calls (used by UpdateManager/UpdateDownloader)
@@ -83,6 +94,10 @@ public class WallpaperSyncClient : IDisposable
             _logger.LogInformation("Connecting to server at {ServerAddress}:{ServerPort}",
                 serverAddress, serverPort);
 
+            _serverAddress = serverAddress;
+            _serverPort = serverPort;
+            _userDisconnected = false;
+
             // Create gRPC channel
             var serverUrl = $"http://{serverAddress}:{serverPort}";
             _channel = GrpcChannel.ForAddress(serverUrl);
@@ -97,6 +112,8 @@ public class WallpaperSyncClient : IDisposable
             }
 
             IsConnected = true;
+            _heartbeatFailures = 0;
+            _backoff.Reset();
             ConnectionStatusChanged?.Invoke(this,
                 new ConnectionStatusChangedEventArgs(true, serverAddress, serverPort));
 
@@ -137,6 +154,9 @@ public class WallpaperSyncClient : IDisposable
     /// </summary>
     public async Task DisconnectAsync()
     {
+        // Mark as user-initiated FIRST so any in-flight reconnect loop stops.
+        _userDisconnected = true;
+
         if (!IsConnected)
         {
             return;
@@ -164,6 +184,82 @@ public class WallpaperSyncClient : IDisposable
         _clientId = null;
 
         _logger.LogInformation("Disconnected from server");
+    }
+
+    /// <summary>
+    /// Begin auto-reconnection after an unexpected connection loss.
+    /// No-op if the user disconnected intentionally or a reconnect is already in flight.
+    /// </summary>
+    private void TriggerReconnect(string reason)
+    {
+        if (_userDisconnected) return;
+        if (Interlocked.Exchange(ref _reconnecting, 1) == 1) return;
+
+        _logger.LogWarning("Connection lost ({Reason}) — starting auto-reconnect with exponential backoff", reason);
+        IsConnected = false;
+        ConnectionStatusChanged?.Invoke(this,
+            new ConnectionStatusChangedEventArgs(false, _serverAddress ?? string.Empty, _serverPort));
+
+        _ = Task.Run(ReconnectLoopAsync);
+    }
+
+    /// <summary>
+    /// Retry loop: tear down the dead channel and reconnect with 1s..30s backoff
+    /// until connected or the user disconnects. _clientId is preserved across
+    /// attempts so the server can resume our session.
+    /// </summary>
+    private async Task ReconnectLoopAsync()
+    {
+        try
+        {
+            while (!_userDisconnected && !string.IsNullOrEmpty(_serverAddress))
+            {
+                var delay = _backoff.NextDelay();
+                _logger.LogInformation("Reconnecting to {Address}:{Port} in {Delay}s...",
+                    _serverAddress, _serverPort, delay.TotalSeconds);
+                await Task.Delay(delay);
+                if (_userDisconnected) return;
+
+                await TeardownChannelAsync();
+
+                try
+                {
+                    if (await ConnectAsync(_serverAddress!, _serverPort))
+                    {
+                        _logger.LogInformation("Reconnected to server after connection loss");
+                        return;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("Reconnect attempt failed: {Message}", ex.Message);
+                }
+            }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _reconnecting, 0);
+        }
+    }
+
+    /// <summary>
+    /// Tear down streams and channel WITHOUT clearing _clientId or firing the
+    /// user-facing disconnect path — used between reconnect attempts.
+    /// </summary>
+    private async Task TeardownChannelAsync()
+    {
+        StopHeartbeat();
+        StopSyncStream();
+        StopCrossScreenFrameStream();
+        StopThumbnailSending();
+
+        if (_channel != null)
+        {
+            try { await _channel.ShutdownAsync(); } catch { /* channel already dead */ }
+            _channel.Dispose();
+            _channel = null;
+        }
+        _client = null;
     }
 
     /// <summary>
@@ -247,6 +343,7 @@ public class WallpaperSyncClient : IDisposable
                 try
                 {
                     await SendHeartbeatAsync();
+                    _heartbeatFailures = 0;
                     await Task.Delay(
                         TimeSpan.FromSeconds(_configuration.HeartbeatIntervalSeconds),
                         _heartbeatCts.Token);
@@ -257,7 +354,20 @@ public class WallpaperSyncClient : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error sending heartbeat");
+                    _heartbeatFailures++;
+                    _logger.LogError(ex, "Error sending heartbeat (consecutive failures: {Count})", _heartbeatFailures);
+                    if (_heartbeatFailures >= 3)
+                    {
+                        TriggerReconnect("3 consecutive heartbeat failures");
+                        break;
+                    }
+                    try
+                    {
+                        await Task.Delay(
+                            TimeSpan.FromSeconds(_configuration.HeartbeatIntervalSeconds),
+                            _heartbeatCts.Token);
+                    }
+                    catch (OperationCanceledException) { break; }
                 }
             }
         }, _heartbeatCts.Token);
@@ -285,15 +395,23 @@ public class WallpaperSyncClient : IDisposable
             return;
         }
 
+        var sendMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var request = new HeartbeatRequest
         {
             ClientId = _clientId,
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Timestamp = sendMs,
             Status = ClientStatusEnum.ClientConnected
         };
 
         var response = await _client.HeartbeatAsync(request);
-        _logger.LogDebug("Heartbeat acknowledged: {Acknowledged}", response.Acknowledged);
+        var receiveMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        // NTP-style clock sync: every heartbeat is a free offset/RTT sample.
+        if (response.Acknowledged && response.ServerTimestamp != 0)
+            _clockOffset.AddSample(sendMs, response.ServerTimestamp, receiveMs);
+
+        _logger.LogDebug("Heartbeat acknowledged: {Acknowledged}, clock offset: {Offset}ms",
+            response.Acknowledged, _clockOffset.OffsetMs);
     }
 
     /// <summary>
@@ -696,6 +814,18 @@ public class WallpaperSyncClient : IDisposable
                     _logger.LogInformation("[SyncStream] === RECEIVED COMMAND === Type={CommandType}, ContentId={ContentId}, Seq={SequenceNumber}, Timestamp={Timestamp}",
                         command.Type, command.ContentId, command.SequenceNumber, command.TimestampUtc);
 
+                    // Convert server-clock timestamps into this machine's clock terms so
+                    // scheduled waits and the shared animation epoch are unaffected by
+                    // wall-clock skew between machines.
+                    var clockOffset = _clockOffset.OffsetMs;
+                    if (clockOffset != 0)
+                    {
+                        if (command.TimestampUtc != 0)
+                            command.TimestampUtc -= clockOffset;
+                        if (command.Params != null && command.Params.SharedStartTimestampMs != 0)
+                            command.Params.SharedStartTimestampMs -= clockOffset;
+                    }
+
                     // Log all command parameters if present
                     if (command.Params != null)
                     {
@@ -751,6 +881,7 @@ public class WallpaperSyncClient : IDisposable
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in sync stream");
+                TriggerReconnect("sync stream lost");
             }
         }, _syncStreamCts.Token);
 
@@ -1194,7 +1325,10 @@ public class WallpaperSyncClient : IDisposable
 
     public void Dispose()
     {
-        DisconnectAsync().Wait();
+        _userDisconnected = true;
+        // Run on the thread pool so blocking here cannot deadlock a UI
+        // SynchronizationContext waiting on its own continuations.
+        Task.Run(() => DisconnectAsync()).Wait(TimeSpan.FromSeconds(5));
     }
 }
 
