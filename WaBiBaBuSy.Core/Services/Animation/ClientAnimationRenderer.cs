@@ -213,8 +213,8 @@ public class ClientAnimationRenderer
         // Calculate our local elapsed time
         var localElapsedMs = (long)(DateTimeOffset.UtcNow - state.StartedRenderingAt!).Value.TotalMilliseconds;
 
-        // Calculate drift
-        var drift = sync.CalculateClockOffsetMs(sync.ExpectedPositionMs);
+        // Drift = how far our local position deviates from the server's expected position.
+        var drift = sync.CalculateClockOffsetMs(localElapsedMs);
 
         _logger.LogDebug(
             "Timing sync: Animation={AnimationId}, Expected={Expected}ms, Local={Local}ms, Drift={Drift}ms",

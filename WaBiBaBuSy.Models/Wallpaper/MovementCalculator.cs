@@ -64,27 +64,28 @@ public static class MovementCalculator
         if (totalDistance < 1f)
             return (startX, startY);
 
-        float elapsedSec = elapsedMs / 1000f;
-        float traveledDistance = elapsedSec * config.SpeedPixelsPerSecond;
+        // Fold in DOUBLE before converting to float: after days of uptime, float ulp
+        // on the unbounded traveled distance reaches multiple pixels (visible stutter).
+        double traveledDistance = elapsedMs / 1000.0 * config.SpeedPixelsPerSecond;
 
         if (config.Loop && totalDistance > 0)
         {
             // Snap the loop period to the nearest multiple of the tile step so visible cell
             // indices (LogicalI) are identical at the wrap boundary → no abrupt color jump.
-            float period = totalDistance;
+            double period = totalDistance;
             if (tileAlignStepX > 0f)
             {
-                float snapped = MathF.Round(totalDistance / tileAlignStepX) * tileAlignStepX;
-                if (snapped > 0f) period = snapped;
+                double snapped = Math.Round(totalDistance / (double)tileAlignStepX) * tileAlignStepX;
+                if (snapped > 0) period = snapped;
             }
             traveledDistance %= period;
         }
         else
         {
-            traveledDistance = MathF.Min(traveledDistance, totalDistance);
+            traveledDistance = Math.Min(traveledDistance, totalDistance);
         }
 
-        float t = traveledDistance / totalDistance;
+        float t = (float)(traveledDistance / totalDistance);
         float x = startX + dx * t;
         float y = startY + dy * t;
         return (x, y);
@@ -96,10 +97,10 @@ public static class MovementCalculator
     {
         // Decompose speed into X and Y components based on angle
         float angleRad = config.DirectionAngleDegrees * MathF.PI / 180f;
-        float vx = MathF.Cos(angleRad) * config.SpeedPixelsPerSecond;
-        float vy = MathF.Sin(angleRad) * config.SpeedPixelsPerSecond;
+        double vx = MathF.Cos(angleRad) * config.SpeedPixelsPerSecond;
+        double vy = MathF.Sin(angleRad) * config.SpeedPixelsPerSecond;
 
-        float elapsedSec = elapsedMs / 1000f;
+        double elapsedSec = elapsedMs / 1000.0;
 
         // Available range for each axis (animation must stay within canvas)
         float rangeX = canvasWidth - animWidth;
@@ -118,17 +119,18 @@ public static class MovementCalculator
     /// <summary>
     /// Compute bouncing position along one axis using the "unfold and fold" method.
     /// Maps any distance traveled to a position within [0, range] with reflections at boundaries.
+    /// Distance is folded in double so long-uptime float error never reaches the pixel position.
     /// </summary>
-    private static float BounceAxis(float start, float distance, float range)
+    private static float BounceAxis(float start, double distance, float range)
     {
         if (range <= 0)
             return 0;
 
         // Current position (may be out of bounds)
-        float pos = start + distance;
+        double pos = start + distance;
 
         // Normalize to [0, 2*range] period using modular arithmetic
-        float period = 2f * range;
+        double period = 2.0 * range;
 
         // Handle negative positions
         pos %= period;
@@ -138,35 +140,36 @@ public static class MovementCalculator
         if (pos > range)
             pos = period - pos;
 
-        return MathF.Max(0, MathF.Min(range, pos));
+        return MathF.Max(0, MathF.Min(range, (float)pos));
     }
 
     private static (float X, float Y) CalculateSineWave(
         MovementConfig config, long elapsedMs,
         int animWidth, int animHeight, int canvasWidth, int canvasHeight)
     {
-        float elapsedSec = elapsedMs / 1000f;
+        double elapsedSec = elapsedMs / 1000.0;
 
         // X: horizontal travel across the full canvas width (wrapping).
         // Reversed=true → right-to-left (starts at canvasWidth, moves left).
+        // Phase is folded in double so long uptimes keep sub-pixel accuracy.
         float totalXDistance = canvasWidth + animWidth;
-        float xTraveled = elapsedSec * config.SpeedPixelsPerSecond;
+        double xTraveled = elapsedSec * config.SpeedPixelsPerSecond;
 
-        float x;
-        if (config.Loop)
-        {
-            float phase = xTraveled % totalXDistance;
-            x = config.Reversed ? (canvasWidth - phase) : (-animWidth + phase);
-        }
-        else
-        {
-            float phase = MathF.Min(xTraveled, totalXDistance);
-            x = config.Reversed ? (canvasWidth - phase) : (-animWidth + phase);
-        }
+        float phase = config.Loop
+            ? (float)(xTraveled % totalXDistance)
+            : (float)Math.Min(xTraveled, totalXDistance);
+        float x = config.Reversed ? (canvasWidth - phase) : (-animWidth + phase);
 
-        // Y: sine wave oscillation centered vertically
+        // Y: sine wave oscillation centered vertically. Fold elapsed into one wave
+        // period in double first — Sin of a huge argument loses all accuracy.
         float centerY = (canvasHeight - animHeight) / 2f;
-        float y = centerY + config.WaveAmplitudePixels * MathF.Sin(2f * MathF.PI * config.WaveFrequencyHz * elapsedSec);
+        float y = centerY;
+        if (config.WaveFrequencyHz > 0f)
+        {
+            double wavePeriodSec = 1.0 / config.WaveFrequencyHz;
+            double tInPeriod = elapsedSec % wavePeriodSec;
+            y += config.WaveAmplitudePixels * (float)Math.Sin(2.0 * Math.PI * config.WaveFrequencyHz * tInPeriod);
+        }
 
         // Clamp Y to canvas bounds
         y = MathF.Max(0, MathF.Min(canvasHeight - animHeight, y));
@@ -185,16 +188,17 @@ public static class MovementCalculator
         if (radius < 1f)
             return (centerX - animWidth / 2f, centerY - animHeight / 2f);
 
-        float elapsedSec = elapsedMs / 1000f;
-
         // Angular velocity: omega = speed / radius (radians per second).
         // Reversed=true → counter-clockwise (negate angle).
-        float omega = config.SpeedPixelsPerSecond / radius;
-        float angle = (config.Reversed ? -1f : 1f) * omega * elapsedSec;
+        // Fold the angle into [0, 2π) in double before trig — Cos/Sin of an
+        // unbounded float angle degrades after hours of uptime.
+        double omega = config.SpeedPixelsPerSecond / (double)radius;
+        double angle = (config.Reversed ? -1.0 : 1.0) * omega * (elapsedMs / 1000.0);
+        angle %= 2.0 * Math.PI;
 
         // Position is the top-left corner of the animation bounding box
-        float x = centerX + radius * MathF.Cos(angle) - animWidth / 2f;
-        float y = centerY + radius * MathF.Sin(angle) - animHeight / 2f;
+        float x = centerX + radius * (float)Math.Cos(angle) - animWidth / 2f;
+        float y = centerY + radius * (float)Math.Sin(angle) - animHeight / 2f;
 
         return (x, y);
     }
@@ -203,21 +207,18 @@ public static class MovementCalculator
         MovementConfig config, long elapsedMs,
         int animWidth, int animHeight, int canvasWidth, int canvasHeight)
     {
-        float stepIntervalMs = MathF.Max(100f, config.RandomStepIntervalMs);
-        int currentStepIndex = (int)(elapsedMs / stepIntervalMs);
-        float withinStep = (elapsedMs % stepIntervalMs) / stepIntervalMs; // 0..1 interpolation factor
+        double stepIntervalMs = Math.Max(100f, config.RandomStepIntervalMs);
+        // Double math: elapsedMs is exact in double, so step index and interpolation
+        // factor stay accurate no matter how long the wallpaper has been running.
+        double stepPosition = elapsedMs / stepIntervalMs;
+        int currentStepIndex = (int)stepPosition;
+        float withinStep = (float)(stepPosition - currentStepIndex); // 0..1 interpolation factor
 
-        // Rolling seed: every IterationStepCount steps, rotate to a new seed so the walk
-        // never settles into a visible repeating pattern. All monitors advance together
-        // (same elapsedMs → same iterationIndex → same seed change).
-        int iterationIndex = (config.IterationStepCount > 0)
-            ? currentStepIndex / config.IterationStepCount
-            : 0;
-        int effectiveSeed = config.RandomSeed ^ (int)((uint)iterationIndex * 2246822519u);
-
-        // Generate waypoint for the current step and the next step
-        var (x0, y0) = GenerateWaypoint(effectiveSeed, currentStepIndex, animWidth, animHeight, canvasWidth, canvasHeight);
-        var (x1, y1) = GenerateWaypoint(effectiveSeed, currentStepIndex + 1, animWidth, animHeight, canvasWidth, canvasHeight);
+        // Generate waypoint for the current step and the next step. Seed rotation is
+        // resolved per-waypoint (see WaypointIteration) so the boundary waypoint is
+        // shared by the segments before and after it — no teleport on rotation.
+        var (x0, y0) = GenerateWaypoint(config, currentStepIndex, animWidth, animHeight, canvasWidth, canvasHeight);
+        var (x1, y1) = GenerateWaypoint(config, currentStepIndex + 1, animWidth, animHeight, canvasWidth, canvasHeight);
 
         // Smooth interpolation using cubic ease-in-out
         float t = SmoothStep(withinStep);
@@ -228,16 +229,35 @@ public static class MovementCalculator
     }
 
     /// <summary>
+    /// Which seed iteration a waypoint belongs to. Rolling seed: every
+    /// IterationStepCount steps the walk rotates to a new seed so it never visibly
+    /// repeats. The waypoint at an exact rotation boundary (stepIndex % count == 0)
+    /// is pinned to the PREVIOUS iteration's seed: the segment approaching the
+    /// boundary and the segment leaving it then share that waypoint, keeping the
+    /// path continuous. All monitors advance together (same elapsedMs → same seed).
+    /// </summary>
+    private static int WaypointIteration(int stepIndex, int iterationStepCount)
+    {
+        if (iterationStepCount <= 0) return 0;
+        if (stepIndex > 0 && stepIndex % iterationStepCount == 0)
+            return stepIndex / iterationStepCount - 1;
+        return stepIndex / iterationStepCount;
+    }
+
+    /// <summary>
     /// Generate a deterministic waypoint for a given step index.
-    /// Same seed + stepIndex always produces the same point on all monitors.
+    /// Same config + stepIndex always produces the same point on all monitors.
     /// </summary>
     private static (float X, float Y) GenerateWaypoint(
-        int seed, int stepIndex,
+        MovementConfig config, int stepIndex,
         int animWidth, int animHeight,
         int canvasWidth, int canvasHeight)
     {
+        int iteration = WaypointIteration(stepIndex, config.IterationStepCount);
+        int effectiveSeed = config.RandomSeed ^ (int)((uint)iteration * 2246822519u);
+
         // Combine seed and step index for deterministic randomness
-        var rng = new Random(seed ^ (int)((uint)stepIndex * 2654435761u)); // Knuth multiplicative hash
+        var rng = new Random(effectiveSeed ^ (int)((uint)stepIndex * 2654435761u)); // Knuth multiplicative hash
 
         float rangeX = MathF.Max(0, canvasWidth - animWidth);
         float rangeY = MathF.Max(0, canvasHeight - animHeight);

@@ -36,9 +36,12 @@ public class TimingSynchronizer
     }
 
     /// <summary>
-    /// Start timing synchronization for animating clients
+    /// Start timing synchronization for animating clients.
+    /// NOTE: This drift-telemetry loop belongs to the gRPC orchestrator path
+    /// (AnimationOrchestrator); the d2d_crossscreen path relies on deterministic
+    /// math + clock-offset compensation instead and does not use it.
     /// </summary>
-    public async Task StartTimingSyncAsync(
+    public Task StartTimingSyncAsync(
         List<string> clientIds,
         int syncIntervalMs = 1000,
         int maxDriftToleranceMs = 50)
@@ -46,7 +49,7 @@ public class TimingSynchronizer
         if (clientIds.Count == 0)
         {
             _logger.LogWarning("StartTimingSync called with no clients");
-            return;
+            return Task.CompletedTask;
         }
 
         var sessionId = Guid.NewGuid().ToString();
@@ -71,6 +74,7 @@ public class TimingSynchronizer
         _syncCancellationTokens[sessionId] = cts;
 
         _ = RunTimingSyncLoopAsync(session, cts.Token);
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -83,7 +87,12 @@ public class TimingSynchronizer
             while (!cancellationToken.IsCancellationRequested)
             {
                 var currentUtcMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                var animatingClients = _distributor.GetAnimatingClients().ToList();
+                // Only this session's clients — two concurrent sessions must not
+                // double-send to every animating client.
+                var sessionClientIds = new HashSet<string>(session.ClientIds);
+                var animatingClients = _distributor.GetAnimatingClients()
+                    .Where(c => sessionClientIds.Contains(c.ClientId))
+                    .ToList();
 
                 if (animatingClients.Count == 0)
                 {
