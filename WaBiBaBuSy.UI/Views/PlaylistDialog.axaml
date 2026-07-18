@@ -1,0 +1,62 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:WaBiBaBuSy.UI.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="720" d:DesignHeight="560"
+        x:Class="WaBiBaBuSy.UI.Views.PlaylistDialog"
+        x:DataType="vm:PlaylistViewModel"
+        Icon="/Assets/BiBaBuColorIcon.ico"
+        Title="Playlist / Party Mode" Width="720" Height="560"
+        MinWidth="560" MinHeight="420"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True">
+    <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Top" Spacing="8">
+            <TextBlock Text="Playlist / Party Mode" FontSize="18" FontWeight="Bold"/>
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="8">
+                <TextBlock Grid.Column="0" Text="Name" VerticalAlignment="Center"/>
+                <TextBox   Grid.Column="1" Text="{Binding PlaylistName}"/>
+                <CheckBox  Grid.Column="2" Content="Loop" IsChecked="{Binding Loop}"/>
+                <CheckBox  Grid.Column="3" Content="Shuffle" IsChecked="{Binding Shuffle}"/>
+                <TextBlock Grid.Column="4" Text="Default ms" VerticalAlignment="Center"/>
+                <NumericUpDown Grid.Column="5" Width="120" Minimum="1000" Increment="1000"
+                               Value="{Binding DefaultDurationMs}"/>
+            </Grid>
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="8"
+                    HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Content="Save" Command="{Binding SavePlaylistCommand}"/>
+            <Button Content="Start Show" Command="{Binding StartShowCommandCommand}"
+                    IsEnabled="{Binding !IsShowRunning}"/>
+            <Button Content="Stop Show" Command="{Binding StopShowCommandCommand}"
+                    IsEnabled="{Binding IsShowRunning}"/>
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Right" Spacing="6" Margin="12,0,0,0" VerticalAlignment="Top">
+            <Button Content="Add"       Command="{Binding AddItemCommand}"/>
+            <Button Content="Edit"      Command="{Binding EditItemCommand}"/>
+            <Button Content="Duplicate" Command="{Binding DuplicateItemCommand}"/>
+            <Button Content="Remove"    Command="{Binding RemoveItemCommand}"/>
+            <Button Content="Up"        Command="{Binding MoveUpCommand}"/>
+            <Button Content="Down"      Command="{Binding MoveDownCommand}"/>
+        </StackPanel>
+
+        <ListBox ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedItem}">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:PlaylistItemRow">
+                    <Grid ColumnDefinitions="*,120,Auto" ColumnSpacing="8" Margin="0,4">
+                        <StackPanel Grid.Column="0">
+                            <TextBox Text="{Binding Name}" Watermark="Item name"/>
+                            <TextBlock Text="{Binding Summary}" Opacity="0.7" FontSize="11"/>
+                        </StackPanel>
+                        <TextBox  Grid.Column="1" Text="{Binding DurationText}" Watermark="default"/>
+                        <CheckBox Grid.Column="2" Content="Lap-snap" IsChecked="{Binding SnapToLap}"
+                                  VerticalAlignment="Center"/>
+                    </Grid>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </DockPanel>
+</Window>

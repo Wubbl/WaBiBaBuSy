@@ -2863,6 +2863,105 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// Opens the Playlist / Party Mode dialog. Wires the three PlaylistViewModel host callbacks:
+    /// item editing (reuses the CrossScreen config dialog), start show, and stop show.
+    /// </summary>
+    [RelayCommand]
+    private async Task OpenPlaylist()
+    {
+        var dialog = new Views.PlaylistDialog();
+        var vm = new PlaylistViewModel
+        {
+            EditConfigAsync = EditCrossScreenConfigForPlaylistAsync,
+            StartShow = StartPlaylist,
+            StopShow = StopPlaylistAsync,
+        };
+        dialog.DataContext = vm;
+
+        if (_mainWindow != null)
+        {
+            await dialog.ShowDialog(_mainWindow);
+        }
+        else
+        {
+            Debug.WriteLine("[OpenPlaylist] ERROR: _mainWindow is null; cannot show dialog");
+        }
+    }
+
+    /// <summary>
+    /// Opens the CrossScreen config dialog for the playlist editor. Seeds from <paramref name="existing"/>
+    /// when editing an existing item (blank IconZone default when null), and returns the built config ONLY
+    /// when the user confirms (DialogResult == true) and an animation path is set. Returns null on cancel.
+    /// This path deliberately does NOT read or mutate the main window's <c>_crossScreenConfig</c>, so a
+    /// cancelled edit never leaks stale state or adds a bogus playlist item.
+    /// </summary>
+    private async Task<CrossScreenConfig?> EditCrossScreenConfigForPlaylistAsync(CrossScreenConfig? existing)
+    {
+        if (_mainWindow == null)
+        {
+            Debug.WriteLine("[Playlist] ERROR: _mainWindow is null; cannot open config dialog");
+            return null;
+        }
+
+        var dialog = new Views.CrossScreenConfigDialog();
+        var viewModel = new CrossScreenConfigViewModel();
+
+        if (_storageProvider != null)
+        {
+            viewModel.SetStorageProvider(_storageProvider);
+        }
+        viewModel.SetAvailableMonitors(Clients);
+        viewModel.SetOwnerWindow(_mainWindow);
+        viewModel.SetGalleryWallpapers(Wallpapers);
+
+        if (existing != null)
+        {
+            // Editing an existing playlist item: seed the dialog from its saved config.
+            viewModel.LoadFromConfig(existing);
+        }
+        else
+        {
+            // New item: start from the same sensible default ConfigureCrossScreen uses.
+            var blank = new CrossScreenConfig
+            {
+                Background = new BackgroundLayerConfig
+                {
+                    Mode = BackgroundMode.IconZone,
+                    ColorHex = "#000000",
+                    IconZonePaletteHexes = PaletteGenerator.GenerateHarmonious(8),
+                    IconCorridorColorHex = "#1E1E1E"
+                },
+                Animation = new AnimationLayerConfig
+                {
+                    AnimationPath = string.Empty,
+                    TargetHeight = 720,
+                    Loop = true,
+                    VerticalAlign = VerticalAlignment.Center,
+                    RotateWithPath = true
+                },
+                AnimationSpeedPxPerSecond = 500
+            };
+            viewModel.LoadFromConfig(blank);
+        }
+
+        dialog.DataContext = viewModel;
+        viewModel.SetCloseAction(() => dialog.Close());
+
+        await dialog.ShowDialog(_mainWindow);
+
+        // DialogResult is the OK/Cancel signal (true only when the user confirmed).
+        if (viewModel.DialogResult)
+        {
+            var config = viewModel.BuildConfig();
+            if (!string.IsNullOrEmpty(config.Animation.AnimationPath))
+            {
+                return config;
+            }
+        }
+        return null;
+    }
+
     [RelayCommand(CanExecute = nameof(CanStartCrossScreen))]
     private async Task StartCrossScreen()
     {
