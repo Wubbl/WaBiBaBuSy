@@ -78,4 +78,21 @@ public class ClockOffsetEstimatorTests
         Assert.False(estimator.HasSamples);
         Assert.Equal(0, estimator.OffsetMs);
     }
+
+    [Fact]
+    public void NoSamples_RttIsZero()
+    {
+        var estimator = new ClockOffsetEstimator();
+        Assert.Equal(0, estimator.RttMs);
+    }
+
+    [Fact]
+    public void RttMs_ReturnsLowestRttInWindow()
+    {
+        var estimator = new ClockOffsetEstimator();
+        // RTT = receive - send: 200ms then 50ms
+        estimator.AddSample(clientSendMs: 1000, serverTimestampMs: 1600, clientReceiveMs: 1200);
+        estimator.AddSample(clientSendMs: 2000, serverTimestampMs: 2500, clientReceiveMs: 2050);
+        Assert.Equal(50, estimator.RttMs);
+    }
 }

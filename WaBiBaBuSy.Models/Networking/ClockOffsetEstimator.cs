@@ -44,6 +44,27 @@ public class ClockOffsetEstimator
     }
 
     /// <summary>
+    /// Round-trip time (ms) of the best (lowest-RTT) sample in the window —
+    /// the sample <see cref="OffsetMs"/> is derived from. 0 until samples exist.
+    /// </summary>
+    public long RttMs
+    {
+        get
+        {
+            lock (_lock)
+            {
+                if (_samples.Count == 0) return 0;
+                long best = long.MaxValue;
+                foreach (var (rtt, _) in _samples)
+                {
+                    if (rtt < best) best = rtt;
+                }
+                return best;
+            }
+        }
+    }
+
+    /// <summary>
     /// Record one heartbeat round-trip. Assumes the server timestamp was taken
     /// between the client's send and receive instants (true for a unary RPC).
     /// </summary>
