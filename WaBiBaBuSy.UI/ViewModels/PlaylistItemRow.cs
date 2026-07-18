@@ -31,4 +31,7 @@ public partial class PlaylistItemRow : ViewModelBase
         Model.SnapToLap = SnapToLap;
         Model.DurationMs = int.TryParse(DurationText, out var ms) && ms > 0 ? ms : null;
     }
+
+    /// <summary>Re-raise change notification for the computed <see cref="Summary"/> after the model's config changes.</summary>
+    public void RefreshSummary() => OnPropertyChanged(nameof(Summary));
 }

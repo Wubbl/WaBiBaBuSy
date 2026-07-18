@@ -60,7 +60,7 @@ public partial class PlaylistViewModel : ViewModelBase
         var updated = await EditConfigAsync(SelectedItem.Model.Config);
         if (updated == null) return;
         SelectedItem.Model.Config = updated;
-        OnPropertyChanged(nameof(Items)); // refresh summaries
+        SelectedItem.RefreshSummary();
     }
 
     [RelayCommand]
