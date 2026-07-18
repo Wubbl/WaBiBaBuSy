@@ -2887,291 +2887,7 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             Debug.WriteLine("[CrossScreen] Starting cross-screen animation via D2D...");
 
-            // Convert clients to screen configurations, filtering by selected monitors if configured
-            var selectedMonitorIds = new HashSet<string>(_crossScreenConfig.SelectedMonitorIds);
-            var clientsToUse = selectedMonitorIds.Count > 0
-                ? Clients.Where(c => selectedMonitorIds.Contains(c.ClientId))
-                : Clients;
-
-            // Split clients into local monitors and remote nodes.
-            // Use IsLocalMonitor() to cover both LOCAL_MACHINE_MONITOR_ (standalone) and
-            // SERVER_LOCALHOST_MONITOR_ (server mode) so local nodes are never sent gRPC commands.
-            var localClientsUnordered = clientsToUse
-                .Where(c => IsLocalMonitor(c.ClientId))
-                .ToList();
-            var remoteClients = clientsToUse
-                .Where(c => !IsLocalMonitor(c.ClientId))
-                .ToList();
-
-            List<ClientNodeViewModel> localClients;
-            if (selectedMonitorIds.Count > 0)
-            {
-                // Order by position in SelectedMonitorIds list (preserves user's custom order)
-                var orderMap = _crossScreenConfig.SelectedMonitorIds
-                    .Select((id, idx) => (id, idx))
-                    .ToDictionary(x => x.id, x => x.idx);
-                localClients = localClientsUnordered
-                    .OrderBy(c => orderMap.GetValueOrDefault(c.ClientId, int.MaxValue))
-                    .ToList();
-            }
-            else
-            {
-                localClients = localClientsUnordered
-                    .OrderBy(c => c.Order)
-                    .ToList();
-            }
-
-            if (localClients.Count == 0 && remoteClients.Count == 0)
-            {
-                Debug.WriteLine("[CrossScreen] No monitors selected");
-                return;
-            }
-
-            Debug.WriteLine($"[CrossScreen] Starting D2D animation on {localClients.Count} local + {remoteClients.Count} remote node(s)");
-
-            // Query DPI for local monitors to derive physical pixels-per-cm for gap modeling.
-            // Remote clients are assumed to have the same monitor model as the first local monitor.
-            var nativeMonitors = WaBiBaBuSy.WallpaperEngine.Native.NativeMonitorInfo.GetAllMonitors();
-            float fallbackPixelsPerCm = nativeMonitors.Length > 0 ? nativeMonitors[0].PixelsPerCm : 0f;
-
-            // Build screen configurations for virtual canvas - ALL nodes (local + remote)
-            var allClients = localClients.Concat(remoteClients).ToList();
-            var screenConfigs = allClients.Select(c => new WallpaperEngine.Composition.ScreenConfiguration
-            {
-                ClientId = c.ClientId,
-                Width = c.MonitorWidth > 0 ? c.MonitorWidth : 1920,
-                Height = c.MonitorHeight > 0 ? c.MonitorHeight : 1080,
-                Order = c.Order,
-                PhysicalDistanceCm = c.PhysicalDistanceCm,
-                Hostname = c.Hostname,
-                MonitorIndex = c.MonitorIndex,
-                // Local: look up by monitor index; Remote: use the DPI the client
-                // reported at registration; first local monitor only as last resort.
-                PixelsPerCm = c.ClientId.StartsWith("LOCAL_MACHINE_MONITOR_")
-                    ? (c.MonitorIndex < nativeMonitors.Length ? nativeMonitors[c.MonitorIndex].PixelsPerCm : fallbackPixelsPerCm)
-                    : (c.PixelsPerCm > 0f ? c.PixelsPerCm : fallbackPixelsPerCm)
-            }).ToList();
-
-            // Create virtual canvas spanning ALL nodes.
-            // Gap pixels between physically spaced monitors are inserted automatically
-            // from each screen's PixelsPerCm + PhysicalDistanceCm.
-            var canvasManager = new VirtualCanvasManager(
-                AppLogger.CreateLogger<VirtualCanvasManager>());
-            canvasManager.CalculateLayout(screenConfigs);
-
-            Debug.WriteLine($"[CrossScreen] Virtual canvas: {canvasManager.VirtualBounds.Width}x{canvasManager.VirtualBounds.Height}");
-
-            // Get actual monitor bounds from Windows
-            var screens = System.Windows.Forms.Screen.AllScreens;
-
-            // Sequential + IconZone: compute one global A* path across the full virtual canvas
-            // so all local monitors share the same coordinated corridor path.
-            var perMonitor = _crossScreenConfig.DistributionMode == AnimationDistributionMode.Simultaneous;
-            var animationConfig = _crossScreenConfig.Animation;
-            if (!perMonitor && _crossScreenConfig.Background.Mode == BackgroundMode.IconZone && localClients.Count > 0)
-            {
-                try
-                {
-                    var iconService = new WaBiBaBuSy.Core.Services.Desktop.DesktopIconService();
-                    var (cellW, cellH) = iconService.GetGridCellSize();
-                    var allIcons = iconService.GetIconPositions(); // positions in virtual-desktop (absolute) coords
-
-                    int firstMonitorIdx = GetMonitorIndex(localClients[0].ClientId);
-                    var firstScreen = firstMonitorIdx < screens.Length ? screens[firstMonitorIdx] : screens[0];
-                    int virtualH = firstScreen.Bounds.Height;
-
-                    // Effective animation height depends on FitMode. Using the actual rendered height
-                    // keeps the server-side path padding in sync with what Player.D2D will compute
-                    // locally (pathPaddingPx = _animHeight / 2 + optional wave amplitude).
-                    int effectiveHeight = ComputeEffectiveAnimationHeight(
-                        _crossScreenConfig.Animation, firstScreen.Bounds.Width, virtualH);
-                    int pathPaddingPx = effectiveHeight / 2;
-                    if (_crossScreenConfig.Movement.Type == MovementType.SineWave)
-                        pathPaddingPx += (int)Math.Ceiling(_crossScreenConfig.Movement.WaveAmplitudePixels);
-                    var globalLayout = WaBiBaBuSy.WallpaperEngine.Desktop.ZonePlanner.Compute(
-                        allIcons.Select(i => (i.PixelX, i.PixelY)),
-                        cellW, cellH,
-                        canvasManager.VirtualBounds.Width, virtualH,
-                        _crossScreenConfig.Background.IconZonePaletteHexes,
-                        _crossScreenConfig.Background.IconCorridorColorHex,
-                        paddingPx: pathPaddingPx,
-                        visualPaddingPx: Math.Max(4, cellW / 10));
-
-                    // Clone animation config with global path attached
-                    animationConfig = new AnimationLayerConfig
-                    {
-                        AnimationPath             = _crossScreenConfig.Animation.AnimationPath,
-                        AdditionalAnimationPaths  = _crossScreenConfig.Animation.AdditionalAnimationPaths,
-                        TargetHeight              = _crossScreenConfig.Animation.TargetHeight,
-                        Loop                      = _crossScreenConfig.Animation.Loop,
-                        VerticalAlign             = _crossScreenConfig.Animation.VerticalAlign,
-                        CenterInitialPosition     = _crossScreenConfig.Animation.CenterInitialPosition,
-                        SpeedMultiplier           = _crossScreenConfig.Animation.SpeedMultiplier,
-                        FitMode                   = _crossScreenConfig.Animation.FitMode,
-                        RotateWithPath            = _crossScreenConfig.Animation.RotateWithPath,
-                        PrecomputedPath           = globalLayout.Path,
-                        ColorGrading              = _crossScreenConfig.Animation.ColorGrading,
-                        Pattern                   = _crossScreenConfig.Animation.Pattern,
-                        MultiImageSpread          = _crossScreenConfig.Animation.MultiImageSpread,
-                        MultiImagePhaseJitterMs   = _crossScreenConfig.Animation.MultiImagePhaseJitterMs
-                    };
-
-                    Debug.WriteLine($"[CrossScreen] IconZone sequential: computed global path with {globalLayout.Path.Count} waypoints across {canvasManager.VirtualBounds.Width}px virtual canvas");
-
-                    // Save params for per-lap recompute
-                    _seqCellW              = cellW;
-                    _seqCellH              = cellH;
-                    _seqVirtualCanvasWidth = canvasManager.VirtualBounds.Width;
-                    _seqVirtualH           = virtualH;
-                    _seqPathPaddingPx      = pathPaddingPx;
-                    _seqVisualPaddingPx    = Math.Max(4, cellW / 10);
-                    _seqPaletteHexes       = _crossScreenConfig.Background.IconZonePaletteHexes.ToList();
-                    _seqCorridorColorHex   = _crossScreenConfig.Background.IconCorridorColorHex;
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"[CrossScreen] Global icon path failed, players will compute locally: {ex.Message}");
-                }
-            }
-
-            // Phase 1: Initialize all D2D players (load animation, extract GIF frames)
-            var newServices = new List<(int monitorIndex, D2DCompositionService service)>();
-
-            foreach (var client in localClients)
-            {
-                var monitorIndex = GetMonitorIndex(client.ClientId);
-
-                // Clean up existing D2D service for this monitor if any
-                if (_d2dCompositionServices.TryRemove(monitorIndex, out var existingService))
-                {
-                    try { await existingService.StopAsync(); } catch { }
-                    existingService.Dispose();
-                }
-
-                // Find actual screen bounds
-                var screen = monitorIndex < screens.Length ? screens[monitorIndex] : screens[0];
-                var actualBounds = new System.Drawing.Rectangle(
-                    screen.Bounds.X, screen.Bounds.Y,
-                    screen.Bounds.Width, screen.Bounds.Height);
-
-                Debug.WriteLine($"[CrossScreen] Monitor {monitorIndex}: {actualBounds.Width}x{actualBounds.Height} at ({actualBounds.X},{actualBounds.Y})");
-
-                // Build a single-screen canvas for this monitor's service.
-                // D2DCompositionService.InitializeAsync loops over ScreenMappings and spawns one
-                // player per entry — passing the full multi-screen canvasManager would cause it to
-                // spawn N players per service (N² total), all positioned at the same actualBounds.
-                // Each service must own exactly ONE player for its own monitor.
-                var thisCfg = screenConfigs.First(s => s.ClientId == client.ClientId);
-                var singleCanvas = new VirtualCanvasManager(AppLogger.CreateLogger<VirtualCanvasManager>());
-                singleCanvas.CalculateLayout(new[] { thisCfg });
-
-                // In sequential mode the player needs the full virtual canvas width and this
-                // monitor's X offset within it; derive both from the global canvasManager.
-                var globalMapping = canvasManager.GetScreenByClientId(client.ClientId);
-                int virtualOffsetX = globalMapping?.VirtualBounds.X ?? 0;
-
-                // Create D2D service
-                var d2dService = new D2DCompositionService(
-                    AppLogger.CreateLogger<D2DCompositionService>(),
-                    AppLogger.Factory,
-                    _desktopManager);
-
-                // Initialize: singleCanvas → exactly 1 player spawned for this monitor.
-                // Pass explicit virtual-canvas width + offset so the player computes
-                // movement correctly in sequential (spanning) mode.
-                await d2dService.InitializeAsync(
-                    singleCanvas,
-                    _crossScreenConfig.Background,
-                    animationConfig,
-                    actualBounds,
-                    monitorIndex,
-                    _crossScreenConfig.Movement,
-                    perMonitorMode: perMonitor,
-                    explicitVirtualCanvasWidth: perMonitor ? null : canvasManager.VirtualBounds.Width,
-                    explicitMonitorOffsetX: perMonitor ? null : virtualOffsetX);
-
-                // Subscribe for lap-completion recompute in sequential IconZone mode
-                if (!perMonitor && _crossScreenConfig.Background.Mode == BackgroundMode.IconZone)
-                    d2dService.GlobalLapCompleted += OnSequentialLapCompleted;
-
-                newServices.Add((monitorIndex, d2dService));
-                Debug.WriteLine($"[CrossScreen] Monitor {monitorIndex} initialized (virtualOffsetX={virtualOffsetX}, vcw={canvasManager.VirtualBounds.Width})");
-            }
-
-            // Brief pause to let all players finish loading
-            await Task.Delay(200);
-
-            // Phase 2: Start ALL players with same shared timestamp.
-            // Background always renders on all monitors simultaneously.
-            // DistributionMode controls animation positioning:
-            //   - Sequential: animation spans across virtual canvas (multi-monitor spanning)
-            //   - Simultaneous: animation plays independently on each monitor
-            var sharedStartTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            var pixelsPerSecond = _crossScreenConfig.Movement.Type == MovementType.Static
-                ? 0
-                : (int)_crossScreenConfig.Movement.SpeedPixelsPerSecond;
-
-            var isSequential = _crossScreenConfig.DistributionMode == AnimationDistributionMode.Sequential;
-            Debug.WriteLine($"[CrossScreen] Starting {(isSequential ? "SEQUENTIAL (spanning)" : "SIMULTANEOUS (per-monitor)")} animation on {newServices.Count} monitors, timestamp={sharedStartTimestamp}ms, speed={pixelsPerSecond}px/s");
-
-            foreach (var (monitorIndex, d2dService) in newServices)
-            {
-                await d2dService.StartAsync(startTimestampMs: sharedStartTimestamp, pixelsPerSecond: pixelsPerSecond);
-                _d2dCompositionServices[monitorIndex] = d2dService;
-            }
-
-            // Phase 3: Send cross-screen D2D commands to remote clients
-            if (remoteClients.Count > 0 && _service.SyncCoordinator != null)
-            {
-                var contentId = System.IO.Path.GetFileName(_crossScreenConfig.Animation.AnimationPath);
-                _crossScreenContentId = contentId;
-                var bgColor = _crossScreenConfig.Background.ColorHex ?? "#000000";
-                var movementTypeInt = (int)_crossScreenConfig.Movement.Type;
-
-                foreach (var remoteClient in remoteClients)
-                {
-                    var screenMapping = canvasManager.GetScreenByClientId(remoteClient.ClientId);
-                    var remoteOffsetX = screenMapping?.VirtualBounds.X ?? 0;
-
-                    Debug.WriteLine($"[CrossScreen] Sending cross-screen D2D to remote {remoteClient.Hostname} ({remoteClient.ClientId}): offset={remoteOffsetX}px, canvas={canvasManager.VirtualBounds.Width}px");
-
-                    await _service.SyncCoordinator.StartCrossScreenD2DOnClientAsync(
-                        clientId: remoteClient.ClientId,
-                        contentId: contentId,
-                        filePath: _crossScreenConfig.Animation.AnimationPath,
-                        backgroundColor: bgColor,
-                        fitMode: (int)(_crossScreenConfig.Animation.FitMode),
-                        virtualCanvasWidth: canvasManager.VirtualBounds.Width,
-                        monitorOffsetX: remoteOffsetX,
-                        sharedStartTimestampMs: sharedStartTimestamp,
-                        pixelsPerSecond: pixelsPerSecond,
-                        perMonitorMode: !isSequential,
-                        movementType: movementTypeInt,
-                        pattern: _crossScreenConfig.Animation.Pattern,
-                        colorGrading: _crossScreenConfig.Animation.ColorGrading,
-                        // Full configs so the remote computes identical deterministic math.
-                        // animationConfig is the (possibly IconZone-cloned) config, so the
-                        // precomputed global A* path now reaches remote machines too.
-                        movement: _crossScreenConfig.Movement,
-                        animation: animationConfig,
-                        background: _crossScreenConfig.Background,
-                        // MonitorIndex is -1 for whole-machine nodes → render on primary.
-                        targetMonitorIndex: Math.Max(0, remoteClient.MonitorIndex));
-                }
-            }
-            else if (remoteClients.Count > 0)
-            {
-                Debug.WriteLine("[CrossScreen] WARNING: Remote clients selected but server not running - cannot send cross-screen commands");
-            }
-
-            StartFullscreenDetectionIfNeeded();
-
-            // Set up thumbnail capture for live preview in topology nodes
-            var animName = Path.GetFileName(_crossScreenConfig.Animation.AnimationPath) ?? "Animation";
-            foreach (var (monitorIndex, d2dService) in newServices)
-            {
-                SetupThumbnailCapture(monitorIndex, d2dService.PlayerHwnd, animName);
-            }
+            await ApplyCrossScreenConfigAsync(_crossScreenConfig);
 
             IsCrossScreenRunning = true;
             HasAnimationConfig = true;
@@ -3196,6 +2912,310 @@ public partial class MainWindowViewModel : ViewModelBase
             Debug.WriteLine($"[CrossScreen] Error starting: {ex.Message}\n{ex.StackTrace}");
             IsCrossScreenRunning = false;
         }
+    }
+
+    /// <summary>
+    /// Applies a cross-screen configuration: builds the virtual canvas, initializes local
+    /// D2D players, starts them with a shared timestamp, broadcasts to remote clients, and
+    /// wires up fullscreen detection + thumbnail capture for the freshly spawned players.
+    /// Shared by the manual Start button and the playlist orchestrator. Does NOT toggle
+    /// one-time "session started" UI state (IsCrossScreenRunning / HasAnimationConfig /
+    /// per-client indicators) — that stays in the caller so items can be applied repeatedly.
+    /// The applied config comes from the <paramref name="config"/> parameter.
+    /// </summary>
+    public async Task<CrossScreenApplyResult> ApplyCrossScreenConfigAsync(CrossScreenConfig config)
+    {
+        // Convert clients to screen configurations, filtering by selected monitors if configured
+        var selectedMonitorIds = new HashSet<string>(config.SelectedMonitorIds);
+        var clientsToUse = selectedMonitorIds.Count > 0
+            ? Clients.Where(c => selectedMonitorIds.Contains(c.ClientId))
+            : Clients;
+
+        // Split clients into local monitors and remote nodes.
+        // Use IsLocalMonitor() to cover both LOCAL_MACHINE_MONITOR_ (standalone) and
+        // SERVER_LOCALHOST_MONITOR_ (server mode) so local nodes are never sent gRPC commands.
+        var localClientsUnordered = clientsToUse
+            .Where(c => IsLocalMonitor(c.ClientId))
+            .ToList();
+        var remoteClients = clientsToUse
+            .Where(c => !IsLocalMonitor(c.ClientId))
+            .ToList();
+
+        List<ClientNodeViewModel> localClients;
+        if (selectedMonitorIds.Count > 0)
+        {
+            // Order by position in SelectedMonitorIds list (preserves user's custom order)
+            var orderMap = config.SelectedMonitorIds
+                .Select((id, idx) => (id, idx))
+                .ToDictionary(x => x.id, x => x.idx);
+            localClients = localClientsUnordered
+                .OrderBy(c => orderMap.GetValueOrDefault(c.ClientId, int.MaxValue))
+                .ToList();
+        }
+        else
+        {
+            localClients = localClientsUnordered
+                .OrderBy(c => c.Order)
+                .ToList();
+        }
+
+        if (localClients.Count == 0 && remoteClients.Count == 0)
+        {
+            Debug.WriteLine("[CrossScreen] No monitors selected");
+            return new CrossScreenApplyResult();
+        }
+
+        Debug.WriteLine($"[CrossScreen] Starting D2D animation on {localClients.Count} local + {remoteClients.Count} remote node(s)");
+
+        // Query DPI for local monitors to derive physical pixels-per-cm for gap modeling.
+        // Remote clients are assumed to have the same monitor model as the first local monitor.
+        var nativeMonitors = WaBiBaBuSy.WallpaperEngine.Native.NativeMonitorInfo.GetAllMonitors();
+        float fallbackPixelsPerCm = nativeMonitors.Length > 0 ? nativeMonitors[0].PixelsPerCm : 0f;
+
+        // Build screen configurations for virtual canvas - ALL nodes (local + remote)
+        var allClients = localClients.Concat(remoteClients).ToList();
+        var screenConfigs = allClients.Select(c => new WallpaperEngine.Composition.ScreenConfiguration
+        {
+            ClientId = c.ClientId,
+            Width = c.MonitorWidth > 0 ? c.MonitorWidth : 1920,
+            Height = c.MonitorHeight > 0 ? c.MonitorHeight : 1080,
+            Order = c.Order,
+            PhysicalDistanceCm = c.PhysicalDistanceCm,
+            Hostname = c.Hostname,
+            MonitorIndex = c.MonitorIndex,
+            // Local: look up by monitor index; Remote: use the DPI the client
+            // reported at registration; first local monitor only as last resort.
+            PixelsPerCm = c.ClientId.StartsWith("LOCAL_MACHINE_MONITOR_")
+                ? (c.MonitorIndex < nativeMonitors.Length ? nativeMonitors[c.MonitorIndex].PixelsPerCm : fallbackPixelsPerCm)
+                : (c.PixelsPerCm > 0f ? c.PixelsPerCm : fallbackPixelsPerCm)
+        }).ToList();
+
+        // Create virtual canvas spanning ALL nodes.
+        // Gap pixels between physically spaced monitors are inserted automatically
+        // from each screen's PixelsPerCm + PhysicalDistanceCm.
+        var canvasManager = new VirtualCanvasManager(
+            AppLogger.CreateLogger<VirtualCanvasManager>());
+        canvasManager.CalculateLayout(screenConfigs);
+
+        Debug.WriteLine($"[CrossScreen] Virtual canvas: {canvasManager.VirtualBounds.Width}x{canvasManager.VirtualBounds.Height}");
+
+        // Get actual monitor bounds from Windows
+        var screens = System.Windows.Forms.Screen.AllScreens;
+
+        // Sequential + IconZone: compute one global A* path across the full virtual canvas
+        // so all local monitors share the same coordinated corridor path.
+        var perMonitor = config.DistributionMode == AnimationDistributionMode.Simultaneous;
+        var animationConfig = config.Animation;
+        if (!perMonitor && config.Background.Mode == BackgroundMode.IconZone && localClients.Count > 0)
+        {
+            try
+            {
+                var iconService = new WaBiBaBuSy.Core.Services.Desktop.DesktopIconService();
+                var (cellW, cellH) = iconService.GetGridCellSize();
+                var allIcons = iconService.GetIconPositions(); // positions in virtual-desktop (absolute) coords
+
+                int firstMonitorIdx = GetMonitorIndex(localClients[0].ClientId);
+                var firstScreen = firstMonitorIdx < screens.Length ? screens[firstMonitorIdx] : screens[0];
+                int virtualH = firstScreen.Bounds.Height;
+
+                // Effective animation height depends on FitMode. Using the actual rendered height
+                // keeps the server-side path padding in sync with what Player.D2D will compute
+                // locally (pathPaddingPx = _animHeight / 2 + optional wave amplitude).
+                int effectiveHeight = ComputeEffectiveAnimationHeight(
+                    config.Animation, firstScreen.Bounds.Width, virtualH);
+                int pathPaddingPx = effectiveHeight / 2;
+                if (config.Movement.Type == MovementType.SineWave)
+                    pathPaddingPx += (int)Math.Ceiling(config.Movement.WaveAmplitudePixels);
+                var globalLayout = WaBiBaBuSy.WallpaperEngine.Desktop.ZonePlanner.Compute(
+                    allIcons.Select(i => (i.PixelX, i.PixelY)),
+                    cellW, cellH,
+                    canvasManager.VirtualBounds.Width, virtualH,
+                    config.Background.IconZonePaletteHexes,
+                    config.Background.IconCorridorColorHex,
+                    paddingPx: pathPaddingPx,
+                    visualPaddingPx: Math.Max(4, cellW / 10));
+
+                // Clone animation config with global path attached
+                animationConfig = new AnimationLayerConfig
+                {
+                    AnimationPath             = config.Animation.AnimationPath,
+                    AdditionalAnimationPaths  = config.Animation.AdditionalAnimationPaths,
+                    TargetHeight              = config.Animation.TargetHeight,
+                    Loop                      = config.Animation.Loop,
+                    VerticalAlign             = config.Animation.VerticalAlign,
+                    CenterInitialPosition     = config.Animation.CenterInitialPosition,
+                    SpeedMultiplier           = config.Animation.SpeedMultiplier,
+                    FitMode                   = config.Animation.FitMode,
+                    RotateWithPath            = config.Animation.RotateWithPath,
+                    PrecomputedPath           = globalLayout.Path,
+                    ColorGrading              = config.Animation.ColorGrading,
+                    Pattern                   = config.Animation.Pattern,
+                    MultiImageSpread          = config.Animation.MultiImageSpread,
+                    MultiImagePhaseJitterMs   = config.Animation.MultiImagePhaseJitterMs
+                };
+
+                Debug.WriteLine($"[CrossScreen] IconZone sequential: computed global path with {globalLayout.Path.Count} waypoints across {canvasManager.VirtualBounds.Width}px virtual canvas");
+
+                // Save params for per-lap recompute
+                _seqCellW              = cellW;
+                _seqCellH              = cellH;
+                _seqVirtualCanvasWidth = canvasManager.VirtualBounds.Width;
+                _seqVirtualH           = virtualH;
+                _seqPathPaddingPx      = pathPaddingPx;
+                _seqVisualPaddingPx    = Math.Max(4, cellW / 10);
+                _seqPaletteHexes       = config.Background.IconZonePaletteHexes.ToList();
+                _seqCorridorColorHex   = config.Background.IconCorridorColorHex;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[CrossScreen] Global icon path failed, players will compute locally: {ex.Message}");
+            }
+        }
+
+        // Phase 1: Initialize all D2D players (load animation, extract GIF frames)
+        var newServices = new List<(int monitorIndex, D2DCompositionService service)>();
+
+        foreach (var client in localClients)
+        {
+            var monitorIndex = GetMonitorIndex(client.ClientId);
+
+            // Clean up existing D2D service for this monitor if any
+            if (_d2dCompositionServices.TryRemove(monitorIndex, out var existingService))
+            {
+                try { await existingService.StopAsync(); } catch { }
+                existingService.Dispose();
+            }
+
+            // Find actual screen bounds
+            var screen = monitorIndex < screens.Length ? screens[monitorIndex] : screens[0];
+            var actualBounds = new System.Drawing.Rectangle(
+                screen.Bounds.X, screen.Bounds.Y,
+                screen.Bounds.Width, screen.Bounds.Height);
+
+            Debug.WriteLine($"[CrossScreen] Monitor {monitorIndex}: {actualBounds.Width}x{actualBounds.Height} at ({actualBounds.X},{actualBounds.Y})");
+
+            // Build a single-screen canvas for this monitor's service.
+            // D2DCompositionService.InitializeAsync loops over ScreenMappings and spawns one
+            // player per entry — passing the full multi-screen canvasManager would cause it to
+            // spawn N players per service (N² total), all positioned at the same actualBounds.
+            // Each service must own exactly ONE player for its own monitor.
+            var thisCfg = screenConfigs.First(s => s.ClientId == client.ClientId);
+            var singleCanvas = new VirtualCanvasManager(AppLogger.CreateLogger<VirtualCanvasManager>());
+            singleCanvas.CalculateLayout(new[] { thisCfg });
+
+            // In sequential mode the player needs the full virtual canvas width and this
+            // monitor's X offset within it; derive both from the global canvasManager.
+            var globalMapping = canvasManager.GetScreenByClientId(client.ClientId);
+            int virtualOffsetX = globalMapping?.VirtualBounds.X ?? 0;
+
+            // Create D2D service
+            var d2dService = new D2DCompositionService(
+                AppLogger.CreateLogger<D2DCompositionService>(),
+                AppLogger.Factory,
+                _desktopManager);
+
+            // Initialize: singleCanvas → exactly 1 player spawned for this monitor.
+            // Pass explicit virtual-canvas width + offset so the player computes
+            // movement correctly in sequential (spanning) mode.
+            await d2dService.InitializeAsync(
+                singleCanvas,
+                config.Background,
+                animationConfig,
+                actualBounds,
+                monitorIndex,
+                config.Movement,
+                perMonitorMode: perMonitor,
+                explicitVirtualCanvasWidth: perMonitor ? null : canvasManager.VirtualBounds.Width,
+                explicitMonitorOffsetX: perMonitor ? null : virtualOffsetX);
+
+            // Subscribe for lap-completion recompute in sequential IconZone mode
+            if (!perMonitor && config.Background.Mode == BackgroundMode.IconZone)
+                d2dService.GlobalLapCompleted += OnSequentialLapCompleted;
+
+            newServices.Add((monitorIndex, d2dService));
+            Debug.WriteLine($"[CrossScreen] Monitor {monitorIndex} initialized (virtualOffsetX={virtualOffsetX}, vcw={canvasManager.VirtualBounds.Width})");
+        }
+
+        // Brief pause to let all players finish loading
+        await Task.Delay(200);
+
+        // Phase 2: Start ALL players with same shared timestamp.
+        // Background always renders on all monitors simultaneously.
+        // DistributionMode controls animation positioning:
+        //   - Sequential: animation spans across virtual canvas (multi-monitor spanning)
+        //   - Simultaneous: animation plays independently on each monitor
+        var sharedStartTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var pixelsPerSecond = config.Movement.Type == MovementType.Static
+            ? 0
+            : (int)config.Movement.SpeedPixelsPerSecond;
+
+        var isSequential = config.DistributionMode == AnimationDistributionMode.Sequential;
+        Debug.WriteLine($"[CrossScreen] Starting {(isSequential ? "SEQUENTIAL (spanning)" : "SIMULTANEOUS (per-monitor)")} animation on {newServices.Count} monitors, timestamp={sharedStartTimestamp}ms, speed={pixelsPerSecond}px/s");
+
+        foreach (var (monitorIndex, d2dService) in newServices)
+        {
+            await d2dService.StartAsync(startTimestampMs: sharedStartTimestamp, pixelsPerSecond: pixelsPerSecond);
+            _d2dCompositionServices[monitorIndex] = d2dService;
+        }
+
+        // Phase 3: Send cross-screen D2D commands to remote clients
+        if (remoteClients.Count > 0 && _service.SyncCoordinator != null)
+        {
+            var contentId = System.IO.Path.GetFileName(config.Animation.AnimationPath);
+            _crossScreenContentId = contentId;
+            var bgColor = config.Background.ColorHex ?? "#000000";
+            var movementTypeInt = (int)config.Movement.Type;
+
+            foreach (var remoteClient in remoteClients)
+            {
+                var screenMapping = canvasManager.GetScreenByClientId(remoteClient.ClientId);
+                var remoteOffsetX = screenMapping?.VirtualBounds.X ?? 0;
+
+                Debug.WriteLine($"[CrossScreen] Sending cross-screen D2D to remote {remoteClient.Hostname} ({remoteClient.ClientId}): offset={remoteOffsetX}px, canvas={canvasManager.VirtualBounds.Width}px");
+
+                await _service.SyncCoordinator.StartCrossScreenD2DOnClientAsync(
+                    clientId: remoteClient.ClientId,
+                    contentId: contentId,
+                    filePath: config.Animation.AnimationPath,
+                    backgroundColor: bgColor,
+                    fitMode: (int)(config.Animation.FitMode),
+                    virtualCanvasWidth: canvasManager.VirtualBounds.Width,
+                    monitorOffsetX: remoteOffsetX,
+                    sharedStartTimestampMs: sharedStartTimestamp,
+                    pixelsPerSecond: pixelsPerSecond,
+                    perMonitorMode: !isSequential,
+                    movementType: movementTypeInt,
+                    pattern: config.Animation.Pattern,
+                    colorGrading: config.Animation.ColorGrading,
+                    // Full configs so the remote computes identical deterministic math.
+                    // animationConfig is the (possibly IconZone-cloned) config, so the
+                    // precomputed global A* path now reaches remote machines too.
+                    movement: config.Movement,
+                    animation: animationConfig,
+                    background: config.Background,
+                    // MonitorIndex is -1 for whole-machine nodes → render on primary.
+                    targetMonitorIndex: Math.Max(0, remoteClient.MonitorIndex));
+            }
+        }
+        else if (remoteClients.Count > 0)
+        {
+            Debug.WriteLine("[CrossScreen] WARNING: Remote clients selected but server not running - cannot send cross-screen commands");
+        }
+
+        StartFullscreenDetectionIfNeeded();
+
+        // Set up thumbnail capture for live preview in topology nodes
+        var animName = Path.GetFileName(config.Animation.AnimationPath) ?? "Animation";
+        foreach (var (monitorIndex, d2dService) in newServices)
+        {
+            SetupThumbnailCapture(monitorIndex, d2dService.PlayerHwnd, animName);
+        }
+
+        return new CrossScreenApplyResult
+        {
+            VirtualCanvasWidth = canvasManager.VirtualBounds.Width,
+            ContentWidthPx = 0, // best-effort; wire a real value later if a service exposes it
+        };
     }
 
     /// <summary>
@@ -3432,4 +3452,14 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     #endregion
+}
+
+/// <summary>
+/// Metrics returned by applying a cross-screen config, used by the playlist orchestrator
+/// to compute lap-snap timing. ContentWidthPx is best-effort (0 when unknown).
+/// </summary>
+public sealed class CrossScreenApplyResult
+{
+    public int VirtualCanvasWidth { get; init; }
+    public int ContentWidthPx { get; init; }
 }
