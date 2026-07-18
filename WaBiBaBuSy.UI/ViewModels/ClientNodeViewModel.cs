@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using WaBiBaBuSy.Models.Networking;
 
 namespace WaBiBaBuSy.UI.ViewModels;
 
@@ -87,6 +88,18 @@ public partial class ClientNodeViewModel : ObservableObject
 
     [ObservableProperty]
     private string? _activeAnimationName;
+
+    /// <summary>Last reported clock offset (server − client), ms. Only meaningful when DriftState is not None.</summary>
+    [ObservableProperty]
+    private double _driftMs;
+
+    /// <summary>Heartbeat round-trip time of the client's best clock sample, ms.</summary>
+    [ObservableProperty]
+    private double _rttMs;
+
+    /// <summary>Sync-quality classification of the last drift report.</summary>
+    [ObservableProperty]
+    private DriftState _driftState = DriftState.None;
 
     /// <summary>
     /// Display name for the client

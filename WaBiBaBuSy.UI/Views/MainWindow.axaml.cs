@@ -7,6 +7,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using WaBiBaBuSy.Models.Networking;
 using WaBiBaBuSy.UI.ViewModels;
 using WaBiBaBuSy.WallpaperEngine.Services;
 using System;
@@ -380,6 +381,15 @@ public partial class MainWindow : Window
         statusPanel.Children.Add(statusDot);
         stackPanel.Children.Add(statusPanel);
 
+        // Drift telemetry label ("±Xms", color-coded; hidden until a client reports)
+        var driftText = new TextBlock
+        {
+            FontSize = 9,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
+        };
+        UpdateDriftLabel(driftText, client);
+        stackPanel.Children.Add(driftText);
+
         // Animation name indicator (shown when animating)
         var animNameText = new TextBlock
         {
@@ -408,6 +418,10 @@ public partial class MainWindow : Window
             else if (e.PropertyName == nameof(client.ActiveAnimationName))
             {
                 animNameText.Text = client.ActiveAnimationName ?? string.Empty;
+            }
+            else if (e.PropertyName == nameof(client.DriftState) || e.PropertyName == nameof(client.DriftMs))
+            {
+                UpdateDriftLabel(driftText, client);
             }
         };
 
@@ -501,6 +515,35 @@ public partial class MainWindow : Window
         };
 
         return border;
+    }
+
+    /// <summary>
+    /// Style the per-node drift label: hidden until a report exists, grey em-dash
+    /// when stale, otherwise "±Xms" colored by DriftState (Ok/Warn/Breach).
+    /// </summary>
+    private static void UpdateDriftLabel(TextBlock label, ClientNodeViewModel client)
+    {
+        switch (client.DriftState)
+        {
+            case DriftState.None:
+                label.IsVisible = false;
+                break;
+            case DriftState.Stale:
+                label.IsVisible = true;
+                label.Text = "sync: —";
+                label.Foreground = new SolidColorBrush(Color.Parse("#888888"));
+                break;
+            default:
+                label.IsVisible = true;
+                label.Text = $"±{Math.Abs(client.DriftMs):F0}ms";
+                label.Foreground = new SolidColorBrush(Color.Parse(client.DriftState switch
+                {
+                    DriftState.Ok => "#00CC66",   // matches the animation-name green
+                    DriftState.Warn => "#FFC800",
+                    _ => "#FF4444",               // matches the disconnected red
+                }));
+                break;
+        }
     }
 
     /// <summary>

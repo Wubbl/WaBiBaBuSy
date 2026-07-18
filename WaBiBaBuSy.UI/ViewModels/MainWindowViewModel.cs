@@ -20,6 +20,7 @@ using WaBiBaBuSy.Core.Services;
 using WaBiBaBuSy.Core.Services.Logging;
 using WaBiBaBuSy.Models;
 using WaBiBaBuSy.Models.Configuration;
+using WaBiBaBuSy.Models.Networking;
 using WaBiBaBuSy.Models.Wallpaper;
 using WaBiBaBuSy.WallpaperEngine.Composition;
 using WaBiBaBuSy.WallpaperEngine.Native;
@@ -2530,7 +2531,15 @@ public partial class MainWindowViewModel : ViewModelBase
                         MonitorHeight = monitorHeight,
                         MonitorRefreshHz = monitorRefreshHz,
                         IsPrimaryMonitor = isPrimary,
-                        PixelsPerCm = monitorPixelsPerCm
+                        PixelsPerCm = monitorPixelsPerCm,
+                        // Drift telemetry (server-local SERVER_LOCALHOST_MONITOR_*/LOCAL_MACHINE_MONITOR_*
+                        // nodes never report → LastDriftReportUtc stays 0 → DriftState.None → label hidden)
+                        DriftMs = grpcClient.ClockOffsetMs,
+                        RttMs = grpcClient.RttMs,
+                        DriftState = DriftMonitor.Classify(
+                            grpcClient.ClockOffsetMs,
+                            grpcClient.LastDriftReportUtc,
+                            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
                     };
 
                     Debug.WriteLine($"[UpdateClientList] About to add client to Clients collection");
