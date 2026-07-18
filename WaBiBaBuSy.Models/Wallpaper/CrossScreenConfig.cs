@@ -29,14 +29,6 @@ public class CrossScreenConfig
     public List<string> SelectedMonitorIds { get; set; } = new();
 
     /// <summary>
-    /// Whether to use distributed rendering (client-side) instead of centralized server rendering.
-    /// When true, server sends animation file once and clients render locally.
-    /// When false, server renders frames and sends to all clients (high CPU usage).
-    /// Default: false (use existing centralized rendering for now).
-    /// </summary>
-    public bool UseDistributedRendering { get; set; } = false;
-
-    /// <summary>
     /// Animation distribution mode for orchestrator-based animation (Phase 3).
     /// Sequential: Animation flows from one client to the next in order
     /// Simultaneous: All clients animate at the same time

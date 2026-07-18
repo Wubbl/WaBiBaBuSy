@@ -24,9 +24,6 @@ service WallpaperSync {
   rpc UpdateClientOrder(ClientOrderUpdate) returns (OrderUpdateResponse);
   rpc UpdateClientDistance(ClientDistanceUpdate) returns (DistanceUpdateResponse);
 
-  // Cross-screen frame streaming (server-to-client)
-  rpc StreamCrossScreenFrames(stream FrameAcknowledgment) returns (stream CrossScreenFrame);
-
   // Update distribution
   rpc CheckForUpdates(UpdateCheckRequest) returns (UpdateCheckResponse);
   rpc DownloadUpdate(UpdateDownloadRequest) returns (stream UpdateChunk);
@@ -141,14 +138,14 @@ message SyncCommand {
 
 // Command types
 enum CommandType {
+  reserved 6, 7;  // were CROSSSCREEN_START / CROSSSCREEN_STOP (legacy frame streaming, removed 2026-07)
+  reserved "CROSSSCREEN_START", "CROSSSCREEN_STOP";
   LOAD = 0;
   PLAY = 1;
   PAUSE = 2;
   SEEK = 3;
   STOP = 4;
   SYNC_FRAME = 5;
-  CROSSSCREEN_START = 6;  // Start cross-screen mode
-  CROSSSCREEN_STOP = 7;   // Stop cross-screen mode
   FETCH_LOGS = 8;         // Request client to upload its log file
 }
 
@@ -281,34 +278,6 @@ enum WallpaperStateEnum {
   WALLPAPER_PAUSED = 3;
   WALLPAPER_BUFFERING = 4;
   WALLPAPER_ERROR = 5;
-}
-
-// Cross-screen frame data
-message CrossScreenFrame {
-  string client_id = 1;              // Target client ID
-  int32 frame_number = 2;            // Sequential frame number
-  int64 timestamp_utc = 3;           // Frame timestamp (UTC milliseconds)
-  bytes frame_data = 4;              // JPEG-encoded frame bitmap
-  int32 width = 5;                   // Frame width in pixels
-  int32 height = 6;                  // Frame height in pixels
-  CompressionType compression = 7;    // Compression format
-}
-
-// Compression type enum
-enum CompressionType {
-  JPEG = 0;
-  PNG = 1;
-  WEBP = 2;
-}
-
-// Frame acknowledgment (client response)
-message FrameAcknowledgment {
-  string client_id = 1;              // Client acknowledging
-  int32 frame_number = 2;            // Acknowledged frame number
-  bool success = 3;                  // Whether frame was rendered successfully
-  string error_message = 4;          // Error details if success=false
-  int64 receive_timestamp = 5;       // When frame was received (UTC ms)
-  int64 render_timestamp = 6;        // When frame was rendered (UTC ms)
 }
 
 // ============================================================================

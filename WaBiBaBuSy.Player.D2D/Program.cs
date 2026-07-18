@@ -419,13 +419,10 @@ class Program
         ShowInfoPanel = true
     };
 
-    // Composition system (video fallback path)
-    private static CompositionRenderer? _compositionRenderer;
-    private static VirtualCanvasManager? _canvasManager;
+    // Composition configuration
     private static AnimationLayerConfig? _animationConfig;
     private static BackgroundLayerConfig? _backgroundConfig;
     private static readonly object _compositionLock = new();
-    private static volatile bool _compositionInitialized = false;
 
     // Stage 2: Native D2D GIF frame cache
     private static ID2D1Bitmap[]? _d2dGifFrames;      // GPU-cached frames (primary source — for back-compat single-source paths)
@@ -518,7 +515,7 @@ class Program
     private static ID2D1SolidColorBrush? _debugTrailBrush;
     private static ID2D1SolidColorBrush? _debugZoneBandBrush;
 
-    // Stage 4: Animation positioning (ported from AnimationLayerRenderer)
+    // Stage 4: Animation positioning
     private static int _animWidth, _animHeight;    // Scaled by FitMode
     private static float _animX, _animY;            // Current position
     private static ContentFitMode _fitMode;
@@ -949,7 +946,7 @@ class Program
                 bool composing = false;
                 lock (_compositionLock)
                 {
-                    composing = (_compositionInitialized || _useNativeD2DComposition) && _isPlaying;
+                    composing = _useNativeD2DComposition && _isPlaying;
                 }
                 _logger?.LogInformation("[D2D-LOOP] Frame #{Count} | NativeD2D: {Native} | Composing: {Composing} | WindowShown: {Shown}",
                     _frameCount, _useNativeD2DComposition, composing, _windowShown);
@@ -1166,21 +1163,17 @@ class Program
 
                     // Check if composition is initialized and playing
                     bool shouldComposeNative = false;
-                    bool shouldComposeFallback = false;
-                    bool compInit = false;
                     bool isPlay = false;
                     lock (_compositionLock)
                     {
-                        compInit = _compositionInitialized;
                         isPlay = _isPlaying;
                         shouldComposeNative = (_useNativeD2DComposition || _useNativeD2DVideo) && isPlay;
-                        shouldComposeFallback = compInit && isPlay && !_useNativeD2DComposition && !_useNativeD2DVideo;
                     }
 
                     if (_frameCount % 60 == 0)
                     {
-                        _logger?.LogInformation("[RENDER-LOOP] Frame #{Frame} | NativeD2D: {Native} | FallbackComp: {Fallback} | Playing: {Play}",
-                            _frameCount, shouldComposeNative, shouldComposeFallback, isPlay);
+                        _logger?.LogInformation("[RENDER-LOOP] Frame #{Frame} | NativeD2D: {Native} | Playing: {Play}",
+                            _frameCount, shouldComposeNative, isPlay);
                     }
 
                     // Stage 4: Pure D2D render path for GIF animations
@@ -1283,60 +1276,6 @@ class Program
                         catch (Exception ex)
                         {
                             _logger?.LogError(ex, "Native D2D video render error");
-                        }
-                    }
-                    // Video fallback path: uses CompositionRenderer + GDI+ ConvertBitmapToD2D
-                    else if (shouldComposeFallback && _compositionRenderer != null && _canvasManager != null)
-                    {
-                        try
-                        {
-                            var elapsedMs = (long)(DateTime.UtcNow - _renderLoopStart).TotalMilliseconds;
-                            var currentTimestampMs = _startTimestampMs + elapsedMs;
-
-                            if (_frameCount % 60 == 0)
-                            {
-                                _logger?.LogInformation("[TIMESTAMP] Frame #{Frame} | Elapsed: {Elapsed}ms | CurrentTimestamp: {Timestamp}ms | PPS: {PPS}",
-                                    _frameCount, elapsedMs, currentTimestampMs, _pixelsPerSecond);
-                            }
-
-                            _compositionRenderer.UpdateAnimationPosition(currentTimestampMs, _pixelsPerSecond);
-
-                            var screen = _canvasManager.ScreenMappings[0];
-                            using var composedFrame = _compositionRenderer.ComposeForScreen(screen);
-
-                            using var d2dBitmap = ConvertBitmapToD2D(composedFrame);
-
-                            if (d2dBitmap != null)
-                            {
-                                var destRect = new System.Drawing.RectangleF(0, 0, _width, _height);
-                                _d2dContext.DrawBitmap(
-                                    d2dBitmap,
-                                    destRect,
-                                    1.0f,
-                                    BitmapInterpolationMode.Linear,
-                                    null);
-
-                                if (!_windowShown)
-                                {
-                                    _windowShown = true;
-                                    _d2dContext.EndDraw();
-                                    _d2dContext.Target = null;
-                                    _swapChain.Present(1, PresentFlags.None);
-
-                                    if (_zOrderReference != IntPtr.Zero)
-                                        SetWindowPos(_hwnd, _zOrderReference, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-                                    else
-                                        ShowWindow(_hwnd, 5);
-                                    UpdateWindow(_hwnd);
-                                    _logger?.LogInformation("Window shown after first fallback frame");
-                                    _frameCount++;
-                                    continue;
-                                }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger?.LogError(ex, "Composition fallback error");
                         }
                     }
                     else
@@ -2017,7 +1956,7 @@ class Program
     // ================================
 
     /// <summary>
-    /// Calculate animation dimensions based on FitMode (ported from AnimationLayerRenderer).
+    /// Calculate animation dimensions based on FitMode.
     /// </summary>
     private static void CalculateAnimationLayout(AnimationLayerConfig config)
     {
@@ -2376,53 +2315,6 @@ class Program
         // With 2D per-icon zones the free space is not described as bands;
         // just clamp the sine offset to screen bounds so it doesn't go off-screen.
         return Math.Clamp(y, 0f, Math.Max(0f, _height - _animHeight));
-    }
-
-    // ================================
-    // GDI+ to D2D conversion (video fallback)
-    // ================================
-
-    private static ID2D1Bitmap? ConvertBitmapToD2D(Bitmap gdiBitmap)
-    {
-        if (_d2dContext == null)
-            return null;
-
-        try
-        {
-            var bitmapData = gdiBitmap.LockBits(
-                new Rectangle(0, 0, gdiBitmap.Width, gdiBitmap.Height),
-                ImageLockMode.ReadOnly,
-                System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
-
-            try
-            {
-                var bitmapProps = new BitmapProperties
-                {
-                    PixelFormat = new Vortice.DCommon.PixelFormat(
-                        Format.B8G8R8A8_UNorm,
-                        Vortice.DCommon.AlphaMode.Premultiplied),
-                    DpiX = 96.0f,
-                    DpiY = 96.0f
-                };
-
-                var d2dBitmap = _d2dContext.CreateBitmap(
-                    new Vortice.Mathematics.SizeI(gdiBitmap.Width, gdiBitmap.Height),
-                    bitmapData.Scan0,
-                    (uint)bitmapData.Stride,
-                    bitmapProps);
-
-                return d2dBitmap;
-            }
-            finally
-            {
-                gdiBitmap.UnlockBits(bitmapData);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "Failed to convert bitmap to D2D");
-            return null;
-        }
     }
 
     // ================================
@@ -3235,12 +3127,6 @@ class Program
             {
                 // Stage 5: Dispose existing native D2D resources
                 DisposeNativeD2DResources();
-
-                // Dispose existing composition fallback
-                _compositionRenderer?.Dispose();
-                _compositionRenderer = null;
-                _canvasManager = null;
-                _compositionInitialized = false;
                 _useNativeD2DComposition = false;
 
                 // Store configuration
@@ -3387,7 +3273,7 @@ class Program
 
             lock (_compositionLock)
             {
-                if (!_compositionInitialized && !_useNativeD2DComposition && !_useNativeD2DVideo)
+                if (!_useNativeD2DComposition && !_useNativeD2DVideo)
                 {
                     _logger?.LogError("[START-CMD] FAILED: No rendering path initialized!");
                     throw new InvalidOperationException("No composition initialized. Call LOAD_ANIMATION first.");
@@ -3544,15 +3430,6 @@ class Program
 
         // Dispose native D2D resources
         DisposeNativeD2DResources();
-
-        // Dispose composition fallback
-        lock (_compositionLock)
-        {
-            _compositionRenderer?.Dispose();
-            _compositionRenderer = null;
-            _canvasManager = null;
-            _compositionInitialized = false;
-        }
 
         // Debug overlay brushes (lazy-created, may be null)
         _debugPathBrush?.Dispose();     _debugPathBrush = null;

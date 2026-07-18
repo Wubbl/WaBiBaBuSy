@@ -26,9 +26,6 @@ public class WallpaperSyncClient : IDisposable
     private CancellationTokenSource? _syncStreamCts;
     private Task? _syncStreamTask;
     private AsyncDuplexStreamingCall<SyncResponse, SyncCommand>? _syncStreamCall;
-    private CancellationTokenSource? _frameStreamCts;
-    private Task? _frameStreamTask;
-    private AsyncDuplexStreamingCall<FrameAcknowledgment, CrossScreenFrame>? _frameStreamCall;
     private CancellationTokenSource? _thumbnailCts;
     private Task? _thumbnailTask;
     private ThumbnailCaptureService? _thumbnailCaptureService;
@@ -41,7 +38,6 @@ public class WallpaperSyncClient : IDisposable
     private int _heartbeatFailures;
 
     public bool IsConnected { get; private set; }
-    public bool IsCrossScreenActive { get; private set; }
     public string? ClientId => _clientId;
 
     /// <summary>Estimated (server - client) clock offset in ms, from heartbeat round-trips.</summary>
@@ -63,7 +59,6 @@ public class WallpaperSyncClient : IDisposable
 
     public event EventHandler<ConnectionStatusChangedEventArgs>? ConnectionStatusChanged;
     public event EventHandler<SyncCommandReceivedEventArgs>? SyncCommandReceived;
-    public event EventHandler<CrossScreenFrameReceivedEventArgs>? CrossScreenFrameReceived;
     public event EventHandler<UpdateAvailableEventArgs>? UpdateAvailable;
 
     // Animation composition events (Phase 3)
@@ -166,7 +161,6 @@ public class WallpaperSyncClient : IDisposable
 
         StopHeartbeat();
         StopSyncStream();
-        StopCrossScreenFrameStream();
         StopThumbnailSending();
 
         IsConnected = false;
@@ -250,7 +244,6 @@ public class WallpaperSyncClient : IDisposable
     {
         StopHeartbeat();
         StopSyncStream();
-        StopCrossScreenFrameStream();
         StopThumbnailSending();
 
         if (_channel != null)
@@ -851,18 +844,6 @@ public class WallpaperSyncClient : IDisposable
                         _logger.LogInformation("[SyncStream] Command has no params");
                     }
 
-                    // Handle cross-screen start/stop commands
-                    if (command.Type == CommandType.CrossscreenStart)
-                    {
-                        _logger.LogInformation("Cross-screen mode started - initiating frame stream");
-                        StartCrossScreenFrameStream();
-                    }
-                    else if (command.Type == CommandType.CrossscreenStop)
-                    {
-                        _logger.LogInformation("Cross-screen mode stopped - terminating frame stream");
-                        StopCrossScreenFrameStream();
-                    }
-
                     // Handle FETCH_LOGS command directly (don't pass to playback service)
                     if (command.Type == CommandType.FetchLogs)
                     {
@@ -1052,122 +1033,6 @@ public class WallpaperSyncClient : IDisposable
         if (string.IsNullOrEmpty(deviceName)) return 0;
         var dm = new DEVMODE { dmSize = (short)Marshal.SizeOf<DEVMODE>() };
         return EnumDisplaySettings(deviceName, ENUM_CURRENT_SETTINGS, ref dm) ? dm.dmDisplayFrequency : 0;
-    }
-
-    /// <summary>
-    /// Start cross-screen frame stream to receive frames from server
-    /// </summary>
-    private void StartCrossScreenFrameStream()
-    {
-        if (_client == null || string.IsNullOrEmpty(_clientId))
-        {
-            _logger.LogWarning("Cannot start frame stream - not connected");
-            return;
-        }
-
-        if (IsCrossScreenActive)
-        {
-            _logger.LogWarning("Cross-screen frame stream already active");
-            return;
-        }
-
-        _frameStreamCts = new CancellationTokenSource();
-
-        // Create metadata with client ID
-        var metadata = new Metadata
-        {
-            { "client-id", _clientId }
-        };
-
-        // Start the bidirectional stream
-        _frameStreamCall = _client.StreamCrossScreenFrames(metadata, cancellationToken: _frameStreamCts.Token);
-
-        IsCrossScreenActive = true;
-
-        // Start task to receive frames
-        _frameStreamTask = Task.Run(async () =>
-        {
-            try
-            {
-                _logger.LogInformation("Cross-screen frame stream started, listening for frames");
-
-                await foreach (var frame in _frameStreamCall.ResponseStream.ReadAllAsync(_frameStreamCts.Token))
-                {
-                    _logger.LogDebug("Received frame {FrameNumber} from server: {Width}x{Height}, {Size} KB",
-                        frame.FrameNumber, frame.Width, frame.Height, frame.FrameData.Length / 1024);
-
-                    // Raise event for frame processing
-                    CrossScreenFrameReceived?.Invoke(this, new CrossScreenFrameReceivedEventArgs(frame));
-
-                    // Send acknowledgment back to server
-                    await SendFrameAcknowledgmentAsync(frame.FrameNumber, true);
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                _logger.LogInformation("Cross-screen frame stream cancelled");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in cross-screen frame stream");
-                IsCrossScreenActive = false;
-            }
-        }, _frameStreamCts.Token);
-
-        _logger.LogInformation("Cross-screen frame stream initialized");
-    }
-
-    /// <summary>
-    /// Stop cross-screen frame stream
-    /// </summary>
-    private void StopCrossScreenFrameStream()
-    {
-        if (_frameStreamCts != null)
-        {
-            _frameStreamCts.Cancel();
-            _frameStreamTask?.Wait(TimeSpan.FromSeconds(2));
-            _frameStreamCts.Dispose();
-            _frameStreamCts = null;
-            _frameStreamTask = null;
-        }
-
-        _frameStreamCall?.Dispose();
-        _frameStreamCall = null;
-
-        IsCrossScreenActive = false;
-
-        _logger.LogInformation("Cross-screen frame stream stopped");
-    }
-
-    /// <summary>
-    /// Send a frame acknowledgment to the server
-    /// </summary>
-    private async Task SendFrameAcknowledgmentAsync(int frameNumber, bool success, string? errorMessage = null)
-    {
-        if (_frameStreamCall == null || string.IsNullOrEmpty(_clientId))
-        {
-            return;
-        }
-
-        try
-        {
-            var ack = new FrameAcknowledgment
-            {
-                ClientId = _clientId,
-                FrameNumber = frameNumber,
-                Success = success,
-                ErrorMessage = errorMessage ?? string.Empty,
-                ReceiveTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                RenderTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-            };
-
-            await _frameStreamCall.RequestStream.WriteAsync(ack);
-            _logger.LogTrace("Sent frame acknowledgment for frame {FrameNumber}", frameNumber);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error sending frame acknowledgment");
-        }
     }
 
     #region Thumbnail Sending
@@ -1368,16 +1233,6 @@ public class SyncCommandReceivedEventArgs : EventArgs
     public SyncCommandReceivedEventArgs(SyncCommand command)
     {
         Command = command;
-    }
-}
-
-public class CrossScreenFrameReceivedEventArgs : EventArgs
-{
-    public CrossScreenFrame Frame { get; }
-
-    public CrossScreenFrameReceivedEventArgs(CrossScreenFrame frame)
-    {
-        Frame = frame;
     }
 }
 

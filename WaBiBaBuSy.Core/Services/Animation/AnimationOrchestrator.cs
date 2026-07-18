@@ -467,9 +467,6 @@ public enum DistributionMode
 
     /// <summary>All clients animate simultaneously</summary>
     Simultaneous = 1,
-
-    /// <summary>Clients divided into groups, groups animate sequentially</summary>
-    GroupedSequential = 2,
 }
 
 /// <summary>
@@ -535,7 +532,6 @@ public class AnimationSchedule
         {
             DistributionMode.Sequential => "Sequential",
             DistributionMode.Simultaneous => "Simultaneous",
-            DistributionMode.GroupedSequential => "Grouped Sequential",
             _ => "Unknown",
         };
     }

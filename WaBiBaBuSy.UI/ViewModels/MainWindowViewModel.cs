@@ -1272,7 +1272,7 @@ public partial class MainWindowViewModel : ViewModelBase
             };
 
             // Create composition renderer
-            // Create D2D composition service (metadata-based, no CompositionRenderer needed in main process)
+            // Create D2D composition service (metadata-based, no frame composition in main process)
             var d2dService = new D2DCompositionService(
                 AppLogger.CreateLogger<D2DCompositionService>(),
                 AppLogger.Factory,
@@ -3353,15 +3353,8 @@ public partial class MainWindowViewModel : ViewModelBase
                 "[DistributedAnimation] Starting frame composition: Animation={AnimationId}, Duration={DurationMs}ms, Monitor={MonitorIndex}",
                 metadata.AnimationId, metadata.DurationMs, metadata.TargetMonitorIndex);
 
-            // In a full implementation, this would:
-            // 1. Instantiate CompositionRenderer (currently server-side only)
-            // 2. Compose frames at 30 FPS based on metadata
-            // 3. Display frames using existing wallpaper renderer
-            // 4. Detect drift and correct with timing sync messages
-            //
-            // For now, this logs that the animation would render.
-            // The actual frame composition is handled by CrossScreenWallpaperCoordinator for centralized mode.
-            // Phase 4 would move CompositionRenderer to client-side.
+            // Rendering is handled by the metadata-based D2D player pipeline;
+            // this handler only logs that the animation was dispatched.
 
             logger.LogInformation(
                 "[DistributedAnimation] Animation render handler invoked. Actual rendering would start here.");

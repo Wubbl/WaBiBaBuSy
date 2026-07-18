@@ -19,10 +19,10 @@ public class LoggingConfiguration
     /// <summary>D2D Player process (WaBiBaBuSy.Player.D2D)</summary>
     public bool LogD2DPlayer { get; set; } = true;
 
-    /// <summary>Composition system (CompositionRenderer, AnimationLayerRenderer, etc.)</summary>
+    /// <summary>Composition system (D2DCompositionService, VirtualCanvasManager, etc.)</summary>
     public bool LogComposition { get; set; } = true;
 
-    /// <summary>Renderers (VideoWallpaperRenderer, GifWallpaperRenderer, ImageRenderer)</summary>
+    /// <summary>Renderers (VideoWallpaperRenderer, ImageWallpaperRendererLibVLC)</summary>
     public bool LogRenderers { get; set; } = true;
 
     /// <summary>Networking layer (gRPC, WallpaperSyncService, mDNS discovery)</summary>

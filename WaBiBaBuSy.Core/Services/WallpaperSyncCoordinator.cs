@@ -522,44 +522,4 @@ public class WallpaperSyncCoordinator
         }
     }
 
-    /// <summary>
-    /// Send a cross-screen frame to a specific client
-    /// </summary>
-    public async Task SendCrossScreenFrameAsync(
-        string clientId,
-        int frameNumber,
-        long timestampUtc,
-        byte[] frameData,
-        int width,
-        int height)
-    {
-        if (_syncService == null)
-        {
-            _logger.LogWarning("Cannot send frame: sync service not initialized");
-            return;
-        }
-
-        try
-        {
-            var frame = new Grpc.CrossScreenFrame
-            {
-                ClientId = clientId,
-                FrameNumber = frameNumber,
-                TimestampUtc = timestampUtc,
-                FrameData = Google.Protobuf.ByteString.CopyFrom(frameData),
-                Width = width,
-                Height = height,
-                Compression = Grpc.CompressionType.Jpeg
-            };
-
-            // Send frame via the sync service
-            await _syncService.SendCrossScreenFrameAsync(frame);
-
-            _logger.LogTrace("Sent frame {FrameNum} to client {ClientId}", frameNumber, clientId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error sending frame {FrameNum} to client {ClientId}", frameNumber, clientId);
-        }
-    }
 }

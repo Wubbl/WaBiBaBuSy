@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-07-18 — Legacy code cleanup (GDI+ composition stack + frame streaming)
+- **Archived** the dead GDI+ composition stack to `_archive/legacy-gdi-composition/` (outside the build): `CompositionRenderer`, `AnimationLayerRenderer`, `BackgroundLayerRenderer`, `GifWallpaperRenderer`, `CrossScreenFrameRenderer`. See the folder's README for the dead-code verification.
+- **Removed** the server-side frame-streaming gRPC path end-to-end: `StreamCrossScreenFrames` RPC, `CrossScreenFrame`/`FrameAcknowledgment` messages, `CompressionType` enum, `CROSSSCREEN_START/STOP` command types (tags 6/7 `reserved`), client frame-stream machinery, coordinator `SendCrossScreenFrameAsync`, `UseDistributedRendering` config flag, and the player's never-initialized "video fallback" render branch (incl. `ConvertBitmapToD2D`).
+- **Removed** the unimplemented `DistributionMode.GroupedSequential` enum value (2D topology covers the underlying need).
+- **Kept** `VideoWallpaperRenderer` + `ImageWallpaperRendererLibVLC` — the 2026-07 audit mislabeled them dead; they drive simple per-monitor playback.
+- Verified: full solution builds 0 errors, 37/37 tests green.
+
 ## 2026-07-18 — Drift telemetry (replaces TimingSynchronizer)
 - Clients report clock offset + RTT via heartbeat (`has_drift_report` guards the sample-less first beat)
 - Server stores reports on `ConnectedClient`; `DriftMonitor` logs once per new ±50ms breach
