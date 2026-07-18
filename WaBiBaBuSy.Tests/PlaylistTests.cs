@@ -56,4 +56,59 @@ public class PlaylistTests
         var item = new PlaylistItem { DurationMs = itemMs };
         Assert.Equal(expected, item.GetEffectiveDurationMs(defaultMs));
     }
+
+    // --- ComputeLapMs -------------------------------------------------------
+
+    [Fact]
+    public void ComputeLapMs_Linear_MatchesCanvasPlusContentOverSpeed()
+    {
+        // Default Linear: startX=-animWidth, endX=canvasWidth => distance = canvasWidth + animWidth.
+        var mv = new MovementConfig { Type = MovementType.Linear, SpeedPixelsPerSecond = 500f, Loop = true };
+        // distance = 4000 + 200 = 4200 px; /500 px/s = 8.4 s = 8400 ms.
+        Assert.Equal(8400, PlaylistScheduler.ComputeLapMs(mv, canvasWidth: 4000, contentWidthPx: 200));
+    }
+
+    [Fact]
+    public void ComputeLapMs_NonLinear_ReturnsZero()
+    {
+        foreach (var t in new[] { MovementType.Static, MovementType.Bounce, MovementType.SineWave,
+                                  MovementType.Circular, MovementType.RandomWalk })
+        {
+            var mv = new MovementConfig { Type = t, SpeedPixelsPerSecond = 500f, Loop = true };
+            Assert.Equal(0, PlaylistScheduler.ComputeLapMs(mv, 4000, 200));
+        }
+    }
+
+    [Fact]
+    public void ComputeLapMs_ZeroSpeedOrNoLoop_ReturnsZero()
+    {
+        Assert.Equal(0, PlaylistScheduler.ComputeLapMs(
+            new MovementConfig { Type = MovementType.Linear, SpeedPixelsPerSecond = 0f, Loop = true }, 4000, 200));
+        Assert.Equal(0, PlaylistScheduler.ComputeLapMs(
+            new MovementConfig { Type = MovementType.Linear, SpeedPixelsPerSecond = 500f, Loop = false }, 4000, 200));
+    }
+
+    // --- ResolveDwellMs -----------------------------------------------------
+
+    [Fact]
+    public void ResolveDwellMs_HardCut_ReturnsEffectiveDuration()
+    {
+        var item = new PlaylistItem { DurationMs = 5_000, SnapToLap = false };
+        Assert.Equal(5_000, PlaylistScheduler.ResolveDwellMs(item, playlistDefaultMs: 30_000, lapMs: 8_400));
+    }
+
+    [Fact]
+    public void ResolveDwellMs_LapSnap_RoundsUpToWholeLap()
+    {
+        var item = new PlaylistItem { DurationMs = 10_000, SnapToLap = true };
+        // ceil(10000 / 8400) = 2 laps => 16800 ms.
+        Assert.Equal(16_800, PlaylistScheduler.ResolveDwellMs(item, playlistDefaultMs: 30_000, lapMs: 8_400));
+    }
+
+    [Fact]
+    public void ResolveDwellMs_LapSnap_WithZeroLap_FallsBackToHardCut()
+    {
+        var item = new PlaylistItem { DurationMs = 10_000, SnapToLap = true };
+        Assert.Equal(10_000, PlaylistScheduler.ResolveDwellMs(item, playlistDefaultMs: 30_000, lapMs: 0));
+    }
 }
