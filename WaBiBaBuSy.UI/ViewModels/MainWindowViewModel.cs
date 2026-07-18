@@ -777,6 +777,10 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         Debug.WriteLine("[ClearAll] Stopping animations and clearing wallpapers");
 
+        // Stop the playlist rotation loop first so it can't respawn D2D players after teardown.
+        if (_playlistOrchestrator != null)
+            await StopPlaylistAsync();
+
         // Stop cross-screen animation if running
         if (IsCrossScreenRunning)
         {
@@ -3323,11 +3327,11 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         _playlistOrchestrator ??= new WaBiBaBuSy.Core.Services.Animation.PlaylistOrchestrator(
             AppLogger.CreateLogger<WaBiBaBuSy.Core.Services.Animation.PlaylistOrchestrator>(),
-            apply: async config =>
+            apply: config => Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
             {
                 var r = await ApplyCrossScreenConfigAsync(config);
                 return new WaBiBaBuSy.Core.Services.Animation.ApplyMetrics(r.VirtualCanvasWidth, r.ContentWidthPx);
-            },
+            }),
             seedProvider: () => Environment.TickCount);
 
         _playlistOrchestrator.Start(playlist);
@@ -3411,6 +3415,11 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async Task StopCrossScreen()
     {
+        // Stop the playlist rotation loop first so it can't respawn D2D players after teardown.
+        // Runs before the early-return because a playlist does not set IsCrossScreenRunning.
+        if (_playlistOrchestrator != null)
+            await StopPlaylistAsync();
+
         if (!IsCrossScreenRunning)
         {
             Debug.WriteLine("[CrossScreen] Not running");
