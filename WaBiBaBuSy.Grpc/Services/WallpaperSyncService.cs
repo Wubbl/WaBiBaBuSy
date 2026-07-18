@@ -5,6 +5,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using WaBiBaBuSy.Models.Configuration;
 using WaBiBaBuSy.Common.Version;
+using WaBiBaBuSy.Models.Networking;
 
 namespace WaBiBaBuSy.Grpc.Services;
 
@@ -22,6 +23,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     private readonly ConcurrentDictionary<string, ClientLogData> _clientLogs; // clientId -> latest logs
     private readonly ConcurrentDictionary<string, int> _serverLocalMonitorOrders = new(); // SERVER_LOCALHOST_MONITOR_* order overrides
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _writeLocks = new(); // per-client gRPC stream write serialization
+    private readonly DriftMonitor _driftMonitor = new(); // per-client drift telemetry from heartbeats
     private readonly Timer _heartbeatSweepTimer;
     private int _nextClientOrder = 1;
 
@@ -203,6 +205,22 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         {
             client.LastHeartbeat = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             client.Status = request.Status;
+
+            if (request.HasDriftReport)
+            {
+                var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                client.ClockOffsetMs = request.ClockOffsetMs;
+                client.RttMs = request.RttMs;
+                client.LastDriftReportUtc = nowMs;
+
+                // Record returns true only on a NEW breach — log once, not every heartbeat.
+                if (_driftMonitor.Record(request.ClientId, request.ClockOffsetMs, request.RttMs, nowMs))
+                {
+                    _logger.LogWarning(
+                        "Client {ClientId} clock offset {OffsetMs:F1}ms exceeds the ±{ToleranceMs:F0}ms sync tolerance (RTT {RttMs:F1}ms)",
+                        request.ClientId, request.ClockOffsetMs, DriftMonitor.BreachThresholdMs, request.RttMs);
+                }
+            }
 
             _logger.LogDebug("Heartbeat received from client {ClientId}", request.ClientId);
 
@@ -599,6 +617,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         // Drop (don't Dispose) the write lock: a concurrent writer may still hold it,
         // and releasing a disposed SemaphoreSlim throws.
         _writeLocks.TryRemove(clientId, out _);
+        _driftMonitor.Remove(clientId);
         return removed;
     }
 
