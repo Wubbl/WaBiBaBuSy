@@ -2455,6 +2455,12 @@ public partial class MainWindowViewModel : ViewModelBase
                     existing.Status = grpcClient.Status.ToString();
                     existing.Order = grpcClient.OrderPosition;
                     existing.PhysicalDistanceCm = grpcClient.PhysicalDistanceCm;
+                    existing.DriftMs = grpcClient.ClockOffsetMs;
+                    existing.RttMs = grpcClient.RttMs;
+                    existing.DriftState = DriftMonitor.Classify(
+                        grpcClient.ClockOffsetMs,
+                        grpcClient.LastDriftReportUtc,
+                        DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
 
                     // Update thumbnail if available (server mode only)
                     UpdateClientThumbnail(existing);
