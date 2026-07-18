@@ -1323,33 +1323,6 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     }
 
     /// <summary>
-    /// Server broadcasts timing sync to all animating clients
-    /// </summary>
-    public override async Task<Empty> BroadcastAnimationTimingSync(
-        AnimationTimingSync request,
-        ServerCallContext context)
-    {
-        _logger.LogDebug(
-            "Broadcasting timing sync: AnimationId={AnimationId}, ExpectedPos={ExpectedPos}ms",
-            request.AnimationId, request.ExpectedPositionMs);
-
-        // Broadcast to all clients via sync streams
-        await BroadcastCommandAsync(new SyncCommand
-        {
-            Type = CommandType.SyncFrame,
-            TimestampUtc = request.ServerTimestampUtc,
-            SequenceNumber = request.ExpectedPositionMs,
-            ContentId = request.AnimationId,
-            Params = new SyncParameters
-            {
-                TargetPositionMs = request.ExpectedPositionMs
-            }
-        });
-
-        return new Empty();
-    }
-
-    /// <summary>
     /// Server stops animation on a client
     /// </summary>
     public override Task<AnimationAck> StopAnimation(

@@ -49,9 +49,6 @@ service WallpaperSync {
   // Client reports animation completion with actual timings
   rpc ReportAnimationComplete(AnimationCompleteReport) returns (AnimationAck);
 
-  // Server broadcasts timing sync to all animating clients
-  rpc BroadcastAnimationTimingSync(AnimationTimingSync) returns (Empty);
-
   // Server stops current animation on client
   rpc StopAnimation(AnimationStopRequest) returns (AnimationAck);
 
@@ -119,6 +116,12 @@ message HeartbeatRequest {
   string client_id = 1;
   int64 timestamp = 2;
   ClientStatusEnum status = 3;
+  // Drift telemetry (client's NTP-style estimate from prior heartbeat round-trips).
+  // has_drift_report=false on the first heartbeat: the estimator has no sample yet,
+  // so the server must not read the (default-0) values as "perfectly synced".
+  double clock_offset_ms = 4;   // estimated (server_clock - client_clock)
+  double rtt_ms = 5;            // round-trip time of the best sample
+  bool has_drift_report = 6;
 }
 
 // Heartbeat response
@@ -224,6 +227,11 @@ message ConnectedClient {
   int64 last_heartbeat = 6;
   ScreenConfiguration screen_config = 7;
   int32 physical_distance_cm = 8; // Distance to previous client in chain (cm)
+  // Drift telemetry, last reported via heartbeat. last_drift_report_utc == 0
+  // means no report ever (pre-telemetry client or first heartbeat pending).
+  double clock_offset_ms = 9;       // (server_clock - client_clock), ms
+  double rtt_ms = 10;               // heartbeat round-trip time, ms
+  int64 last_drift_report_utc = 11; // server receive time of last report (UTC ms)
 }
 
 // Client order update
@@ -351,13 +359,6 @@ message BackgroundLayerConfig {
   BackgroundMode mode = 1;
   string color_hex = 2;                 // Hex color for solid mode (e.g., "#000000")
   string image_path = 3;                // Path to image for image modes
-}
-
-// Timing synchronization message (server → all animating clients)
-message AnimationTimingSync {
-  int64 server_timestamp_utc = 1;       // Current server UTC time
-  string animation_id = 2;              // Which animation this is for
-  int32 expected_position_ms = 3;       // Where animation should be (elapsed ms)
 }
 
 // Animation completion report (client → server)
