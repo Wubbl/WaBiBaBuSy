@@ -1760,8 +1760,8 @@
     "hash": "0ca42cbc4f22da0578a209aaeb544bf8"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Common\\obj\\Debug\\net9.0\\WaBiBaBuSy.Common.AssemblyInfo.cs": {
-    "mtime": 1783451013.075822,
-    "hash": "8d7172ff567c31f866be458c9a19af91"
+    "mtime": 1784353406.8066378,
+    "hash": "0fcee2e81be99fbd65e199469f7e66c7"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Common\\obj\\Debug\\net9.0\\WaBiBaBuSy.Common.GlobalUsings.g.cs": {
     "mtime": 1773728160.0829053,
@@ -1808,8 +1808,8 @@
     "hash": "0ca42cbc4f22da0578a209aaeb544bf8"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Core\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Core.AssemblyInfo.cs": {
-    "mtime": 1783451013.7563648,
-    "hash": "de31aa60c3adb6c9a41c19f82d857bda"
+    "mtime": 1784353407.459978,
+    "hash": "d098dff45e0421f5d0af5bfb4c6fd53c"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Core\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Core.GlobalUsings.g.cs": {
     "mtime": 1773728160.832237,
@@ -1879,10 +1879,6 @@
     "mtime": 1783450822.696424,
     "hash": "bb5c2b991ca7e1a3445475504d743988"
   },
-  "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Core\\Services\\Animation\\TimingSynchronizer.cs": {
-    "mtime": 1783450842.8096712,
-    "hash": "301c4b04a01a246ef606b314db2472c6"
-  },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Core\\Services\\Desktop\\DesktopIconService.cs": {
     "mtime": 1775325478.8366897,
     "hash": "fb434cc3390c9b9305fc22edb22afd2d"
@@ -1912,8 +1908,8 @@
     "hash": "692a8107a079920414e382ff67f78958"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Core\\Services\\Networking\\WallpaperSyncClient.cs": {
-    "mtime": 1783449508.4885218,
-    "hash": "55c25f3b78b6851179c047540caad913"
+    "mtime": 1784352375.2248483,
+    "hash": "db272517583f6728d0aae720648cee7f"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Core\\Services\\Networking\\WallpaperSyncServerHost.cs": {
     "mtime": 1783448366.7312741,
@@ -2088,8 +2084,8 @@
     "hash": "4547b127e7a1cd4454705bbb184d4e22"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.D2DTest\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.D2DTest.AssemblyInfo.cs": {
-    "mtime": 1783450862.8268726,
-    "hash": "0684a455f83950e4959c8917b20c68e6"
+    "mtime": 1784353408.0399916,
+    "hash": "d451581feb5b86be8dda20dfeea59933"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.D2DTest\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.D2DTest.GlobalUsings.g.cs": {
     "mtime": 1773728160.8590178,
@@ -2120,20 +2116,20 @@
     "hash": "8c566f4b8e10fb9d1bcfcd1420f661fc"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Grpc\\obj\\Debug\\net9.0\\WaBiBaBuSy.Grpc.AssemblyInfo.cs": {
-    "mtime": 1783451013.240437,
-    "hash": "c34be42f1a665439b8b9f8f5f5084915"
+    "mtime": 1784353407.0997927,
+    "hash": "7261b21bfd5b395caff6444158fa25f6"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Grpc\\obj\\Debug\\net9.0\\WaBiBaBuSy.Grpc.GlobalUsings.g.cs": {
     "mtime": 1773728160.3666303,
     "hash": "9706b2dbf69f7db452e8b0d5baf54dcf"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Grpc\\obj\\Debug\\net9.0\\Protos\\Wabibabusy.cs": {
-    "mtime": 1783449613.5716856,
-    "hash": "4b5ee8a0afe14e3aa7298736342f287b"
+    "mtime": 1784351935.6168747,
+    "hash": "4617c7fd760c910cebf5d7679e429677"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Grpc\\obj\\Debug\\net9.0\\Protos\\WabibabusyGrpc.cs": {
-    "mtime": 1783449613.572191,
-    "hash": "2bf00b0b9d5c8e68ad40e24374145214"
+    "mtime": 1784351935.6168747,
+    "hash": "fd9eb57a789f242a05f7a7f8a3e95947"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Grpc\\obj\\Release\\net8.0\\WaBiBaBuSy.Grpc.AssemblyInfo.cs": {
     "mtime": 1761305958.2227077,
@@ -2168,8 +2164,8 @@
     "hash": "2bf00b0b9d5c8e68ad40e24374145214"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Grpc\\Services\\WallpaperSyncService.cs": {
-    "mtime": 1783448361.7157454,
-    "hash": "3dd200ea662ef31988198e3cbea89871"
+    "mtime": 1784352934.4220333,
+    "hash": "fbba66b77bd5b92004db4407631fc9de"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Models\\AppConfiguration.cs": {
     "mtime": 1759652716.6054692,
@@ -2228,16 +2224,20 @@
     "hash": "08f6c7deee8d497e1ef3c2f6beb5ad4f"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Models\\Configuration\\LoggingConfiguration.cs": {
-    "mtime": 1773747279.5827239,
-    "hash": "fdfe9319c88d7c502f2d7ecf8270d96c"
+    "mtime": 1784352932.7054536,
+    "hash": "ea053a0679b2bde030d8fe04e6d7120f"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Models\\Configuration\\ServerConfiguration.cs": {
     "mtime": 1773950973.9385781,
     "hash": "feec83ab08d84d63d39044f9974c0364"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Models\\Networking\\ClockOffsetEstimator.cs": {
-    "mtime": 1783448009.4778483,
-    "hash": "c0ab484162de8eb4a14c5f9123bf2560"
+    "mtime": 1784351311.3232105,
+    "hash": "a7e71338d6f5163c2e0b42c0c686023a"
+  },
+  "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Models\\Networking\\DriftMonitor.cs": {
+    "mtime": 1784351557.0823314,
+    "hash": "b767bae9953f4bc7d1054c9c0f645081"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Models\\Networking\\ReconnectBackoff.cs": {
     "mtime": 1783448011.4815712,
@@ -2252,8 +2252,8 @@
     "hash": "0ca42cbc4f22da0578a209aaeb544bf8"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Models\\obj\\Debug\\net9.0\\WaBiBaBuSy.Models.AssemblyInfo.cs": {
-    "mtime": 1783451089.174708,
-    "hash": "7280f9c83006649ac315befbf5d372e2"
+    "mtime": 1784353406.8263302,
+    "hash": "04cd1a68bf4bc86a5c94f9ca8e272b8b"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Models\\obj\\Debug\\net9.0\\WaBiBaBuSy.Models.GlobalUsings.g.cs": {
     "mtime": 1773728159.863366,
@@ -2404,8 +2404,8 @@
     "hash": "0ca42cbc4f22da0578a209aaeb544bf8"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Common\\obj\\Debug\\net9.0\\WaBiBaBuSy.Player.Common.AssemblyInfo.cs": {
-    "mtime": 1783451013.163251,
-    "hash": "ccbb2bcdf289cd4f16b05959a18394a9"
+    "mtime": 1784353407.0861804,
+    "hash": "0e2dc9e8f81f1006f85d59d415a30465"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Common\\obj\\Debug\\net9.0\\WaBiBaBuSy.Player.Common.GlobalUsings.g.cs": {
     "mtime": 1773728160.4568079,
@@ -2532,8 +2532,8 @@
     "hash": "662f2ea91dd90c577ddbeb14074c4a0a"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.D2D\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.D2D.AssemblyInfo.cs": {
-    "mtime": 1783451014.7159152,
-    "hash": "c596fa7299990d009de43f22064d34a6"
+    "mtime": 1784353408.0399916,
+    "hash": "9d220547fc5d0b2290203302908284ad"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.D2D\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.D2D.GlobalUsings.g.cs": {
     "mtime": 1773728160.855994,
@@ -2800,16 +2800,16 @@
     "hash": "4fbed6aaa1f15b8c17aad7964dc1454d"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\App.g.cs": {
-    "mtime": 1783451014.7078147,
+    "mtime": 1784353408.5320196,
     "hash": "82ba9ea2a83e67359a959315ab073610"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\MainWindow.g.cs": {
-    "mtime": 1783451014.7138906,
+    "mtime": 1784353408.5335436,
     "hash": "bc1659d3a0ecd7ea5e55396544e19be7"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image.AssemblyInfo.cs": {
-    "mtime": 1783451015.0706587,
-    "hash": "a0770fa9417f79e2e10f2d52346bc20e"
+    "mtime": 1784353408.7387445,
+    "hash": "27ec6f17c3c4180a950519a533242f6f"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image.GlobalUsings.g.cs": {
     "mtime": 1774979444.656132,
@@ -2919,6 +2919,14 @@
     "mtime": 1777041038.7353842,
     "hash": "611d05740762fa9c32554b92edde74ca"
   },
+  "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image_31tar2ci_wpftmp.AssemblyInfo.cs": {
+    "mtime": 1784352467.2692068,
+    "hash": "a875db9423bfaf5c810d7df50950ff58"
+  },
+  "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image_31tar2ci_wpftmp.GlobalUsings.g.cs": {
+    "mtime": 1784352467.2702155,
+    "hash": "611d05740762fa9c32554b92edde74ca"
+  },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image_3lclzjeq_wpftmp.AssemblyInfo.cs": {
     "mtime": 1777492994.0222518,
     "hash": "3a92a9fe03426fa18542223a1f883cfa"
@@ -2983,6 +2991,22 @@
     "mtime": 1777039676.3758705,
     "hash": "611d05740762fa9c32554b92edde74ca"
   },
+  "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image_ajnj2agv_wpftmp.AssemblyInfo.cs": {
+    "mtime": 1784351940.2042358,
+    "hash": "87abdf946ceff44795c746c00d7fa934"
+  },
+  "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image_ajnj2agv_wpftmp.GlobalUsings.g.cs": {
+    "mtime": 1784351940.206284,
+    "hash": "611d05740762fa9c32554b92edde74ca"
+  },
+  "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image_b5wss4n3_wpftmp.AssemblyInfo.cs": {
+    "mtime": 1784352045.9630525,
+    "hash": "77d817f33c22eb3447fdc5d1cb35455b"
+  },
+  "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image_b5wss4n3_wpftmp.GlobalUsings.g.cs": {
+    "mtime": 1784352045.9645653,
+    "hash": "611d05740762fa9c32554b92edde74ca"
+  },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image_bcnna4qg_wpftmp.AssemblyInfo.cs": {
     "mtime": 1774982786.3340857,
     "hash": "d128785e07a5dee116f0805aaaa06341"
@@ -3023,12 +3047,28 @@
     "mtime": 1776456550.2737591,
     "hash": "611d05740762fa9c32554b92edde74ca"
   },
+  "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image_dy2hnjq5_wpftmp.AssemblyInfo.cs": {
+    "mtime": 1784353408.563969,
+    "hash": "27ec6f17c3c4180a950519a533242f6f"
+  },
+  "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image_dy2hnjq5_wpftmp.GlobalUsings.g.cs": {
+    "mtime": 1784353408.5654814,
+    "hash": "611d05740762fa9c32554b92edde74ca"
+  },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image_ebfrywxw_wpftmp.AssemblyInfo.cs": {
     "mtime": 1776803389.9022896,
     "hash": "c969d7d428d489d0241d6a80f0985bd0"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image_ebfrywxw_wpftmp.GlobalUsings.g.cs": {
     "mtime": 1776803389.903804,
+    "hash": "611d05740762fa9c32554b92edde74ca"
+  },
+  "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image_er0nzxzi_wpftmp.AssemblyInfo.cs": {
+    "mtime": 1784352939.7664719,
+    "hash": "7c39fa92b3f57a09af1fe32823950183"
+  },
+  "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image_er0nzxzi_wpftmp.GlobalUsings.g.cs": {
+    "mtime": 1784352939.7664719,
     "hash": "611d05740762fa9c32554b92edde74ca"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image_ewxjlb3m_wpftmp.AssemblyInfo.cs": {
@@ -3141,6 +3181,14 @@
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image_mfnzml1m_wpftmp.GlobalUsings.g.cs": {
     "mtime": 1777615551.447828,
+    "hash": "611d05740762fa9c32554b92edde74ca"
+  },
+  "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image_mh52jifg_wpftmp.AssemblyInfo.cs": {
+    "mtime": 1784352726.204587,
+    "hash": "7c39fa92b3f57a09af1fe32823950183"
+  },
+  "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image_mh52jifg_wpftmp.GlobalUsings.g.cs": {
+    "mtime": 1784352726.206105,
     "hash": "611d05740762fa9c32554b92edde74ca"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image_nblpz4ap_wpftmp.AssemblyInfo.cs": {
@@ -3279,6 +3327,14 @@
     "mtime": 1783450863.9441988,
     "hash": "611d05740762fa9c32554b92edde74ca"
   },
+  "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image_ykguglck_wpftmp.AssemblyInfo.cs": {
+    "mtime": 1784353027.9264379,
+    "hash": "34b2ba07614f6ab2a179a9cc4a624dd1"
+  },
+  "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image_ykguglck_wpftmp.GlobalUsings.g.cs": {
+    "mtime": 1784353027.927447,
+    "hash": "611d05740762fa9c32554b92edde74ca"
+  },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Player.Image\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.Player.Image_yncdsbgz_wpftmp.AssemblyInfo.cs": {
     "mtime": 1777147250.0373716,
     "hash": "d77ad529f3a9266c2cdac25a0acc9d32"
@@ -3368,12 +3424,16 @@
     "hash": "611d05740762fa9c32554b92edde74ca"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Tests\\ClockOffsetEstimatorTests.cs": {
-    "mtime": 1783447974.8718724,
-    "hash": "48c59a2362c481c5e33aebf21bc09aec"
+    "mtime": 1784351298.3710568,
+    "hash": "d9dc2f750d18b50bb4352db490659436"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Tests\\ConfigJsonRoundtripTests.cs": {
     "mtime": 1783448443.9689426,
     "hash": "94a589ff0e0a79edd922b7fa76dbfcd1"
+  },
+  "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Tests\\DriftMonitorTests.cs": {
+    "mtime": 1784351538.8442702,
+    "hash": "ef3a700111b1744f059626945426765e"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Tests\\MovementCalculatorLongRunTests.cs": {
     "mtime": 1783450705.0874133,
@@ -3384,8 +3444,8 @@
     "hash": "0e6d780d2cefaf4a9c2faed55c16b999"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Tests\\obj\\Debug\\net9.0\\WaBiBaBuSy.Tests.AssemblyInfo.cs": {
-    "mtime": 1783451089.3280919,
-    "hash": "a5a8f12c075f162cf93c4a35bb8b07ab"
+    "mtime": 1784353407.1937084,
+    "hash": "8f988901cad086d4302d3339aa08226c"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Tests\\obj\\Debug\\net9.0\\WaBiBaBuSy.Tests.GlobalUsings.g.cs": {
     "mtime": 1783447991.0192375,
@@ -3600,8 +3660,8 @@
     "hash": "6f564f4e0af4e55851fbb39a001db66d"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.UI\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.UI.AssemblyInfo.cs": {
-    "mtime": 1783451015.3716705,
-    "hash": "efa111ce429c4277fcc93622b5b8a57b"
+    "mtime": 1784353408.8776474,
+    "hash": "20e12bb32aa7ef66030a53cb9bdb875e"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.UI\\obj\\Release\\net8.0-windows\\WaBiBaBuSy.UI.AssemblyInfo.cs": {
     "mtime": 1761305962.0153162,
@@ -3616,16 +3676,16 @@
     "hash": "df4ca1aaa48f117bf7b012649107459f"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.UI\\ViewModels\\ClientNodeViewModel.cs": {
-    "mtime": 1783449579.3675492,
-    "hash": "679b59afde5a6c845e5a0a2db732993d"
+    "mtime": 1784353247.6986704,
+    "hash": "0cea992ac235c8b4c5f6877abba3adb5"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.UI\\ViewModels\\CrossScreenConfigViewModel.cs": {
     "mtime": 1778523615.51004,
     "hash": "f4abc025c83c6c2325d8c43a271b8da5"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.UI\\ViewModels\\MainWindowViewModel.cs": {
-    "mtime": 1783451000.0446634,
-    "hash": "69289e282d46ac6f0259d9fdefcb1ab9"
+    "mtime": 1784353630.137176,
+    "hash": "dd3871f55962d91147fe2ad7c4e382be"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.UI\\ViewModels\\ServerBrowserViewModel.cs": {
     "mtime": 1783450963.2257125,
@@ -3656,8 +3716,8 @@
     "hash": "9354ebaf7185f0bdac39eb607c73c55a"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.UI\\Views\\MainWindow.axaml.cs": {
-    "mtime": 1779198512.0812397,
-    "hash": "65b6b3b728440e3b2b7a88f783b3178d"
+    "mtime": 1784353280.4551022,
+    "hash": "8e12874aaae3e266180289be609ad957"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.UI\\Views\\ServerBrowserDialog.axaml.cs": {
     "mtime": 1783450989.5567105,
@@ -3692,8 +3752,8 @@
     "hash": "0ca42cbc4f22da0578a209aaeb544bf8"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Updater\\obj\\Debug\\net9.0\\WaBiBaBuSy.Updater.AssemblyInfo.cs": {
-    "mtime": 1783451014.6099298,
-    "hash": "f16a1393682b9d1c600794c0d518ebb4"
+    "mtime": 1784353406.8263302,
+    "hash": "d0b51428bc1a703a771b93f52eeeb201"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.Updater\\obj\\Debug\\net9.0\\WaBiBaBuSy.Updater.GlobalUsings.g.cs": {
     "mtime": 1773728159.4975684,
@@ -3948,8 +4008,8 @@
     "hash": "4547b127e7a1cd4454705bbb184d4e22"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.WallpaperEngine\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.WallpaperEngine.AssemblyInfo.cs": {
-    "mtime": 1783451014.1680791,
-    "hash": "9a1fa20d87a56529ff3b710376ee2e5e"
+    "mtime": 1784353407.7276232,
+    "hash": "59a376b15fe8a56c88d8fb48eeb5d122"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\WaBiBaBuSy.WallpaperEngine\\obj\\Debug\\net9.0-windows\\WaBiBaBuSy.WallpaperEngine.GlobalUsings.g.cs": {
     "mtime": 1773728160.832237,
@@ -3995,9 +4055,9 @@
     "mtime": 1778438952.9680853,
     "hash": "69094f5ec56709f946ba9821b9811b52"
   },
-  "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\claude.md": {
-    "mtime": 1783451873.8361292,
-    "hash": "e571c02752c9d40f6c9f75eae90af2fc"
+  "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\CLAUDE.md": {
+    "mtime": 1784353756.3148675,
+    "hash": "071b68680923c5a6a1395eb81ef4c5c4"
   },
   "C:\\Users\\Patrick\\Documents\\GitHub\\WaBiBaBuSy\\LICENSE.txt": {
     "mtime": 1761070697.1732419,

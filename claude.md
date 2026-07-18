@@ -130,7 +130,7 @@ dotnet run --project WaBiBaBuSy.UI
 2. **VALIDATE: File logging** — Enable LogToFile, verify files at `%LOCALAPPDATA%\WaBiBaBuSy\Logs\`
 3. **Installer Testing** — Validate on clean Windows 10/11 systems
 4. **Tier 2 party features** — Playlist/party mode (next up), bezel-crossing transitions, 2D topology, live position preview (see `.docs/2026.07_FEATURE_OVERVIEW.md`; server-browser UI done 2026-07-07)
-5. **TimingSynchronizer decision** — drift loop is bug-fixed but unwired; wire into orchestrator as topology drift telemetry, or delete (see `.docs/2025.12_OpenIssues.md`)
+5. **Drift telemetry E2E check** — implemented 2026-07-18 (heartbeat-reported clock offset + topology drift labels); verify labels during multi-client testing
 
 ## MVP Success Criteria (6/6 Implemented, E2E validation pending)
 

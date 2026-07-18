@@ -1,8 +1,14 @@
 # WaBiBaBuSy - Recent Updates & Changelog
 
-**Last Updated:** 2026-07-07
+**Last Updated:** 2026-07-18
 
 ---
+
+## 2026-07-18 — Drift telemetry (replaces TimingSynchronizer)
+- Clients report clock offset + RTT via heartbeat (`has_drift_report` guards the sample-less first beat)
+- Server stores reports on `ConnectedClient`; `DriftMonitor` logs once per new ±50ms breach
+- Topology nodes show color-coded "±Xms" (green ≤25 / yellow ≤50 / red >50 / grey stale)
+- Deleted dead `TimingSynchronizer`, `BroadcastAnimationTimingSync` RPC + proto message, and the orphaned `BroadcastCommandAsync` helper
 
 ## 2026-07-07 — Movement Polish + mDNS Server Browser (Tier 2 start)
 
