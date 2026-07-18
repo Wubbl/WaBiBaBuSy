@@ -111,4 +111,24 @@ public class PlaylistTests
         var item = new PlaylistItem { DurationMs = 10_000, SnapToLap = true };
         Assert.Equal(10_000, PlaylistScheduler.ResolveDwellMs(item, playlistDefaultMs: 30_000, lapMs: 0));
     }
+
+    [Fact]
+    public void ResolveDwellMs_LapSnap_ExactMultiple_DoesNotRoundUp()
+    {
+        var item = new PlaylistItem { DurationMs = 8_400, SnapToLap = true };
+        // target == lapMs => exactly 1 lap, no extra rounding.
+        Assert.Equal(8_400, PlaylistScheduler.ResolveDwellMs(item, playlistDefaultMs: 30_000, lapMs: 8_400));
+    }
+
+    [Fact]
+    public void ComputeLapMs_DegenerateZeroDistance_ReturnsZero()
+    {
+        // start == end (StartX == EndX, no Y delta) => distance < 1 => 0.
+        var mv = new MovementConfig
+        {
+            Type = MovementType.Linear, SpeedPixelsPerSecond = 500f, Loop = true,
+            StartX = 100f, EndX = 100f,
+        };
+        Assert.Equal(0, PlaylistScheduler.ComputeLapMs(mv, canvasWidth: 4000, contentWidthPx: 200));
+    }
 }

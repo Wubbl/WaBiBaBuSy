@@ -11,8 +11,11 @@ public static class PlaylistScheduler
 {
     /// <summary>
     /// One full movement-lap duration in ms for the given config, or 0 if lap-snap is unsupported.
-    /// v1 supports Linear movement only (no Pattern), matching MovementCalculator.CalculateLinear's
-    /// loop period: distance = sqrt(dx^2 + dy^2) with default off-screen start/end.
+    /// v1 supports Linear movement only (no Pattern). For horizontal Linear travel (Y unset) this
+    /// equals MovementCalculator.CalculateLinear's loop period exactly (distance = canvasWidth +
+    /// contentWidth). When StartX/StartY/EndX/EndY are set explicitly the vertical delta is taken
+    /// from those values; note MovementCalculator centers Y by default, so a config that sets only
+    /// one of StartY/EndY will get an approximate (still safe — over/under-rounds the dwell) lap here.
     /// </summary>
     public static int ComputeLapMs(MovementConfig m, int canvasWidth, int contentWidthPx)
     {
