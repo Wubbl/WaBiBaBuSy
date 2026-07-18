@@ -23,6 +23,9 @@ public class PlaylistOrchestrator
     private CancellationTokenSource? _cts;
     private Task? _loopTask;
 
+    /// <summary>Delay before advancing after an apply failure, to avoid busy-looping on persistent errors.</summary>
+    private const int FailureRetryDelayMs = 2000;
+
     /// <summary>The item currently on screen (for session-resume + UI), or null when stopped.</summary>
     public PlaylistItem? CurrentItem { get; private set; }
 
@@ -97,7 +100,8 @@ public class PlaylistOrchestrator
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Apply failed for item '{Name}'; skipping", item.Name);
+                        _logger.LogError(ex, "Apply failed for item '{Name}'; pausing {Delay}ms before next item", item.Name, FailureRetryDelayMs);
+                        await Task.Delay(FailureRetryDelayMs, ct);
                         continue;
                     }
 
