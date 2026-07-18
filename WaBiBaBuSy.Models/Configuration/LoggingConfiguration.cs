@@ -28,7 +28,7 @@ public class LoggingConfiguration
     /// <summary>Networking layer (gRPC, WallpaperSyncService, mDNS discovery)</summary>
     public bool LogNetworking { get; set; } = true;
 
-    /// <summary>Animation system (AnimationDistributor, TimingSynchronizer, Orchestrator)</summary>
+    /// <summary>Animation system (AnimationDistributor, Orchestrator)</summary>
     public bool LogAnimation { get; set; } = false;
 
     /// <summary>File transfer (UpdateDownloader, UpdateVerifier, TransferContent)</summary>

@@ -666,37 +666,6 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     }
 
     /// <summary>
-    /// Broadcast a command to all connected clients
-    /// </summary>
-    public async Task BroadcastCommandAsync(SyncCommand command)
-    {
-        var tasks = new List<Task>();
-
-        foreach (var kvp in _clientCommandStreams)
-        {
-            var clientId = kvp.Key;
-            var stream = kvp.Value;
-
-            tasks.Add(Task.Run(async () =>
-            {
-                try
-                {
-                    await WriteToClientStreamAsync(clientId, stream, command);
-                    _logger.LogDebug("Sent {CommandType} command to client {ClientId}", command.Type, clientId);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to send command to client {ClientId}", clientId);
-                }
-            }));
-        }
-
-        await Task.WhenAll(tasks);
-        _logger.LogInformation("Broadcasted {CommandType} command to {ClientCount} clients",
-            command.Type, tasks.Count);
-    }
-
-    /// <summary>
     /// Compute SHA-256 hash of a file
     /// </summary>
     private async Task<string> ComputeFileHashAsync(string filePath)
