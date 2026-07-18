@@ -50,4 +50,24 @@ public static class PlaylistScheduler
         int laps = Math.Max(1, (int)Math.Ceiling(target / (double)lapMs));
         return laps * lapMs;
     }
+
+    /// <summary>
+    /// The item-index order for one cycle. Natural order when shuffle is off; a seeded
+    /// Fisher-Yates permutation (every index exactly once) when on. Seed-driven so the caller
+    /// controls randomness and tests are deterministic. Server-authority-only — never a render input.
+    /// </summary>
+    public static int[] BuildCycleOrder(int count, bool shuffle, int seed)
+    {
+        var order = new int[Math.Max(0, count)];
+        for (int i = 0; i < order.Length; i++) order[i] = i;
+        if (!shuffle || order.Length < 2) return order;
+
+        var rng = new Random(seed);
+        for (int i = order.Length - 1; i > 0; i--)
+        {
+            int j = rng.Next(i + 1);
+            (order[i], order[j]) = (order[j], order[i]);
+        }
+        return order;
+    }
 }

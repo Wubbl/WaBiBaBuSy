@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.Json;
 using WaBiBaBuSy.Models.Wallpaper;
 using Xunit;
@@ -130,5 +131,44 @@ public class PlaylistTests
             StartX = 100f, EndX = 100f,
         };
         Assert.Equal(0, PlaylistScheduler.ComputeLapMs(mv, canvasWidth: 4000, contentWidthPx: 200));
+    }
+
+    // --- BuildCycleOrder ----------------------------------------------------
+
+    [Fact]
+    public void BuildCycleOrder_NoShuffle_ReturnsNaturalOrder()
+    {
+        Assert.Equal(new[] { 0, 1, 2, 3 }, PlaylistScheduler.BuildCycleOrder(4, shuffle: false, seed: 123));
+    }
+
+    [Fact]
+    public void BuildCycleOrder_Shuffle_IsPermutationCoveringEveryItemOnce()
+    {
+        var order = PlaylistScheduler.BuildCycleOrder(6, shuffle: true, seed: 999);
+        Assert.Equal(6, order.Length);
+        Assert.Equal(new[] { 0, 1, 2, 3, 4, 5 }, order.OrderBy(i => i).ToArray());
+    }
+
+    [Fact]
+    public void BuildCycleOrder_Shuffle_IsDeterministicForSameSeed()
+    {
+        Assert.Equal(
+            PlaylistScheduler.BuildCycleOrder(8, shuffle: true, seed: 42),
+            PlaylistScheduler.BuildCycleOrder(8, shuffle: true, seed: 42));
+    }
+
+    [Fact]
+    public void BuildCycleOrder_Shuffle_DiffersForDifferentSeeds()
+    {
+        // With 8 items the chance two different seeds collide on the exact permutation is ~1/40320.
+        Assert.NotEqual(
+            PlaylistScheduler.BuildCycleOrder(8, shuffle: true, seed: 1),
+            PlaylistScheduler.BuildCycleOrder(8, shuffle: true, seed: 2));
+    }
+
+    [Fact]
+    public void BuildCycleOrder_Empty_ReturnsEmpty()
+    {
+        Assert.Empty(PlaylistScheduler.BuildCycleOrder(0, shuffle: true, seed: 1));
     }
 }
