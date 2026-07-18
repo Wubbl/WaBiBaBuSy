@@ -153,6 +153,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private string? _downloadedUpdatePath;
 
     private CrossScreenConfig? _crossScreenConfig;
+    private WaBiBaBuSy.Core.Services.Animation.PlaylistOrchestrator? _playlistOrchestrator;
     private string? _currentAnimationScheduleId;  // Track active animation schedule (Phase 3)
     private string? _crossScreenContentId;         // ContentId sent to remote clients at start (used for stop)
 
@@ -3216,6 +3217,28 @@ public partial class MainWindowViewModel : ViewModelBase
             VirtualCanvasWidth = canvasManager.VirtualBounds.Width,
             ContentWidthPx = 0, // best-effort; wire a real value later if a service exposes it
         };
+    }
+
+    /// <summary>Start rotating the given playlist across all nodes.</summary>
+    public void StartPlaylist(WaBiBaBuSy.Models.Wallpaper.Playlist playlist)
+    {
+        _playlistOrchestrator ??= new WaBiBaBuSy.Core.Services.Animation.PlaylistOrchestrator(
+            AppLogger.CreateLogger<WaBiBaBuSy.Core.Services.Animation.PlaylistOrchestrator>(),
+            apply: async config =>
+            {
+                var r = await ApplyCrossScreenConfigAsync(config);
+                return new WaBiBaBuSy.Core.Services.Animation.ApplyMetrics(r.VirtualCanvasWidth, r.ContentWidthPx);
+            },
+            seedProvider: () => Environment.TickCount);
+
+        _playlistOrchestrator.Start(playlist);
+    }
+
+    /// <summary>Stop the running playlist (if any).</summary>
+    public async Task StopPlaylistAsync()
+    {
+        if (_playlistOrchestrator != null)
+            await _playlistOrchestrator.StopAsync();
     }
 
     /// <summary>
