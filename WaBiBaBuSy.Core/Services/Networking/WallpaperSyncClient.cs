@@ -403,6 +403,16 @@ public class WallpaperSyncClient : IDisposable
             Status = ClientStatusEnum.ClientConnected
         };
 
+        // Drift telemetry: report the current estimate (from prior round-trips).
+        // First heartbeat has no sample yet — HasDriftReport stays false so the
+        // server doesn't mistake default-0 for a perfect sync.
+        if (_clockOffset.HasSamples)
+        {
+            request.ClockOffsetMs = _clockOffset.OffsetMs;
+            request.RttMs = _clockOffset.RttMs;
+            request.HasDriftReport = true;
+        }
+
         var response = await _client.HeartbeatAsync(request);
         var receiveMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
