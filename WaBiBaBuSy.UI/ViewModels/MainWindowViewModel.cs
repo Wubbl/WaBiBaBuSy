@@ -2270,7 +2270,10 @@ public partial class MainWindowViewModel : ViewModelBase
                                 Status = client.Status,
                                 OrderPosition = expandedOrder,
                                 PhysicalDistanceCm = client.PhysicalDistanceCm,
-                                ScreenConfig = client.ScreenConfig
+                                ScreenConfig = client.ScreenConfig,
+                                ClockOffsetMs = client.ClockOffsetMs,
+                                RttMs = client.RttMs,
+                                LastDriftReportUtc = client.LastDriftReportUtc
                             });
                         }
                     }
@@ -2285,7 +2288,10 @@ public partial class MainWindowViewModel : ViewModelBase
                             Status = client.Status,
                             OrderPosition = client.OrderPosition,
                             PhysicalDistanceCm = client.PhysicalDistanceCm,
-                            ScreenConfig = client.ScreenConfig
+                            ScreenConfig = client.ScreenConfig,
+                            ClockOffsetMs = client.ClockOffsetMs,
+                            RttMs = client.RttMs,
+                            LastDriftReportUtc = client.LastDriftReportUtc
                         });
                     }
                 }
@@ -2320,7 +2326,10 @@ public partial class MainWindowViewModel : ViewModelBase
                                     Status = client.Status,
                                     OrderPosition = nextOrder++,
                                     PhysicalDistanceCm = client.PhysicalDistanceCm,
-                                    ScreenConfig = client.ScreenConfig
+                                    ScreenConfig = client.ScreenConfig,
+                                    ClockOffsetMs = client.ClockOffsetMs,
+                                    RttMs = client.RttMs,
+                                    LastDriftReportUtc = client.LastDriftReportUtc
                                 });
                             }
                         }
@@ -2334,7 +2343,10 @@ public partial class MainWindowViewModel : ViewModelBase
                                 Status = client.Status,
                                 OrderPosition = nextOrder++,
                                 PhysicalDistanceCm = client.PhysicalDistanceCm,
-                                ScreenConfig = client.ScreenConfig
+                                ScreenConfig = client.ScreenConfig,
+                                ClockOffsetMs = client.ClockOffsetMs,
+                                RttMs = client.RttMs,
+                                LastDriftReportUtc = client.LastDriftReportUtc
                             });
                         }
                     }
