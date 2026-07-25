@@ -27,14 +27,68 @@ public partial class PlaylistViewModel : ViewModelBase
     public Func<Task>? StopShow { get; set; }
 
     [ObservableProperty] private string _playlistName = "Party";
-    [ObservableProperty] private bool _loop = true;
-    [ObservableProperty] private bool _shuffle = false;
-    [ObservableProperty] private int _defaultDurationMs = 30_000;
     [ObservableProperty] private bool _isShowRunning;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowSummary))]
+    private bool _loop = true;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowSummary))]
+    private bool _shuffle = false;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowSummary))]
+    private int _defaultDurationMs = 30_000;
 
     public ObservableCollection<PlaylistItemRow> Items { get; } = new();
 
     [ObservableProperty] private PlaylistItemRow? _selectedItem;
+
+    public PlaylistViewModel()
+    {
+        Items.CollectionChanged += (_, e) =>
+        {
+            foreach (var row in e.NewItems?.OfType<PlaylistItemRow>() ?? Enumerable.Empty<PlaylistItemRow>())
+            {
+                row.PlaylistDefaultDurationMs = DefaultDurationMs;
+                row.PropertyChanged += OnRowPropertyChanged;
+            }
+            foreach (var row in e.OldItems?.OfType<PlaylistItemRow>() ?? Enumerable.Empty<PlaylistItemRow>())
+                row.PropertyChanged -= OnRowPropertyChanged;
+            OnPropertyChanged(nameof(ShowSummary));
+        };
+    }
+
+    private void OnRowPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(PlaylistItemRow.DurationText))
+            OnPropertyChanged(nameof(ShowSummary));
+    }
+
+    /// <summary>Keep every row's effective-duration display in sync with the playlist-wide fallback.</summary>
+    partial void OnDefaultDurationMsChanged(int value)
+    {
+        foreach (var row in Items) row.PlaylistDefaultDurationMs = value;
+    }
+
+    /// <summary>Header line: item count and total run time of one full cycle.</summary>
+    public string ShowSummary
+    {
+        get
+        {
+            if (Items.Count == 0) return "No items — use Add to capture an animation config.";
+            var totalMs = Items.Sum(r => (long)r.EffectiveDurationMs);
+            var span = System.TimeSpan.FromMilliseconds(totalMs);
+            var length = span.TotalHours >= 1
+                ? $"{(int)span.TotalHours}h {span.Minutes}m {span.Seconds}s"
+                : span.TotalMinutes >= 1 ? $"{(int)span.TotalMinutes}m {span.Seconds}s"
+                                         : $"{span.TotalSeconds:0.#}s";
+            return $"{Items.Count} item{(Items.Count == 1 ? "" : "s")} · one cycle ≈ {length}"
+                 + (Loop ? " · looping" : " · stops after last item")
+                 + (Shuffle ? " · shuffled" : string.Empty);
+        }
+    }
 
     // --- Item commands ------------------------------------------------------
 
@@ -133,6 +187,8 @@ public partial class PlaylistViewModel : ViewModelBase
         Loop = playlist.Loop;
         Shuffle = playlist.Shuffle;
         DefaultDurationMs = playlist.DefaultItemDurationMs;
+        // Clear() raises a Reset without OldItems, so detach row handlers explicitly.
+        foreach (var row in Items) row.PropertyChanged -= OnRowPropertyChanged;
         Items.Clear();
         foreach (var item in playlist.Items) Items.Add(new PlaylistItemRow(item));
     }

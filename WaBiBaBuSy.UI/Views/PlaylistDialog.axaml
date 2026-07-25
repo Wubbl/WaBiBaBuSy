@@ -3,12 +3,12 @@
         xmlns:vm="using:WaBiBaBuSy.UI.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="720" d:DesignHeight="560"
+        mc:Ignorable="d" d:DesignWidth="860" d:DesignHeight="620"
         x:Class="WaBiBaBuSy.UI.Views.PlaylistDialog"
         x:DataType="vm:PlaylistViewModel"
         Icon="/Assets/BiBaBuColorIcon.ico"
-        Title="Playlist / Party Mode" Width="720" Height="560"
-        MinWidth="560" MinHeight="420"
+        Title="Playlist / Party Mode" Width="860" Height="620"
+        MinWidth="640" MinHeight="460"
         WindowStartupLocation="CenterOwner"
         CanResize="True">
     <DockPanel Margin="16">
@@ -19,10 +19,12 @@
                 <TextBox   Grid.Column="1" Text="{Binding PlaylistName}"/>
                 <CheckBox  Grid.Column="2" Content="Loop" IsChecked="{Binding Loop}"/>
                 <CheckBox  Grid.Column="3" Content="Shuffle" IsChecked="{Binding Shuffle}"/>
-                <TextBlock Grid.Column="4" Text="Default ms" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="4" Text="Default duration (ms)" VerticalAlignment="Center"
+                           ToolTip.Tip="Dwell time used for any item that leaves its own duration box empty."/>
                 <NumericUpDown Grid.Column="5" Width="120" Minimum="1000" Increment="1000"
                                Value="{Binding DefaultDurationMs}"/>
             </Grid>
+            <TextBlock Text="{Binding ShowSummary}" Opacity="0.75" FontSize="12"/>
         </StackPanel>
 
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="8"
@@ -46,14 +48,29 @@
         <ListBox ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedItem}">
             <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="vm:PlaylistItemRow">
-                    <Grid ColumnDefinitions="*,120,Auto" ColumnSpacing="8" Margin="0,4">
-                        <StackPanel Grid.Column="0">
+                    <Grid ColumnDefinitions="*,150" ColumnSpacing="12" Margin="0,6">
+                        <!-- Left: name + config detail lines -->
+                        <StackPanel Grid.Column="0" Spacing="2">
                             <TextBox Text="{Binding Name}" Watermark="Item name"/>
-                            <TextBlock Text="{Binding Summary}" Opacity="0.7" FontSize="11"/>
+                            <TextBlock Text="{Binding SourceSummary}"   Opacity="0.75" FontSize="11" TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="Animation file (plus extra images) · target height · fit mode"/>
+                            <TextBlock Text="{Binding MovementSummary}" Opacity="0.75" FontSize="11" TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="Movement type · speed · type-specific parameters · modifier flags"/>
+                            <TextBlock Text="{Binding TargetSummary}"   Opacity="0.75" FontSize="11" TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="Distribution mode · how many monitors this item targets (empty selection = all)"/>
+                            <TextBlock Text="{Binding VisualsSummary}"  Opacity="0.75" FontSize="11" TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="Background mode · pattern grid · color grading"/>
                         </StackPanel>
-                        <TextBox  Grid.Column="1" Text="{Binding DurationText}" Watermark="default"/>
-                        <CheckBox Grid.Column="2" Content="Lap-snap" IsChecked="{Binding SnapToLap}"
-                                  VerticalAlignment="Center"/>
+
+                        <!-- Right: dwell time + rotation behaviour -->
+                        <StackPanel Grid.Column="1" Spacing="2">
+                            <TextBlock Text="Duration (ms)" FontSize="11" Opacity="0.75"/>
+                            <TextBox Text="{Binding DurationText}" Watermark="blank = default"
+                                     ToolTip.Tip="How long this item plays, in milliseconds. Leave empty to use the playlist default duration."/>
+                            <TextBlock Text="{Binding DurationSummary}" FontSize="11" Opacity="0.75"/>
+                            <CheckBox Content="Lap-snap" IsChecked="{Binding SnapToLap}" FontSize="11"
+                                      ToolTip.Tip="Wait for the current movement lap to finish before switching (Linear without a pattern; otherwise hard-cut)."/>
+                        </StackPanel>
                     </Grid>
                 </DataTemplate>
             </ListBox.ItemTemplate>
