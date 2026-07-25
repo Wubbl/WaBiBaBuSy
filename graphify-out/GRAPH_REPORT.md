@@ -1,7 +1,7 @@
 # Graph Report - WaBiBaBuSy  (2026-07-25)
 
 ## Corpus Check
-- 586 files · ~1,717,747 words
+- 586 files · ~1,717,764 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `f37522cf`
+- Built from commit: `0ff1bc3d`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
