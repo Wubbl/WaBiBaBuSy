@@ -164,4 +164,4 @@ Rules:
 - For cross-module "how does X relate to Y" questions, prefer `graphify query "<question>"`, `graphify path "<A>" "<B>"`, or `graphify explain "<concept>"` over grep — these traverse the graph's EXTRACTED + INFERRED edges instead of scanning files
 - After modifying code, run `./tools/graphify-update.ps1` to keep the graph current (AST-only, no API cost). Use the wrapper, **not** bare `graphify update .` — it pins `PYTHONHASHSEED` so community numbering is reproducible. Without it every rebuild renumbers ~70% of communities and rewrites ~31k lines of `graph.json` with no code change.
 - `.graphifyignore` keeps `obj/`, `bin/`, `.worktrees/` and `.history/` out of the graph. After editing it, rebuild with `-Fresh` (`graphify update` unions into the existing graph, so dropped files leave stale nodes behind).
-- Tracked: `graph.json`, `GRAPH_REPORT.md`. Untracked (local rebuild artifacts): `cache/`, `manifest.json`, `graph.html`.
+- Only `GRAPH_REPORT.md` is tracked. `graph.json`, `manifest.json`, `cache/` and `graph.html` are local artifacts — if `graph.json` is missing (fresh clone), run the wrapper once before using `graphify query/path/explain`.
