@@ -10,3 +10,8 @@ bin/
 # Local scratch / history dirs that aren't project source.
 .worktrees/
 .history/
+
+# Third-party checkout kept for reference only (see .gitignore). Indexing it made
+# 65% of the graph foreign code and let its files outrank ours in god-node
+# ranking, which is misleading for a doc whose job is to map *this* project.
+Lively-reference/
