@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-07-18 — Playlist / Party Mode (Tier 2 #7)
+
+Rotate a set of animation configs across all synced machines as a "show." Plan: `.docs/plans/2026-07-18-playlist-party-mode-plan.md`, design: `.docs/plans/2026-07-18-playlist-party-mode-design.md`.
+
+- **Data model** (`WaBiBaBuSy.Models/Wallpaper/Playlist.cs`): `Playlist` (Name, Loop, Shuffle, DefaultItemDurationMs, Items) + `PlaylistItem` (Name, embedded `CrossScreenConfig`, `DurationMs?`, `SnapToLap`). Each item embeds a full self-contained config — this is the first on-disk persistence of `CrossScreenConfig`.
+- **Scheduling** (`PlaylistScheduler.cs`, pure + unit-tested): `ComputeLapMs` (Linear-only lap period, mirrors `MovementCalculator.CalculateLinear`), `ResolveDwellMs` (per-item duration with global default; opt-in lap-snap rounds up to a whole lap), `BuildCycleOrder` (seeded Fisher–Yates shuffle, server-authority-only — never a render input).
+- **Orchestration** (`WaBiBaBuSy.Core/Services/Animation/PlaylistOrchestrator.cs`): server-side rotation loop that re-invokes the existing shared-timestamp broadcast path per item, waits the resolved dwell, advances; loop/shuffle/stop; pauses on apply failure to avoid busy-looping. Tracks `CurrentItem` so the existing session-resume path (`_activeCrossScreenCommands`) lands a reconnecting client on the current item.
+- **Apply path refactor**: extracted `MainWindowViewModel.ApplyCrossScreenConfigAsync(CrossScreenConfig)` from `StartCrossScreen()` (behavior-neutral) so both the manual Start button and the orchestrator share it.
+- **Persistence** (`PlaylistStore.cs`): JSON under `%APPDATA%\WaBiBaBuSy\playlists\`.
+- **UI**: dedicated `PlaylistDialog` (`PlaylistViewModel` + `PlaylistItemRow`) — add/edit (reuses the CrossScreen config dialog), reorder, duplicate, remove; Loop/Shuffle/default duration; Start/Stop Show; Save. Entry-point button next to the cross-screen actions in `MainWindow`.
+- **UX decisions**: per-item duration + global default; hard-cut with opt-in lap-snap; remotes auto-follow (no per-client opt-out — use the existing per-monitor selection to exclude); own dialog.
+- **Known limitations (v1):** lap-snap is Linear-only (other movement types hard-cut); `ContentWidthPx` is best-effort 0 so lap-snap uses canvas-width traversal distance; consecutive items targeting *different* monitor sets leave stale D2D services on dropped monitors until Stop (fine when all items use the same monitor set); scheduled interrupt-shows, per-client opt-out, and cross-item transitions are deferred.
+- Tests: 11 new playlist unit tests (models roundtrip, lap/dwell math, shuffle). Full run pending E2E multi-client validation.
+
 ## 2026-07-18 — Legacy code cleanup (GDI+ composition stack + frame streaming)
 - **Archived** the dead GDI+ composition stack to `_archive/legacy-gdi-composition/` (outside the build): `CompositionRenderer`, `AnimationLayerRenderer`, `BackgroundLayerRenderer`, `GifWallpaperRenderer`, `CrossScreenFrameRenderer`. See the folder's README for the dead-code verification.
 - **Removed** the server-side frame-streaming gRPC path end-to-end: `StreamCrossScreenFrames` RPC, `CrossScreenFrame`/`FrameAcknowledgment` messages, `CompressionType` enum, `CROSSSCREEN_START/STOP` command types (tags 6/7 `reserved`), client frame-stream machinery, coordinator `SendCrossScreenFrameAsync`, `UseDistributedRendering` config flag, and the player's never-initialized "video fallback" render branch (incl. `ConvertBitmapToD2D`).

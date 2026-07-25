@@ -18,6 +18,7 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 - Color grading: 8 modes — time-based (Rainbow, RandomColors, Gradient, CycleColorList) and per-cell Traveling Colors (Rainbow/List/Random)
 - Backgrounds: SolidColor, StretchedImage, TiledImage, ThreeZone corridor, IconZone (A* pathfinding around real desktop icons)
 - Debug overlay in player (F11 / IPC): A* path, icon rects, zone bands, movement trail, info panel
+- Playlist / Party Mode: rotate animation configs across all machines on a loop (per-item duration + global default, shuffle, opt-in Linear lap-snap; own dialog; JSON-persisted under `%APPDATA%\WaBiBaBuSy\playlists\`)
 - Auto-update system with SHA-256 verification and rollback
 - System tray operation with minimal UI footprint
 
@@ -129,7 +130,7 @@ dotnet run --project WaBiBaBuSy.UI
 1. **E2E Multi-Client Testing** — Test with 1-3 real clients over network; validates the 2026-07-07 Tier 1 work (remote parameter parity, clock-offset sync, reconnection + session resume)
 2. **VALIDATE: File logging** — Enable LogToFile, verify files at `%LOCALAPPDATA%\WaBiBaBuSy\Logs\`
 3. **Installer Testing** — Validate on clean Windows 10/11 systems
-4. **Tier 2 party features** — Playlist/party mode (next up), bezel-crossing transitions, 2D topology, live position preview (see `.docs/2026.07_FEATURE_OVERVIEW.md`; server-browser UI done 2026-07-07)
+4. **Tier 2 party features** — Playlist/party mode done 2026-07-18 (E2E validation pending); next: bezel-crossing transitions, 2D topology, live position preview (see `.docs/2026.07_FEATURE_OVERVIEW.md`; server-browser UI done 2026-07-07)
 5. **Drift telemetry E2E check** — implemented 2026-07-18 (heartbeat-reported clock offset + topology drift labels); verify labels during multi-client testing
 
 ## MVP Success Criteria (6/6 Implemented, E2E validation pending)
