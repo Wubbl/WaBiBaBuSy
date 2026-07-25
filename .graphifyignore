@@ -1,0 +1,12 @@
+# Files graphify should not index. Gitignore syntax; see also .gitignore.
+#
+# .NET build intermediates and outputs. graphify's built-in skip list covers
+# build/dist/out/target but not the C# obj/bin convention, so without these
+# entries it indexes generated sources (AssemblyInfo.cs, *.g.cs, ref assemblies)
+# and rewrites graph.json + manifest.json on every `dotnet build`.
+obj/
+bin/
+
+# Local scratch / history dirs that aren't project source.
+.worktrees/
+.history/
