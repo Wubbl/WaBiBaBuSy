@@ -93,7 +93,7 @@ public class DesktopWindowManager
 
             // Send 0x052C to Progman. This message directs Progman to spawn a
             // WorkerW behind the desktop icons. If it is already there, nothing happens.
-            // Parameters: wParam=0xD, lParam=0x1 (Lively uses these values)
+            // Parameters: wParam=0xD, lParam=0x1 (undocumented, but the values the shell expects)
             Win32Interop.SendMessageTimeout(
                 _progman,
                 Win32Interop.WM_SPAWN_WORKER,
@@ -173,7 +173,9 @@ public class DesktopWindowManager
     /// <summary>
     /// Sets the specified window as a child of the WorkerW/Progman window,
     /// positioning it behind desktop icons.
-    /// Implements Lively Wallpaper's dual-mode approach for Windows 10/11 compatibility.
+    /// Two parenting strategies are needed: pre-24H2 shells expose WorkerW as a top-level window
+    /// to parent into, while 24H2+ raises the desktop into a layered shell view where the wallpaper
+    /// must become a Progman child ordered below SHELLDLL_DefView instead.
     /// </summary>
     /// <param name="windowHandle">Window handle to set as wallpaper</param>
     /// <param name="screenBounds">Screen bounds (X, Y, Width, Height) for positioning</param>
@@ -228,15 +230,17 @@ public class DesktopWindowManager
     }
 
     /// <summary>
-    /// Legacy mode: Parent to WorkerW window - EXACT copy of Lively's TrySetWallpaperPerScreen flow.
+    /// Legacy mode (Windows 10 / pre-24H2): parent the window into WorkerW, which the shell keeps
+    /// between the desktop background and the icon layer.
     /// </summary>
     private bool SetAsWallpaperLegacyMode(IntPtr windowHandle, System.Drawing.Rectangle screenBounds)
     {
-        _logger.LogInformation("Using legacy WorkerW parenting mode (EXACT Lively flow)");
+        _logger.LogInformation("Using legacy WorkerW parenting mode");
         _logger.LogInformation("Screen bounds: ({X}, {Y}, {W}x{H})",
             screenBounds.X, screenBounds.Y, screenBounds.Width, screenBounds.Height);
 
-        // Step 1: SetWindowPos BEFORE SetParent - position window at screen location (Lively line 498)
+        // Step 1: position in screen coordinates while the window is still top-level, so step 2 can
+        // translate a known rectangle into WorkerW's client space.
         if (!Win32Interop.SetWindowPos(
             windowHandle,
             1,  // HWND_TOP
@@ -253,18 +257,21 @@ public class DesktopWindowManager
             _logger.LogInformation("Step 1: Positioned window at screen coords ({X},{Y})", screenBounds.X, screenBounds.Y);
         }
 
-        // Step 2: MapWindowPoints to calculate position relative to WorkerW (Lively line 510)
+        // Step 2: SetParent does not re-map coordinates, so convert the screen rect into
+        // WorkerW-relative coordinates before re-parenting.
         var prct = new Win32Interop.RECT();
         Win32Interop.MapWindowPoints(windowHandle, _workerW, ref prct, 2);
         _logger.LogInformation("Step 2: Mapped points relative to WorkerW - ({Left}, {Top})", prct.Left, prct.Top);
 
-        // LIVELY CRITICAL SEQUENCE: Apply window styles BEFORE SetParent (Lively WinDesktopCore.cs lines 168-169)
-        _logger.LogInformation("Applying Lively's window style modifications BEFORE SetParent...");
-        BorderlessWinStyle(windowHandle);
-        RemoveWindowFromTaskbar(windowHandle);
+        // Styles must be applied while the window is still top-level. Changing WS_CAPTION or
+        // WS_EX_TOOLWINDOW after re-parenting leaves the shell with stale frame metrics and the
+        // window renders with a border or refuses to paint.
+        _logger.LogInformation("Applying window style modifications before SetParent...");
+        StripWindowChrome(windowHandle);
+        HideFromTaskbar(windowHandle);
 
-        // CRITICAL: Manually set WS_CHILD style BEFORE SetParent (Lively WinDesktopCore.cs line 1023)
-        // This is what Lively does in layered mode - let's try it in legacy mode too
+        // SetParent sets WS_CHILD itself, but doing it up front means the window is already a
+        // well-formed child when the shell first sees it, which avoids a one-frame flash.
         _logger.LogInformation("Manually setting WS_CHILD style BEFORE SetParent...");
         var currentStyle = Win32Interop.GetWindowLong(windowHandle, Win32Interop.GWL_STYLE);
         var newStyle = currentStyle | Win32Interop.WS_CHILD;
@@ -274,7 +281,7 @@ public class DesktopWindowManager
 
         _logger.LogInformation("Window styles applied, ready for SetParent");
 
-        // Step 3: SetParent to WorkerW (Lively's TryAttachToDesktop, line 511)
+        // Step 3: re-parent into WorkerW
         _logger.LogInformation("BEFORE SetParent - checking window state...");
         LogWindowState(windowHandle, "BEFORE SetParent");
 
@@ -308,7 +315,7 @@ public class DesktopWindowManager
         _logger.LogInformation("Successfully parented to WorkerW");
         LogWindowState(windowHandle, "AFTER SetParent SUCCESS");
 
-        // Step 4: SetWindowPos AFTER SetParent with relative coordinates (Lively line 514)
+        // Step 4: re-apply the geometry, now in the parent-relative coordinates from step 2
         if (!Win32Interop.SetWindowPos(
             windowHandle,
             1,  // HWND_TOP
@@ -324,7 +331,7 @@ public class DesktopWindowManager
 
         _logger.LogInformation("Step 4: Repositioned at relative coords ({Left},{Top})", prct.Left, prct.Top);
 
-        // Step 5: Refresh desktop (Lively line 524)
+        // Step 5: force the shell to repaint so the newly parented window becomes visible
         RefreshDesktop();
         _logger.LogInformation("Step 5: Called RefreshDesktop");
 
@@ -353,7 +360,7 @@ public class DesktopWindowManager
         Win32Interop.SetWindowPos(windowHandle, Win32Interop.HWND_BOTTOM, 0, 0, 0, 0,
             (uint)(Win32Interop.SWP_NOMOVE | Win32Interop.SWP_NOSIZE | Win32Interop.SWP_NOACTIVATE));
 
-        _logger.LogInformation("Successfully set wallpaper window (Legacy mode - EXACT Lively flow)");
+        _logger.LogInformation("Successfully set wallpaper window (Legacy mode)");
         return true;
     }
 
@@ -402,25 +409,28 @@ public class DesktopWindowManager
 
     /// <summary>
     /// Layered mode: Parent to Progman and z-order below ShellDLL_DefView (Windows 11 24H2+).
-    /// Uses EXACT Lively sequence + WPF composition refresh.
+    /// Ordering matters: styles, then geometry, then parenting, then Z-order. Followed by a WPF
+    /// composition refresh, because re-parenting invalidates the HwndSource render target.
     /// </summary>
     private bool SetAsWallpaperLayeredMode(IntPtr windowHandle, System.Drawing.Rectangle screenBounds)
     {
         _logger.LogInformation("========================================");
-        _logger.LogInformation("LAYERED MODE - Lively sequence + WPF refresh");
+        _logger.LogInformation("LAYERED MODE - style/geometry/parent/z-order sequence + WPF refresh");
         _logger.LogInformation("========================================");
         _logger.LogInformation("Handles - Window: {Window}, Progman: {Progman}, DefView: {DefView}, WorkerW: {WorkerW}",
             windowHandle, _progman, _shellDLL_DefView, _workerW);
 
-        // LIVELY STEP 1: Add WS_CHILD style (Lively WinDesktopCore.cs line 1023)
-        WindowUtil.SetWindowStyle(windowHandle, Win32Interop.WS_CHILD);
+        // Step 1: mark as a child window before parenting, so the shell never sees it top-level
+        WindowUtil.AddWindowStyle(windowHandle, Win32Interop.WS_CHILD);
         _logger.LogInformation("Added WS_CHILD style");
 
-        // LIVELY STEP 2: Add WS_EX_LAYERED with full opacity (Lively WinDesktopCore.cs line 1026)
-        WindowUtil.SetWindowTransparency(windowHandle, 255);
+        // Step 2: layered composition at full opacity. In 24H2+ the desktop itself is layered, and
+        // a non-layered child of Progman is simply not composited. WS_EX_TRANSPARENT must NOT be
+        // used here - it crashes explorer.exe on these builds.
+        WindowUtil.SetLayeredOpacity(windowHandle, 255);
         _logger.LogInformation("Added WS_EX_LAYERED with alpha=255 (full opacity)");
 
-        // LIVELY STEP 3: Position window BEFORE parenting
+        // Step 3: position while still top-level (screen coordinates)
         _logger.LogInformation("Positioning window at ({X}, {Y}, {W}x{H})",
             screenBounds.X, screenBounds.Y, screenBounds.Width, screenBounds.Height);
 
@@ -433,7 +443,7 @@ public class DesktopWindowManager
             screenBounds.Height,
             (uint)(Win32Interop.SWP_NOZORDER | Win32Interop.SWP_NOACTIVATE));
 
-        // LIVELY STEP 4: Set parent to Progman
+        // Step 4: in layered mode the wallpaper is a Progman child, not a WorkerW child
         if (!WindowUtil.TrySetParent(windowHandle, _progman))
         {
             _logger.LogError("Failed to set parent to Progman");
@@ -441,7 +451,7 @@ public class DesktopWindowManager
         }
         _logger.LogInformation("Successfully set parent to Progman: {Progman}", _progman);
 
-        // LIVELY STEP 5: Set Z-order below SHELLDLL_DefView
+        // Step 5: insert below SHELLDLL_DefView so desktop icons stay on top of the wallpaper
         var windowFlags = (uint)(Win32Interop.SWP_NOMOVE | Win32Interop.SWP_NOSIZE | Win32Interop.SWP_NOACTIVATE);
 
         if (_shellDLL_DefView != IntPtr.Zero)
@@ -461,112 +471,107 @@ public class DesktopWindowManager
             _logger.LogError("SHELLDLL_DefView handle is NULL! Cannot set Z-order correctly");
         }
 
-        // LIVELY STEP 6: Ensure WorkerW is at bottom of Z-order
+        // Step 6: re-assert WorkerW's position at the bottom of Progman's Z-order
         EnsureWorkerWZOrder();
 
-        _logger.LogInformation("Successfully set wallpaper window (Layered mode - EXACT Lively flow)");
+        _logger.LogInformation("Successfully set wallpaper window (Layered mode)");
         return true;
     }
 
     /// <summary>
-    /// Ensures WorkerW window is at the bottom of the Z-order in layered mode.
-    /// From Lively WinDesktopCore.cs lines 1053-1073
+    /// In layered desktop mode, keeps WorkerW pinned to the bottom of Progman's Z-order.
     /// </summary>
+    /// <remarks>
+    /// Wallpaper windows are inserted directly above WorkerW. If the shell re-orders WorkerW above
+    /// one of its siblings, those siblings occlude the wallpaper, so the invariant is re-asserted
+    /// after every parenting operation. No-op outside layered mode, where WorkerW is the parent
+    /// rather than a sibling.
+    /// </remarks>
     private void EnsureWorkerWZOrder()
     {
         if (!_isRaisedDesktopWithLayeredShellView)
             return;
 
-        // Check if WorkerW is the last child of Progman (bottom of Z-order)
-        var lastChild = WindowUtil.GetLastChildWindow(_progman);
-        if (lastChild != _workerW)
-        {
-            _logger.LogWarning("Unexpected WorkerW Z-order. Last child: {LastChild}, WorkerW: {WorkerW}",
-                lastChild, _workerW);
-
-            // Move WorkerW to bottom of Z-order
-            var windowFlags = (uint)(Win32Interop.SWP_NOMOVE | Win32Interop.SWP_NOSIZE | Win32Interop.SWP_NOACTIVATE);
-
-            Win32Interop.SetWindowPos(
-                _workerW,
-                Win32Interop.HWND_BOTTOM,
-                0,
-                0,
-                0,
-                0,
-                windowFlags);
-
-            _logger.LogInformation("Moved WorkerW to bottom of Z-order");
-        }
-        else
+        var bottomMost = WindowUtil.FindBottomMostChild(_progman);
+        if (bottomMost == _workerW)
         {
             _logger.LogInformation("WorkerW Z-order is correct (already at bottom)");
+            return;
         }
+
+        _logger.LogWarning("WorkerW is not the bottom-most child of Progman (bottom: {BottomMost}, WorkerW: {WorkerW}) - correcting",
+            bottomMost, _workerW);
+
+        Win32Interop.SetWindowPos(
+            _workerW,
+            Win32Interop.HWND_BOTTOM,
+            0, 0, 0, 0,
+            (uint)(Win32Interop.SWP_NOMOVE | Win32Interop.SWP_NOSIZE | Win32Interop.SWP_NOACTIVATE));
+
+        _logger.LogInformation("Moved WorkerW to bottom of Z-order");
     }
 
     /// <summary>
-    /// Removes window border and some menu items. Based on Lively Wallpaper implementation.
-    /// Ref: https://github.com/Codeusa/Borderless-Gaming
+    /// Strips the frame, caption and system menu so the window can sit flush behind the desktop
+    /// icons with no visible chrome.
     /// </summary>
+    /// <remarks>
+    /// Style bits are cleared with <c>&amp; ~mask</c> so unrelated flags survive. See
+    /// https://learn.microsoft.com/windows/win32/winmsg/window-styles for the meaning of each flag.
+    /// <c>WS_EX_LAYERED</c> is cleared here as well: the legacy WorkerW path relies on plain,
+    /// non-redirected rendering, and a stale layered flag suppresses painting entirely.
+    /// </remarks>
     /// <param name="handle">Window handle</param>
-    private void BorderlessWinStyle(IntPtr handle)
+    private void StripWindowChrome(IntPtr handle)
     {
-        _logger.LogInformation("Applying borderless window style (Lively method)");
+        const int chromeStyles =
+            Win32Interop.WS_CAPTION |
+            Win32Interop.WS_THICKFRAME |
+            Win32Interop.WS_SYSMENU |
+            Win32Interop.WS_MAXIMIZEBOX |
+            Win32Interop.WS_MINIMIZEBOX;
 
-        // Get current window styles
-        var styleCurrentWindowStandard = Win32Interop.GetWindowLong(handle, Win32Interop.GWL_STYLE);
-        var styleCurrentWindowExtended = Win32Interop.GetWindowLong(handle, Win32Interop.GWL_EXSTYLE);
+        const int chromeExStyles =
+            Win32Interop.WS_EX_DLGMODALFRAME |
+            Win32Interop.WS_EX_COMPOSITED |
+            Win32Interop.WS_EX_WINDOWEDGE |
+            Win32Interop.WS_EX_CLIENTEDGE |
+            Win32Interop.WS_EX_LAYERED |
+            Win32Interop.WS_EX_STATICEDGE |
+            Win32Interop.WS_EX_TOOLWINDOW |
+            Win32Interop.WS_EX_APPWINDOW;
 
-        _logger.LogInformation("Current styles - Standard: 0x{Standard:X}, Extended: 0x{Extended:X}",
-            styleCurrentWindowStandard, styleCurrentWindowExtended);
+        var style = Win32Interop.GetWindowLong(handle, Win32Interop.GWL_STYLE);
+        var exStyle = Win32Interop.GetWindowLong(handle, Win32Interop.GWL_EXSTYLE);
 
-        // Compute new standard style - remove caption, thick frame, system menu, min/max boxes
-        var styleNewWindowStandard = styleCurrentWindowStandard
-            & ~(Win32Interop.WS_CAPTION
-              | Win32Interop.WS_THICKFRAME
-              | Win32Interop.WS_SYSMENU
-              | Win32Interop.WS_MAXIMIZEBOX
-              | Win32Interop.WS_MINIMIZEBOX);
+        Win32Interop.SetWindowLong(handle, Win32Interop.GWL_STYLE, style & ~chromeStyles);
+        Win32Interop.SetWindowLong(handle, Win32Interop.GWL_EXSTYLE, exStyle & ~chromeExStyles);
 
-        // Compute new extended style - remove various window edge styles, layered, toolwindow, appwindow
-        var styleNewWindowExtended = styleCurrentWindowExtended
-            & ~(Win32Interop.WS_EX_DLGMODALFRAME
-              | Win32Interop.WS_EX_COMPOSITED
-              | Win32Interop.WS_EX_WINDOWEDGE
-              | Win32Interop.WS_EX_CLIENTEDGE
-              | Win32Interop.WS_EX_LAYERED
-              | Win32Interop.WS_EX_STATICEDGE
-              | Win32Interop.WS_EX_TOOLWINDOW
-              | Win32Interop.WS_EX_APPWINDOW);
-
-        // Update window styles
-        Win32Interop.SetWindowLong(handle, Win32Interop.GWL_STYLE, styleNewWindowStandard);
-        Win32Interop.SetWindowLong(handle, Win32Interop.GWL_EXSTYLE, styleNewWindowExtended);
-
-        _logger.LogInformation("New styles applied - Standard: 0x{Standard:X}, Extended: 0x{Extended:X}",
-            styleNewWindowStandard, styleNewWindowExtended);
+        _logger.LogInformation(
+            "Stripped window chrome - style 0x{OldStyle:X} -> 0x{NewStyle:X}, exStyle 0x{OldExStyle:X} -> 0x{NewExStyle:X}",
+            style, style & ~chromeStyles, exStyle, exStyle & ~chromeExStyles);
     }
 
     /// <summary>
-    /// Makes window toolwindow and force remove from taskbar. Based on Lively Wallpaper implementation.
+    /// Hides the window from the taskbar and Alt-Tab, and stops it taking focus.
     /// </summary>
+    /// <remarks>
+    /// <c>SetWindowLong</c> alone is not enough: the shell caches taskbar membership when the window
+    /// is first shown, so the window is hidden and re-shown to force the shell to re-evaluate it.
+    /// </remarks>
     /// <param name="handle">Window handle</param>
-    private void RemoveWindowFromTaskbar(IntPtr handle)
+    private void HideFromTaskbar(IntPtr handle)
     {
-        _logger.LogInformation("Removing window from taskbar (Lively method)");
+        const int hiddenExStyles = Win32Interop.WS_EX_NOACTIVATE | Win32Interop.WS_EX_TOOLWINDOW;
 
-        var styleCurrentWindowExtended = Win32Interop.GetWindowLong(handle, Win32Interop.GWL_EXSTYLE);
+        var exStyle = Win32Interop.GetWindowLong(handle, Win32Interop.GWL_EXSTYLE);
 
-        var styleNewWindowExtended = styleCurrentWindowExtended
-            | Win32Interop.WS_EX_NOACTIVATE
-            | Win32Interop.WS_EX_TOOLWINDOW;
-
-        // Update window styles - hide then show to apply changes
         Win32Interop.ShowWindow(handle, Win32Interop.SW_HIDE);
-        Win32Interop.SetWindowLong(handle, Win32Interop.GWL_EXSTYLE, styleNewWindowExtended);
+        Win32Interop.SetWindowLong(handle, Win32Interop.GWL_EXSTYLE, exStyle | hiddenExStyles);
         Win32Interop.ShowWindow(handle, Win32Interop.SW_SHOW);
 
-        _logger.LogInformation("Window removed from taskbar");
+        _logger.LogInformation("Hid window from taskbar - exStyle 0x{OldExStyle:X} -> 0x{NewExStyle:X}",
+            exStyle, exStyle | hiddenExStyles);
     }
 
     /// <summary>

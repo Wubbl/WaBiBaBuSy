@@ -34,9 +34,9 @@ public partial class MainWindow : Window
         Console.Error.WriteLine($"[Player.Image] Got HWND: 0x{hwnd:X} ({hwnd.ToInt32()})");
         Console.Error.WriteLine($"[Player.Image] Got HwndSource: {_hwndSource != null}");
 
-        // Fix for Windows 10 Taskview crash (from Lively Wallpaper)
-        // ShowInTaskbar = false causes issue with Windows 10 Taskview
-        // This hides window from taskbar and fixes crash when taskview is launched
+        // Toggling ShowInTaskbar forces WPF to recreate the hidden taskbar-proxy window it uses to
+        // track this HWND. Leaving that proxy in its initial state crashes Task View on Windows 10
+        // once the window has been re-parented to the desktop.
         ShowInTaskbar = false;
         ShowInTaskbar = true;
 
