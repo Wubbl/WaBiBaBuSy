@@ -419,3 +419,12 @@ graphify-out/graph.html
 
 # Local read-only checkouts of third-party projects used for reference
 Lively-reference/
+
+# FFmpeg binaries are never committed. They are GPL-licensed builds, ~190 MB, and
+# only needed for optional video thumbnails. Fetch them with
+# WaBiBaBuSy.UI/ffmpeg/Download-FFmpeg.ps1 or put FFmpeg on PATH instead.
+WaBiBaBuSy.UI/ffmpeg/*.exe
+
+# Per-machine Claude Code settings (absolute paths, personal permission grants).
+# The shared project settings in .claude/settings.json stay tracked.
+.claude/settings.local.json

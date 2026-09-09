@@ -49,7 +49,7 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 - **[Traveling Colors](.docs/plans/2026-05-01-traveling-colors.md)** — Per-cell color grading design (implemented 2026-05)
 
 ### Historical Reference
-- **[`.docs/_archive/`](.docs/_archive/)** — 33 archived docs (planning, diagnostics, session summaries, superseded designs)
+- **[`.docs/_archive/`](.docs/_archive/)** — 34 archived docs (planning, diagnostics, session summaries, superseded designs)
 
 **When documenting:**
 - **New bugs** → `.docs/2025.12_OpenIssues.md`
