@@ -137,6 +137,32 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     // When true, the pattern scrolls endlessly with no loop reset (requires Linear + Traveling mode).
     [ObservableProperty] private bool _isMovementEndless = false;
 
+    // Tier 0.6: previously hardcoded in BuildConfig (42 / 1000) — now user-editable.
+    [ObservableProperty] private int _randomSeed = 42;
+    [ObservableProperty] private float _randomStepIntervalMs = 1000f;
+    [ObservableProperty] private double _speedMultiplier = 2.0;
+
+    // Tier 0.5: mirror the sprite horizontally whenever it travels leftwards on screen.
+    [ObservableProperty] private bool _faceTravelDirection = false;
+
+    // Tier 0.7: Wave mode — per-node clock shift in Simultaneous distribution (ms per node).
+    [ObservableProperty] private int _nodePhaseDelayMs = 0;
+
+    public bool IsSimultaneousMode => AnimationDistributionModeIndex == 1;
+
+    partial void OnAnimationDistributionModeIndexChanged(int value)
+    {
+        OnPropertyChanged(nameof(IsSimultaneousMode));
+    }
+
+    [RelayCommand]
+    private void RandomizeMovementSeed()
+    {
+        // UI-only randomness: the chosen seed is broadcast as config, so every node still
+        // computes the same deterministic path from it.
+        RandomSeed = Random.Shared.Next(1, 999_999);
+    }
+
     public bool IsLinearMode => SelectedMovementType?.Type == MovementType.Linear;
     // Reversed is meaningful for Linear (swaps start/end), SineWave (flips horizontal travel), and Circular (CW↔CCW).
     public bool IsReversibleMode => SelectedMovementType?.Type is MovementType.Linear
@@ -408,6 +434,11 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         RandomWalkIterationSteps = movement.IterationStepCount;
         IsMovementReversed = movement.Reversed;
         IsMovementEndless = movement.Endless;
+        RandomSeed = movement.RandomSeed;
+        RandomStepIntervalMs = movement.RandomStepIntervalMs;
+        NodePhaseDelayMs = movement.NodePhaseDelayMs;
+        SpeedMultiplier = config.Animation.SpeedMultiplier;
+        FaceTravelDirection = config.Animation.FaceTravelDirection;
 
         // Restore monitor selection from config
         var selectedIds = new HashSet<string>(config.SelectedMonitorIds);
@@ -526,6 +557,8 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                 Loop = AnimationLoop,
                 VerticalAlign = verticalAlign,
                 RotateWithPath = RotateWithPath,
+                SpeedMultiplier = SpeedMultiplier > 0 ? SpeedMultiplier : 1.0,
+                FaceTravelDirection = FaceTravelDirection,
                 ColorGrading = new ColorGradingConfig
                 {
                     Mode = (ColorGradingMode)ColorGradingModeIndex,
@@ -565,11 +598,12 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                 WaveFrequencyHz = WaveFrequency,
                 OrbitRadiusPixels = OrbitRadius,
                 Loop = AnimationLoop,
-                RandomSeed = 42,
-                RandomStepIntervalMs = 1000f,
+                RandomSeed = RandomSeed,
+                RandomStepIntervalMs = Math.Max(100f, RandomStepIntervalMs),
                 IterationStepCount = RandomWalkIterationSteps,
                 Reversed = IsMovementReversed,
-                Endless = IsMovementEndless
+                Endless = IsMovementEndless,
+                NodePhaseDelayMs = Math.Max(0, NodePhaseDelayMs)
             }
         };
     }

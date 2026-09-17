@@ -116,6 +116,26 @@ public class VirtualCanvasManager
                 maxHeight = screen.Height;
         }
 
+        // Second pass: vertically center each screen inside the canvas height so a 1080-px node
+        // and a 1440-px node agree on where "canvas center" is. Players subtract VirtualBounds.Y
+        // exactly like they subtract VirtualBounds.X. (Roadmap Tier 0.1 - mixed monitor heights.)
+        for (int i = 0; i < mappings.Count; i++)
+        {
+            var m = mappings[i];
+            int offsetY = (maxHeight - m.ScreenBounds.Height) / 2;
+            if (offsetY == 0) continue;
+            mappings[i] = new ScreenMapping
+            {
+                ClientId = m.ClientId,
+                ScreenBounds = m.ScreenBounds,
+                VirtualBounds = new Rectangle(m.VirtualBounds.X, offsetY, m.VirtualBounds.Width, m.VirtualBounds.Height),
+                Order = m.Order,
+                PhysicalDistanceCm = m.PhysicalDistanceCm,
+                Hostname = m.Hostname,
+                MonitorIndex = m.MonitorIndex
+            };
+        }
+
         _screenMappings = mappings;
 
         // Calculate total virtual canvas bounds

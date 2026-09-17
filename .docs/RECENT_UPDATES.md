@@ -1,8 +1,21 @@
 # WaBiBaBuSy - Recent Updates & Changelog
 
-**Last Updated:** 2026-07-18
+**Last Updated:** 2026-09-17
 
 ---
+
+## 2026-09-17 — Tier 0 quick wins (LAN-party roadmap)
+
+Roadmap: `.docs/plans/2026-09-17-lan-party-roadmap.md` §4 Tier 0. All seven items; 30 new unit tests (83 total).
+
+- **0.1 Canvas height + vertical centering** — `VirtualCanvasManager` now centers each screen inside the canvas height (`ScreenMapping.VirtualBounds.Y`); `D2DCompositionService` sends the wall's tallest height as `VirtualCanvasHeight` plus `MonitorOffsetY`; the player runs `MovementCalculator` against the canvas height and subtracts its Y offset. Fixes the vertical jump between a 1080-px and a 1440-px node. Remote transport: `SyncParameters.virtual_canvas_height` / `monitor_offset_y` (fields 22/23).
+- **0.2 Persistent client identity** — `ClientConfiguration.ClientId` stores the server-assigned id; `WallpaperSyncClient` sends it on every registration, persists it via `ConfigurationManager.UpdateClientId`, and no longer clears it on disconnect. A restarted client is the same node.
+- **0.3 Persistent topology** — new `TopologyStore` (`%APPDATA%\WaBiBaBuSy	opology.json`): order + bezel distance per node, bound by ClientId with hostname fallback (re-imaged machine keeps its seat). `WallpaperSyncService.RegisterClient` re-attaches known machines and appends new ones; order/distance edits (gRPC and server-mode direct) persist.
+- **0.4 Future start timestamp** — `SyncTiming.ComputeStartLeadMs` (3×worst RTT + measured local load time, clamped 800–4000 ms) schedules the shared start ahead; players draw background only until `elapsed ≥ 0`, so all nodes reveal the sprite on the same frame. `PlaylistOrchestrator` measures dwell from the scheduled start (`ApplyMetrics.StartLeadMs`).
+- **0.5 Face travel direction** — `AnimationLayerConfig.FaceTravelDirection`: the single-sprite draw path mirrors the bitmap when screen-space dx < 0 (0.5 px hysteresis, loop wraps ignored). Off by default; checkbox in the dialog.
+- **0.6 Exposed parameters** — RandomWalk seed + step interval (with "Randomize"), playback speed multiplier; these were hardcoded (42 / 1000) or unreachable in `CrossScreenConfigViewModel.BuildConfig`.
+- **0.7 Wave mode** — `MovementConfig.NodePhaseDelayMs`: in Simultaneous distribution each node shifts its clock by `order × delay` (`SyncTiming.ApplyNodePhase`), so a bounce/orbit runs down the row like a stadium wave. `NodeOrder` travels in IPC and gRPC (`node_order`, field 24). Ignored in Sequential mode.
+- Tests: `SyncTimingTests`, `TopologyStoreTests`, roundtrip coverage for the two new config fields. E2E on real remotes still pending (see OPEN_ITEMS §1).
 
 ## 2026-07-18 — Playlist / Party Mode (Tier 2 #7)
 

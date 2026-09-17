@@ -29,7 +29,8 @@ public class ConfigJsonRoundtripTests
             Loop = false,
             IterationStepCount = 7,
             Reversed = true,
-            Endless = true
+            Endless = true,
+            NodePhaseDelayMs = 250
         };
 
         var restored = JsonSerializer.Deserialize<MovementConfig>(JsonSerializer.Serialize(original))!;
@@ -52,6 +53,7 @@ public class ConfigJsonRoundtripTests
         Assert.Equal(original.IterationStepCount, restored.IterationStepCount);
         Assert.Equal(original.Reversed, restored.Reversed);
         Assert.Equal(original.Endless, restored.Endless);
+        Assert.Equal(original.NodePhaseDelayMs, restored.NodePhaseDelayMs);
     }
 
     [Fact]
@@ -67,6 +69,7 @@ public class ConfigJsonRoundtripTests
             SpeedMultiplier = 1.5,
             FitMode = ContentFitMode.Fill,
             RotateWithPath = true,
+            FaceTravelDirection = true,
             AdditionalAnimationPaths = { @"C:\anim\a.png", @"C:\anim\b.png" },
             MultiImageSpread = 42f,
             MultiImagePhaseJitterMs = 99f,
@@ -88,6 +91,7 @@ public class ConfigJsonRoundtripTests
         Assert.Equal(original.SpeedMultiplier, restored.SpeedMultiplier);
         Assert.Equal(original.FitMode, restored.FitMode);
         Assert.Equal(original.RotateWithPath, restored.RotateWithPath);
+        Assert.Equal(original.FaceTravelDirection, restored.FaceTravelDirection);
         Assert.Equal(original.AdditionalAnimationPaths, restored.AdditionalAnimationPaths);
         Assert.Equal(original.MultiImageSpread, restored.MultiImageSpread);
         Assert.Equal(original.MultiImagePhaseJitterMs, restored.MultiImagePhaseJitterMs);

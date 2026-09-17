@@ -525,6 +525,17 @@ class Program
     private static MovementConfig? _movementConfig;
     private static int _virtualCanvasWidth = 1920;
     private static int _monitorOffsetX = 0;
+    // Tier 0.1: canvas height = tallest node in the wall; this node is centered via _canvasOffsetY.
+    // (_monitorOffsetY below is the monitor's desktop Y position — a different quantity.)
+    private static int _virtualCanvasHeight = 0;   // 0 → falls back to _height at load
+    private static int _canvasOffsetY = 0;
+    // Tier 0.7: Wave mode — per-node phase shift in per-monitor (Simultaneous) mode.
+    private static int _nodeOrder = 0;
+    private static bool _perMonitorMode = false;
+    // Tier 0.5: face travel direction (single-sprite path). Screen-space dx with hysteresis.
+    private static bool _facingLeft = false;
+    private static float _prevFacingX = 0f;
+    private static bool _hasPrevFacingX = false;
     private static int _monitorOffsetY = 0;
     private static bool _rotateWithPath;
     private static float _animRotationRad;
@@ -1181,16 +1192,22 @@ class Program
                     {
                         try
                         {
-                            var elapsedMs = (long)(DateTime.UtcNow - _renderLoopStart).TotalMilliseconds;
+                            var elapsedMs = ComputeEffectiveElapsedMs();
 
                             // Draw background (Stage 3)
                             DrawBackground();
 
-                            // Update animation position (Stage 4)
-                            UpdateAnimationPosition(elapsedMs);
+                            // Before the shared start (future T0) or before this node's wave phase
+                            // arrives, only the background is shown — every node then reveals the
+                            // sprite on the same frame instead of early nodes showing it mid-canvas.
+                            if (SyncTiming.ShouldDrawAnimation(elapsedMs))
+                            {
+                                // Update animation position (Stage 4)
+                                UpdateAnimationPosition(elapsedMs);
 
-                            // Pattern/multi-image/grading-aware draw (falls back to single DrawBitmap when none active)
-                            DrawAnimationLayer(elapsedMs);
+                                // Pattern/multi-image/grading-aware draw (falls back to single DrawBitmap when none active)
+                                DrawAnimationLayer(elapsedMs);
+                            }
 
                             if (_frameCount % 60 == 0)
                             {
@@ -1230,10 +1247,12 @@ class Program
                     {
                         try
                         {
-                            var elapsedMs = (long)(DateTime.UtcNow - _renderLoopStart).TotalMilliseconds;
+                            var elapsedMs = ComputeEffectiveElapsedMs();
 
                             DrawBackground();
-                            UpdateAnimationPosition(elapsedMs);
+                            bool drawAnim = SyncTiming.ShouldDrawAnimation(elapsedMs);
+                            if (drawAnim)
+                                UpdateAnimationPosition(elapsedMs);
 
                             // Upload new frame from LibVLC buffer → GPU (~0.5ms for 1080p)
                             if (_videoFrameReady)
@@ -1247,7 +1266,8 @@ class Program
                             }
 
                             // Video uses single-cell path with optional grading; pattern is unsupported for video.
-                            DrawAnimationLayer(elapsedMs, videoBitmapOverride: _currentVideoD2DBitmap);
+                            if (drawAnim)
+                                DrawAnimationLayer(elapsedMs, videoBitmapOverride: _currentVideoD2DBitmap);
 
                             if (_frameCount % 60 == 0)
                             {
@@ -1436,6 +1456,16 @@ class Program
     /// Get current GIF frame index based on elapsed time with SpeedMultiplier applied.
     /// Fixes ISSUE-004 (GIF too slow) by scaling elapsed time.
     /// </summary>
+    /// <summary>
+    /// Elapsed ms since the shared start, shifted by this node's Wave-mode phase
+    /// (Simultaneous mode only). Negative before the start / before the wave reaches this node.
+    /// </summary>
+    private static long ComputeEffectiveElapsedMs()
+    {
+        long raw = (long)(DateTime.UtcNow - _renderLoopStart).TotalMilliseconds;
+        return SyncTiming.ApplyNodePhase(raw, _nodeOrder, _movementConfig?.NodePhaseDelayMs ?? 0, _perMonitorMode);
+    }
+
     private static int GetCurrentGifFrameIndex(long elapsedMs)
     {
         if (_d2dGifDelays == null || _d2dGifTotalDurationMs <= 0)
@@ -1443,7 +1473,7 @@ class Program
 
         // Apply SpeedMultiplier to elapsed time (fixes ISSUE-004)
         long effectiveMs = (long)(elapsedMs * _gifSpeedMultiplier);
-        long loopedMs = effectiveMs % _d2dGifTotalDurationMs;
+        long loopedMs = SyncTiming.PositiveModulo(effectiveMs, _d2dGifTotalDurationMs);
 
         int frameIndex = _d2dGifDelays.Count - 1; // Default to last frame
         long accumulated = 0;
@@ -2188,18 +2218,20 @@ class Program
                 _endlessCellOffsetI = _movementConfig.Reversed ? -(int)scrolledCells : (int)scrolledCells;
                 float vx = _movementConfig.Reversed ? -phaseX : phaseX;
                 _animX = vx - _monitorOffsetX;
-                _animY = _movementConfig.StartY ?? (_height - _animHeight) / 2f;
+                _animY = (_movementConfig.StartY ?? (_virtualCanvasHeight - _animHeight) / 2f) - _canvasOffsetY;
             }
             else
             {
                 _endlessCellOffsetI = 0;
+                // Canvas height is the wall's tallest node so every node agrees on centerY;
+                // this node's slice is centered inside it via _canvasOffsetY (Tier 0.1).
                 var (vx, vy) = MovementCalculator.Calculate(
                     _movementConfig, elapsedMs,
                     _animWidth, _animHeight,
-                    _virtualCanvasWidth, _height,
+                    _virtualCanvasWidth, _virtualCanvasHeight,
                     tileAlignStepX: _isTravelingMode ? _tileAlignStepX : 0f);
                 _animX = vx - _monitorOffsetX;
-                _animY = vy;
+                _animY = vy - _canvasOffsetY;
 
                 // Clamp Y to corridor when ThreeZone background is active
                 if (_hasCorridorConstraint && _corridorHeightPx > 0)
@@ -2640,7 +2672,7 @@ class Program
         if (total <= 0) return 0;
 
         // Honor the same speed multiplier the primary source uses
-        long t = (long)(elapsedMs * _gifSpeedMultiplier) % total;
+        long t = SyncTiming.PositiveModulo((long)(elapsedMs * _gifSpeedMultiplier), total);
         long acc = 0;
         for (int i = 0; i < delays.Count; i++)
         {
@@ -2974,7 +3006,20 @@ class Program
             bool hasPathRotation = _rotateWithPath && _animRotationRad != 0f && _animPath.Count >= 2;
             if (hasPathRotation) rotDeg = _animRotationRad * 180f / MathF.PI;
 
-            DrawCellWithOptionalGrading(bmp, _animX, _animY, _animWidth, _animHeight, rotDeg, gradingActive && !isTraveling);
+            // Tier 0.5: face travel direction. Screen-space dx since the previous frame with
+            // hysteresis; a loop wrap (|dx| > monitor width) is not a direction change.
+            bool flipX = false;
+            if (_animationConfig.FaceTravelDirection)
+            {
+                float dx = _hasPrevFacingX ? _animX - _prevFacingX : 0f;
+                if (MathF.Abs(dx) > _width) dx = 0f;
+                _facingLeft = SyncTiming.ResolveFacingLeft(dx, _facingLeft);
+                flipX = _facingLeft;
+            }
+            _prevFacingX = _animX;
+            _hasPrevFacingX = true;
+
+            DrawCellWithOptionalGrading(bmp, _animX, _animY, _animWidth, _animHeight, rotDeg, gradingActive && !isTraveling, flipX: flipX);
         }
 
         // F3a: cover icon-zone rectangles so user icons remain visible.
@@ -3048,18 +3093,21 @@ class Program
     /// </summary>
     private static void DrawCellWithOptionalGrading(
         ID2D1Bitmap bmp, float x, float y, int w, int h,
-        float rotationDeg, bool gradingActive, float alpha = 1f)
+        float rotationDeg, bool gradingActive, float alpha = 1f, bool flipX = false)
     {
         if (_d2dContext == null) return;
 
         bool needsRotation = MathF.Abs(rotationDeg) > 0.01f;
+        bool needsTransform = needsRotation || flipX;
         Matrix3x2 prior = Matrix3x2.Identity;
-        if (needsRotation)
+        if (needsTransform)
         {
-            float cx = x + w / 2f;
-            float cy = y + h / 2f;
+            var center = new Vector2(x + w / 2f, y + h / 2f);
             prior = _d2dContext.Transform;
-            _d2dContext.Transform = Matrix3x2.CreateRotation(rotationDeg * MathF.PI / 180f, new Vector2(cx, cy));
+            var t = Matrix3x2.Identity;
+            if (flipX) t = Matrix3x2.CreateScale(-1f, 1f, center);           // mirror about the sprite center
+            if (needsRotation) t *= Matrix3x2.CreateRotation(rotationDeg * MathF.PI / 180f, center);
+            _d2dContext.Transform = t * prior;
         }
 
         bool useGrading = gradingActive && _colorMatrixEffect != null;
@@ -3101,7 +3149,7 @@ class Program
             _d2dContext.DrawBitmap(bmp, new System.Drawing.RectangleF(x, y, w, h), alpha, BitmapInterpolationMode.Linear, null);
         }
 
-        if (needsRotation) _d2dContext.Transform = prior;
+        if (needsTransform) _d2dContext.Transform = prior;
     }
 
     private static int Hash2(int seed, int k)
@@ -3135,6 +3183,12 @@ class Program
                 _movementConfig = cmd.MovementConfig;
                 _virtualCanvasWidth = cmd.VirtualCanvasWidth;
                 _monitorOffsetX = cmd.MonitorOffsetX;
+                _virtualCanvasHeight = cmd.VirtualCanvasHeight > 0 ? cmd.VirtualCanvasHeight : _height;
+                _canvasOffsetY = cmd.MonitorOffsetY;
+                _nodeOrder = cmd.NodeOrder;
+                _perMonitorMode = cmd.PerMonitorMode;
+                _facingLeft = false;
+                _hasPrevFacingX = false;
                 _maskZones = cmd.MaskZones;
                 _useZonePalette = cmd.UseZonePalette;
                 _iconFadePaddingPx = cmd.IconFadePaddingPx;

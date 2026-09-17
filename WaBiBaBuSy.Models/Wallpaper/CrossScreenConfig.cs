@@ -249,6 +249,13 @@ public class AnimationLayerConfig
     public bool RotateWithPath { get; set; } = false;
 
     /// <summary>
+    /// When true, the sprite is mirrored horizontally whenever it travels leftwards on screen,
+    /// so a fish never swims backwards after a bounce or on a reversed lap. Applied to the
+    /// single-sprite draw path (not to pattern grids). Default false — logos with text stay readable.
+    /// </summary>
+    public bool FaceTravelDirection { get; set; } = false;
+
+    /// <summary>
     /// Additional animation file paths beyond <see cref="AnimationPath"/>.
     /// Used by the multi-image feature: with <see cref="Pattern"/>, images are randomly distributed across cells;
     /// without a pattern, each image moves with its own seeded offset/phase.
@@ -469,4 +476,12 @@ public class MovementConfig
     /// and LogicalI values grow indefinitely — each new cell gets a unique color, never repeating.
     /// </summary>
     public bool Endless { get; set; } = false;
+
+    /// <summary>
+    /// Wave mode (Simultaneous distribution only): each node shifts its clock by
+    /// <c>nodeOrder × NodePhaseDelayMs</c>, so the same bounce/orbit/pulse runs down the row of
+    /// machines like a stadium wave. 0 = all nodes in phase. Ignored in Sequential mode, where the
+    /// canvas is one shared world state.
+    /// </summary>
+    public int NodePhaseDelayMs { get; set; } = 0;
 }

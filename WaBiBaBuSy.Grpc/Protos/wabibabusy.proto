@@ -173,6 +173,9 @@ message SyncParameters {
   string animation_json = 19;          // JSON-serialized AnimationLayerConfig (AnimationPath is overridden client-side with the cached file)
   string background_json = 20;         // JSON-serialized BackgroundLayerConfig (empty = solid background_color)
   int32 target_monitor_index = 21;     // Which monitor of the remote client renders this (default 0 = primary)
+  int32 virtual_canvas_height = 22;    // Tallest node in the wall; 0 = legacy (use own monitor height)
+  int32 monitor_offset_y = 23;         // This node's Y offset in the canvas (vertical centering on mixed heights)
+  int32 node_order = 24;               // This node's traversal index (0-based); Wave-mode phase in Simultaneous mode
 }
 
 // Sync response (client acknowledgment)

@@ -46,6 +46,24 @@ public class PlayerCommandLoadAnimation : PlayerMessageBase
     public int MonitorOffsetX { get; set; } = 0;
 
     /// <summary>
+    /// This monitor's Y offset in the virtual canvas. Non-zero when this monitor is shorter than
+    /// the canvas (mixed heights): the node is vertically centered inside the canvas.
+    /// </summary>
+    public int MonitorOffsetY { get; set; } = 0;
+
+    /// <summary>
+    /// This node's traversal index (0-based) in the selected node set. Drives Wave-mode phase
+    /// (<see cref="MovementConfig.NodePhaseDelayMs"/>) in per-monitor (Simultaneous) mode.
+    /// </summary>
+    public int NodeOrder { get; set; } = 0;
+
+    /// <summary>
+    /// True in Simultaneous distribution (each monitor is its own canvas). The player uses it to
+    /// decide whether the node phase applies; Sequential spanning mode never shifts a node's clock.
+    /// </summary>
+    public bool PerMonitorMode { get; set; } = false;
+
+    /// <summary>
     /// Movement configuration for animation positioning.
     /// When null, falls back to legacy PixelsPerSecond-based linear movement.
     /// </summary>

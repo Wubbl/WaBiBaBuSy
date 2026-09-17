@@ -2053,7 +2053,11 @@ public partial class MainWindowViewModel : ViewModelBase
             monitorIndex, movementConfig,
             perMonitorMode: req.PerMonitorMode,
             explicitVirtualCanvasWidth: req.PerMonitorMode ? null : req.VirtualCanvasWidth,
-            explicitMonitorOffsetX: req.PerMonitorMode ? null : req.MonitorOffsetX);
+            explicitMonitorOffsetX: req.PerMonitorMode ? null : req.MonitorOffsetX,
+            // 0 = older server that did not send a canvas height → fall back to this monitor's.
+            explicitVirtualCanvasHeight: req.PerMonitorMode || req.VirtualCanvasHeight <= 0 ? null : req.VirtualCanvasHeight,
+            explicitMonitorOffsetY: req.PerMonitorMode ? null : req.MonitorOffsetY,
+            nodeOrder: req.NodeOrder);
 
         await Task.Delay(100);
 
@@ -3178,6 +3182,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         // Phase 1: Initialize all D2D players (load animation, extract GIF frames)
         var newServices = new List<(int monitorIndex, D2DCompositionService service)>();
+        var phase1Timer = System.Diagnostics.Stopwatch.StartNew();
 
         foreach (var client in localClients)
         {
@@ -3211,6 +3216,8 @@ public partial class MainWindowViewModel : ViewModelBase
             // monitor's X offset within it; derive both from the global canvasManager.
             var globalMapping = canvasManager.GetScreenByClientId(client.ClientId);
             int virtualOffsetX = globalMapping?.VirtualBounds.X ?? 0;
+            int virtualOffsetY = globalMapping?.VirtualBounds.Y ?? 0;
+            int nodeOrder = allClients.IndexOf(client);
 
             // Create D2D service
             var d2dService = new D2DCompositionService(
@@ -3230,7 +3237,10 @@ public partial class MainWindowViewModel : ViewModelBase
                 config.Movement,
                 perMonitorMode: perMonitor,
                 explicitVirtualCanvasWidth: perMonitor ? null : canvasManager.VirtualBounds.Width,
-                explicitMonitorOffsetX: perMonitor ? null : virtualOffsetX);
+                explicitMonitorOffsetX: perMonitor ? null : virtualOffsetX,
+                explicitVirtualCanvasHeight: perMonitor ? null : canvasManager.VirtualBounds.Height,
+                explicitMonitorOffsetY: perMonitor ? null : virtualOffsetY,
+                nodeOrder: nodeOrder);
 
             // Subscribe for lap-completion recompute in sequential IconZone mode
             if (!perMonitor && config.Background.Mode == BackgroundMode.IconZone)
@@ -3248,10 +3258,17 @@ public partial class MainWindowViewModel : ViewModelBase
         // DistributionMode controls animation positioning:
         //   - Sequential: animation spans across virtual canvas (multi-monitor spanning)
         //   - Simultaneous: animation plays independently on each monitor
-        var sharedStartTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        // Tier 0.4: place the shared start in the future so remotes have received the command,
+        // downloaded, spawned and decoded before the first frame — every node then starts on the
+        // same frame instead of popping in mid-lap. Lead = 3×worst RTT + the local load time we
+        // just measured, clamped to [800, 4000] ms.
+        double maxRttMs = remoteClients.Count > 0 ? remoteClients.Max(c => c.RttMs) : 0.0;
+        int startLeadMs = SyncTiming.ComputeStartLeadMs(maxRttMs, (int)phase1Timer.ElapsedMilliseconds);
+        var sharedStartTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + startLeadMs;
         var pixelsPerSecond = config.Movement.Type == MovementType.Static
             ? 0
             : (int)config.Movement.SpeedPixelsPerSecond;
+        Debug.WriteLine($"[CrossScreen] Shared start scheduled {startLeadMs}ms ahead (maxRtt={maxRttMs:F0}ms, load={phase1Timer.ElapsedMilliseconds}ms)");
 
         var isSequential = config.DistributionMode == AnimationDistributionMode.Sequential;
         Debug.WriteLine($"[CrossScreen] Starting {(isSequential ? "SEQUENTIAL (spanning)" : "SIMULTANEOUS (per-monitor)")} animation on {newServices.Count} monitors, timestamp={sharedStartTimestamp}ms, speed={pixelsPerSecond}px/s");
@@ -3298,7 +3315,10 @@ public partial class MainWindowViewModel : ViewModelBase
                     animation: animationConfig,
                     background: config.Background,
                     // MonitorIndex is -1 for whole-machine nodes → render on primary.
-                    targetMonitorIndex: Math.Max(0, remoteClient.MonitorIndex));
+                    targetMonitorIndex: Math.Max(0, remoteClient.MonitorIndex),
+                    virtualCanvasHeight: canvasManager.VirtualBounds.Height,
+                    monitorOffsetY: screenMapping?.VirtualBounds.Y ?? 0,
+                    nodeOrder: allClients.IndexOf(remoteClient));
             }
         }
         else if (remoteClients.Count > 0)
@@ -3319,6 +3339,8 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             VirtualCanvasWidth = canvasManager.VirtualBounds.Width,
             ContentWidthPx = 0, // best-effort; wire a real value later if a service exposes it
+            StartLeadMs = startLeadMs,
+            SharedStartTimestampMs = sharedStartTimestamp
         };
     }
 
@@ -3330,7 +3352,7 @@ public partial class MainWindowViewModel : ViewModelBase
             apply: config => Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
             {
                 var r = await ApplyCrossScreenConfigAsync(config);
-                return new WaBiBaBuSy.Core.Services.Animation.ApplyMetrics(r.VirtualCanvasWidth, r.ContentWidthPx);
+                return new WaBiBaBuSy.Core.Services.Animation.ApplyMetrics(r.VirtualCanvasWidth, r.ContentWidthPx, r.StartLeadMs);
             }),
             seedProvider: () => Environment.TickCount);
 
@@ -3593,4 +3615,8 @@ public sealed class CrossScreenApplyResult
 {
     public int VirtualCanvasWidth { get; init; }
     public int ContentWidthPx { get; init; }
+    /// <summary>How far in the future the shared start was scheduled (Tier 0.4).</summary>
+    public int StartLeadMs { get; init; }
+    /// <summary>The shared UTC start timestamp all nodes were given.</summary>
+    public long SharedStartTimestampMs { get; init; }
 }

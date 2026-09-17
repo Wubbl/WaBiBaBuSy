@@ -7,7 +7,7 @@ using WaBiBaBuSy.Models.Wallpaper;
 namespace WaBiBaBuSy.Core.Services.Animation;
 
 /// <summary>Metrics an apply callback returns so the orchestrator can compute lap-snap timing.</summary>
-public readonly record struct ApplyMetrics(int VirtualCanvasWidth, int ContentWidthPx);
+public readonly record struct ApplyMetrics(int VirtualCanvasWidth, int ContentWidthPx, int StartLeadMs = 0);
 
 /// <summary>
 /// Drives playlist rotation: applies each item's config via a caller-supplied delegate (the same
@@ -109,11 +109,14 @@ public class PlaylistOrchestrator
                         item.Config.Movement, metrics.VirtualCanvasWidth, metrics.ContentWidthPx);
                     int dwell = PlaylistScheduler.ResolveDwellMs(item, playlist.DefaultItemDurationMs, lapMs);
 
+                    // The apply path schedules the shared start StartLeadMs in the future so all
+                    // nodes begin together; the dwell is measured from that start, not from now.
+                    int lead = Math.Max(0, metrics.StartLeadMs);
                     _logger.LogInformation(
-                        "Playlist item '{Name}' (idx {Index}) dwell={Dwell}ms (lap={Lap}ms, snap={Snap})",
-                        item.Name, index, dwell, lapMs, item.SnapToLap);
+                        "Playlist item '{Name}' (idx {Index}) dwell={Dwell}ms (lap={Lap}ms, snap={Snap}, startLead={Lead}ms)",
+                        item.Name, index, dwell, lapMs, item.SnapToLap, lead);
 
-                    await Task.Delay(dwell, ct);
+                    await Task.Delay(dwell + lead, ct);
                 }
             }
             while (playlist.Loop && !ct.IsCancellationRequested);

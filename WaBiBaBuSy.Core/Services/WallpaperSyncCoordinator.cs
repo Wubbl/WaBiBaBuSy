@@ -277,6 +277,9 @@ public class WallpaperSyncCoordinator
             _logger.LogInformation("Updated client {ClientId} physical distance to {Distance}cm",
                 clientId, distanceCm);
         }
+        // Persist for server-local monitors and expanded nodes too — they are not in the
+        // connected-client list but their distance must survive a restart as well.
+        _syncService.PersistClientDistance(clientId, distanceCm);
     }
 
     /// <summary>
@@ -431,7 +434,10 @@ public class WallpaperSyncCoordinator
         MovementConfig? movement = null,
         AnimationLayerConfig? animation = null,
         Models.Wallpaper.BackgroundLayerConfig? background = null,
-        int targetMonitorIndex = 0)
+        int targetMonitorIndex = 0,
+        int virtualCanvasHeight = 0,
+        int monitorOffsetY = 0,
+        int nodeOrder = 0)
     {
         if (_syncService == null)
         {
@@ -467,7 +473,10 @@ public class WallpaperSyncCoordinator
                 MovementJson = movement != null ? JsonSerializer.Serialize(movement) : string.Empty,
                 AnimationJson = animation != null ? JsonSerializer.Serialize(animation) : string.Empty,
                 BackgroundJson = background != null ? JsonSerializer.Serialize(background) : string.Empty,
-                TargetMonitorIndex = targetMonitorIndex
+                TargetMonitorIndex = targetMonitorIndex,
+                VirtualCanvasHeight = virtualCanvasHeight,
+                MonitorOffsetY = monitorOffsetY,
+                NodeOrder = nodeOrder
             }
         };
 

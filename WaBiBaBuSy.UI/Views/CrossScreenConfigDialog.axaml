@@ -217,6 +217,19 @@
                         </StackPanel>
 
                         <CheckBox IsChecked="{Binding AnimationLoop}" Content="Loop Animation" Margin="0,5,0,0"/>
+                        <CheckBox IsChecked="{Binding FaceTravelDirection}"
+                                  Content="Face travel direction (mirror the sprite when it moves left)"
+                                  Margin="0,2,0,0"/>
+
+                        <StackPanel Spacing="4" Margin="0,4,0,0">
+                            <TextBlock Text="Playback speed multiplier (GIF / video frame timing):" FontSize="12"/>
+                            <NumericUpDown Value="{Binding SpeedMultiplier}"
+                                           Minimum="0.1" Maximum="10" Increment="0.1"
+                                           FormatString="0.0"
+                                           Width="150" HorizontalAlignment="Left"/>
+                            <TextBlock Text="1.0 = native frame delays. Independent of the movement speed below."
+                                       FontSize="10" Foreground="#888888"/>
+                        </StackPanel>
                         <CheckBox IsChecked="{Binding RotateWithPath}"
                                   Content="Rotate animation with path direction (IconZone only)"
                                   IsEnabled="{Binding IsIconZoneMode}"
@@ -393,6 +406,16 @@
                             <TextBlock Text="Slower ← → Faster" FontSize="10" Foreground="#888888" HorizontalAlignment="Center"/>
                         </StackPanel>
 
+                        <!-- Wave mode (Simultaneous only): per-node phase delay -->
+                        <StackPanel Spacing="4" IsVisible="{Binding IsSimultaneousMode}">
+                            <TextBlock Text="Wave delay per node (ms):" FontSize="12"/>
+                            <NumericUpDown Value="{Binding NodePhaseDelayMs}"
+                                           Minimum="0" Maximum="5000" Increment="50"
+                                           Width="150" HorizontalAlignment="Left"/>
+                            <TextBlock Text="Each node starts this many ms after the previous one in the chain, so a bounce or orbit runs down the row like a stadium wave. 0 = all nodes in phase."
+                                       FontSize="10" Foreground="#888888" TextWrapping="Wrap"/>
+                        </StackPanel>
+
                         <!-- Direction angle (for Linear/Bounce) -->
                         <StackPanel Spacing="5" IsVisible="{Binding IsDirectionVisible}">
                             <TextBlock Text="Direction (degrees: 0=right, 90=down, 45=diagonal):" FontSize="12"/>
@@ -452,6 +475,18 @@
                                                Increment="5"
                                                Width="150" HorizontalAlignment="Left"/>
                             </StackPanel>
+                            <Grid ColumnDefinitions="Auto,*,Auto,*,Auto" ColumnSpacing="8">
+                                <TextBlock Grid.Column="0" Text="Seed:" FontSize="12" VerticalAlignment="Center"/>
+                                <NumericUpDown Grid.Column="1" Value="{Binding RandomSeed}"
+                                               Minimum="0" Maximum="999999" Increment="1"
+                                               Width="120" HorizontalAlignment="Left"/>
+                                <TextBlock Grid.Column="2" Text="Step interval (ms):" FontSize="12" VerticalAlignment="Center"/>
+                                <NumericUpDown Grid.Column="3" Value="{Binding RandomStepIntervalMs}"
+                                               Minimum="100" Maximum="10000" Increment="100"
+                                               Width="120" HorizontalAlignment="Left"/>
+                                <Button Grid.Column="4" Content="Randomize" Command="{Binding RandomizeMovementSeedCommand}"
+                                        FontSize="11" Padding="8,2" VerticalAlignment="Center"/>
+                            </Grid>
                             <TextBlock Text="Movement is deterministic across all monitors (sync maintained)."
                                        FontSize="10" Foreground="#888888" TextWrapping="Wrap"/>
                         </StackPanel>

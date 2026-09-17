@@ -92,6 +92,9 @@ public class D2DCompositionService : IDisposable
         bool perMonitorMode = false,
         int? explicitVirtualCanvasWidth = null,
         int? explicitMonitorOffsetX = null,
+        int? explicitVirtualCanvasHeight = null,
+        int? explicitMonitorOffsetY = null,
+        int nodeOrder = 0,
         CancellationToken cancellationToken = default)
     {
         if (_disposed)
@@ -152,11 +155,18 @@ public class D2DCompositionService : IDisposable
                 AnimationConfig = animationConfig,
                 BackgroundConfig = backgroundConfig,
                 MonitorIndex = monitorIndex,
-                VirtualCanvasHeight = actualMonitorBounds.Height,
+                // Canvas height is the tallest node in the wall (not this monitor's height) so every
+                // node computes the same centerY; shorter nodes are centered via MonitorOffsetY.
+                VirtualCanvasHeight = explicitVirtualCanvasHeight ?? (perMonitorMode
+                    ? actualMonitorBounds.Height
+                    : (canvasManager.VirtualBounds.Height > 0 ? canvasManager.VirtualBounds.Height : actualMonitorBounds.Height)),
                 VirtualCanvasWidth = explicitVirtualCanvasWidth ?? (perMonitorMode
                     ? actualMonitorBounds.Width
                     : (canvasManager.VirtualBounds.Width > 0 ? canvasManager.VirtualBounds.Width : actualMonitorBounds.Width)),
                 MonitorOffsetX = explicitMonitorOffsetX ?? (perMonitorMode ? 0 : screen.VirtualBounds.X),
+                MonitorOffsetY = explicitMonitorOffsetY ?? (perMonitorMode ? 0 : screen.VirtualBounds.Y),
+                NodeOrder = nodeOrder,
+                PerMonitorMode = perMonitorMode,
                 MovementConfig = _movementConfig,
                 MaskZones = maskZones,
                 UseZonePalette = backgroundConfig.IconZonePaletteEnabled,

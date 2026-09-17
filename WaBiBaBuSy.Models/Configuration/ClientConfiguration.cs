@@ -6,6 +6,13 @@ namespace WaBiBaBuSy.Models.Configuration;
 public class ClientConfiguration
 {
     /// <summary>
+    /// Persistent identity of this machine towards the server. Assigned by the server on first
+    /// registration and reused on every later connect, so the node keeps its place in the topology
+    /// across client restarts and session-resume can match it. Empty = not yet assigned.
+    /// </summary>
+    public string ClientId { get; set; } = string.Empty;
+
+    /// <summary>
     /// Server address to connect to (IP or hostname)
     /// </summary>
     public string ServerAddress { get; set; } = string.Empty;

@@ -118,6 +118,26 @@ public class ConfigurationManager
     }
 
     /// <summary>
+    /// Persist the server-assigned client identity. Re-reads the file first so a concurrent
+    /// Settings save is not clobbered - only <see cref="ClientConfiguration.ClientId"/> changes.
+    /// </summary>
+    public static void UpdateClientId(string clientId)
+    {
+        if (string.IsNullOrWhiteSpace(clientId)) return;
+        try
+        {
+            var config = LoadClientConfiguration();
+            if (config.ClientId == clientId) return;
+            config.ClientId = clientId;
+            SaveClientConfiguration(config);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error persisting client id: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Get the path to the server configuration file
     /// </summary>
     public static string GetServerConfigPath() => ServerConfigPath;

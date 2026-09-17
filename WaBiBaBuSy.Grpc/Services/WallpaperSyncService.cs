@@ -26,6 +26,9 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     private readonly DriftMonitor _driftMonitor = new(); // per-client drift telemetry from heartbeats
     private readonly Timer _heartbeatSweepTimer;
     private int _nextClientOrder = 1;
+    // Tier 0.3: order + bezel distance per node survive server restarts and client reconnects.
+    private readonly TopologyStore _topology;
+    private readonly object _topologyLock = new();
 
     /// <summary>Clients whose last heartbeat is older than this are considered dead and swept.</summary>
     private const int HeartbeatTimeoutSeconds = 30;
@@ -50,6 +53,18 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
 
         // Ensure content directory exists
         Directory.CreateDirectory(_serverConfig.ContentDirectory);
+
+        // Restore the persisted topology. Real clients are re-attached in RegisterClient;
+        // server-local / expanded monitor nodes live in _serverLocalMonitorOrders.
+        _topology = TopologyStore.Load();
+        foreach (var entry in _topology.Entries)
+        {
+            if (entry.ClientId.StartsWith("SERVER_LOCALHOST_MONITOR_") || entry.ClientId.Contains("_MONITOR_"))
+                _serverLocalMonitorOrders[entry.ClientId] = entry.OrderPosition;
+            _nextClientOrder = Math.Max(_nextClientOrder, entry.OrderPosition + 1);
+        }
+        if (_topology.Entries.Count > 0)
+            _logger.LogInformation("Restored topology for {Count} node(s) from {Path}", _topology.Entries.Count, TopologyStore.DefaultPath);
 
         // Sweep clients that died without a TCP reset (power loss, sleep) —
         // stream teardown never fires for those, so LastHeartbeat is the only signal.
@@ -149,13 +164,41 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                 }
             }
 
+            // Re-attach the machine to its persisted seat (by id, then by hostname); a brand-new
+            // machine is appended to the end of the chain and remembered.
+            int orderPosition;
+            int distanceCm = 0;
+            lock (_topologyLock)
+            {
+                var seat = _topology.Resolve(clientId, request.Hostname);
+                if (seat != null)
+                {
+                    orderPosition = seat.OrderPosition;
+                    distanceCm = seat.PhysicalDistanceCm;
+                    if (!string.IsNullOrWhiteSpace(request.Hostname)) seat.Hostname = request.Hostname;
+                }
+                else
+                {
+                    orderPosition = Math.Max(_topology.NextFreeOrder(), _nextClientOrder);
+                    _topology.Upsert(new TopologyEntry
+                    {
+                        ClientId = clientId,
+                        Hostname = request.Hostname,
+                        OrderPosition = orderPosition
+                    });
+                }
+                _nextClientOrder = Math.Max(_nextClientOrder, orderPosition + 1);
+                _topology.Save();
+            }
+
             // Create connected client record
             var connectedClient = new ConnectedClient
             {
                 ClientId = clientId,
                 Hostname = request.Hostname,
                 IpAddress = request.IpAddress,
-                OrderPosition = _nextClientOrder++,
+                OrderPosition = orderPosition,
+                PhysicalDistanceCm = distanceCm,
                 Status = ClientStatusEnum.ClientConnected,
                 LastHeartbeat = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                 ScreenConfig = request.ScreenConfig
@@ -453,10 +496,12 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                 if (_connectedClients.TryGetValue(orderItem.ClientId, out var client))
                 {
                     client.OrderPosition = orderItem.NewPosition;
+                    PersistClientOrder(orderItem.ClientId, client.Hostname, orderItem.NewPosition, save: false);
                     _logger.LogDebug("Updated client {ClientId} to position {Position}",
                         orderItem.ClientId, orderItem.NewPosition);
                 }
             }
+            SaveTopology();
 
             return Task.FromResult(new OrderUpdateResponse
             {
@@ -490,6 +535,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
             if (_connectedClients.TryGetValue(request.ClientId, out var client))
             {
                 client.PhysicalDistanceCm = request.PhysicalDistanceCm;
+                PersistClientDistance(request.ClientId, request.PhysicalDistanceCm);
                 _logger.LogInformation("Updated client {ClientId} physical distance to {Distance} cm",
                     request.ClientId, request.PhysicalDistanceCm);
 
@@ -541,10 +587,12 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                 if (_connectedClients.TryGetValue(clientId, out var client))
                 {
                     client.OrderPosition = newPosition;
+                    PersistClientOrder(clientId, client.Hostname, newPosition, save: false);
                 }
                 else if (clientId.StartsWith("SERVER_LOCALHOST_MONITOR_"))
                 {
                     _serverLocalMonitorOrders[clientId] = newPosition;
+                    PersistClientOrder(clientId, null, newPosition, save: false);
                 }
                 else
                 {
@@ -556,9 +604,11 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                         var baseClientId = clientId[..baseIdx];
                         // Store as server-local override since expanded nodes aren't in _connectedClients
                         _serverLocalMonitorOrders[clientId] = newPosition;
+                        PersistClientOrder(clientId, null, newPosition, save: false);
                     }
                 }
             }
+            SaveTopology();
 
             _logger.LogInformation("Updated order for {Count} clients (direct)", clientOrders.Count);
             return true;
@@ -568,6 +618,35 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
             _logger.LogError(ex, "Error updating client order (direct)");
             return false;
         }
+    }
+
+    /// <summary>
+    /// Remember a node's bezel distance in the persisted topology (server-mode UI edits bypass
+    /// the gRPC UpdateClientDistance RPC and call this directly).
+    /// </summary>
+    public void PersistClientDistance(string clientId, int distanceCm)
+    {
+        lock (_topologyLock)
+        {
+            var hostname = _connectedClients.TryGetValue(clientId, out var c) ? c.Hostname : null;
+            _topology.SetDistance(clientId, hostname, distanceCm);
+            _topology.Save();
+        }
+    }
+
+    private void PersistClientOrder(string clientId, string? hostname, int orderPosition, bool save)
+    {
+        lock (_topologyLock)
+        {
+            _topology.SetOrder(clientId, hostname, orderPosition);
+            _nextClientOrder = Math.Max(_nextClientOrder, orderPosition + 1);
+            if (save) _topology.Save();
+        }
+    }
+
+    private void SaveTopology()
+    {
+        lock (_topologyLock) _topology.Save();
     }
 
     /// <summary>

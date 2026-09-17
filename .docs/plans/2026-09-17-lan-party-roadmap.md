@@ -4,8 +4,8 @@
 coherent animation that travels from screen to screen around all 20.
 **Author's brief:** configuration and animation-authoring possibilities are the main pain point;
 multi-machine E2E testing is still pending.
-**Status:** Analysis + design proposals. Nothing here is implemented. Each Tier-1/2 item links to its
-own design doc in this folder.
+**Status:** Tier 0 implemented 2026-09-17 (see §4). Tiers 1–3 are design proposals; each Tier-1/2
+item links to its own design doc in this folder.
 
 ---
 
@@ -116,6 +116,10 @@ Sizes: **S** = a focused session, **M** = 2–3 sessions, **L** = a week of sess
 Dependencies point at what must exist first.
 
 ### Tier 0 — Quick wins (do these first, each is S)
+
+**Status: all seven implemented 2026-09-17** (see `RECENT_UPDATES.md`). E2E validation on real
+remotes pending — fold into the multi-client test in OPEN_ITEMS §1.
+
 | # | Item | Why | Where |
 |---|---|---|---|
 | 0.1 | Pass the **virtual canvas height** (not monitor height) to players; align each node vertically to the canvas center | Fixes vertical jumps on mixed heights (F3, part 1) | `D2DCompositionService.InitializeAsync`, `Program.cs UpdateAnimationPosition` |

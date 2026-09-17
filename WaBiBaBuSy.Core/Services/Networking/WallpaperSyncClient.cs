@@ -71,6 +71,10 @@ public class WallpaperSyncClient : IDisposable
     {
         _logger = logger;
         _configuration = configuration;
+        // Persistent identity: reuse the id the server assigned last time so this machine keeps
+        // its topology seat across client restarts and session-resume can match it.
+        if (!string.IsNullOrWhiteSpace(configuration.ClientId))
+            _clientId = configuration.ClientId;
     }
 
     /// <summary>
@@ -175,7 +179,8 @@ public class WallpaperSyncClient : IDisposable
         }
 
         _client = null;
-        _clientId = null;
+        // _clientId is intentionally kept: it is this machine's persistent identity
+        // (ClientConfiguration.ClientId), not a per-session token.
 
         _logger.LogInformation("Disconnected from server");
     }
@@ -289,6 +294,12 @@ public class WallpaperSyncClient : IDisposable
                 _clientId = response.AssignedClientId;
                 _logger.LogInformation("Registered with server. Client ID: {ClientId}, Order: {Order}",
                     _clientId, response.OrderPosition);
+
+                if (!string.IsNullOrWhiteSpace(_clientId) && _configuration.ClientId != _clientId)
+                {
+                    _configuration.ClientId = _clientId;
+                    ConfigurationManager.UpdateClientId(_clientId);
+                }
 
                 // Check if update is available
                 if (response.UpdateAvailable)
