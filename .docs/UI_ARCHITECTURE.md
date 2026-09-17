@@ -66,6 +66,12 @@ WaBiBaBuSy runs as a **system tray application**. The main window is hidden by d
 
 ---
 
+## Custom Controls
+
+| Control | File | Purpose |
+|---------|------|---------|
+| `ScenePreviewControl` | `Controls/ScenePreviewControl.cs` | Live preview of a `CrossScreenConfig` over a `SeatMapLayoutResult`: lanes per row, sprite/pattern animated with the Models' pure math (`MovementCalculator`, `NodeMapping`, `PatternLayout`, `ColorGrader`, `SyncTiming`). Design clock (pause / 1×-4×-16×) in the config dialog, live shared clock (`SharedStartUtcMs`) in the main window. |
+
 ## Value Converters
 
 | Converter | Purpose |

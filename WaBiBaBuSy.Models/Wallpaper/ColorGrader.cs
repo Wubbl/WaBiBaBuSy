@@ -120,7 +120,18 @@ public static class ColorGrader
     /// </summary>
     public static ColorMatrix5x4 ComputeForCell(ColorGradingConfig config, int logicalI, int logicalJ)
     {
-        if (config == null) return ColorMatrix5x4.Identity;
+        var rgb = ComputeCellColor(config, logicalI, logicalJ);
+        return rgb.HasValue ? TintMatrix(rgb.Value.R, rgb.Value.G, rgb.Value.B) : ColorMatrix5x4.Identity;
+    }
+
+    /// <summary>
+    /// The traveling color of one pattern cell as normalized RGB, or null when the mode is not a
+    /// Traveling mode (or the color list is empty). Same math as <see cref="ComputeForCell"/> —
+    /// exposed so a preview can draw the exact colors the players compute.
+    /// </summary>
+    public static (float R, float G, float B)? ComputeCellColor(ColorGradingConfig? config, int logicalI, int logicalJ)
+    {
+        if (config == null) return null;
 
         switch (config.Mode)
         {
@@ -128,34 +139,40 @@ public static class ColorGrader
             {
                 int rawHash = PatternLayout.Hash3(config.Seed, logicalI, logicalJ);
                 double hue = ((uint)rawHash / (double)uint.MaxValue) * 360.0;
-                var (r, g, b) = HsvToRgb(hue, 1.0, 1.0);
-                return TintMatrix(r, g, b);
+                return HsvToRgb(hue, 1.0, 1.0);
             }
 
             case ColorGradingMode.TravelingList:
             {
                 if (config.ColorList == null || config.ColorList.Count == 0)
-                    return ColorMatrix5x4.Identity;
+                    return null;
                 uint sum = unchecked((uint)logicalI + (uint)logicalJ);
                 int idx = (int)(sum % (uint)config.ColorList.Count);
-                var (r, g, b) = HexToRgb(config.ColorList[idx]);
-                return TintMatrix(r, g, b);
+                return HexToRgb(config.ColorList[idx]);
             }
 
             case ColorGradingMode.TravelingRandom:
             {
                 if (config.ColorList == null || config.ColorList.Count == 0)
-                    return ColorMatrix5x4.Identity;
+                    return null;
                 int rawHash = PatternLayout.Hash3(config.Seed, logicalI, logicalJ);
                 int idx = (int)((uint)rawHash % (uint)config.ColorList.Count);
-                var (r, g, b) = HexToRgb(config.ColorList[idx]);
-                return TintMatrix(r, g, b);
+                return HexToRgb(config.ColorList[idx]);
             }
 
             default:
-                return ColorMatrix5x4.Identity;
+                return null;
         }
     }
+
+    /// <summary>
+    /// Deterministic per-cell decision whether a cell receives traveling color
+    /// (<see cref="ColorGradingConfig.ColoredCellPercentage"/>). Mirrors the player's rule exactly.
+    /// </summary>
+    public static bool IsCellColored(ColorGradingConfig config, int logicalI, int logicalJ)
+        => config.ColoredCellPercentage >= 1.0f
+           || (uint)PatternLayout.Hash3(config.Seed ^ 0x55AA55AA, logicalI, logicalJ) % 100
+              < (uint)(config.ColoredCellPercentage * 100f);
 
     /// <summary>
     /// Tint matrix: output rgb = luminance(input) * tint, alpha preserved.

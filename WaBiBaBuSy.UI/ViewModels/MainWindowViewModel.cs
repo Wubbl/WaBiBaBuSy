@@ -247,6 +247,34 @@ public partial class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(SeatMapSummary));
     }
 
+    // ── Live preview of the running scene (Tier 2.1) ────────────────────────
+    [ObservableProperty] private SeatMapLayoutResult? _activeLayout;
+    [ObservableProperty] private CrossScreenConfig? _activeScene;
+    [ObservableProperty] private long _activeSharedStartMs;
+    [ObservableProperty] private IReadOnlyDictionary<string, string>? _activeLabels;
+    [ObservableProperty] private string? _activeSpriteImagePath;
+
+    /// <summary>Layout provider handed to the config dialog: selected node ids → seat-map layout.</summary>
+    private SeatMapLayoutResult LayoutForSelection(IReadOnlyList<string> selectedIds)
+    {
+        var set = new HashSet<string>(selectedIds);
+        var chosen = set.Count > 0 ? Clients.Where(c => set.Contains(c.ClientId)) : Clients;
+        return BuildSeatLayout(chosen);
+    }
+
+    /// <summary>Preview image for a content path: the file itself, or the gallery thumbnail for videos.</summary>
+    private string? ResolveSpriteImagePath(string? animationPath)
+    {
+        if (string.IsNullOrWhiteSpace(animationPath)) return null;
+        var ext = Path.GetExtension(animationPath).ToLowerInvariant();
+        if (ext is ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv")
+        {
+            var item = Wallpapers.FirstOrDefault(w => string.Equals(w.FilePath, animationPath, StringComparison.OrdinalIgnoreCase));
+            return item != null && !string.IsNullOrEmpty(item.ThumbnailPath) ? item.ThumbnailPath : null;
+        }
+        return animationPath;
+    }
+
     /// <summary>
     /// Lay the given nodes out over the current seat map (topology order). Shared by the apply path,
     /// the topology lanes and the live preview so all three agree on where every node sits.
@@ -2903,6 +2931,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
             // Set available monitors/clients for selection
             viewModel.SetAvailableMonitors(Clients);
+            viewModel.LayoutProvider = LayoutForSelection;
 
             // Give the dialog access to owner window and gallery for the gallery picker
             viewModel.SetOwnerWindow(_mainWindow);
@@ -3036,6 +3065,7 @@ public partial class MainWindowViewModel : ViewModelBase
             viewModel.SetStorageProvider(_storageProvider);
         }
         viewModel.SetAvailableMonitors(Clients);
+        viewModel.LayoutProvider = LayoutForSelection;
         viewModel.SetOwnerWindow(_mainWindow);
         viewModel.SetGalleryWallpapers(Wallpapers);
 
@@ -3462,6 +3492,13 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             SetupThumbnailCapture(monitorIndex, d2dService.PlayerHwnd, animName);
         }
+
+        // Feed the live preview: same layout, same config, same shared epoch as the players.
+        ActiveLayout = layout;
+        ActiveScene = config;
+        ActiveLabels = allClients.GroupBy(c => c.ClientId).ToDictionary(g => g.Key, g => g.First().Hostname);
+        ActiveSpriteImagePath = ResolveSpriteImagePath(config.Animation.AnimationPath);
+        ActiveSharedStartMs = sharedStartTimestamp;
 
         return new CrossScreenApplyResult
         {

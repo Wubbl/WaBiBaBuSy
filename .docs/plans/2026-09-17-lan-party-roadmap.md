@@ -140,7 +140,7 @@ remotes pending — fold into the multi-client test in OPEN_ITEMS §1.
 ### Tier 2 — Make it look like a show (the authoring & wow layer)
 | # | Item | Size | Depends on | Design |
 |---|---|---|---|---|
-| 2.1 | **Live preview** — an Avalonia canvas that renders the whole seat map and animates sprites with the same `MovementCalculator`/`PatternLayout`/`ColorGrader`; embedded in the config dialog (design-time clock) and main window (live shared clock → "the fish is on Max's machine") | M | 1.1 | authoring doc |
+| 2.1 | ~~**Live preview**~~ **Implemented 2026-09-17** — `ScenePreviewControl` renders the seat-map lanes and animates with the players' math; in the config dialog (design clock, pause/speed) and the main window (live shared clock, "sprite on: …") | M | 1.1 | authoring doc |
 | 2.2 | **Authoring UX** — tabbed dialog, preset library (`%APPDATA%\WaBiBaBuSy\presets\`), import/export, tray quick-presets, validation hints, starter presets | M | — | authoring doc |
 | 2.3 | **Scene layers** — N independent sprites per scene, each with own source/movement/look/z-order/phase/spawn window; player refactor from static single-layer state to `LayerRuntime` instances | XL | 1.3 (multi-file transfer) | scene-layers doc |
 | 2.4 | **Crossing effects + events** — bezel entry/exit glow/flash/ripple, deterministic trails, scale pulse/spin, one-shot events (spotlight machine, celebration burst, "logo swims once"), scheduled interrupt shows, hotkeys | L | 1.1 (ring), 1.3 (pre-announce) | effects doc |

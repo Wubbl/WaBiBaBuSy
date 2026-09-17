@@ -15,6 +15,8 @@ using WaBiBaBuSy.WallpaperEngine.Services;
 // Note: DesktopIconService / ZonePlanner are intentionally NOT used here.
 // Each Player.D2D node detects its own desktop icons at runtime.
 
+using WaBiBaBuSy.Models.Topology;
+
 namespace WaBiBaBuSy.UI.ViewModels;
 
 /// <summary>
@@ -273,6 +275,41 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     public bool IsRandomWalkMode => SelectedMovementType?.Type == MovementType.RandomWalk;
 
     public bool DialogResult { get; private set; }
+
+    // ── Live preview (Tier 2.1) ──────────────────────────────────────────────
+    /// <summary>
+    /// Supplied by the main view model: lays the given selected node ids out over the room's seat
+    /// map. The preview uses exactly the layout the apply path will use.
+    /// </summary>
+    public Func<IReadOnlyList<string>, SeatMapLayoutResult>? LayoutProvider { get; set; }
+
+    /// <summary>Layout of the currently selected monitors, or null when no provider is wired.</summary>
+    public SeatMapLayoutResult? BuildPreviewLayout()
+    {
+        if (LayoutProvider == null) return null;
+        var ids = AvailableMonitors.Where(m => m.IsSelected).Select(m => m.ClientId).ToList();
+        return LayoutProvider(ids);
+    }
+
+    /// <summary>Node id → hostname captions for the preview.</summary>
+    public IReadOnlyDictionary<string, string> PreviewLabels =>
+        AvailableMonitors.GroupBy(m => m.ClientId).ToDictionary(g => g.Key, g => g.First().Hostname);
+
+    /// <summary>
+    /// Image the preview draws for the sprite: the animation file itself for images/GIFs, the
+    /// gallery thumbnail for videos (Avalonia cannot decode video), null when nothing is set.
+    /// </summary>
+    public string? ResolvePreviewImagePath()
+    {
+        if (string.IsNullOrWhiteSpace(AnimationPath)) return null;
+        var ext = Path.GetExtension(AnimationPath).ToLowerInvariant();
+        if (ext is ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv")
+        {
+            var item = _galleryWallpapers.FirstOrDefault(w => string.Equals(w.FilePath, AnimationPath, StringComparison.OrdinalIgnoreCase));
+            return item != null && !string.IsNullOrEmpty(item.ThumbnailPath) ? item.ThumbnailPath : null;
+        }
+        return AnimationPath;
+    }
 
     public CrossScreenConfigViewModel()
     {

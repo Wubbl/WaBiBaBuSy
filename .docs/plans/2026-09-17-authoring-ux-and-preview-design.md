@@ -1,6 +1,6 @@
 # Authoring UX & Live Preview — Design
 
-**Created:** 2026-09-17 · **Status:** Proposal · **Roadmap:** Tier 2.1 (preview) + 2.2 (UX) + 0.6
+**Created:** 2026-09-17 · **Status:** §2 preview implemented 2026-09-17 (`WaBiBaBuSy.UI/Controls/ScenePreviewControl.cs`); §3 tabs, §4 presets, §6 show-health still open · **Roadmap:** Tier 2.1 (preview, done) + 2.2 (UX) + 0.6 (done)
 **Solves:** F5 in [`2026-09-17-lan-party-roadmap.md`](2026-09-17-lan-party-roadmap.md)
 
 ---

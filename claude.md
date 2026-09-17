@@ -1,15 +1,17 @@
 # WaBiBaBuSy - Wallpaper Synchronization System
 
 **Project Name:** WallpaperBiBaBuSync (BiBaBu = our club name)
-**Version:** 2.6.3 | **Framework:** .NET 9.0 | **Status:** MVP complete + post-MVP visual features
-**Last Updated:** 2026-07-07 | **Next:** E2E Multi-Client Testing, remote parameter parity, reconnection
+**Version:** 2.6.3 | **Framework:** .NET 9.0 | **Status:** MVP complete + post-MVP visual features + LAN-party Tier 0 / 1.1 / 2.1
+**Last Updated:** 2026-09-17 | **Next:** E2E Multi-Client Testing (incl. ring + Tier 0 checks), then roadmap Tier 1.2 / 1.3 / 2.2 / 2.4
 
 WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5% server CPU, ±50ms drift tolerance, and distributed client-side rendering. Supports images (JPG/PNG/BMP), videos (MP4/AVI/MKV), and GIFs across multi-monitor setups.
 
 ## Key Capabilities
 
 - Synchronized wallpaper playback across multiple Windows machines
-- Server-client architecture with visual network topology management (client ordering, physical distance/bezel gaps, refresh-rate display)
+- Server-client architecture with visual network topology management (client ordering, physical distance/bezel gaps, refresh-rate display); order + distances persist across restarts (`topology.json`), clients keep a persistent identity
+- Room / seat map: the ordered node chain split into table rows with Ring (closed loop, seam-safe wrap), Snake or Parallel traversal; facing/same-side rows (mirroring); persisted in `seatmap.json` (`SeatMapLayoutBuilder` is the single layout authority)
+- Live preview (`ScenePreviewControl`): the config dialog and the main window animate the scene over the seat-map lanes with the players' own deterministic math (design clock / live shared clock)
 - Hardware-accelerated Direct2D rendering with separate player process
 - Precise timing synchronization via shared UTC start timestamp + deterministic math (±50ms tolerance)
 - Multi-monitor support: Sequential (spanning) and Simultaneous (per-monitor) modes

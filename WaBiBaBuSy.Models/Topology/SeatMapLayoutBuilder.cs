@@ -24,6 +24,7 @@ public sealed class SeatMapLayoutResult
     public int CanvasWidth { get; init; }
     public int CanvasHeight { get; init; }
     public bool Wraps { get; init; }
+    public TraversalMode Traversal { get; init; } = TraversalMode.Snake;
     public IReadOnlyList<NodeLayout> Nodes { get; init; } = Array.Empty<NodeLayout>();
 
     public NodeLayout? Get(string id) => Nodes.FirstOrDefault(n => n.Id == id);
@@ -130,7 +131,7 @@ public static class SeatMapLayoutBuilder
             x += GapPx(map.TurnGapCm, rows[0][0].PixelsPerCm);   // closing turn back to seat 0
 
         foreach (var l in layouts) { l.CanvasWidth = x; l.CanvasHeight = maxH; }
-        return new SeatMapLayoutResult { CanvasWidth = x, CanvasHeight = maxH, Wraps = wraps, Nodes = layouts };
+        return new SeatMapLayoutResult { CanvasWidth = x, CanvasHeight = maxH, Wraps = wraps, Traversal = map.Traversal, Nodes = layouts };
     }
 
     private static SeatMapLayoutResult BuildParallel(SeatMap map, List<List<LayoutNodeInput>> rows)
@@ -170,6 +171,6 @@ public static class SeatMapLayoutBuilder
         }
 
         foreach (var l in layouts) { l.CanvasWidth = canvasW; l.CanvasHeight = y; }
-        return new SeatMapLayoutResult { CanvasWidth = canvasW, CanvasHeight = y, Wraps = false, Nodes = layouts };
+        return new SeatMapLayoutResult { CanvasWidth = canvasW, CanvasHeight = y, Wraps = false, Traversal = TraversalMode.Parallel, Nodes = layouts };
     }
 }

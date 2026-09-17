@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:views="using:WaBiBaBuSy.UI.Views"
+        xmlns:controls="using:WaBiBaBuSy.UI.Controls"
         mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="700"
         x:Class="WaBiBaBuSy.UI.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
@@ -533,6 +534,16 @@
                                     <TextBlock Text="{Binding ActiveBackgroundColor}" Foreground="#CCCCCC" FontSize="11"/>
                                 </StackPanel>
                             </StackPanel>
+
+                            <!-- Live view: where the sprite is right now, on the players' shared clock -->
+                            <Border Background="#141414" BorderBrush="#333333" BorderThickness="1" CornerRadius="4" Margin="0,6,0,0">
+                                <controls:ScenePreviewControl Height="170"
+                                                              Layout="{Binding ActiveLayout}"
+                                                              Scene="{Binding ActiveScene}"
+                                                              Labels="{Binding ActiveLabels}"
+                                                              SpriteImagePath="{Binding ActiveSpriteImagePath}"
+                                                              SharedStartUtcMs="{Binding ActiveSharedStartMs}"/>
+                            </Border>
                         </StackPanel>
                     </Border>
 

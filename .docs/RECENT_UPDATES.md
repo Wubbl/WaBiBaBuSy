@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-09-17 — Live preview (Tier 2.1)
+
+Design: `.docs/plans/2026-09-17-authoring-ux-and-preview-design.md` §2 (the preview part; tabs/presets are still open).
+
+- **`ScenePreviewControl`** (`WaBiBaBuSy.UI/Controls/`): custom Avalonia control that draws the room's lanes from a `SeatMapLayoutResult` and animates the scene with the players' own pure functions (`MovementCalculator` incl. ring wrap, `NodeMapping` mirroring + seam copies, `PatternLayout` cells with traveling colors via the new `ColorGrader.ComputeCellColor`/`IsCellColored`, time-based tints via `ComputeCurrentColor`, `SyncTiming` node phase / future-start gating, ThreeZone corridor clamp). Sprite drawn from the image file (gallery thumbnail for videos), tinted when grading is active. Legend: t, lap time, canvas size/ring, "sprite on: <host> (#n)"; the node currently holding the sprite gets a green outline.
+- **Config dialog**: preview pane above the form with Pause/Restart and 1×/4×/16× design clock; every view-model change (incl. monitor selection) rebuilds scene + layout after a 150 ms debounce and restarts the clock. Layout comes from `MainWindowViewModel.LayoutForSelection` → identical to what Start will use.
+- **Main window**: the "Active Animation" panel now contains the live view on the players' shared clock (`ActiveLayout/ActiveScene/ActiveSharedStartMs` set by the apply path) — this is the "where is the fish right now" display from the roadmap.
+- **Not simulated** (stated in the UI): GIF frame timing, IconZone path-following, video frames, face-travel flip.
+
 ## 2026-09-17 — Seat map & ring topology (Tier 1.1)
 
 Design: `.docs/plans/2026-09-17-seat-map-and-ring-topology-design.md` (implemented as the "row breaks over the ordered chain" variant — see the status note in that doc). 29 new unit tests (112 total).
