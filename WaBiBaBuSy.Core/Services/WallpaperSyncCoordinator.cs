@@ -6,6 +6,8 @@ using WaBiBaBuSy.Models.Wallpaper;
 
 using WaBiBaBuSy.Models.Topology;
 
+using WaBiBaBuSy.Models.Content;
+
 namespace WaBiBaBuSy.Core.Services;
 
 /// <summary>
@@ -440,7 +442,8 @@ public class WallpaperSyncCoordinator
         int virtualCanvasHeight = 0,
         int monitorOffsetY = 0,
         int nodeOrder = 0,
-        NodeLayout? layout = null)
+        NodeLayout? layout = null,
+        IReadOnlyList<ContentAssetRef>? assets = null)
     {
         if (_syncService == null)
         {
@@ -449,6 +452,10 @@ public class WallpaperSyncCoordinator
         }
 
         _syncService.RegisterContent(contentId, filePath);
+        // Tier 1.3: every referenced file (additional images, background image) is downloadable too.
+        if (assets != null)
+            foreach (var a in assets)
+                _syncService.RegisterContent(a.ContentId, a.OriginalPath);
 
         var command = new SyncCommand
         {
@@ -483,6 +490,9 @@ public class WallpaperSyncCoordinator
                 LayoutJson = layout != null ? JsonSerializer.Serialize(layout) : string.Empty
             }
         };
+        if (assets != null)
+            foreach (var a in assets)
+                command.Params.Assets.Add(new ContentRef { ContentId = a.ContentId, Role = a.Role, OriginalPath = a.OriginalPath });
 
         // Remember the command so a reconnecting client resumes the animation.
         _activeCrossScreenCommands[clientId] = command;
@@ -499,6 +509,56 @@ public class WallpaperSyncCoordinator
         {
             _logger.LogError(ex, "Error sending cross-screen D2D command to client {ClientId}", clientId);
         }
+    }
+
+    /// <summary>
+    /// Tier 1.3: ask every connected client to cache the given assets in the background (playlist
+    /// prefetch), so item switches never wait for downloads. Progress comes back via heartbeat.
+    /// </summary>
+    public async Task BroadcastPrefetchAsync(IReadOnlyList<ContentAssetRef> assets)
+    {
+        if (_syncService == null || assets.Count == 0) return;
+        foreach (var a in assets)
+            _syncService.RegisterContent(a.ContentId, a.OriginalPath);
+
+        var command = new SyncCommand
+        {
+            Type = CommandType.Prefetch,
+            TimestampUtc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            SequenceNumber = System.Threading.Interlocked.Increment(ref _sequenceNumber),
+            ContentId = assets[0].ContentId,
+            Params = new SyncParameters()
+        };
+        foreach (var a in assets)
+            command.Params.Assets.Add(new ContentRef { ContentId = a.ContentId, Role = a.Role, OriginalPath = a.OriginalPath });
+
+        var clients = _syncService.GetConnectedClients().ToList();
+        _logger.LogInformation("Prefetch: {Assets} asset(s) → {Clients} client(s)", assets.Count, clients.Count);
+        foreach (var client in clients)
+        {
+            try { await _syncService.SendCommandToClientAsync(client.ClientId, command); }
+            catch (Exception ex) { _logger.LogError(ex, "Prefetch send failed for {ClientId}", client.ClientId); }
+        }
+    }
+
+    /// <summary>
+    /// Re-send the active cross-screen command (original shared start) to every client that has
+    /// one. Cheap; fixes any node that missed a command or is showing something stale.
+    /// </summary>
+    public async Task<int> ResyncAllAsync()
+    {
+        if (_syncService == null) return 0;
+        int sent = 0;
+        foreach (var kvp in _activeCrossScreenCommands.ToArray())
+        {
+            try
+            {
+                if (await _syncService.SendCommandToClientAsync(kvp.Key, kvp.Value)) sent++;
+            }
+            catch (Exception ex) { _logger.LogError(ex, "Resync failed for {ClientId}", kvp.Key); }
+        }
+        _logger.LogInformation("Resync: re-sent the active animation to {Count} client(s)", sent);
+        return sent;
     }
 
     /// <summary>

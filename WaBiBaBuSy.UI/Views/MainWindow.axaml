@@ -203,6 +203,13 @@
                                 Command="{Binding SelectAllClientsCommand}"
                                 Padding="8,4"
                                 FontSize="12"/>
+                        <TextBlock Text="{Binding ShowHealthSummary}" Foreground="#9A9A9A" FontSize="11"
+                                   VerticalAlignment="Center"/>
+                        <Button Content="Resync all"
+                                Command="{Binding ResyncAllCommand}"
+                                Padding="8,4" FontSize="11"
+                                IsVisible="{Binding IsServerMode}"
+                                ToolTip.Tip="Re-send the running animation (original shared start) to every client. Fixes a node that missed a command."/>
                     </StackPanel>
 
                     <!-- Room layout (seat map): how the ordered node chain is broken into table rows
@@ -544,6 +551,9 @@
                                     <TextBlock Text="{Binding ActiveBackgroundColor}" Foreground="#CCCCCC" FontSize="11"/>
                                 </StackPanel>
                             </StackPanel>
+
+                            <TextBlock Text="{Binding PlaylistNextLabel}" Foreground="#FFC800" FontSize="11"
+                                       IsVisible="{Binding HasPlaylistNext}"/>
 
                             <!-- Live view: where the sprite is right now, on the players' shared clock -->
                             <Border Background="#141414" BorderBrush="#333333" BorderThickness="1" CornerRadius="4" Margin="0,6,0,0">

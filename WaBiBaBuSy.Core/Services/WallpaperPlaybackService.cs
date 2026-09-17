@@ -6,6 +6,8 @@ using WaBiBaBuSy.Grpc;
 using WaBiBaBuSy.Models;
 using WaBiBaBuSy.Models.Wallpaper;
 
+using WaBiBaBuSy.Models.Content;
+
 namespace WaBiBaBuSy.Core.Services;
 
 /// <summary>
@@ -24,6 +26,11 @@ public class WallpaperPlaybackService : IDisposable
     private readonly Func<string, int, IWallpaperRenderer?>? _rendererFactory; // Updated to take monitorIndex
     private readonly string _cacheDirectory;
     private readonly ContentCacheManager? _cacheManager;
+
+    // Tier 1.3 prefetch progress for the last PREFETCH list (reported via heartbeat)
+    private volatile int _prefetchReady;
+    private volatile int _prefetchTotal;
+    private readonly SemaphoreSlim _downloadGate = new(1, 1);   // one download at a time per client
 
     /// <summary>
     /// Delegate for D2D rendering: (filePath, monitorIndex, backgroundColor, fitMode) → Task
@@ -66,7 +73,12 @@ public class WallpaperPlaybackService : IDisposable
             "WaBiBaBuSy", "Cache");
         _cacheManager = cacheManager;
         _renderers = new ConcurrentDictionary<string, ConcurrentDictionary<int, IWallpaperRenderer>>();
-        _contentCache = new ConcurrentDictionary<string, string>();
+        // Persistent index: a client restart must not re-download files that are still on disk.
+        _contentCache = new ConcurrentDictionary<string, string>(ContentCacheIndex.Load(_cacheDirectory));
+        if (_contentCache.Count > 0)
+            _logger.LogInformation("Content cache index restored: {Count} file(s)", _contentCache.Count);
+
+        _syncClient.PrefetchStatusProvider = () => (_prefetchReady, _prefetchTotal);
 
         // Subscribe to sync commands
         _syncClient.SyncCommandReceived += OnSyncCommandReceived;
@@ -78,7 +90,66 @@ public class WallpaperPlaybackService : IDisposable
     public void RegisterContent(string contentId, string localFilePath)
     {
         _contentCache[contentId] = localFilePath;
+        SaveCacheIndex();
         _logger.LogInformation("Registered content {ContentId} at {FilePath}", contentId, localFilePath);
+    }
+
+    private void SaveCacheIndex()
+    {
+        try { ContentCacheIndex.Save(_cacheDirectory, new Dictionary<string, string>(_contentCache)); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Could not persist the content cache index"); }
+    }
+
+    /// <summary>
+    /// Local path of a content id, downloading it first when it is not cached. Null when the
+    /// download failed. Downloads are serialized per client so a PREFETCH cannot starve a LOAD.
+    /// </summary>
+    private async Task<string?> EnsureCachedAsync(string contentId)
+    {
+        if (_contentCache.TryGetValue(contentId, out var cached) && File.Exists(cached))
+        {
+            _cacheManager?.TouchFile(cached);
+            return cached;
+        }
+
+        await _downloadGate.WaitAsync();
+        try
+        {
+            if (_contentCache.TryGetValue(contentId, out cached) && File.Exists(cached)) return cached;
+            _cacheManager?.EnsureSpace(0);
+            var path = await _syncClient.DownloadContentAsync(contentId, _cacheDirectory);
+            if (path == null) return null;
+            _contentCache[contentId] = path;
+            SaveCacheIndex();
+            return path;
+        }
+        finally
+        {
+            _downloadGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// PREFETCH: cache every listed asset in the background and expose progress for the heartbeat.
+    /// The server waits (bounded) for all nodes to report ready before starting a show.
+    /// </summary>
+    private async Task HandlePrefetchAsync(SyncCommand command)
+    {
+        var assets = command.Params?.Assets;
+        if (assets == null || assets.Count == 0) return;
+
+        _prefetchTotal = assets.Count;
+        _prefetchReady = assets.Count(a => _contentCache.TryGetValue(a.ContentId, out var p) && File.Exists(p));
+        _logger.LogInformation("[Playback:PREFETCH] {Ready}/{Total} already cached", _prefetchReady, _prefetchTotal);
+
+        foreach (var asset in assets)
+        {
+            if (_contentCache.TryGetValue(asset.ContentId, out var p) && File.Exists(p)) continue;
+            var path = await EnsureCachedAsync(asset.ContentId);
+            if (path != null) _prefetchReady++;
+            else _logger.LogWarning("[Playback:PREFETCH] Could not fetch {ContentId}", asset.ContentId);
+        }
+        _logger.LogInformation("[Playback:PREFETCH] done: {Ready}/{Total}", _prefetchReady, _prefetchTotal);
     }
 
     /// <summary>
@@ -159,6 +230,10 @@ public class WallpaperPlaybackService : IDisposable
                 await HandleSeekCommandAsync(command);
                 break;
 
+            case CommandType.Prefetch:
+                await HandlePrefetchAsync(command);
+                break;
+
             default:
                 _logger.LogWarning("Unknown command type: {CommandType}", command.Type);
                 break;
@@ -174,25 +249,17 @@ public class WallpaperPlaybackService : IDisposable
         {
             _logger.LogInformation("[Playback:LOAD] === HANDLING LOAD === ContentId={ContentId}", command.ContentId);
 
-            // Check if content is in cache, auto-download if not
-            if (!_contentCache.TryGetValue(command.ContentId, out var filePath))
+            // Check if content is in cache, auto-download if not (index is persistent; a restart
+            // does not re-download). Downloads are serialized with any running prefetch.
+            bool wasCached = _contentCache.TryGetValue(command.ContentId, out var cachedPath) && File.Exists(cachedPath);
+            var filePath = await EnsureCachedAsync(command.ContentId);
+            if (filePath == null)
             {
-                _logger.LogInformation("[Playback:LOAD] Content {ContentId} not in cache ({CacheCount} items cached), downloading from server...",
-                    command.ContentId, _contentCache.Count);
-                _logger.LogInformation("[Playback:LOAD] Cache directory: {CacheDir}", _cacheDirectory);
-
-                // Run LRU eviction if cache is near the size limit
-                _cacheManager?.EnsureSpace(0);
-
-                var downloadedPath = await _syncClient.DownloadContentAsync(command.ContentId, _cacheDirectory);
-                if (downloadedPath == null)
-                {
-                    _logger.LogError("[Playback:LOAD] FAILED to download content {ContentId} from server", command.ContentId);
-                    return;
-                }
-
-                _contentCache[command.ContentId] = downloadedPath;
-                filePath = downloadedPath;
+                _logger.LogError("[Playback:LOAD] FAILED to download content {ContentId} from server", command.ContentId);
+                return;
+            }
+            if (!wasCached)
+            {
                 _logger.LogInformation("[Playback:LOAD] Content {ContentId} downloaded and cached at {FilePath}", command.ContentId, filePath);
             }
             else
@@ -226,9 +293,26 @@ public class WallpaperPlaybackService : IDisposable
             {
                 if (D2DCrossScreenApplyDelegate != null)
                 {
+                    // Tier 1.3: fetch every referenced asset (additional images, background image)
+                    // before applying, and hand the UI a map from server paths to local files.
+                    var assetRefs = new List<ContentAssetRef>();
+                    var localAssets = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    if (command.Params?.Assets != null)
+                    {
+                        foreach (var a in command.Params.Assets)
+                        {
+                            assetRefs.Add(new ContentAssetRef { ContentId = a.ContentId, Role = a.Role, OriginalPath = a.OriginalPath });
+                            var local = a.ContentId == command.ContentId ? filePath : await EnsureCachedAsync(a.ContentId);
+                            if (local != null && !string.IsNullOrEmpty(a.OriginalPath)) localAssets[a.OriginalPath] = local;
+                            else if (local == null) _logger.LogWarning("[Playback:LOAD] Asset {ContentId} ({Role}) unavailable — scene degrades", a.ContentId, a.Role);
+                        }
+                    }
+
                     var request = new CrossScreenApplyRequest
                     {
                         FilePath = filePath,
+                        Assets = assetRefs,
+                        LocalAssetPaths = localAssets,
                         MonitorIndex = command.Params?.TargetMonitorIndex ?? 0,
                         BackgroundColor = bgColor,
                         FitMode = fitMode,

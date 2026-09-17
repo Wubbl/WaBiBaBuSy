@@ -2,7 +2,7 @@
 
 **Project Name:** WallpaperBiBaBuSync (BiBaBu = our club name)
 **Version:** 2.6.3 | **Framework:** .NET 9.0 | **Status:** MVP complete + post-MVP visual features + LAN-party Tier 0 / 1.1 / 2.1
-**Last Updated:** 2026-09-17 | **Next:** E2E Multi-Client Testing (incl. ring, physical canvas + Tier 0 checks), then roadmap Tier 1.3 / 2.2 / 2.4
+**Last Updated:** 2026-09-17 | **Next:** E2E Multi-Client Testing (incl. ring, physical canvas, prefetch + Tier 0 checks), then roadmap Tier 2.2 / 2.4 / 2.3
 
 WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5% server CPU, ±50ms drift tolerance, and distributed client-side rendering. Supports images (JPG/PNG/BMP), videos (MP4/AVI/MKV), and GIFs across multi-monitor setups.
 
@@ -22,6 +22,7 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 - Backgrounds: SolidColor, StretchedImage, TiledImage, ThreeZone corridor, IconZone (A* pathfinding around real desktop icons)
 - Debug overlay in player (F11 / IPC): A* path, icon rects, zone bands, movement trail, info panel
 - Playlist / Party Mode: rotate animation configs across all machines on a loop (per-item duration + global default, shuffle, opt-in Linear lap-snap; own dialog; JSON-persisted under `%APPDATA%\WaBiBaBuSy\playlists\`)
+- Show reliability: hashed content ids, persistent client cache, every scene asset transferred, playlist prefetch with per-node readiness, server download throttle, health strip + Resync all
 - Auto-update system with SHA-256 verification and rollback
 - System tray operation with minimal UI footprint
 

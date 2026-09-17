@@ -404,6 +404,15 @@ public partial class MainWindow : Window
         UpdateDriftLabel(driftText, client);
         stackPanel.Children.Add(driftText);
 
+        // Prefetch badge (Tier 1.3): "⬇ 3/7" while caching, "✓ cached" when the show is on disk
+        var prefetchText = new TextBlock
+        {
+            FontSize = 9,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
+        };
+        UpdatePrefetchLabel(prefetchText, client);
+        stackPanel.Children.Add(prefetchText);
+
         // Animation name indicator (shown when animating)
         var animNameText = new TextBlock
         {
@@ -436,6 +445,10 @@ public partial class MainWindow : Window
             else if (e.PropertyName == nameof(client.DriftState) || e.PropertyName == nameof(client.DriftMs))
             {
                 UpdateDriftLabel(driftText, client);
+            }
+            else if (e.PropertyName == nameof(client.PrefetchReady) || e.PropertyName == nameof(client.PrefetchTotal))
+            {
+                UpdatePrefetchLabel(prefetchText, client);
             }
         };
 
@@ -535,6 +548,26 @@ public partial class MainWindow : Window
     /// Style the per-node drift label: hidden until a report exists, grey em-dash
     /// when stale, otherwise "±Xms" colored by DriftState (Ok/Warn/Breach).
     /// </summary>
+    private static void UpdatePrefetchLabel(TextBlock label, ClientNodeViewModel client)
+    {
+        if (client.PrefetchTotal <= 0)
+        {
+            label.IsVisible = false;
+            return;
+        }
+        label.IsVisible = true;
+        if (client.IsPrefetchComplete)
+        {
+            label.Text = "✓ cached";
+            label.Foreground = new SolidColorBrush(Color.Parse("#00CC66"));
+        }
+        else
+        {
+            label.Text = $"⬇ {client.PrefetchReady}/{client.PrefetchTotal}";
+            label.Foreground = new SolidColorBrush(Color.Parse("#FFC800"));
+        }
+    }
+
     private static void UpdateDriftLabel(TextBlock label, ClientNodeViewModel client)
     {
         switch (client.DriftState)

@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-09-17 — Show reliability: content pipeline (Tier 1.3)
+
+Design: `.docs/plans/2026-09-17-show-reliability-design.md` §3 + §5 (§2 future T0 landed in Tier 0; §4 standby/two-phase switch and §6 auto-start deferred). 9 new unit tests (141 total).
+
+- **Content ids identify bytes** (`WaBiBaBuSy.Models/Content/ContentIdentity`): `{fileName}-{sha256[..16]}`, hash cached per (path, size, mtime). Same name + new bytes → new id → clients fetch the new version; no more stale content after re-exporting a GIF under the same name.
+- **Persistent client cache index** (`ContentCacheIndex`, `cache-index.json` in the cache dir): the playback service restores contentId → path on startup and saves after every download/registration. A client restart no longer re-downloads the whole show. LRU touch on cache hits.
+- **All assets travel**: `SceneAssets.CollectPaths` lists primary + additional images + background image; the apply path registers each (`ContentAssetRef`) and ships them in `SyncParameters.assets` (proto `ContentRef`, field 26). The client downloads every asset before applying and `SceneAssets.RewriteToLocal` rewrites the configs to local cache paths — multi-image presets and image backgrounds now render on remotes instead of degrading. Missing assets still degrade gracefully (dropped / solid color).
+- **Prefetch**: new `CommandType.PREFETCH` (9); `PlaylistOrchestrator.Start` asks every client to cache the whole show (`WallpaperSyncCoordinator.BroadcastPrefetchAsync`) and waits up to 15 s until all remote nodes report ready via heartbeat (`prefetch_ready/total`, HeartbeatRequest 7/8, ConnectedClient 12/13); item switches then never wait for a download. Client downloads are serialized (a prefetch cannot starve a LOAD).
+- **Server throttle**: at most 6 concurrent `DownloadContent` streams (`SemaphoreSlim`), so 20 first-time fetches queue instead of thrashing.
+- **Show health**: topology header shows "N/M remote online · cached/fetching · stale · worst ±X ms"; nodes carry a "⬇ 3/7" / "✓ cached" badge; **Resync all** re-sends every active cross-screen command (original shared start) — fixes a node that missed a command. Active Animation panel shows "next: <item> in m:ss" while a show runs (`PlaylistOrchestrator.NextItem/NextSwitchUtcMs`).
+- **Known**: downloaded files keep their original file name in the cache, so two different files with the same name overwrite each other on disk (the index then points both ids at the newest bytes — acceptable, documented).
+
 ## 2026-09-17 — Physical canvas for mixed monitors (Tier 1.2)
 
 Design: `.docs/plans/2026-09-17-physical-canvas-design.md`. 15 new unit tests (132 total).

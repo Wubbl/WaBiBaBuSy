@@ -31,6 +31,8 @@ using WaBiBaBuSy.UI.Services;
 
 using WaBiBaBuSy.Models.Topology;
 
+using WaBiBaBuSy.Models.Content;
+
 namespace WaBiBaBuSy.UI.ViewModels;
 
 public partial class MainWindowViewModel : ViewModelBase
@@ -296,6 +298,100 @@ public partial class MainWindowViewModel : ViewModelBase
         var set = new HashSet<string>(selectedIds);
         var chosen = set.Count > 0 ? Clients.Where(c => set.Contains(c.ClientId)) : Clients;
         return BuildSeatLayout(chosen);
+    }
+
+    // ── Tier 1.3 show reliability ────────────────────────────────────────────
+
+    /// <summary>Content refs (hashed ids) for every existing file a scene references.</summary>
+    private static List<ContentAssetRef> BuildAssetRefs(CrossScreenConfig config)
+    {
+        var refs = new List<ContentAssetRef>();
+        foreach (var (path, role) in SceneAssets.CollectPaths(config))
+        {
+            if (!File.Exists(path)) continue;
+            refs.Add(new ContentAssetRef { ContentId = ContentIdentity.ComputeId(path), Role = role, OriginalPath = path });
+        }
+        return refs;
+    }
+
+    /// <summary>Orchestrator hook: ask every client to cache the whole show before it starts.</summary>
+    private async Task PrefetchShowAssetsAsync(IReadOnlyList<CrossScreenConfig> configs)
+    {
+        var coordinator = _service.SyncCoordinator;
+        if (coordinator == null) return;
+        var assets = configs.SelectMany(BuildAssetRefs)
+            .GroupBy(a => a.ContentId).Select(g => g.First()).ToList();
+        if (assets.Count == 0) return;
+        await coordinator.BroadcastPrefetchAsync(assets);
+    }
+
+    /// <summary>Orchestrator hook: poll the topology until every remote node reports its prefetch complete.</summary>
+    private async Task<bool> WaitUntilRemotesPrefetchedAsync(TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(500);
+            RefreshTopology();
+            bool allReady = await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var remotes = Clients.Where(c => c.IsConnected && !IsLocalMonitor(c.ClientId)).ToList();
+                return remotes.Count == 0 || remotes.All(c => c.IsPrefetchComplete);
+            });
+            if (allReady) return true;
+        }
+        return false;
+    }
+
+    /// <summary>One-line show health for the topology header.</summary>
+    public string ShowHealthSummary
+    {
+        get
+        {
+            var remotes = Clients.Where(c => !IsLocalMonitor(c.ClientId)).ToList();
+            if (remotes.Count == 0) return "";
+            int connected = remotes.Count(c => c.IsConnected);
+            int cached = remotes.Count(c => c.IsPrefetchComplete);
+            int fetching = remotes.Count(c => c.PrefetchTotal > 0 && !c.IsPrefetchComplete);
+            int stale = remotes.Count(c => c.DriftState == DriftState.Stale);
+            double worst = remotes.Where(c => c.DriftState is not DriftState.None and not DriftState.Stale)
+                                  .Select(c => Math.Abs(c.DriftMs)).DefaultIfEmpty(0).Max();
+            var parts = new List<string> { $"{connected}/{remotes.Count} remote online" };
+            if (cached > 0 || fetching > 0) parts.Add(fetching > 0 ? $"{cached} cached · {fetching} fetching" : $"{cached} cached");
+            if (stale > 0) parts.Add($"{stale} stale");
+            if (worst > 0) parts.Add($"worst ±{worst:F0} ms");
+            return string.Join(" · ", parts);
+        }
+    }
+
+    /// <summary>"next: Logo Rain in 0:42" while a show runs, else empty.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasPlaylistNext))]
+    private string _playlistNextLabel = "";
+    public bool HasPlaylistNext => !string.IsNullOrEmpty(PlaylistNextLabel);
+
+    private void UpdatePlaylistNextLabel()
+    {
+        var o = _playlistOrchestrator;
+        if (o == null || !o.IsRunning || o.NextSwitchUtcMs <= 0)
+        {
+            PlaylistNextLabel = "";
+            return;
+        }
+        var remaining = TimeSpan.FromMilliseconds(Math.Max(0, o.NextSwitchUtcMs - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
+        var next = o.NextItem?.Name;
+        PlaylistNextLabel = next == null
+            ? $"last item · ends in {remaining.Minutes}:{remaining.Seconds:00}"
+            : $"next: {next} in {remaining.Minutes}:{remaining.Seconds:00}";
+    }
+
+    [RelayCommand]
+    private async Task ResyncAll()
+    {
+        var coordinator = _service.SyncCoordinator;
+        if (coordinator == null) return;
+        int n = await coordinator.ResyncAllAsync();
+        Debug.WriteLine($"[Resync] re-sent active animation to {n} client(s)");
     }
 
     /// <summary>Preview image for a content path: the file itself, or the gallery thumbnail for videos.</summary>
@@ -2162,14 +2258,6 @@ public partial class MainWindowViewModel : ViewModelBase
         // ── Background: full config when transmitted, solid-color fallback otherwise ──
         var backgroundConfig = DeserializeRemoteConfig<BackgroundLayerConfig>(req.BackgroundJson, "BackgroundLayerConfig")
             ?? new BackgroundLayerConfig { Mode = BackgroundMode.SolidColor, ColorHex = req.BackgroundColor };
-        if ((backgroundConfig.Mode == BackgroundMode.StretchedImage || backgroundConfig.Mode == BackgroundMode.TiledImage)
-            && (string.IsNullOrEmpty(backgroundConfig.ImagePath) || !File.Exists(backgroundConfig.ImagePath)))
-        {
-            // Background images are not transferred to clients (only animation content is);
-            // a server-local path won't exist here. Degrade gracefully to solid color.
-            Debug.WriteLine($"[D2D-CrossScreen] Background image '{backgroundConfig.ImagePath}' not available locally — falling back to solid color");
-            backgroundConfig = new BackgroundLayerConfig { Mode = BackgroundMode.SolidColor, ColorHex = req.BackgroundColor };
-        }
 
         // ── Animation: full config when transmitted (TargetHeight/SpeedMultiplier/
         //    VerticalAlign/RotateWithPath/PrecomputedPath/pattern/colors all matter
@@ -2177,21 +2265,19 @@ public partial class MainWindowViewModel : ViewModelBase
         var animationConfig = DeserializeRemoteConfig<AnimationLayerConfig>(req.AnimationJson, "AnimationLayerConfig");
         if (animationConfig != null)
         {
-            // The animation file was downloaded into this client's cache — the config
-            // still carries the server-local path, so always override it.
-            animationConfig.AnimationPath = req.FilePath;
-            var missing = animationConfig.AdditionalAnimationPaths.Where(p => !File.Exists(p)).ToList();
-            if (missing.Count > 0)
-            {
-                // Multi-image sources are not transferred yet (only the primary file is).
-                Debug.WriteLine($"[D2D-CrossScreen] Dropping {missing.Count} additional animation path(s) not available locally: {string.Join(", ", missing)}");
-                animationConfig.AdditionalAnimationPaths = animationConfig.AdditionalAnimationPaths.Where(File.Exists).ToList();
-            }
+            // Tier 1.3: every server-side path (primary, additional images, background image) is
+            // rewritten to this client's cache. Anything that could not be fetched is dropped and a
+            // missing background image degrades to solid color.
+            var (localAnim, localBg) = SceneAssets.RewriteToLocal(animationConfig, backgroundConfig, req.LocalAssetPaths, req.FilePath);
+            animationConfig = localAnim;
+            backgroundConfig = localBg;
+            Debug.WriteLine($"[D2D-CrossScreen] Assets: {req.LocalAssetPaths.Count} mapped, {animationConfig.AdditionalAnimationPaths.Count} additional image(s), bg={backgroundConfig.Mode}");
         }
         else
         {
             PatternConfig? pattern = DeserializeRemoteConfig<PatternConfig>(req.PatternJson, "PatternConfig");
             ColorGradingConfig colorGrading = DeserializeRemoteConfig<ColorGradingConfig>(req.ColorGradingJson, "ColorGradingConfig") ?? new();
+            backgroundConfig = SceneAssets.RewriteToLocal(new AnimationLayerConfig(), backgroundConfig, req.LocalAssetPaths, null).Background;
             animationConfig = new AnimationLayerConfig
             {
                 AnimationPath = req.FilePath,
@@ -2658,6 +2744,8 @@ public partial class MainWindowViewModel : ViewModelBase
                     existing.PhysicalDistanceCm = grpcClient.PhysicalDistanceCm;
                     existing.DriftMs = grpcClient.ClockOffsetMs;
                     existing.RttMs = grpcClient.RttMs;
+                    existing.PrefetchReady = grpcClient.PrefetchReady;
+                    existing.PrefetchTotal = grpcClient.PrefetchTotal;
                     existing.DriftState = DriftMonitor.Classify(
                         grpcClient.ClockOffsetMs,
                         grpcClient.LastDriftReportUtc,
@@ -2743,6 +2831,8 @@ public partial class MainWindowViewModel : ViewModelBase
                         // nodes never report → LastDriftReportUtc stays 0 → DriftState.None → label hidden)
                         DriftMs = grpcClient.ClockOffsetMs,
                         RttMs = grpcClient.RttMs,
+                        PrefetchReady = grpcClient.PrefetchReady,
+                        PrefetchTotal = grpcClient.PrefetchTotal,
                         DriftState = DriftMonitor.Classify(
                             grpcClient.ClockOffsetMs,
                             grpcClient.LastDriftReportUtc,
@@ -2767,6 +2857,9 @@ public partial class MainWindowViewModel : ViewModelBase
                 }
                 index++;
             }
+
+            OnPropertyChanged(nameof(ShowHealthSummary));
+            UpdatePlaylistNextLabel();
 
             ClientCount = Clients.Count;
             ConnectedClientCount = Clients.Count(c => c.IsConnected
@@ -3479,7 +3572,9 @@ public partial class MainWindowViewModel : ViewModelBase
         // Phase 3: Send cross-screen D2D commands to remote clients
         if (remoteClients.Count > 0 && _service.SyncCoordinator != null)
         {
-            var contentId = System.IO.Path.GetFileName(effAnimation.AnimationPath);
+            // Tier 1.3: ids identify bytes (name + hash) so renamed/re-exported files are never served stale.
+            var contentId = ContentIdentity.ComputeId(effAnimation.AnimationPath);
+            var sceneAssets = BuildAssetRefs(config);
             _crossScreenContentId = contentId;
             var bgColor = config.Background.ColorHex ?? "#000000";
             var movementTypeInt = (int)effMovement.Type;
@@ -3516,7 +3611,8 @@ public partial class MainWindowViewModel : ViewModelBase
                     virtualCanvasHeight: layout.CanvasHeight,
                     monitorOffsetY: remoteLayout?.OffsetY ?? 0,
                     nodeOrder: remoteLayout?.Order ?? 0,
-                    layout: isSequential ? remoteLayout : null);
+                    layout: isSequential ? remoteLayout : null,
+                    assets: sceneAssets);
             }
         }
         else if (remoteClients.Count > 0)
@@ -3560,7 +3656,9 @@ public partial class MainWindowViewModel : ViewModelBase
                 var r = await ApplyCrossScreenConfigAsync(config);
                 return new WaBiBaBuSy.Core.Services.Animation.ApplyMetrics(r.VirtualCanvasWidth, r.ContentWidthPx, r.StartLeadMs, r.EffectiveSpeedPx);
             }),
-            seedProvider: () => Environment.TickCount);
+            seedProvider: () => Environment.TickCount,
+            prefetch: PrefetchShowAssetsAsync,
+            waitUntilNodesReady: WaitUntilRemotesPrefetchedAsync);
 
         _playlistOrchestrator.Start(playlist);
     }

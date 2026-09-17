@@ -101,6 +101,18 @@ public partial class ClientNodeViewModel : ObservableObject
     [ObservableProperty]
     private DriftState _driftState = DriftState.None;
 
+    /// <summary>Cached assets of the last PREFETCH list (Tier 1.3).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsPrefetchComplete))]
+    private int _prefetchReady;
+
+    /// <summary>Size of the last PREFETCH list; 0 = no prefetch requested.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsPrefetchComplete))]
+    private int _prefetchTotal;
+
+    public bool IsPrefetchComplete => PrefetchTotal > 0 && PrefetchReady >= PrefetchTotal;
+
     /// <summary>
     /// Display name for the client
     /// </summary>

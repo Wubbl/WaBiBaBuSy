@@ -40,6 +40,9 @@ public class WallpaperSyncClient : IDisposable
     public bool IsConnected { get; private set; }
     public string? ClientId => _clientId;
 
+    /// <summary>Set by the playback service: (cached, total) of the last PREFETCH list, reported via heartbeat.</summary>
+    public Func<(int Ready, int Total)>? PrefetchStatusProvider { get; set; }
+
     /// <summary>Estimated (server - client) clock offset in ms, from heartbeat round-trips.</summary>
     public long ClockOffsetMs => _clockOffset.OffsetMs;
 
@@ -415,6 +418,13 @@ public class WallpaperSyncClient : IDisposable
             request.ClockOffsetMs = _clockOffset.OffsetMs;
             request.RttMs = _clockOffset.RttMs;
             request.HasDriftReport = true;
+        }
+
+        var prefetch = PrefetchStatusProvider?.Invoke();
+        if (prefetch.HasValue)
+        {
+            request.PrefetchReady = prefetch.Value.Ready;
+            request.PrefetchTotal = prefetch.Value.Total;
         }
 
         var response = await _client.HeartbeatAsync(request);

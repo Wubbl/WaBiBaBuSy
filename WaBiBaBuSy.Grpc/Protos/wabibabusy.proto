@@ -119,6 +119,9 @@ message HeartbeatRequest {
   double clock_offset_ms = 4;   // estimated (server_clock - client_clock)
   double rtt_ms = 5;            // round-trip time of the best sample
   bool has_drift_report = 6;
+  // Prefetch progress for the last PREFETCH list (0/0 = none received)
+  int32 prefetch_ready = 7;
+  int32 prefetch_total = 8;
 }
 
 // Heartbeat response
@@ -147,6 +150,7 @@ enum CommandType {
   STOP = 4;
   SYNC_FRAME = 5;
   FETCH_LOGS = 8;         // Request client to upload its log file
+  PREFETCH = 9;           // Cache params.assets in the background (playlist prefetch); no rendering
 }
 
 // Sync parameters
@@ -177,6 +181,14 @@ message SyncParameters {
   int32 monitor_offset_y = 23;         // This node's Y offset in the canvas (vertical centering on mixed heights)
   int32 node_order = 24;               // This node's traversal index (0-based); Wave-mode phase in Simultaneous mode
   string layout_json = 25;             // JSON NodeLayout (seat map: offset, mirrored, wrap, canvas size). Empty = derive from the loose fields above
+  repeated ContentRef assets = 26;     // Every file the scene references (primary, additional images, background image); LOAD downloads all before applying, PREFETCH caches them
+}
+
+// One transferable file of a scene (Tier 1.3 show reliability)
+message ContentRef {
+  string content_id = 1;     // "{fileName}-{sha256[..16]}" — identifies bytes, not names
+  string role = 2;           // primary | additional | background
+  string original_path = 3;  // path on the authoring machine, used to rewrite configs to the local cache
 }
 
 // Sync response (client acknowledgment)
@@ -233,6 +245,8 @@ message ConnectedClient {
   double clock_offset_ms = 9;       // (server_clock - client_clock), ms
   double rtt_ms = 10;               // heartbeat round-trip time, ms
   int64 last_drift_report_utc = 11; // server receive time of last report (UTC ms)
+  int32 prefetch_ready = 12;        // cached assets of the last PREFETCH list
+  int32 prefetch_total = 13;        // size of the last PREFETCH list (0 = none)
 }
 
 // Client order update

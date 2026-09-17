@@ -1,3 +1,6 @@
+using System.Collections.Generic;
+using WaBiBaBuSy.Models.Content;
+
 namespace WaBiBaBuSy.Models.Wallpaper;
 
 /// <summary>
@@ -40,4 +43,10 @@ public class CrossScreenApplyRequest
 
     /// <summary>JSON <c>NodeLayout</c> from the server's seat map (mirroring, ring wrap). Empty = legacy server.</summary>
     public string LayoutJson { get; init; } = "";
+
+    /// <summary>Every file the scene references, as sent by the server (Tier 1.3).</summary>
+    public IReadOnlyList<ContentAssetRef> Assets { get; init; } = System.Array.Empty<ContentAssetRef>();
+
+    /// <summary>Server-side original path → local cache path for every asset that was downloaded.</summary>
+    public IReadOnlyDictionary<string, string> LocalAssetPaths { get; init; } = new Dictionary<string, string>();
 }

@@ -26,6 +26,9 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     private readonly DriftMonitor _driftMonitor = new(); // per-client drift telemetry from heartbeats
     private readonly Timer _heartbeatSweepTimer;
     private int _nextClientOrder = 1;
+    // Tier 1.3: 20 clients fetching the same 20 MB GIF at once would thrash one server — queue them.
+    private readonly SemaphoreSlim _downloadSlots = new(MaxConcurrentDownloads, MaxConcurrentDownloads);
+    private const int MaxConcurrentDownloads = 6;
     // Tier 0.3: order + bezel distance per node survive server restarts and client reconnects.
     private readonly TopologyStore _topology;
     private readonly object _topologyLock = new();
@@ -248,6 +251,8 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         {
             client.LastHeartbeat = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             client.Status = request.Status;
+            client.PrefetchReady = request.PrefetchReady;
+            client.PrefetchTotal = request.PrefetchTotal;
 
             if (request.HasDriftReport)
             {
@@ -1123,6 +1128,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
             throw new RpcException(new Status(StatusCode.NotFound, $"File not found: {filePath}"));
         }
 
+        await _downloadSlots.WaitAsync(context.CancellationToken);
         try
         {
             var fileInfo = new FileInfo(filePath);
@@ -1175,6 +1181,10 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         {
             _logger.LogError(ex, "Error streaming content {ContentId}", request.ContentId);
             throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+        }
+        finally
+        {
+            _downloadSlots.Release();
         }
     }
 

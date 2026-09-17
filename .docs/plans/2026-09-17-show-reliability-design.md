@@ -1,6 +1,11 @@
 # Show Reliability for 20 Nodes — Design
 
-**Created:** 2026-09-17 · **Status:** Proposal · **Roadmap:** Tier 1.3 (+ 0.4)
+**Created:** 2026-09-17 · **Status:** §2 (Tier 0.4), §3 and §5 implemented 2026-09-17; §4 two-phase switch with standby runtime and §6 auto-start deferred · **Roadmap:** Tier 1.3 (+ 0.4)
+
+> **Implementation note (2026-09-17):** with prefetch in place the item switch already reveals on the same
+> frame on every node (future T0, Tier 0.4); what remains from §4 is the *gapless* switch (standby
+> runtime + transitions), which needs the scene-layers player refactor. `PlaylistOrchestrator` exposes
+> `NextItem` / `NextSwitchUtcMs` for the UI countdown as a first step.
 **Solves:** F7 in [`2026-09-17-lan-party-roadmap.md`](2026-09-17-lan-party-roadmap.md)
 
 ---
