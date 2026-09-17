@@ -44,6 +44,8 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 - **[Archived Task List](.docs/2026.01_TODO_ACTIVE.md)** — Jan–Mar 2026 sprint (historical)
 
 ### Feature Designs (`.docs/plans/`)
+- **[LAN-Party Roadmap (2026-09-17)](.docs/plans/2026-09-17-lan-party-roadmap.md)** — Analysis for the 2×10-machine scenario: findings F1–F8, Tier 0–3 plan, links to the six design docs below (**start here for animation/config work**)
+  - [Seat Map & Ring Topology](.docs/plans/2026-09-17-seat-map-and-ring-topology-design.md) · [Physical Canvas](.docs/plans/2026-09-17-physical-canvas-design.md) · [Scene Layers](.docs/plans/2026-09-17-scene-layers-design.md) · [Authoring UX & Preview](.docs/plans/2026-09-17-authoring-ux-and-preview-design.md) · [Crossing Effects & Events](.docs/plans/2026-09-17-crossing-effects-and-events-design.md) · [Show Reliability](.docs/plans/2026-09-17-show-reliability-design.md)
 - **[Corridor Animation System](.docs/plans/corridor-animation-system.md)** — ThreeZone background + corridor-constrained animation (implemented 2026-04)
 - **[IconZone Path Variation](.docs/plans/2026-04-24-iconzone-path-variation-plan.md)** / **[Variation Rotation](.docs/plans/2026-04-24-iconzone-variation-rotation-design.md)** — IconZone A* path design
 - **[Traveling Colors](.docs/plans/2026-05-01-traveling-colors.md)** — Per-cell color grading design (implemented 2026-05)
