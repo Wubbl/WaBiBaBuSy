@@ -4,6 +4,8 @@ using WaBiBaBuSy.Grpc;
 using WaBiBaBuSy.Grpc.Services;
 using WaBiBaBuSy.Models.Wallpaper;
 
+using WaBiBaBuSy.Models.Topology;
+
 namespace WaBiBaBuSy.Core.Services;
 
 /// <summary>
@@ -437,7 +439,8 @@ public class WallpaperSyncCoordinator
         int targetMonitorIndex = 0,
         int virtualCanvasHeight = 0,
         int monitorOffsetY = 0,
-        int nodeOrder = 0)
+        int nodeOrder = 0,
+        NodeLayout? layout = null)
     {
         if (_syncService == null)
         {
@@ -476,7 +479,8 @@ public class WallpaperSyncCoordinator
                 TargetMonitorIndex = targetMonitorIndex,
                 VirtualCanvasHeight = virtualCanvasHeight,
                 MonitorOffsetY = monitorOffsetY,
-                NodeOrder = nodeOrder
+                NodeOrder = nodeOrder,
+                LayoutJson = layout != null ? JsonSerializer.Serialize(layout) : string.Empty
             }
         };
 

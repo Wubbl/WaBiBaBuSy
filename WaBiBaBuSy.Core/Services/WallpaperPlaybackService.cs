@@ -245,7 +245,8 @@ public class WallpaperPlaybackService : IDisposable
                         ColorGradingJson = command.Params?.ColorGradingJson ?? string.Empty,
                         MovementJson = command.Params?.MovementJson ?? string.Empty,
                         AnimationJson = command.Params?.AnimationJson ?? string.Empty,
-                        BackgroundJson = command.Params?.BackgroundJson ?? string.Empty
+                        BackgroundJson = command.Params?.BackgroundJson ?? string.Empty,
+                        LayoutJson = command.Params?.LayoutJson ?? string.Empty
                     };
                     _logger.LogInformation(
                         "[Playback:LOAD] Cross-screen D2D: canvas={VCW}px, offset={Offset}px, ts={Ts}ms, speed={Speed}px/s, perMonitor={PerMonitor}, movType={MovType}, monitor={Monitor}, hasMovementJson={HasMov}, hasAnimJson={HasAnim}, hasBgJson={HasBg}",

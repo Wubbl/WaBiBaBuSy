@@ -1,6 +1,12 @@
 # Seat Map & Ring Topology — Design
 
-**Created:** 2026-09-17 · **Status:** Proposal · **Roadmap:** Tier 1.1 (+ Tier 0.2 / 0.3)
+**Created:** 2026-09-17 · **Status:** Implemented 2026-09-17 (variant, see below) · **Roadmap:** Tier 1.1 (+ Tier 0.2 / 0.3)
+
+> **Implementation note (2026-09-17):** shipped as *row breaks over the ordered chain*: the existing
+> topology order (persisted by `TopologyStore`, Tier 0.3) stays the traversal order, and `SeatRow.SeatCount`
+> splits it into rows. This kept drag-ordering, distance editing and session-resume untouched. §4's
+> per-seat `Seat` objects, §5's `UpdateSeatMap` RPC and §7.2's Identify / click-to-order tools are
+> deferred; §3 geometry, `NodeLayout`, mirroring, wrap and the transport are as designed.
 **Solves:** F1 (1D canvas), F2 (order/identity lost on restart) in
 [`2026-09-17-lan-party-roadmap.md`](2026-09-17-lan-party-roadmap.md)
 

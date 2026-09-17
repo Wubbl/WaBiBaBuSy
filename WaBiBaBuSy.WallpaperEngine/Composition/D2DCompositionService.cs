@@ -5,6 +5,8 @@ using WaBiBaBuSy.Player.Common.Messages;
 using WaBiBaBuSy.WallpaperEngine.Direct2D;
 using WaBiBaBuSy.WallpaperEngine.Native;
 
+using WaBiBaBuSy.Models.Topology;
+
 namespace WaBiBaBuSy.WallpaperEngine.Composition;
 
 /// <summary>
@@ -95,6 +97,7 @@ public class D2DCompositionService : IDisposable
         int? explicitVirtualCanvasHeight = null,
         int? explicitMonitorOffsetY = null,
         int nodeOrder = 0,
+        NodeLayout? layout = null,
         CancellationToken cancellationToken = default)
     {
         if (_disposed)
@@ -167,6 +170,7 @@ public class D2DCompositionService : IDisposable
                 MonitorOffsetY = explicitMonitorOffsetY ?? (perMonitorMode ? 0 : screen.VirtualBounds.Y),
                 NodeOrder = nodeOrder,
                 PerMonitorMode = perMonitorMode,
+                Layout = perMonitorMode ? null : layout,
                 MovementConfig = _movementConfig,
                 MaskZones = maskZones,
                 UseZonePalette = backgroundConfig.IconZonePaletteEnabled,

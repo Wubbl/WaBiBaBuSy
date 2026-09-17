@@ -1,5 +1,7 @@
 using WaBiBaBuSy.Models.Wallpaper;
 
+using WaBiBaBuSy.Models.Topology;
+
 namespace WaBiBaBuSy.Player.Common.Messages;
 
 /// <summary>
@@ -62,6 +64,13 @@ public class PlayerCommandLoadAnimation : PlayerMessageBase
     /// decide whether the node phase applies; Sequential spanning mode never shifts a node's clock.
     /// </summary>
     public bool PerMonitorMode { get; set; } = false;
+
+    /// <summary>
+    /// Full node layout from the seat map (offset, mirroring, ring wrap, canvas size, order).
+    /// When present the player prefers it over the loose fields above. Null in per-monitor mode
+    /// and for hosts that predate the seat map.
+    /// </summary>
+    public NodeLayout? Layout { get; set; }
 
     /// <summary>
     /// Movement configuration for animation positioning.

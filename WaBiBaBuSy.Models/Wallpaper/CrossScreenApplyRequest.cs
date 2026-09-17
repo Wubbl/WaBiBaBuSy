@@ -37,4 +37,7 @@ public class CrossScreenApplyRequest
     public string MovementJson { get; init; } = "";
     public string AnimationJson { get; init; } = "";
     public string BackgroundJson { get; init; } = "";
+
+    /// <summary>JSON <c>NodeLayout</c> from the server's seat map (mirroring, ring wrap). Empty = legacy server.</summary>
+    public string LayoutJson { get; init; } = "";
 }

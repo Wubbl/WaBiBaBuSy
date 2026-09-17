@@ -4,6 +4,19 @@
 
 ---
 
+## 2026-09-17 — Seat map & ring topology (Tier 1.1)
+
+Design: `.docs/plans/2026-09-17-seat-map-and-ring-topology-design.md` (implemented as the "row breaks over the ordered chain" variant — see the status note in that doc). 29 new unit tests (112 total).
+
+- **Model** (`WaBiBaBuSy.Models/Topology/`): `SeatMap` (rows with `SeatCount` + `Orientation`, `Traversal` Ring/Snake/Parallel, turn/row gaps), `NodeLayout` (offset, canvas size, `Mirrored`, `Wraps`, order, row/index-in-row), pure `SeatMapLayoutBuilder` (path or stacked layout, mirroring rule `dir_r × screenAxis_r < 0`, turn gaps, Ring closing gap), `NodeMapping` (virtual→local incl. mirroring, seam `WrapCopies`), `SeatMapStore` (`%APPDATA%\WaBiBaBuSy\seatmap.json`, enums by name).
+- **Movement**: `MovementCalculator.Calculate(..., canvasWraps)` — Linear/SineWave laps are exactly one perimeter on a Ring (0 → P, no off-screen run-in); Bounce/Circular/RandomWalk unchanged.
+- **Transport**: `SyncParameters.layout_json` (field 25), `CrossScreenApplyRequest.LayoutJson`, `PlayerCommandLoadAnimation.Layout`; loose width/offset fields stay populated for older clients.
+- **Player**: keeps `_layout` + `_animVirtualX`; all local X mapping goes through `NodeMapping` (mirrored nodes flip inside their slice, pattern cells too); a seam-straddling sprite is drawn at x and x − P.
+- **Apply path**: `ApplyCrossScreenConfigAsync` builds the canvas with `SeatMapLayoutBuilder` over the topology order (a single-row seat map reproduces the old `VirtualCanvasManager` layout exactly, incl. bezel gaps and vertical centering); IconZone global path uses the same canvas width.
+- **UI**: "Room" panel above the topology (rows, seats per row, rows face each other, path Ring/Snake/Parallel, turn gap, summary); topology renders one lane per row with odd rows placed right-to-left so the ring reads as a loop, row captions with direction, stacked-turn arrows and a closing Ring arrow; drag-reorder maps lanes back to traversal order. `MainWindowViewModel.BuildSeatLayout` is shared by apply path, lanes and preview.
+- **Defaults**: fresh installs stay single-row (Snake) = today's behavior. For the party: Rows = 2, Seats/row = 10, facing on, Path = Ring.
+- **Deferred from the design**: per-seat labels/bindings, Identify + click-to-order tools, `UpdateSeatMap` RPC (the seat map is server-local; clients only receive their `NodeLayout`).
+
 ## 2026-09-17 — Tier 0 quick wins (LAN-party roadmap)
 
 Roadmap: `.docs/plans/2026-09-17-lan-party-roadmap.md` §4 Tier 0. All seven items; 30 new unit tests (83 total).

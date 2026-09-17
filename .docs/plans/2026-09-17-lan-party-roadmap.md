@@ -133,7 +133,7 @@ remotes pending — fold into the multi-client test in OPEN_ITEMS §1.
 ### Tier 1 — Make the 2×10 ring possible (blocking for the scenario)
 | # | Item | Size | Depends on | Design |
 |---|---|---|---|---|
-| 1.1 | **Seat map + ring/snake topology** — rows, per-row direction (facing / same side), turn gap, ring wrap with seam-safe rendering, persistent seat map keyed by identity, "walk the room" ordering wizard | L | 0.2, 0.3 | seat-map doc |
+| 1.1 | ~~**Seat map + ring/snake topology**~~ **Implemented 2026-09-17** (row-breaks variant; Identify/click-to-order deferred) — rows, per-row direction (facing / same side), turn gap, ring wrap with seam-safe rendering | L | 0.2, 0.3 | seat-map doc |
 | 1.2 | **Physical canvas** — canvas in reference pixels, per-node scale from `PixelsPerCm`, speed shown in cm/s, lap time readout | M | 0.1 | physical-canvas doc |
 | 1.3 | **Show reliability** — prefetch all playlist assets on Start Show, transfer background/additional images, content-hash ids, persistent cache index, pre-announced item switch (`T0_next`) | M | 0.4 | show-reliability doc |
 

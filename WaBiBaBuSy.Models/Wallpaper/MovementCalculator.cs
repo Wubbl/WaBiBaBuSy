@@ -18,20 +18,27 @@ public static class MovementCalculator
     /// <param name="animHeight">Animation height in pixels (after FitMode scaling)</param>
     /// <param name="canvasWidth">Total virtual canvas width in pixels (all monitors)</param>
     /// <param name="canvasHeight">Virtual canvas height in pixels</param>
+    /// <param name="tileAlignStepX">Pattern tile step for loop-period snapping (0 = off)</param>
+    /// <param name="canvasWraps">
+    /// Ring topology: the canvas is a closed loop of length canvasWidth. Linear/SineWave then
+    /// travel 0 → canvasWidth (no off-screen run-in) and the caller draws a seam-straddling sprite
+    /// twice (see NodeMapping.WrapCopies). Other movement types never leave the canvas and ignore it.
+    /// </param>
     /// <returns>Position (X, Y) in virtual canvas coordinates</returns>
     public static (float X, float Y) Calculate(
         MovementConfig config,
         long elapsedMs,
         int animWidth, int animHeight,
         int canvasWidth, int canvasHeight,
-        float tileAlignStepX = 0f)
+        float tileAlignStepX = 0f,
+        bool canvasWraps = false)
     {
         return config.Type switch
         {
             MovementType.Static => CalculateStatic(animWidth, animHeight, canvasWidth, canvasHeight),
-            MovementType.Linear => CalculateLinear(config, elapsedMs, animWidth, animHeight, canvasWidth, canvasHeight, tileAlignStepX),
+            MovementType.Linear => CalculateLinear(config, elapsedMs, animWidth, animHeight, canvasWidth, canvasHeight, tileAlignStepX, canvasWraps),
             MovementType.Bounce => CalculateBounce(config, elapsedMs, animWidth, animHeight, canvasWidth, canvasHeight),
-            MovementType.SineWave => CalculateSineWave(config, elapsedMs, animWidth, animHeight, canvasWidth, canvasHeight),
+            MovementType.SineWave => CalculateSineWave(config, elapsedMs, animWidth, animHeight, canvasWidth, canvasHeight, canvasWraps),
             MovementType.Circular => CalculateCircular(config, elapsedMs, animWidth, animHeight, canvasWidth, canvasHeight),
             MovementType.RandomWalk => CalculateRandomWalk(config, elapsedMs, animWidth, animHeight, canvasWidth, canvasHeight),
             _ => CalculateStatic(animWidth, animHeight, canvasWidth, canvasHeight)
@@ -49,12 +56,15 @@ public static class MovementCalculator
     private static (float X, float Y) CalculateLinear(
         MovementConfig config, long elapsedMs,
         int animWidth, int animHeight, int canvasWidth, int canvasHeight,
-        float tileAlignStepX = 0f)
+        float tileAlignStepX = 0f, bool canvasWraps = false)
     {
-        // Reversed=true → cells travel left-to-right visually (first node → last node)
-        float startX = config.StartX ?? (config.Reversed ? canvasWidth  : -animWidth);
+        // Reversed=true → cells travel left-to-right visually (first node → last node).
+        // On a wrapping (Ring) canvas the lap is exactly one perimeter: 0 → canvasWidth, no
+        // off-screen run-in/run-out, so the sprite re-enters at seat 0 the instant it leaves the last seat.
+        float runIn = canvasWraps ? 0f : animWidth;
+        float startX = config.StartX ?? (config.Reversed ? canvasWidth : -runIn);
         float startY = config.StartY ?? (canvasHeight - animHeight) / 2f;
-        float endX   = config.EndX   ?? (config.Reversed ? -animWidth   : canvasWidth);
+        float endX   = config.EndX   ?? (config.Reversed ? -runIn      : canvasWidth);
         float endY   = config.EndY   ?? (canvasHeight - animHeight) / 2f;
 
         float dx = endX - startX;
@@ -145,20 +155,23 @@ public static class MovementCalculator
 
     private static (float X, float Y) CalculateSineWave(
         MovementConfig config, long elapsedMs,
-        int animWidth, int animHeight, int canvasWidth, int canvasHeight)
+        int animWidth, int animHeight, int canvasWidth, int canvasHeight,
+        bool canvasWraps = false)
     {
         double elapsedSec = elapsedMs / 1000.0;
 
         // X: horizontal travel across the full canvas width (wrapping).
         // Reversed=true → right-to-left (starts at canvasWidth, moves left).
         // Phase is folded in double so long uptimes keep sub-pixel accuracy.
-        float totalXDistance = canvasWidth + animWidth;
+        // Ring canvas: the lap is exactly one perimeter (no off-screen run-in).
+        float runIn = canvasWraps ? 0f : animWidth;
+        float totalXDistance = canvasWidth + runIn;
         double xTraveled = elapsedSec * config.SpeedPixelsPerSecond;
 
         float phase = config.Loop
             ? (float)(xTraveled % totalXDistance)
             : (float)Math.Min(xTraveled, totalXDistance);
-        float x = config.Reversed ? (canvasWidth - phase) : (-animWidth + phase);
+        float x = config.Reversed ? (canvasWidth - phase) : (-runIn + phase);
 
         // Y: sine wave oscillation centered vertically. Fold elapsed into one wave
         // period in double first — Sin of a huge argument loses all accuracy.

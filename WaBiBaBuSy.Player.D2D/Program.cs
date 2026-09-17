@@ -17,6 +17,7 @@ using WaBiBaBuSy.Player.Common.Messages;
 using WaBiBaBuSy.WallpaperEngine.Composition;
 using WaBiBaBuSy.WallpaperEngine.Services;
 using WaBiBaBuSy.Models.Wallpaper;
+using WaBiBaBuSy.Models.Topology;
 
 namespace WaBiBaBuSy.Player.D2D;
 
@@ -532,6 +533,11 @@ class Program
     // Tier 0.7: Wave mode — per-node phase shift in per-monitor (Simultaneous) mode.
     private static int _nodeOrder = 0;
     private static bool _perMonitorMode = false;
+    // Tier 1.1: seat-map node layout (mirroring, ring wrap). Always non-null after load;
+    // a legacy host yields a plain (unmirrored, non-wrapping) layout built from the loose fields.
+    private static NodeLayout _layout = new();
+    // Sprite top-left X in VIRTUAL canvas space (unmirrored). _animX is the local, possibly mirrored, value.
+    private static float _animVirtualX;
     // Tier 0.5: face travel direction (single-sprite path). Screen-space dx with hysteresis.
     private static bool _facingLeft = false;
     private static float _prevFacingX = 0f;
@@ -2194,7 +2200,8 @@ class Program
 
             // (px, py) is the animation CENTER in virtual-canvas space.
             // _animX/_animY are the bitmap top-left, so offset by half the bitmap size.
-            _animX = px - _animWidth / 2f - _monitorOffsetX;
+            _animVirtualX = px - _animWidth / 2f;
+            _animX = NodeMapping.ToLocalX(_animVirtualX, _animWidth, _layout);
             _animY = py - _animHeight / 2f;
             return;
         }
@@ -2217,7 +2224,8 @@ class Program
                 float phaseX = (float)(scrolledD - (double)scrolledCells * _tileAlignStepX);
                 _endlessCellOffsetI = _movementConfig.Reversed ? -(int)scrolledCells : (int)scrolledCells;
                 float vx = _movementConfig.Reversed ? -phaseX : phaseX;
-                _animX = vx - _monitorOffsetX;
+                _animVirtualX = vx;
+                _animX = NodeMapping.ToLocalX(vx, _animWidth, _layout);
                 _animY = (_movementConfig.StartY ?? (_virtualCanvasHeight - _animHeight) / 2f) - _canvasOffsetY;
             }
             else
@@ -2229,8 +2237,10 @@ class Program
                     _movementConfig, elapsedMs,
                     _animWidth, _animHeight,
                     _virtualCanvasWidth, _virtualCanvasHeight,
-                    tileAlignStepX: _isTravelingMode ? _tileAlignStepX : 0f);
-                _animX = vx - _monitorOffsetX;
+                    tileAlignStepX: _isTravelingMode ? _tileAlignStepX : 0f,
+                    canvasWraps: _layout.Wraps);
+                _animVirtualX = vx;
+                _animX = NodeMapping.ToLocalX(vx, _animWidth, _layout);   // mirrored nodes flip inside their slice
                 _animY = vy - _canvasOffsetY;
 
                 // Clamp Y to corridor when ThreeZone background is active
@@ -2248,6 +2258,7 @@ class Program
             // Legacy backward compat: simple left-to-right scroll for configs without MovementConfig.
             var elapsedSeconds = elapsedMs / 1000.0;
             _animX = (float)(-_animWidth + (elapsedSeconds * _pixelsPerSecond));
+            _animVirtualX = _animX + _monitorOffsetX;
         }
     }
 
@@ -2899,7 +2910,7 @@ class Program
             // render identical cells — colors never travel from node to node.
             var cells = PatternLayout.Compute(
                 pattern!,
-                anchorX: _animX + _monitorOffsetX, anchorY: _animY,
+                anchorX: _animVirtualX, anchorY: _animY,
                 cellW: cellW, cellH: cellH,
                 virtualCanvasWidth: _virtualCanvasWidth, virtualCanvasHeight: _height,
                 monitorOffsetX: _monitorOffsetX,
@@ -2937,11 +2948,13 @@ class Program
                 var bmp = frames[Math.Min(frameIdx, frames.Length - 1)];
 
                 var (drawW, drawH) = ComputePatternDrawSize(srcIdx);
+                // Mirrored node: cells are computed unmirrored, flip them inside the slice.
+                float cellX = _layout.Mirrored ? NodeMapping.MirrorLocalX(cell.ScreenX, drawW, _layout) : cell.ScreenX;
 
                 float alpha = 1f;
                 if (hasFade && !usePerPixelFade)
                 {
-                    float cx = cell.ScreenX + drawW / 2f;
+                    float cx = cellX + drawW / 2f;
                     float cy = cell.ScreenY + drawH / 2f;
                     alpha = ComputePatternCellAlpha(cx, cy, fadeRadius);
                     if (alpha <= 0.01f) continue;
@@ -2960,11 +2973,11 @@ class Program
                         var cellMatrix = ColorGrader.ComputeForCell(colorGrading!, cell.LogicalI, cell.LogicalJ);
                         SetColorMatrixOnEffect(cellMatrix);
                     }
-                    DrawCellWithOptionalGrading(bmp, cell.ScreenX, cell.ScreenY, drawW, drawH, cell.RotationDeg, gradingActive && shouldColor, alpha);
+                    DrawCellWithOptionalGrading(bmp, cellX, cell.ScreenY, drawW, drawH, cell.RotationDeg, gradingActive && shouldColor, alpha);
                 }
                 else
                 {
-                    DrawCellWithOptionalGrading(bmp, cell.ScreenX, cell.ScreenY, drawW, drawH, cell.RotationDeg, gradingActive, alpha);
+                    DrawCellWithOptionalGrading(bmp, cellX, cell.ScreenY, drawW, drawH, cell.RotationDeg, gradingActive, alpha);
                 }
             }
 
@@ -3019,7 +3032,16 @@ class Program
             _prevFacingX = _animX;
             _hasPrevFacingX = true;
 
-            DrawCellWithOptionalGrading(bmp, _animX, _animY, _animWidth, _animHeight, rotDeg, gradingActive && !isTraveling, flipX: flipX);
+            // Ring seam: a sprite straddling the end of the perimeter is drawn at x and x − P,
+            // so it leaves the last seat and enters seat 0 in the same frame.
+            Span<float> copies = stackalloc float[2];
+            int copyCount = NodeMapping.WrapCopies(_animVirtualX, _animWidth, _layout, copies);
+            for (int c = 0; c < copyCount; c++)
+            {
+                float lx = NodeMapping.ToLocalX(copies[c], _animWidth, _layout);
+                if (!NodeMapping.IsVisible(lx, _animWidth, _layout)) continue;
+                DrawCellWithOptionalGrading(bmp, lx, _animY, _animWidth, _animHeight, rotDeg, gradingActive && !isTraveling, flipX: flipX);
+            }
         }
 
         // F3a: cover icon-zone rectangles so user icons remain visible.
@@ -3187,6 +3209,29 @@ class Program
                 _canvasOffsetY = cmd.MonitorOffsetY;
                 _nodeOrder = cmd.NodeOrder;
                 _perMonitorMode = cmd.PerMonitorMode;
+                // Seat-map layout wins when present; otherwise synthesize one from the loose fields
+                // so every downstream mapping goes through the same helper.
+                _layout = cmd.Layout ?? new NodeLayout
+                {
+                    OffsetX = cmd.MonitorOffsetX,
+                    OffsetY = cmd.MonitorOffsetY,
+                    Width = _width,
+                    Height = _height,
+                    CanvasWidth = cmd.VirtualCanvasWidth,
+                    CanvasHeight = _virtualCanvasHeight,
+                    Mirrored = false,
+                    Wraps = false,
+                    Order = cmd.NodeOrder
+                };
+                if (_layout.Width <= 0) _layout.Width = _width;
+                if (_layout.Height <= 0) _layout.Height = _height;
+                _virtualCanvasWidth = _layout.CanvasWidth > 0 ? _layout.CanvasWidth : _virtualCanvasWidth;
+                _virtualCanvasHeight = _layout.CanvasHeight > 0 ? _layout.CanvasHeight : _virtualCanvasHeight;
+                _monitorOffsetX = _layout.OffsetX;
+                _canvasOffsetY = _layout.OffsetY;
+                _nodeOrder = _layout.Order;
+                _logger?.LogInformation("[LOAD] Layout: offset=({OX},{OY}) canvas={CW}x{CH} mirrored={M} wraps={W} order={O}",
+                    _layout.OffsetX, _layout.OffsetY, _layout.CanvasWidth, _layout.CanvasHeight, _layout.Mirrored, _layout.Wraps, _layout.Order);
                 _facingLeft = false;
                 _hasPrevFacingX = false;
                 _maskZones = cmd.MaskZones;

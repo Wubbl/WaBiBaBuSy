@@ -176,6 +176,7 @@ message SyncParameters {
   int32 virtual_canvas_height = 22;    // Tallest node in the wall; 0 = legacy (use own monitor height)
   int32 monitor_offset_y = 23;         // This node's Y offset in the canvas (vertical centering on mixed heights)
   int32 node_order = 24;               // This node's traversal index (0-based); Wave-mode phase in Simultaneous mode
+  string layout_json = 25;             // JSON NodeLayout (seat map: offset, mirrored, wrap, canvas size). Empty = derive from the loose fields above
 }
 
 // Sync response (client acknowledgment)

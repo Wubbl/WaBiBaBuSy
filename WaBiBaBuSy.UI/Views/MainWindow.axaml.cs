@@ -18,6 +18,8 @@ using System.Diagnostics;
 using System.Linq;
 using WaBiBaBuSy.Core.Services.Logging;
 
+using WaBiBaBuSy.Models.Topology;
+
 namespace WaBiBaBuSy.UI.Views;
 
 public partial class MainWindow : Window
@@ -45,6 +47,9 @@ public partial class MainWindow : Window
 
     // Last known column count — used to detect when topology must be re-laid out on resize
     private int _lastNodesPerRow = -1;
+
+    // Seat-map lane layout of the last render (null when the room is a single row → auto-wrap grid).
+    private SeatMapLayoutResult? _laneLayout;
 
     // Arrow animation state
     private readonly List<ArrowAnimationData> _arrowAnimations = new();
@@ -88,6 +93,12 @@ public partial class MainWindow : Window
         {
             // Subscribe to collection changes
             viewModel.Clients.CollectionChanged += OnClientsCollectionChanged;
+            // Re-lay out the lanes when the room (seat map) changes
+            viewModel.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(MainWindowViewModel.SeatMapVersion))
+                    RenderClientNodes();
+            };
             // Render initial clients
             RenderClientNodes();
 
@@ -163,6 +174,9 @@ public partial class MainWindow : Window
 
         // Add arrow connections between nodes
         DrawArrowConnections(canvas, viewModel);
+
+        // Row labels when the room has several rows
+        DrawRowLabels(canvas, viewModel);
 
         // Add client nodes
         foreach (var client in viewModel.Clients.OrderBy(c => c.Order))
@@ -587,12 +601,7 @@ public partial class MainWindow : Window
                 ? Color.Parse("#0078D4")  // blue
                 : Color.Parse("#888888"); // gray
 
-            double startX = from.X + NodeWidth;
-            double startY = from.Y + NodeMinHeight / 2;
-            double endX = to.X;
-            double endY = to.Y + NodeMinHeight / 2;
-
-            bool crossRow = Math.Abs(from.Y - to.Y) > NodeMinHeight * 0.5;
+            var (startX, startY, endX, endY, crossRow) = ComputeArrowEndpoints(from, to);
 
             if (crossRow)
             {
@@ -649,37 +658,95 @@ public partial class MainWindow : Window
             }
             else
             {
-                // Same-row: draw a straight line
-                var line = new Line
-                {
-                    StartPoint = new Point(startX, startY),
-                    EndPoint = new Point(endX, endY),
-                    Stroke = new SolidColorBrush(arrowColor),
-                    StrokeThickness = 2,
-                    IsHitTestVisible = false,
-                    Opacity = 0.6
-                };
-                canvas.Children.Add(line);
-
-                double dx = endX - startX;
-                double dy = endY - startY;
-                double len = Math.Sqrt(dx * dx + dy * dy);
-                if (len < 1) continue;
-                double ndx = dx / len;
-                double ndy = dy / len;
-
-                var (arrowHead, arrowRotation) = CreateArrowHeadPath(arrowColor, arrowHeadSize);
-                canvas.Children.Add(arrowHead);
-
-                _arrowAnimations.Add(new ArrowAnimationData(
-                    new Point(startX, startY), new Point(endX, endY),
-                    arrowHead, ndx, ndy, arrowColor, arrowRotation));
+                AddStraightArrow(canvas, new Point(startX, startY), new Point(endX, endY), arrowColor, arrowHeadSize);
             }
+        }
+
+        // Ring: close the loop from the last seat back to the first.
+        if (viewModel.SeatMap.Traversal == TraversalMode.Ring && viewModel.SeatMap.IsMultiRow && sorted.Count >= 2)
+        {
+            var last = sorted[^1];
+            var first = sorted[0];
+            var (sx, sy, ex, ey, _) = ComputeArrowEndpoints(last, first);
+            AddStraightArrow(canvas, new Point(sx, sy), new Point(ex, ey), Color.Parse("#888888"), arrowHeadSize);
         }
 
         // Start animation timer if we have arrows
         if (_arrowAnimations.Count > 0)
             StartArrowAnimation();
+    }
+
+    /// <summary>
+    /// Pick the edges an arrow leaves/enters: right→left for a forward step in the same lane,
+    /// left→right for a backward step (odd rows in a ring), bottom→top / top→bottom when the two
+    /// nodes are stacked (row turn), otherwise the classic cross-row S-curve.
+    /// </summary>
+    private static (double sx, double sy, double ex, double ey, bool crossRow) ComputeArrowEndpoints(
+        ClientNodeViewModel from, ClientNodeViewModel to)
+    {
+        bool differentRow = Math.Abs(from.Y - to.Y) > NodeMinHeight * 0.5;
+        bool stacked = differentRow && Math.Abs(from.X - to.X) < NodeWidth * 0.5;
+
+        if (stacked)
+        {
+            bool down = to.Y > from.Y;
+            return (from.X + NodeWidth / 2, down ? from.Y + NodeMinHeight : from.Y,
+                    to.X + NodeWidth / 2, down ? to.Y : to.Y + NodeMinHeight, false);
+        }
+        if (!differentRow && to.X < from.X)
+        {
+            return (from.X, from.Y + NodeMinHeight / 2, to.X + NodeWidth, to.Y + NodeMinHeight / 2, false);
+        }
+        return (from.X + NodeWidth, from.Y + NodeMinHeight / 2, to.X, to.Y + NodeMinHeight / 2, differentRow);
+    }
+
+    private void AddStraightArrow(Canvas canvas, Point start, Point end, Color color, double arrowHeadSize)
+    {
+        var line = new Line
+        {
+            StartPoint = start,
+            EndPoint = end,
+            Stroke = new SolidColorBrush(color),
+            StrokeThickness = 2,
+            IsHitTestVisible = false,
+            Opacity = 0.6
+        };
+        canvas.Children.Add(line);
+
+        double dx = end.X - start.X;
+        double dy = end.Y - start.Y;
+        double len = Math.Sqrt(dx * dx + dy * dy);
+        if (len < 1) return;
+
+        var (arrowHead, arrowRotation) = CreateArrowHeadPath(color, arrowHeadSize);
+        canvas.Children.Add(arrowHead);
+        _arrowAnimations.Add(new ArrowAnimationData(start, end, arrowHead, dx / len, dy / len, color, arrowRotation));
+    }
+
+    private const double RowLabelHeight = 18;
+
+    /// <summary>Row captions above each lane when the room has several rows.</summary>
+    private void DrawRowLabels(Canvas canvas, MainWindowViewModel viewModel)
+    {
+        if (_laneLayout == null) return;
+        var map = viewModel.SeatMap;
+        int rows = _laneLayout.Nodes.Max(n => n.RowIndex) + 1;
+        for (int r = 0; r < rows; r++)
+        {
+            var def = r < map.Rows.Count ? map.Rows[r] : map.Rows[^1];
+            string dir = map.Traversal == TraversalMode.Parallel ? "" : (r % 2 == 0 ? "  →" : "  ←");
+            string orient = r == 0 ? "" : (def.Orientation == RowOrientation.Facing ? " · facing row 1" : " · same side");
+            var label = new TextBlock
+            {
+                Text = $"{def.Name}{dir}{orient}",
+                Foreground = new SolidColorBrush(Color.Parse("#8A8A8A")),
+                FontSize = 11,
+                IsHitTestVisible = false
+            };
+            Canvas.SetLeft(label, LayoutPadding);
+            Canvas.SetTop(label, LayoutPadding + r * (NodeMinHeight + VSpacing + RowLabelHeight));
+            canvas.Children.Add(label);
+        }
     }
 
     /// <summary>
@@ -827,6 +894,23 @@ public partial class MainWindow : Window
     /// </summary>
     private void CalculateAutoWrapPositions(Canvas canvas, MainWindowViewModel viewModel)
     {
+        // Multi-row room: one lane per table row. Odd rows are traversed backwards, so their
+        // nodes are placed right-to-left (IndexInRow) and the ring reads as a loop on screen.
+        if (viewModel.SeatMap.IsMultiRow && viewModel.Clients.Count > 0)
+        {
+            _laneLayout = viewModel.BuildSeatLayout(viewModel.Clients);
+            _lastNodesPerRow = -1;
+            foreach (var client in viewModel.Clients)
+            {
+                var n = _laneLayout.Get(client.ClientId);
+                if (n == null) continue;
+                client.X = LayoutPadding + n.IndexInRow * (NodeWidth + HSpacing);
+                client.Y = LayoutPadding + RowLabelHeight + n.RowIndex * (NodeMinHeight + VSpacing + RowLabelHeight);
+            }
+            return;
+        }
+        _laneLayout = null;
+
         var topologyBorder = this.FindControl<Border>("TopologyBorder");
         double canvasWidth = topologyBorder?.Bounds.Width ?? canvas.Bounds.Width;
         if (canvasWidth < NodeWidth + LayoutPadding * 2)
@@ -851,6 +935,19 @@ public partial class MainWindow : Window
     /// </summary>
     private int GetDropIndexAtPosition(Point pos, int nodeCount)
     {
+        if (_laneLayout != null && _laneLayout.Nodes.Count > 0)
+        {
+            // Lane mode: (row, physical column) → traversal index of the node sitting there.
+            int laneRow = Math.Max(0, (int)((pos.Y - LayoutPadding - RowLabelHeight + VSpacing / 2) / (NodeMinHeight + VSpacing + RowLabelHeight)));
+            int laneCol = Math.Max(0, (int)((pos.X - LayoutPadding + HSpacing / 2) / (NodeWidth + HSpacing)));
+            int maxRow = _laneLayout.Nodes.Max(n => n.RowIndex);
+            laneRow = Math.Min(laneRow, maxRow);
+            var inRow = _laneLayout.Nodes.Where(n => n.RowIndex == laneRow).ToList();
+            laneCol = Math.Min(laneCol, inRow.Max(n => n.IndexInRow));
+            var hit = inRow.OrderBy(n => Math.Abs(n.IndexInRow - laneCol)).First();
+            return Math.Clamp(hit.Order, 0, nodeCount - 1);
+        }
+
         var topologyBorder = this.FindControl<Border>("TopologyBorder");
         double canvasWidth = topologyBorder?.Bounds.Width ?? _topologyCanvas?.Bounds.Width ?? 800;
         int nodesPerRow = Math.Max(1, (int)((canvasWidth - LayoutPadding) / (NodeWidth + HSpacing)));

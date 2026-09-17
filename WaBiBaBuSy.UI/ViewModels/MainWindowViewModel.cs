@@ -29,6 +29,8 @@ using WaBiBaBuSy.WallpaperEngine.Services;
 using WaBiBaBuSy.Core.Services.Desktop;
 using WaBiBaBuSy.UI.Services;
 
+using WaBiBaBuSy.Models.Topology;
+
 namespace WaBiBaBuSy.UI.ViewModels;
 
 public partial class MainWindowViewModel : ViewModelBase
@@ -154,6 +156,113 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private CrossScreenConfig? _crossScreenConfig;
     private WaBiBaBuSy.Core.Services.Animation.PlaylistOrchestrator? _playlistOrchestrator;
+
+    // ── Room / seat map (Tier 1.1) ──────────────────────────────────────────
+    // The seat map breaks the ordered node chain into rows and decides how the path travels
+    // between them (Ring/Snake/Parallel). Persisted in %APPDATA%\WaBiBaBuSy\seatmap.json.
+    private SeatMap _seatMap = SeatMap.SingleRow();
+    private bool _seatMapLoading;
+
+    public SeatMap SeatMap => _seatMap;
+
+    /// <summary>Bumped whenever the seat map changes so the topology view re-lays out its lanes.</summary>
+    [ObservableProperty] private int _seatMapVersion;
+
+    [ObservableProperty] private int _roomRowCount = 1;
+    [ObservableProperty] private int _roomSeatsPerRow = 10;
+    [ObservableProperty] private bool _roomRowsFacing = true;
+    /// <summary>0 = Ring, 1 = Snake, 2 = Parallel (ComboBox order).</summary>
+    [ObservableProperty] private int _roomTraversalIndex = 1;
+    [ObservableProperty] private int _roomTurnGapCm = 150;
+
+    public bool IsRoomMultiRow => RoomRowCount > 1;
+
+    public string SeatMapSummary
+    {
+        get
+        {
+            if (!_seatMap.IsMultiRow) return "single row, left → right";
+            var facing = _seatMap.Rows.Skip(1).Any(r => r.Orientation == RowOrientation.Facing) ? "facing" : "same side";
+            return $"{_seatMap.Rows.Count} rows × {RoomSeatsPerRow} · {_seatMap.Traversal} · {facing}";
+        }
+    }
+
+    partial void OnRoomRowCountChanged(int value) => RebuildSeatMap();
+    partial void OnRoomSeatsPerRowChanged(int value) => RebuildSeatMap();
+    partial void OnRoomRowsFacingChanged(bool value) => RebuildSeatMap();
+    partial void OnRoomTraversalIndexChanged(int value) => RebuildSeatMap();
+    partial void OnRoomTurnGapCmChanged(int value) => RebuildSeatMap();
+
+    private void LoadSeatMap()
+    {
+        _seatMapLoading = true;
+        try
+        {
+            _seatMap = SeatMapStore.Load();
+            RoomRowCount = Math.Max(1, _seatMap.Rows.Count);
+            RoomSeatsPerRow = _seatMap.Rows.Count > 0 && _seatMap.Rows[0].SeatCount > 0 ? _seatMap.Rows[0].SeatCount : 10;
+            RoomRowsFacing = _seatMap.Rows.Count < 2 || _seatMap.Rows[1].Orientation == RowOrientation.Facing;
+            RoomTraversalIndex = _seatMap.Traversal switch
+            {
+                TraversalMode.Ring => 0,
+                TraversalMode.Parallel => 2,
+                _ => 1
+            };
+            RoomTurnGapCm = _seatMap.TurnGapCm;
+        }
+        finally
+        {
+            _seatMapLoading = false;
+        }
+        OnPropertyChanged(nameof(SeatMap));
+        OnPropertyChanged(nameof(IsRoomMultiRow));
+        OnPropertyChanged(nameof(SeatMapSummary));
+    }
+
+    private void RebuildSeatMap()
+    {
+        if (_seatMapLoading) return;
+        int rows = Math.Clamp(RoomRowCount, 1, 8);
+        var map = new SeatMap
+        {
+            Name = rows > 1 ? $"{rows} rows" : "Single row",
+            Traversal = RoomTraversalIndex switch { 0 => TraversalMode.Ring, 2 => TraversalMode.Parallel, _ => TraversalMode.Snake },
+            TurnGapCm = Math.Max(0, RoomTurnGapCm),
+            RowGapCm = _seatMap.RowGapCm
+        };
+        for (int r = 0; r < rows; r++)
+        {
+            map.Rows.Add(new SeatRow
+            {
+                Name = $"Row {r + 1}",
+                Orientation = r == 0 || !RoomRowsFacing ? RowOrientation.SameSide : RowOrientation.Facing,
+                SeatCount = r == rows - 1 ? 0 : Math.Max(1, RoomSeatsPerRow)
+            });
+        }
+        _seatMap = map;
+        SeatMapStore.Save(map);
+        SeatMapVersion++;
+        OnPropertyChanged(nameof(SeatMap));
+        OnPropertyChanged(nameof(IsRoomMultiRow));
+        OnPropertyChanged(nameof(SeatMapSummary));
+    }
+
+    /// <summary>
+    /// Lay the given nodes out over the current seat map (topology order). Shared by the apply path,
+    /// the topology lanes and the live preview so all three agree on where every node sits.
+    /// </summary>
+    public SeatMapLayoutResult BuildSeatLayout(IEnumerable<ClientNodeViewModel> clients)
+    {
+        var inputs = clients.OrderBy(c => c.Order).Select(c => new LayoutNodeInput
+        {
+            Id = c.ClientId,
+            WidthPx = c.MonitorWidth > 0 ? c.MonitorWidth : 1920,
+            HeightPx = c.MonitorHeight > 0 ? c.MonitorHeight : 1080,
+            GapBeforeCm = c.PhysicalDistanceCm,
+            PixelsPerCm = c.PixelsPerCm
+        }).ToList();
+        return SeatMapLayoutBuilder.Build(_seatMap, inputs);
+    }
     private string? _currentAnimationScheduleId;  // Track active animation schedule (Phase 3)
     private string? _crossScreenContentId;         // ContentId sent to remote clients at start (used for stop)
 
@@ -220,6 +329,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
         // Load wallpaper gallery from disk
         LoadWallpaperGallery();
+
+        // Room layout (rows / ring) — single row until the user configures the room
+        LoadSeatMap();
     }
 
     /// <summary>
@@ -2029,6 +2141,9 @@ public partial class MainWindowViewModel : ViewModelBase
             };
         }
 
+        // ── Node layout (seat map: mirroring, ring wrap); null for legacy servers ──
+        var remoteNodeLayout = DeserializeRemoteConfig<NodeLayout>(req.LayoutJson, "NodeLayout");
+
         // ── Movement: full config when transmitted, legacy type+speed otherwise ──
         var movementConfig = DeserializeRemoteConfig<MovementConfig>(req.MovementJson, "MovementConfig")
             ?? (req.MovementType == 0
@@ -2057,7 +2172,8 @@ public partial class MainWindowViewModel : ViewModelBase
             // 0 = older server that did not send a canvas height → fall back to this monitor's.
             explicitVirtualCanvasHeight: req.PerMonitorMode || req.VirtualCanvasHeight <= 0 ? null : req.VirtualCanvasHeight,
             explicitMonitorOffsetY: req.PerMonitorMode ? null : req.MonitorOffsetY,
-            nodeOrder: req.NodeOrder);
+            nodeOrder: req.NodeOrder,
+            layout: req.PerMonitorMode ? null : remoteNodeLayout);
 
         await Task.Delay(100);
 
@@ -3098,14 +3214,24 @@ public partial class MainWindowViewModel : ViewModelBase
                 : (c.PixelsPerCm > 0f ? c.PixelsPerCm : fallbackPixelsPerCm)
         }).ToList();
 
-        // Create virtual canvas spanning ALL nodes.
-        // Gap pixels between physically spaced monitors are inserted automatically
-        // from each screen's PixelsPerCm + PhysicalDistanceCm.
-        var canvasManager = new VirtualCanvasManager(
-            AppLogger.CreateLogger<VirtualCanvasManager>());
-        canvasManager.CalculateLayout(screenConfigs);
+        // Lay the ordered chain out over the room's seat map (rows, turn gaps, ring wrap,
+        // mirroring). Bezel gaps come from each node's PixelsPerCm + PhysicalDistanceCm as before;
+        // a single-row seat map reproduces the classic left-to-right canvas exactly.
+        var layoutInputs = allClients.OrderBy(c => c.Order).Select(c =>
+        {
+            var sc = screenConfigs.First(x => x.ClientId == c.ClientId);
+            return new LayoutNodeInput
+            {
+                Id = c.ClientId,
+                WidthPx = sc.Width,
+                HeightPx = sc.Height,
+                GapBeforeCm = sc.PhysicalDistanceCm,
+                PixelsPerCm = sc.PixelsPerCm
+            };
+        }).ToList();
+        var layout = SeatMapLayoutBuilder.Build(_seatMap, layoutInputs);
 
-        Debug.WriteLine($"[CrossScreen] Virtual canvas: {canvasManager.VirtualBounds.Width}x{canvasManager.VirtualBounds.Height}");
+        Debug.WriteLine($"[CrossScreen] Virtual canvas: {layout.CanvasWidth}x{layout.CanvasHeight} ({_seatMap.Traversal}, {_seatMap.Rows.Count} row(s), wraps={layout.Wraps})");
 
         // Get actual monitor bounds from Windows
         var screens = System.Windows.Forms.Screen.AllScreens;
@@ -3137,7 +3263,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 var globalLayout = WaBiBaBuSy.WallpaperEngine.Desktop.ZonePlanner.Compute(
                     allIcons.Select(i => (i.PixelX, i.PixelY)),
                     cellW, cellH,
-                    canvasManager.VirtualBounds.Width, virtualH,
+                    layout.CanvasWidth, virtualH,
                     config.Background.IconZonePaletteHexes,
                     config.Background.IconCorridorColorHex,
                     paddingPx: pathPaddingPx,
@@ -3162,12 +3288,12 @@ public partial class MainWindowViewModel : ViewModelBase
                     MultiImagePhaseJitterMs   = config.Animation.MultiImagePhaseJitterMs
                 };
 
-                Debug.WriteLine($"[CrossScreen] IconZone sequential: computed global path with {globalLayout.Path.Count} waypoints across {canvasManager.VirtualBounds.Width}px virtual canvas");
+                Debug.WriteLine($"[CrossScreen] IconZone sequential: computed global path with {globalLayout.Path.Count} waypoints across {layout.CanvasWidth}px virtual canvas");
 
                 // Save params for per-lap recompute
                 _seqCellW              = cellW;
                 _seqCellH              = cellH;
-                _seqVirtualCanvasWidth = canvasManager.VirtualBounds.Width;
+                _seqVirtualCanvasWidth = layout.CanvasWidth;
                 _seqVirtualH           = virtualH;
                 _seqPathPaddingPx      = pathPaddingPx;
                 _seqVisualPaddingPx    = Math.Max(4, cellW / 10);
@@ -3205,7 +3331,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
             // Build a single-screen canvas for this monitor's service.
             // D2DCompositionService.InitializeAsync loops over ScreenMappings and spawns one
-            // player per entry — passing the full multi-screen canvasManager would cause it to
+            // player per entry — passing the full multi-screen layout would cause it to
             // spawn N players per service (N² total), all positioned at the same actualBounds.
             // Each service must own exactly ONE player for its own monitor.
             var thisCfg = screenConfigs.First(s => s.ClientId == client.ClientId);
@@ -3213,11 +3339,11 @@ public partial class MainWindowViewModel : ViewModelBase
             singleCanvas.CalculateLayout(new[] { thisCfg });
 
             // In sequential mode the player needs the full virtual canvas width and this
-            // monitor's X offset within it; derive both from the global canvasManager.
-            var globalMapping = canvasManager.GetScreenByClientId(client.ClientId);
-            int virtualOffsetX = globalMapping?.VirtualBounds.X ?? 0;
-            int virtualOffsetY = globalMapping?.VirtualBounds.Y ?? 0;
-            int nodeOrder = allClients.IndexOf(client);
+            // monitor's X offset within it; derive both from the seat-map layout.
+            var nodeLayout = layout.Get(client.ClientId);
+            int virtualOffsetX = nodeLayout?.OffsetX ?? 0;
+            int virtualOffsetY = nodeLayout?.OffsetY ?? 0;
+            int nodeOrder = nodeLayout?.Order ?? 0;
 
             // Create D2D service
             var d2dService = new D2DCompositionService(
@@ -3236,18 +3362,19 @@ public partial class MainWindowViewModel : ViewModelBase
                 monitorIndex,
                 config.Movement,
                 perMonitorMode: perMonitor,
-                explicitVirtualCanvasWidth: perMonitor ? null : canvasManager.VirtualBounds.Width,
+                explicitVirtualCanvasWidth: perMonitor ? null : layout.CanvasWidth,
                 explicitMonitorOffsetX: perMonitor ? null : virtualOffsetX,
-                explicitVirtualCanvasHeight: perMonitor ? null : canvasManager.VirtualBounds.Height,
+                explicitVirtualCanvasHeight: perMonitor ? null : layout.CanvasHeight,
                 explicitMonitorOffsetY: perMonitor ? null : virtualOffsetY,
-                nodeOrder: nodeOrder);
+                nodeOrder: nodeOrder,
+                layout: perMonitor ? null : nodeLayout);
 
             // Subscribe for lap-completion recompute in sequential IconZone mode
             if (!perMonitor && config.Background.Mode == BackgroundMode.IconZone)
                 d2dService.GlobalLapCompleted += OnSequentialLapCompleted;
 
             newServices.Add((monitorIndex, d2dService));
-            Debug.WriteLine($"[CrossScreen] Monitor {monitorIndex} initialized (virtualOffsetX={virtualOffsetX}, vcw={canvasManager.VirtualBounds.Width})");
+            Debug.WriteLine($"[CrossScreen] Monitor {monitorIndex} initialized (virtualOffsetX={virtualOffsetX}, vcw={layout.CanvasWidth})");
         }
 
         // Brief pause to let all players finish loading
@@ -3289,10 +3416,10 @@ public partial class MainWindowViewModel : ViewModelBase
 
             foreach (var remoteClient in remoteClients)
             {
-                var screenMapping = canvasManager.GetScreenByClientId(remoteClient.ClientId);
-                var remoteOffsetX = screenMapping?.VirtualBounds.X ?? 0;
+                var remoteLayout = layout.Get(remoteClient.ClientId);
+                var remoteOffsetX = remoteLayout?.OffsetX ?? 0;
 
-                Debug.WriteLine($"[CrossScreen] Sending cross-screen D2D to remote {remoteClient.Hostname} ({remoteClient.ClientId}): offset={remoteOffsetX}px, canvas={canvasManager.VirtualBounds.Width}px");
+                Debug.WriteLine($"[CrossScreen] Sending cross-screen D2D to remote {remoteClient.Hostname} ({remoteClient.ClientId}): offset={remoteOffsetX}px, canvas={layout.CanvasWidth}px");
 
                 await _service.SyncCoordinator.StartCrossScreenD2DOnClientAsync(
                     clientId: remoteClient.ClientId,
@@ -3300,7 +3427,7 @@ public partial class MainWindowViewModel : ViewModelBase
                     filePath: config.Animation.AnimationPath,
                     backgroundColor: bgColor,
                     fitMode: (int)(config.Animation.FitMode),
-                    virtualCanvasWidth: canvasManager.VirtualBounds.Width,
+                    virtualCanvasWidth: layout.CanvasWidth,
                     monitorOffsetX: remoteOffsetX,
                     sharedStartTimestampMs: sharedStartTimestamp,
                     pixelsPerSecond: pixelsPerSecond,
@@ -3316,9 +3443,10 @@ public partial class MainWindowViewModel : ViewModelBase
                     background: config.Background,
                     // MonitorIndex is -1 for whole-machine nodes → render on primary.
                     targetMonitorIndex: Math.Max(0, remoteClient.MonitorIndex),
-                    virtualCanvasHeight: canvasManager.VirtualBounds.Height,
-                    monitorOffsetY: screenMapping?.VirtualBounds.Y ?? 0,
-                    nodeOrder: allClients.IndexOf(remoteClient));
+                    virtualCanvasHeight: layout.CanvasHeight,
+                    monitorOffsetY: remoteLayout?.OffsetY ?? 0,
+                    nodeOrder: remoteLayout?.Order ?? 0,
+                    layout: isSequential ? remoteLayout : null);
             }
         }
         else if (remoteClients.Count > 0)
@@ -3337,7 +3465,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         return new CrossScreenApplyResult
         {
-            VirtualCanvasWidth = canvasManager.VirtualBounds.Width,
+            VirtualCanvasWidth = layout.CanvasWidth,
             ContentWidthPx = 0, // best-effort; wire a real value later if a service exposes it
             StartLeadMs = startLeadMs,
             SharedStartTimestampMs = sharedStartTimestamp
