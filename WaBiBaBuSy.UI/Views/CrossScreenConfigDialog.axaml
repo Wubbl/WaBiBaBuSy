@@ -219,15 +219,26 @@
                                 <ComboBoxItem Content="Fit (scale into screen)"/>
                                 <ComboBoxItem Content="Fill (cover screen)"/>
                                 <ComboBoxItem Content="Stretch (distort to screen)"/>
+                                <ComboBoxItem Content="Target height (scale to a fixed height)"/>
                             </ComboBox>
                         </StackPanel>
 
                         <StackPanel Spacing="5" IsVisible="{Binding IsAnimationHeightRelevant}">
-                            <TextBlock Text="Animation Height (pixels):" FontSize="12"/>
-                            <NumericUpDown Value="{Binding AnimationHeight}"
-                                           Minimum="100" Maximum="2160"
-                                           Increment="10"
-                                           Width="150" HorizontalAlignment="Left"/>
+                            <TextBlock Text="Animation height:" FontSize="12"/>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <NumericUpDown Value="{Binding AnimationHeight}"
+                                               Minimum="10" Maximum="4320" Increment="10"
+                                               Width="150" IsVisible="{Binding !IsSizeInCm}"/>
+                                <NumericUpDown Value="{Binding AnimationHeightCm}"
+                                               Minimum="0.5" Maximum="200" Increment="0.5" FormatString="0.0"
+                                               Width="150" IsVisible="{Binding IsSizeInCm}"/>
+                                <ComboBox SelectedIndex="{Binding SizeUnitIndex}" Width="70">
+                                    <ComboBoxItem Content="px"/>
+                                    <ComboBoxItem Content="cm"/>
+                                </ComboBox>
+                            </StackPanel>
+                            <TextBlock Text="cm needs the room's 'Physical units' setting; on a pixel canvas the px value is used."
+                                       FontSize="10" Foreground="#888888" IsVisible="{Binding IsSizeInCm}"/>
                         </StackPanel>
 
                         <StackPanel Spacing="5">
@@ -418,15 +429,32 @@
 
                         <!-- Speed (visible for all non-static types) -->
                         <StackPanel Spacing="5" IsVisible="{Binding IsMovementActive}">
-                            <Grid ColumnDefinitions="Auto,*">
-                                <TextBlock Grid.Column="0" Text="Speed (pixels/second):" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                <TextBlock Grid.Column="1" Text="{Binding AnimationSpeed}" FontWeight="Bold" VerticalAlignment="Center"/>
+                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                <TextBlock Grid.Column="0" Text="Speed:" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding AnimationSpeed}" FontWeight="Bold" IsVisible="{Binding !IsSpeedInCm}"/>
+                                    <TextBlock Text="px/s" Foreground="#AAAAAA" IsVisible="{Binding !IsSpeedInCm}"/>
+                                    <TextBlock Text="{Binding AnimationSpeedCm, StringFormat={}{0:0.0}}" FontWeight="Bold" IsVisible="{Binding IsSpeedInCm}"/>
+                                    <TextBlock Text="cm/s" Foreground="#AAAAAA" IsVisible="{Binding IsSpeedInCm}"/>
+                                </StackPanel>
+                                <ComboBox Grid.Column="2" SelectedIndex="{Binding SpeedUnitIndex}" Width="80" FontSize="11">
+                                    <ComboBoxItem Content="px/s"/>
+                                    <ComboBoxItem Content="cm/s"/>
+                                </ComboBox>
                             </Grid>
                             <Slider Value="{Binding AnimationSpeed}"
                                     Minimum="50" Maximum="2000"
                                     TickFrequency="50"
-                                    IsSnapToTickEnabled="True"/>
+                                    IsSnapToTickEnabled="True"
+                                    IsVisible="{Binding !IsSpeedInCm}"/>
+                            <Slider Value="{Binding AnimationSpeedCm}"
+                                    Minimum="1" Maximum="150"
+                                    TickFrequency="1"
+                                    IsSnapToTickEnabled="True"
+                                    IsVisible="{Binding IsSpeedInCm}"/>
                             <TextBlock Text="Slower ← → Faster" FontSize="10" Foreground="#888888" HorizontalAlignment="Center"/>
+                            <TextBlock Text="cm/s needs the room's 'Physical units' setting; on a pixel canvas the px/s value is used."
+                                       FontSize="10" Foreground="#888888" IsVisible="{Binding IsSpeedInCm}"/>
                         </StackPanel>
 
                         <!-- Wave mode (Simultaneous only): per-node phase delay -->

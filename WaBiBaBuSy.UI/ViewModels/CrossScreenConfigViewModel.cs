@@ -85,16 +85,29 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     [ObservableProperty]
     private int _animationHeight = 720;
 
-    // ComboBox order: 0=Center, 1=Fit, 2=Fill, 3=Stretch (does NOT match enum order)
+    // ComboBox order: 0=Center, 1=Fit, 2=Fill, 3=Stretch, 4=Target height (does NOT match enum order)
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsAnimationHeightRelevant))]
     private int _fitModeIndex = 0; // 0 = Center
 
     /// <summary>
-    /// True when AnimationHeight actually affects rendering. In Center mode the native
-    /// resolution wins and the height field is ignored, so the UI hides it.
+    /// True when the height field actually affects the main sprite: only the "Target height" fit
+    /// mode uses it (Center = native size, Fit/Fill/Stretch derive from the screen).
     /// </summary>
-    public bool IsAnimationHeightRelevant => FitModeIndex != 0; // 0 = Center; enum order differs from ComboBox order
+    public bool IsAnimationHeightRelevant => FitModeIndex == 4;
+
+    // Tier 1.2 physical units: 0 = px, 1 = cm (cm only takes effect on a physical canvas)
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsSizeInCm))]
+    private int _sizeUnitIndex = 0;
+    [ObservableProperty] private float _animationHeightCm = 15f;
+    public bool IsSizeInCm => SizeUnitIndex == 1;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsSpeedInCm))]
+    private int _speedUnitIndex = 0;
+    [ObservableProperty] private float _animationSpeedCm = 20f;
+    public bool IsSpeedInCm => SpeedUnitIndex == 1;
 
     [ObservableProperty]
     private int _verticalAlignmentIndex = 1; // Center
@@ -436,12 +449,17 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         AnimationHeight = config.Animation.TargetHeight;
         FitModeIndex = config.Animation.FitMode switch
         {
-            ContentFitMode.Center  => 0,
-            ContentFitMode.Fit     => 1,
-            ContentFitMode.Fill    => 2,
-            ContentFitMode.Stretch => 3,
-            _                      => 0
+            ContentFitMode.Center       => 0,
+            ContentFitMode.Fit          => 1,
+            ContentFitMode.Fill         => 2,
+            ContentFitMode.Stretch      => 3,
+            ContentFitMode.TargetHeight => 4,
+            _                           => 0
         };
+        SizeUnitIndex = config.Animation.SizeUnit == SizeUnit.Centimeters ? 1 : 0;
+        AnimationHeightCm = config.Animation.TargetHeightCm;
+        SpeedUnitIndex = config.Movement.SpeedUnit == SpeedUnit.CentimetersPerSecond ? 1 : 0;
+        AnimationSpeedCm = config.Movement.SpeedCmPerSecond;
         AnimationLoop = config.Animation.Loop;
         AnimationSpeed = config.AnimationSpeedPxPerSecond;
 
@@ -589,8 +607,11 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                     1 => ContentFitMode.Fit,
                     2 => ContentFitMode.Fill,
                     3 => ContentFitMode.Stretch,
+                    4 => ContentFitMode.TargetHeight,
                     _ => ContentFitMode.Center
                 },
+                SizeUnit = SizeUnitIndex == 1 ? SizeUnit.Centimeters : SizeUnit.Pixels,
+                TargetHeightCm = Math.Max(0.5f, AnimationHeightCm),
                 Loop = AnimationLoop,
                 VerticalAlign = verticalAlign,
                 RotateWithPath = RotateWithPath,
@@ -630,6 +651,8 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             {
                 Type = movementType,
                 SpeedPixelsPerSecond = AnimationSpeed,
+                SpeedUnit = SpeedUnitIndex == 1 ? SpeedUnit.CentimetersPerSecond : SpeedUnit.PixelsPerSecond,
+                SpeedCmPerSecond = Math.Max(0.1f, AnimationSpeedCm),
                 DirectionAngleDegrees = MovementAngle,
                 WaveAmplitudePixels = WaveAmplitude,
                 WaveFrequencyHz = WaveFrequency,

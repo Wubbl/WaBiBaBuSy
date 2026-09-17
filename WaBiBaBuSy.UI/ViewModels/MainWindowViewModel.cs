@@ -175,15 +175,47 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty] private int _roomTraversalIndex = 1;
     [ObservableProperty] private int _roomTurnGapCm = 150;
 
+    [ObservableProperty] private bool _roomPhysicalUnits;
+    /// <summary>0 = Center, 1 = Top, 2 = Bottom (ComboBox order).</summary>
+    [ObservableProperty] private int _roomVerticalAnchorIndex;
+
     public bool IsRoomMultiRow => RoomRowCount > 1;
+
+    private float? _referencePixelsPerCm;
+
+    /// <summary>
+    /// Pixels per cm of the server's primary monitor — the reference DPI of a physical canvas.
+    /// Cached (monitor DPI does not change at runtime). 0 when it cannot be queried.
+    /// </summary>
+    public float ReferencePixelsPerCm
+    {
+        get
+        {
+            if (_referencePixelsPerCm.HasValue) return _referencePixelsPerCm.Value;
+            try
+            {
+                var monitors = NativeMonitorInfo.GetAllMonitors();
+                var primary = monitors.FirstOrDefault(m => m.IsPrimary) ?? monitors.FirstOrDefault();
+                _referencePixelsPerCm = primary?.PixelsPerCm ?? 0f;
+            }
+            catch { _referencePixelsPerCm = 0f; }
+            return _referencePixelsPerCm.Value;
+        }
+    }
+
+    partial void OnRoomPhysicalUnitsChanged(bool value) => RebuildSeatMap();
+    partial void OnRoomVerticalAnchorIndexChanged(int value) => RebuildSeatMap();
 
     public string SeatMapSummary
     {
         get
         {
-            if (!_seatMap.IsMultiRow) return "single row, left → right";
+            var units = _seatMap.CanvasMode == CanvasMode.Physical
+                ? (ReferencePixelsPerCm > 0f ? $" · cm @ {ReferencePixelsPerCm:0.0} px/cm" : " · cm (reference DPI unknown!)")
+                : "";
+            if (!_seatMap.IsMultiRow) return "single row, left → right" + units;
             var facing = _seatMap.Rows.Skip(1).Any(r => r.Orientation == RowOrientation.Facing) ? "facing" : "same side";
-            return $"{_seatMap.Rows.Count} rows × {RoomSeatsPerRow} · {_seatMap.Traversal} · {facing}";
+            return $"{_seatMap.Rows.Count} rows × {RoomSeatsPerRow} · {_seatMap.Traversal} · {facing}{units}";
         }
     }
 
@@ -209,6 +241,8 @@ public partial class MainWindowViewModel : ViewModelBase
                 _ => 1
             };
             RoomTurnGapCm = _seatMap.TurnGapCm;
+            RoomPhysicalUnits = _seatMap.CanvasMode == CanvasMode.Physical;
+            RoomVerticalAnchorIndex = _seatMap.VerticalAnchor switch { VerticalAnchor.Top => 1, VerticalAnchor.Bottom => 2, _ => 0 };
         }
         finally
         {
@@ -228,7 +262,9 @@ public partial class MainWindowViewModel : ViewModelBase
             Name = rows > 1 ? $"{rows} rows" : "Single row",
             Traversal = RoomTraversalIndex switch { 0 => TraversalMode.Ring, 2 => TraversalMode.Parallel, _ => TraversalMode.Snake },
             TurnGapCm = Math.Max(0, RoomTurnGapCm),
-            RowGapCm = _seatMap.RowGapCm
+            RowGapCm = _seatMap.RowGapCm,
+            CanvasMode = RoomPhysicalUnits ? CanvasMode.Physical : CanvasMode.Pixels,
+            VerticalAnchor = RoomVerticalAnchorIndex switch { 1 => VerticalAnchor.Top, 2 => VerticalAnchor.Bottom, _ => VerticalAnchor.Center }
         };
         for (int r = 0; r < rows; r++)
         {
@@ -289,7 +325,7 @@ public partial class MainWindowViewModel : ViewModelBase
             GapBeforeCm = c.PhysicalDistanceCm,
             PixelsPerCm = c.PixelsPerCm
         }).ToList();
-        return SeatMapLayoutBuilder.Build(_seatMap, inputs);
+        return SeatMapLayoutBuilder.Build(_seatMap, inputs, ReferencePixelsPerCm);
     }
     private string? _currentAnimationScheduleId;  // Track active animation schedule (Phase 3)
     private string? _crossScreenContentId;         // ContentId sent to remote clients at start (used for stop)
@@ -3259,7 +3295,11 @@ public partial class MainWindowViewModel : ViewModelBase
                 PixelsPerCm = sc.PixelsPerCm
             };
         }).ToList();
-        var layout = SeatMapLayoutBuilder.Build(_seatMap, layoutInputs);
+        var layout = SeatMapLayoutBuilder.Build(_seatMap, layoutInputs, ReferencePixelsPerCm);
+
+        // Physical canvas: resolve cm sizes/speeds into canvas px once, here. Players and the
+        // deterministic math only ever see pixel values (identical on every node).
+        var (effMovement, effAnimation) = PhysicalUnits.ResolveForCanvas(config, layout.RefPixelsPerCm);
 
         Debug.WriteLine($"[CrossScreen] Virtual canvas: {layout.CanvasWidth}x{layout.CanvasHeight} ({_seatMap.Traversal}, {_seatMap.Rows.Count} row(s), wraps={layout.Wraps})");
 
@@ -3269,7 +3309,7 @@ public partial class MainWindowViewModel : ViewModelBase
         // Sequential + IconZone: compute one global A* path across the full virtual canvas
         // so all local monitors share the same coordinated corridor path.
         var perMonitor = config.DistributionMode == AnimationDistributionMode.Simultaneous;
-        var animationConfig = config.Animation;
+        var animationConfig = effAnimation;
         if (!perMonitor && config.Background.Mode == BackgroundMode.IconZone && localClients.Count > 0)
         {
             try
@@ -3288,8 +3328,8 @@ public partial class MainWindowViewModel : ViewModelBase
                 int effectiveHeight = ComputeEffectiveAnimationHeight(
                     config.Animation, firstScreen.Bounds.Width, virtualH);
                 int pathPaddingPx = effectiveHeight / 2;
-                if (config.Movement.Type == MovementType.SineWave)
-                    pathPaddingPx += (int)Math.Ceiling(config.Movement.WaveAmplitudePixels);
+                if (effMovement.Type == MovementType.SineWave)
+                    pathPaddingPx += (int)Math.Ceiling(effMovement.WaveAmplitudePixels);
                 var globalLayout = WaBiBaBuSy.WallpaperEngine.Desktop.ZonePlanner.Compute(
                     allIcons.Select(i => (i.PixelX, i.PixelY)),
                     cellW, cellH,
@@ -3302,20 +3342,20 @@ public partial class MainWindowViewModel : ViewModelBase
                 // Clone animation config with global path attached
                 animationConfig = new AnimationLayerConfig
                 {
-                    AnimationPath             = config.Animation.AnimationPath,
-                    AdditionalAnimationPaths  = config.Animation.AdditionalAnimationPaths,
-                    TargetHeight              = config.Animation.TargetHeight,
-                    Loop                      = config.Animation.Loop,
-                    VerticalAlign             = config.Animation.VerticalAlign,
-                    CenterInitialPosition     = config.Animation.CenterInitialPosition,
-                    SpeedMultiplier           = config.Animation.SpeedMultiplier,
-                    FitMode                   = config.Animation.FitMode,
-                    RotateWithPath            = config.Animation.RotateWithPath,
+                    AnimationPath             = effAnimation.AnimationPath,
+                    AdditionalAnimationPaths  = effAnimation.AdditionalAnimationPaths,
+                    TargetHeight              = effAnimation.TargetHeight,
+                    Loop                      = effAnimation.Loop,
+                    VerticalAlign             = effAnimation.VerticalAlign,
+                    CenterInitialPosition     = effAnimation.CenterInitialPosition,
+                    SpeedMultiplier           = effAnimation.SpeedMultiplier,
+                    FitMode                   = effAnimation.FitMode,
+                    RotateWithPath            = effAnimation.RotateWithPath,
                     PrecomputedPath           = globalLayout.Path,
-                    ColorGrading              = config.Animation.ColorGrading,
-                    Pattern                   = config.Animation.Pattern,
-                    MultiImageSpread          = config.Animation.MultiImageSpread,
-                    MultiImagePhaseJitterMs   = config.Animation.MultiImagePhaseJitterMs
+                    ColorGrading              = effAnimation.ColorGrading,
+                    Pattern                   = effAnimation.Pattern,
+                    MultiImageSpread          = effAnimation.MultiImageSpread,
+                    MultiImagePhaseJitterMs   = effAnimation.MultiImagePhaseJitterMs
                 };
 
                 Debug.WriteLine($"[CrossScreen] IconZone sequential: computed global path with {globalLayout.Path.Count} waypoints across {layout.CanvasWidth}px virtual canvas");
@@ -3390,7 +3430,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 animationConfig,
                 actualBounds,
                 monitorIndex,
-                config.Movement,
+                effMovement,
                 perMonitorMode: perMonitor,
                 explicitVirtualCanvasWidth: perMonitor ? null : layout.CanvasWidth,
                 explicitMonitorOffsetX: perMonitor ? null : virtualOffsetX,
@@ -3422,9 +3462,9 @@ public partial class MainWindowViewModel : ViewModelBase
         double maxRttMs = remoteClients.Count > 0 ? remoteClients.Max(c => c.RttMs) : 0.0;
         int startLeadMs = SyncTiming.ComputeStartLeadMs(maxRttMs, (int)phase1Timer.ElapsedMilliseconds);
         var sharedStartTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + startLeadMs;
-        var pixelsPerSecond = config.Movement.Type == MovementType.Static
+        var pixelsPerSecond = effMovement.Type == MovementType.Static
             ? 0
-            : (int)config.Movement.SpeedPixelsPerSecond;
+            : (int)effMovement.SpeedPixelsPerSecond;
         Debug.WriteLine($"[CrossScreen] Shared start scheduled {startLeadMs}ms ahead (maxRtt={maxRttMs:F0}ms, load={phase1Timer.ElapsedMilliseconds}ms)");
 
         var isSequential = config.DistributionMode == AnimationDistributionMode.Sequential;
@@ -3439,10 +3479,10 @@ public partial class MainWindowViewModel : ViewModelBase
         // Phase 3: Send cross-screen D2D commands to remote clients
         if (remoteClients.Count > 0 && _service.SyncCoordinator != null)
         {
-            var contentId = System.IO.Path.GetFileName(config.Animation.AnimationPath);
+            var contentId = System.IO.Path.GetFileName(effAnimation.AnimationPath);
             _crossScreenContentId = contentId;
             var bgColor = config.Background.ColorHex ?? "#000000";
-            var movementTypeInt = (int)config.Movement.Type;
+            var movementTypeInt = (int)effMovement.Type;
 
             foreach (var remoteClient in remoteClients)
             {
@@ -3454,21 +3494,21 @@ public partial class MainWindowViewModel : ViewModelBase
                 await _service.SyncCoordinator.StartCrossScreenD2DOnClientAsync(
                     clientId: remoteClient.ClientId,
                     contentId: contentId,
-                    filePath: config.Animation.AnimationPath,
+                    filePath: effAnimation.AnimationPath,
                     backgroundColor: bgColor,
-                    fitMode: (int)(config.Animation.FitMode),
+                    fitMode: (int)(effAnimation.FitMode),
                     virtualCanvasWidth: layout.CanvasWidth,
                     monitorOffsetX: remoteOffsetX,
                     sharedStartTimestampMs: sharedStartTimestamp,
                     pixelsPerSecond: pixelsPerSecond,
                     perMonitorMode: !isSequential,
                     movementType: movementTypeInt,
-                    pattern: config.Animation.Pattern,
-                    colorGrading: config.Animation.ColorGrading,
+                    pattern: effAnimation.Pattern,
+                    colorGrading: effAnimation.ColorGrading,
                     // Full configs so the remote computes identical deterministic math.
                     // animationConfig is the (possibly IconZone-cloned) config, so the
                     // precomputed global A* path now reaches remote machines too.
-                    movement: config.Movement,
+                    movement: effMovement,
                     animation: animationConfig,
                     background: config.Background,
                     // MonitorIndex is -1 for whole-machine nodes → render on primary.
@@ -3487,7 +3527,7 @@ public partial class MainWindowViewModel : ViewModelBase
         StartFullscreenDetectionIfNeeded();
 
         // Set up thumbnail capture for live preview in topology nodes
-        var animName = Path.GetFileName(config.Animation.AnimationPath) ?? "Animation";
+        var animName = Path.GetFileName(effAnimation.AnimationPath) ?? "Animation";
         foreach (var (monitorIndex, d2dService) in newServices)
         {
             SetupThumbnailCapture(monitorIndex, d2dService.PlayerHwnd, animName);
@@ -3497,13 +3537,14 @@ public partial class MainWindowViewModel : ViewModelBase
         ActiveLayout = layout;
         ActiveScene = config;
         ActiveLabels = allClients.GroupBy(c => c.ClientId).ToDictionary(g => g.Key, g => g.First().Hostname);
-        ActiveSpriteImagePath = ResolveSpriteImagePath(config.Animation.AnimationPath);
+        ActiveSpriteImagePath = ResolveSpriteImagePath(effAnimation.AnimationPath);
         ActiveSharedStartMs = sharedStartTimestamp;
 
         return new CrossScreenApplyResult
         {
             VirtualCanvasWidth = layout.CanvasWidth,
             ContentWidthPx = 0, // best-effort; wire a real value later if a service exposes it
+            EffectiveSpeedPx = effMovement.SpeedPixelsPerSecond,
             StartLeadMs = startLeadMs,
             SharedStartTimestampMs = sharedStartTimestamp
         };
@@ -3517,7 +3558,7 @@ public partial class MainWindowViewModel : ViewModelBase
             apply: config => Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
             {
                 var r = await ApplyCrossScreenConfigAsync(config);
-                return new WaBiBaBuSy.Core.Services.Animation.ApplyMetrics(r.VirtualCanvasWidth, r.ContentWidthPx, r.StartLeadMs);
+                return new WaBiBaBuSy.Core.Services.Animation.ApplyMetrics(r.VirtualCanvasWidth, r.ContentWidthPx, r.StartLeadMs, r.EffectiveSpeedPx);
             }),
             seedProvider: () => Environment.TickCount);
 
@@ -3782,6 +3823,8 @@ public sealed class CrossScreenApplyResult
     public int ContentWidthPx { get; init; }
     /// <summary>How far in the future the shared start was scheduled (Tier 0.4).</summary>
     public int StartLeadMs { get; init; }
+    /// <summary>Canvas speed in px/s after cm→px resolution (Tier 1.2); drives playlist lap timing.</summary>
+    public float EffectiveSpeedPx { get; init; }
     /// <summary>The shared UTC start timestamp all nodes were given.</summary>
     public long SharedStartTimestampMs { get; init; }
 }

@@ -230,6 +230,16 @@
                                        IsEnabled="{Binding IsRoomMultiRow}"/>
                             <NumericUpDown Value="{Binding RoomTurnGapCm}" Minimum="0" Maximum="3000" Increment="10"
                                            Width="105" FontSize="11" Margin="0,0,12,0"/>
+                            <CheckBox IsChecked="{Binding RoomPhysicalUnits}" Content="Physical units (cm)"
+                                      FontSize="11" Margin="0,0,12,0"
+                                      ToolTip.Tip="Canvas in reference pixels of this server's primary monitor: a sprite is the same number of centimeters and moves at the same cm/s on every monitor, whatever its resolution or size."/>
+                            <TextBlock Text="Align" Foreground="#AAAAAA" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                            <ComboBox SelectedIndex="{Binding RoomVerticalAnchorIndex}" Width="90" FontSize="11" Margin="0,0,12,0"
+                                      ToolTip.Tip="Where a monitor shorter than the canvas sits: centered (monitors on one table), top edges or bottom edges aligned.">
+                                <ComboBoxItem Content="Center"/>
+                                <ComboBoxItem Content="Top"/>
+                                <ComboBoxItem Content="Bottom"/>
+                            </ComboBox>
                             <TextBlock Text="{Binding SeatMapSummary}" Foreground="#777777" FontSize="11" VerticalAlignment="Center"/>
                         </WrapPanel>
                     </Border>

@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-09-17 — Physical canvas for mixed monitors (Tier 1.2)
+
+Design: `.docs/plans/2026-09-17-physical-canvas-design.md`. 15 new unit tests (132 total).
+
+- **Model**: `SeatMap.CanvasMode` (Pixels | Physical) and `SeatMap.VerticalAnchor` (Center | Top | Bottom); `NodeLayout.Scale` (= node ppcm / reference ppcm) and `RefPixelsPerCm`. `SeatMapLayoutBuilder.Build(map, nodes, referencePixelsPerCm)`: on a physical canvas each node's slice is `px / Scale` reference pixels and bezel/turn gaps use the reference DPI; unknown DPI → Scale 1. Pixel mode is bit-identical to before (tested).
+- **Units**: `AnimationLayerConfig.SizeUnit` + `TargetHeightCm`, `MovementConfig.SpeedUnit` + `SpeedCmPerSecond`. New fit mode `ContentFitMode.TargetHeight` ("scale to a fixed height") — the first fit mode where the height field affects the main sprite (Center = native, Fit/Fill/Stretch derive from the screen; the dialog now hides the height field for those). `PhysicalUnits.ResolveForCanvas` converts cm → canvas px right before broadcast, so players and the deterministic math only ever see pixel values.
+- **Reference DPI**: the server's primary monitor (`MainWindowViewModel.ReferencePixelsPerCm`, cached); shown in the Room summary, with a warning when unknown.
+- **Player**: animation-layer math (layout, fit, movement, pattern, IconZone planner inputs, corridor clamp) runs in canvas units `_cw × _ch = layout.Width × layout.Height`; `DrawCellWithOptionalGrading` applies `Scale` as a D2D transform (composed after flip/rotation). Zone bands are converted back to device px for drawing. Per-monitor (Simultaneous) mode has no layout and therefore no scale.
+- **Playlist**: `ApplyMetrics.SpeedPxPerSecond` / `PlaylistScheduler.ComputeLapMs(..., speedPxOverride)` so lap-snap uses the resolved canvas speed.
+- **UI**: Room panel gains "Physical units (cm)" and "Align" (Center/Top/Bottom); animation dialog gains the "Target height" fit mode, a px/cm toggle on the height, a px/s / cm/s toggle on the speed (own slider 1–150 cm/s); topology node caption shows the monitor's physical size in cm; the preview resolves units the same way and reports canvas length in metres and sprite width in cm.
+- **Not covered**: EDID-based DPI verification / per-seat DPI override (design §6) — `MonitorDpiHelper` already prefers raw DPI; add the override if a monitor reports nonsense.
+
 ## 2026-09-17 — Live preview (Tier 2.1)
 
 Design: `.docs/plans/2026-09-17-authoring-ux-and-preview-design.md` §2 (the preview part; tabs/presets are still open).

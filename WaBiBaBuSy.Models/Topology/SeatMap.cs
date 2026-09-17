@@ -15,6 +15,23 @@ public enum TraversalMode
     Parallel
 }
 
+/// <summary>Unit system of the shared canvas.</summary>
+public enum CanvasMode
+{
+    /// <summary>Canvas in device pixels; a node's slice is its pixel width. Same sprite = different physical size on different monitors.</summary>
+    Pixels,
+
+    /// <summary>
+    /// Canvas in reference pixels (the reference monitor's pixels per cm). Each node gets
+    /// <c>Scale = ppcm / refPpcm</c> and a slice of <c>widthPx / Scale</c>, so a sprite of N reference
+    /// pixels is the same number of centimeters on every monitor and moves at the same cm/s.
+    /// </summary>
+    Physical
+}
+
+/// <summary>Where a node shorter than the canvas sits inside it.</summary>
+public enum VerticalAnchor { Center, Top, Bottom }
+
 /// <summary>Orientation of a row relative to row 0.</summary>
 public enum RowOrientation
 {
@@ -54,6 +71,12 @@ public class SeatMap
 
     /// <summary>Vertical distance (cm) between rows in Parallel traversal.</summary>
     public int RowGapCm { get; set; } = 120;
+
+    /// <summary>Pixel canvas (legacy, default) or physical canvas in reference pixels (Tier 1.2).</summary>
+    public CanvasMode CanvasMode { get; set; } = CanvasMode.Pixels;
+
+    /// <summary>How nodes shorter than the canvas are placed vertically. Center matches monitors standing on one table.</summary>
+    public VerticalAnchor VerticalAnchor { get; set; } = VerticalAnchor.Center;
 
     public List<SeatRow> Rows { get; set; } = new();
 
@@ -116,6 +139,12 @@ public class NodeLayout
     /// <summary>Physical position within the row (0 = leftmost seat as seen from row 0's side).</summary>
     public int IndexInRow { get; set; }
 
-    /// <summary>Reserved for the physical canvas (rpx → device px). 1.0 = pixel canvas.</summary>
+    /// <summary>
+    /// Device pixels per canvas (reference) pixel for this node: <c>ppcm / refPpcm</c> in Physical
+    /// mode, 1.0 on a pixel canvas. The player draws the animation layer under this scale.
+    /// </summary>
     public float Scale { get; set; } = 1f;
+
+    /// <summary>Reference pixels per cm the canvas is expressed in; 0 on a pixel canvas.</summary>
+    public float RefPixelsPerCm { get; set; }
 }

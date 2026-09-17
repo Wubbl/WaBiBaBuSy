@@ -201,10 +201,19 @@ public class AnimationLayerConfig
     public string AnimationPath { get; set; } = string.Empty;
 
     /// <summary>
-    /// Target height for the animation in pixels.
+    /// Target height for the animation in pixels (canvas units).
     /// Width is calculated automatically to maintain aspect ratio.
     /// </summary>
     public int TargetHeight { get; set; } = 720;
+
+    /// <summary>Which of <see cref="TargetHeight"/> / <see cref="TargetHeightCm"/> is authoritative.</summary>
+    public SizeUnit SizeUnit { get; set; } = SizeUnit.Pixels;
+
+    /// <summary>
+    /// Target height in centimeters (Physical canvas). Converted to canvas pixels with the reference
+    /// DPI by <see cref="PhysicalUnits"/> before anything reaches a player.
+    /// </summary>
+    public float TargetHeightCm { get; set; } = 15f;
 
     /// <summary>
     /// Whether to loop the animation continuously
@@ -324,8 +333,21 @@ public enum ContentFitMode
     /// <summary>
     /// Scale to fill screen bounds, preserving aspect ratio (may crop)
     /// </summary>
-    Fill
+    Fill,
+
+    /// <summary>
+    /// Scale to <see cref="AnimationLayerConfig.TargetHeight"/> (or <see cref="AnimationLayerConfig.TargetHeightCm"/>
+    /// on a physical canvas), preserving aspect ratio. The only fit mode where the height field has an effect
+    /// on the main sprite.
+    /// </summary>
+    TargetHeight
 }
+
+/// <summary>Unit of a size value.</summary>
+public enum SizeUnit { Pixels, Centimeters }
+
+/// <summary>Unit of a speed value.</summary>
+public enum SpeedUnit { PixelsPerSecond, CentimetersPerSecond }
 
 /// <summary>
 /// Vertical alignment options for animation layer
@@ -386,9 +408,15 @@ public class MovementConfig
     public MovementType Type { get; set; } = MovementType.Linear;
 
     /// <summary>
-    /// Movement speed in pixels per second
+    /// Movement speed in pixels per second (canvas units)
     /// </summary>
     public float SpeedPixelsPerSecond { get; set; } = 500f;
+
+    /// <summary>Which of <see cref="SpeedPixelsPerSecond"/> / <see cref="SpeedCmPerSecond"/> is authoritative.</summary>
+    public SpeedUnit SpeedUnit { get; set; } = SpeedUnit.PixelsPerSecond;
+
+    /// <summary>Movement speed in cm per second (Physical canvas); resolved to canvas px/s by <see cref="PhysicalUnits"/>.</summary>
+    public float SpeedCmPerSecond { get; set; } = 20f;
 
     /// <summary>
     /// Start X position in virtual canvas coordinates (null = auto-calculate based on movement type)

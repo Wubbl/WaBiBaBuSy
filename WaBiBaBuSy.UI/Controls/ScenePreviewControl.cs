@@ -226,7 +226,18 @@ public class ScenePreviewControl : Control
             y += rowH[r] * s + rowGapVirtual * s;
         }
 
+        // Resolve cm → canvas px exactly like the apply path does, so the preview and the wall agree.
         var scene = Scene;
+        if (scene != null)
+        {
+            var (mv, an) = PhysicalUnits.ResolveForCanvas(scene, layout.RefPixelsPerCm);
+            scene = new CrossScreenConfig
+            {
+                Background = scene.Background, Movement = mv, Animation = an,
+                DistributionMode = scene.DistributionMode, SelectedMonitorIds = scene.SelectedMonitorIds,
+                AnimationSpeedPxPerSecond = scene.AnimationSpeedPxPerSecond
+            };
+        }
         long elapsed = CurrentElapsedMs();
         var bg = scene?.Background;
         var bgBrush = new SolidColorBrush(ParseHex(bg == null ? "#000000" :
@@ -329,6 +340,11 @@ public class ScenePreviewControl : Control
             }
             case ContentFitMode.Stretch:
                 return (node.Width, node.Height);
+            case ContentFitMode.TargetHeight:
+            {
+                int th = Math.Max(1, scene.Animation.TargetHeight);
+                return (Math.Max(1, (int)Math.Round(nativeW * (double)th / nativeH)), th);
+            }
             default:
                 return (nativeW, nativeH);
         }
@@ -425,7 +441,11 @@ public class ScenePreviewControl : Control
         {
             int lap = PlaylistScheduler.ComputeLapMs(scene.Movement, layout.CanvasWidth, animW);
             if (lap > 0) parts.Add($"lap ≈ {lap / 1000.0:0} s");
-            parts.Add($"{layout.CanvasWidth:N0} px canvas" + (layout.Wraps ? " · ring" : ""));
+            parts.Add(layout.IsPhysical
+                ? $"{PhysicalUnits.PxToCm(layout.CanvasWidth, layout.RefPixelsPerCm) / 100f:0.0} m canvas (physical)" + (layout.Wraps ? " · ring" : "")
+                : $"{layout.CanvasWidth:N0} px canvas" + (layout.Wraps ? " · ring" : ""));
+            if (layout.IsPhysical && animW > 0)
+                parts.Add($"sprite {PhysicalUnits.PxToCm(animW, layout.RefPixelsPerCm):0.0} cm wide");
             if (scene.Background.Mode == BackgroundMode.IconZone) parts.Add("IconZone path not previewed");
             if (hotId != null)
             {

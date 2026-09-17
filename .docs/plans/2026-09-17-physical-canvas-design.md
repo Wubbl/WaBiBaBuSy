@@ -1,6 +1,12 @@
 # Physical Canvas (heterogeneous monitors) — Design
 
-**Created:** 2026-09-17 · **Status:** Proposal · **Roadmap:** Tier 1.2 (+ Tier 0.1)
+**Created:** 2026-09-17 · **Status:** Implemented 2026-09-17 · **Roadmap:** Tier 1.2 (+ Tier 0.1)
+
+> **Implementation note (2026-09-17):** §2–§5 and §7 as designed, with two simplifications: `CanvasSettings`
+> lives on `SeatMap` (`CanvasMode`, `VerticalAnchor`), and the reference monitor is always the server's
+> primary (`MainWindowViewModel.ReferencePixelsPerCm`). Size in cm needed a real fit mode, so
+> `ContentFitMode.TargetHeight` was added (the existing height field only affected multi-image draw size).
+> §6's EDID lookup / per-seat DPI override is deferred.
 **Solves:** F3 in [`2026-09-17-lan-party-roadmap.md`](2026-09-17-lan-party-roadmap.md)
 
 ---

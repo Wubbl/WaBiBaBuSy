@@ -129,7 +129,10 @@ public partial class ClientNodeViewModel : ObservableObject
 
             var primary = IsPrimaryMonitor ? " (Primary)" : "";
             var hz = MonitorRefreshHz > 0 ? $" @ {MonitorRefreshHz}Hz" : "";
-            return $"Monitor {MonitorIndex + 1}: {MonitorWidth}x{MonitorHeight}{hz}{primary}";
+            var cm = PixelsPerCm > 0f && MonitorWidth > 0
+                ? $" · {MonitorWidth / PixelsPerCm:0}×{MonitorHeight / PixelsPerCm:0} cm"
+                : "";
+            return $"Monitor {MonitorIndex + 1}: {MonitorWidth}x{MonitorHeight}{hz}{cm}{primary}";
         }
     }
 

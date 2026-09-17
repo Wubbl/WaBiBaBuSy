@@ -538,6 +538,11 @@ class Program
     private static NodeLayout _layout = new();
     // Sprite top-left X in VIRTUAL canvas space (unmirrored). _animX is the local, possibly mirrored, value.
     private static float _animVirtualX;
+    // Tier 1.2 physical canvas: this node's slice in CANVAS units (reference px) and the device
+    // scale. All animation-layer math (layout, movement, pattern) runs in canvas units; drawing
+    // applies _layout.Scale. On a pixel canvas _cw/_ch == _width/_height and Scale == 1.
+    private static int _cw, _ch;
+    private static float Scale => _layout.Scale > 0f ? _layout.Scale : 1f;
     // Tier 0.5: face travel direction (single-sprite path). Screen-space dx with hysteresis.
     private static bool _facingLeft = false;
     private static float _prevFacingX = 0f;
@@ -1715,19 +1720,24 @@ class Program
                     pathPaddingPx += (int)Math.Ceiling(_movementConfig.WaveAmplitudePixels);
                 if (_movementConfig?.Type == MovementType.RandomWalk && _movementConfig.WaveAmplitudePixels > 0)
                     pathPaddingPx += (int)Math.Ceiling(_movementConfig.WaveAmplitudePixels);
-                // Always compute local zones for background rendering
+                // Always compute local zones for background rendering.
+                // Physical canvas (Scale != 1): the animation path is in canvas units, so feed the
+                // planner canvas-unit icon rects/cells; the visual bands are converted back when drawn.
+                var plannerIcons = ToCanvasUnits(iconPositions);
+                int pcW = Math.Max(1, (int)Math.Round(cellW / Scale)), pcH = Math.Max(1, (int)Math.Round(cellH / Scale));
                 var layout = WaBiBaBuSy.WallpaperEngine.Desktop.ZonePlanner.Compute(
-                    iconPositions, cellW, cellH, _width, _height,
+                    plannerIcons, pcW, pcH, _cw, _ch,
                     config.IconZonePaletteHexes, config.IconCorridorColorHex,
                     paddingPx: pathPaddingPx,
-                    visualPaddingPx: Math.Max(20, cellW / 3),
-                    iconImageW: iconImageW,
-                    iconImageH: iconImageH);
+                    visualPaddingPx: Math.Max(20, pcW / 3),
+                    iconImageW: (int)Math.Round(iconImageW / Scale),
+                    iconImageH: (int)Math.Round(iconImageH / Scale));
 
                 foreach (var band in layout.Bands)
                 {
                     var brush = _d2dContext!.CreateSolidColorBrush(ParseHexColor(band.ColorHex));
-                    _iconZoneBands.Add((band.Y, band.Height, band.X, band.Width, band.IsFree, brush));
+                    // Bands are drawn in device px → scale back from canvas units
+                    _iconZoneBands.Add((band.Y * Scale, band.Height * Scale, band.X * Scale, band.Width < 0 ? band.Width : band.Width * Scale, band.IsFree, brush));
                 }
 
                 // Path: use centrally-precomputed path (sequential mode) if provided,
@@ -1999,11 +2009,15 @@ class Program
         int nativeWidth = _contentNativeWidth;
         int nativeHeight = _contentNativeHeight;
 
+        // All sizes below are in CANVAS units (reference px). _cw/_ch is this node's slice;
+        // on a pixel canvas that equals the monitor size, on a physical canvas it is monitor/Scale.
+        if (_cw <= 0 || _ch <= 0) { _cw = _width; _ch = _height; }
+
         if (nativeWidth <= 0 || nativeHeight <= 0)
         {
             _logger?.LogWarning("[LAYOUT] Invalid native dimensions ({W}x{H}), using screen size", nativeWidth, nativeHeight);
-            _animWidth = _width;
-            _animHeight = _height;
+            _animWidth = _cw;
+            _animHeight = _ch;
         }
         else
         {
@@ -2016,24 +2030,31 @@ class Program
 
                 case ContentFitMode.Fit:
                     double fitScale = Math.Min(
-                        (double)_width / nativeWidth,
-                        (double)_height / nativeHeight);
+                        (double)_cw / nativeWidth,
+                        (double)_ch / nativeHeight);
                     _animWidth = (int)(nativeWidth * fitScale);
                     _animHeight = (int)(nativeHeight * fitScale);
                     break;
 
                 case ContentFitMode.Fill:
                     double fillScale = Math.Max(
-                        (double)_width / nativeWidth,
-                        (double)_height / nativeHeight);
+                        (double)_cw / nativeWidth,
+                        (double)_ch / nativeHeight);
                     _animWidth = (int)(nativeWidth * fillScale);
                     _animHeight = (int)(nativeHeight * fillScale);
                     break;
 
+                case ContentFitMode.TargetHeight:
+                    // Tier 1.2: explicit height in canvas units (cm → px already resolved by the server).
+                    int targetH = Math.Max(1, config.TargetHeight);
+                    _animHeight = targetH;
+                    _animWidth = Math.Max(1, (int)Math.Round(nativeWidth * (double)targetH / nativeHeight));
+                    break;
+
                 case ContentFitMode.Stretch:
                 default:
-                    _animWidth = _width;
-                    _animHeight = _height;
+                    _animWidth = _cw;
+                    _animHeight = _ch;
                     break;
             }
         }
@@ -2046,7 +2067,7 @@ class Program
         if (_centerInitialPosition || _pixelsPerSecond == 0)
         {
             // Centered on screen
-            _animX = (_width - _animWidth) / 2f;
+            _animX = (_cw - _animWidth) / 2f;
         }
         else
         {
@@ -2069,17 +2090,17 @@ class Program
                     _animY = 0;
                     break;
                 case VerticalAlignment.Bottom:
-                    _animY = _height - _animHeight;
+                    _animY = _ch - _animHeight;
                     break;
                 case VerticalAlignment.Center:
                 default:
-                    _animY = (_height - _animHeight) / 2f;
+                    _animY = (_ch - _animHeight) / 2f;
                     break;
             }
         }
 
         _logger?.LogInformation("[LAYOUT] Animation: {W}x{H} at ({X:F0},{Y:F0}) | FitMode: {Fit} | Native: {NW}x{NH} | Screen: {SW}x{SH}",
-            _animWidth, _animHeight, _animX, _animY, config.FitMode, nativeWidth, nativeHeight, _width, _height);
+            _animWidth, _animHeight, _animX, _animY, config.FitMode, nativeWidth, nativeHeight, _cw, _ch);
     }
 
     /// <summary>
@@ -2179,7 +2200,7 @@ class Program
                 px += perpX * sinOffset;
                 py += perpY * sinOffset;
                 // Clamp the center coordinate so the bitmap stays on-screen.
-                py = Math.Clamp(py, _animHeight / 2f, Math.Max(_animHeight / 2f, _height - _animHeight / 2f));
+                py = Math.Clamp(py, _animHeight / 2f, Math.Max(_animHeight / 2f, _ch - _animHeight / 2f));
             }
 
             if (_movementConfig?.Type == MovementType.RandomWalk && _movementConfig.WaveAmplitudePixels > 0)
@@ -2195,7 +2216,7 @@ class Program
                 float perpY =  MathF.Cos(tangentAngle);
                 px += perpX * perpOffset;
                 py += perpY * perpOffset;
-                py = Math.Clamp(py, _animHeight / 2f, Math.Max(_animHeight / 2f, _height - _animHeight / 2f));
+                py = Math.Clamp(py, _animHeight / 2f, Math.Max(_animHeight / 2f, _ch - _animHeight / 2f));
             }
 
             // (px, py) is the animation CENTER in virtual-canvas space.
@@ -2244,10 +2265,11 @@ class Program
                 _animY = vy - _canvasOffsetY;
 
                 // Clamp Y to corridor when ThreeZone background is active
+                // (corridor values are device px; convert to canvas units on a physical canvas)
                 if (_hasCorridorConstraint && _corridorHeightPx > 0)
                 {
-                    float minY = _corridorTopPx;
-                    float maxY = _corridorTopPx + _corridorHeightPx - _animHeight;
+                    float minY = _corridorTopPx / Scale;
+                    float maxY = (_corridorTopPx + _corridorHeightPx) / Scale - _animHeight;
                     if (maxY < minY) maxY = minY;
                     _animY = Math.Clamp(_animY, minY, maxY);
                 }
@@ -2292,13 +2314,14 @@ class Program
         int iconImageW = Math.Max(0, GetSystemMetrics(SM_CXICON));
         int iconImageH = Math.Max(0, GetSystemMetrics(SM_CYICON));
 
+        int rcW = Math.Max(1, (int)Math.Round(_detectedCellW / Scale)), rcH = Math.Max(1, (int)Math.Round(_detectedCellH / Scale));
         var layout = WaBiBaBuSy.WallpaperEngine.Desktop.ZonePlanner.Compute(
-            _detectedIcons, _detectedCellW, _detectedCellH, _width, _height,
+            ToCanvasUnits(_detectedIcons), rcW, rcH, _cw, _ch,
             _backgroundConfig.IconZonePaletteHexes, _backgroundConfig.IconCorridorColorHex,
             paddingPx: pathPaddingPx,
-            visualPaddingPx: Math.Max(4, _detectedCellW / 10),
-            iconImageW: iconImageW,
-            iconImageH: iconImageH,
+            visualPaddingPx: Math.Max(4, rcW / 10),
+            iconImageW: (int)Math.Round(iconImageW / Scale),
+            iconImageH: (int)Math.Round(iconImageH / Scale),
             pathVariationSeed: variationSeed);
 
         _animPath.Clear();
@@ -2308,6 +2331,17 @@ class Program
         _animPathTotalLength = ComputePathLength(_animPath);
         _logger?.LogInformation("[IconZone] Path rebuilt (traverse #{Seed}): {Pts} waypoints, totalLen={Len:F0}px",
             variationSeed, _animPath.Count, _animPathTotalLength);
+    }
+
+    /// <summary>Device-px icon positions → canvas units (identity on a pixel canvas).</summary>
+    private static List<(int X, int Y)> ToCanvasUnits(List<(int X, int Y)> devicePositions)
+    {
+        float sc = Scale;
+        if (MathF.Abs(sc - 1f) < 0.0005f) return devicePositions;
+        var result = new List<(int X, int Y)>(devicePositions.Count);
+        foreach (var (x, y) in devicePositions)
+            result.Add(((int)Math.Round(x / sc), (int)Math.Round(y / sc)));
+        return result;
     }
 
     private static float ComputePathLength(List<(float X, float Y)> path)
@@ -2357,7 +2391,7 @@ class Program
     {
         // With 2D per-icon zones the free space is not described as bands;
         // just clamp the sine offset to screen bounds so it doesn't go off-screen.
-        return Math.Clamp(y, 0f, Math.Max(0f, _height - _animHeight));
+        return Math.Clamp(y, 0f, Math.Max(0f, _ch - _animHeight));
     }
 
     // ================================
@@ -2912,9 +2946,9 @@ class Program
                 pattern!,
                 anchorX: _animVirtualX, anchorY: _animY,
                 cellW: cellW, cellH: cellH,
-                virtualCanvasWidth: _virtualCanvasWidth, virtualCanvasHeight: _height,
+                virtualCanvasWidth: _virtualCanvasWidth, virtualCanvasHeight: _virtualCanvasHeight,
                 monitorOffsetX: _monitorOffsetX,
-                monitorWidth: _width, monitorHeight: _height,
+                monitorWidth: _cw, monitorHeight: _ch,
                 sourceImageCount: sourceCount,
                 cellLogicalOffsetI: _endlessCellOffsetI);
 
@@ -2954,9 +2988,10 @@ class Program
                 float alpha = 1f;
                 if (hasFade && !usePerPixelFade)
                 {
-                    float cx = cellX + drawW / 2f;
-                    float cy = cell.ScreenY + drawH / 2f;
-                    alpha = ComputePatternCellAlpha(cx, cy, fadeRadius);
+                    // Zone bands are in device px → compare the cell center in device px
+                    float cx = (cellX + drawW / 2f) * Scale;
+                    float cy = (cell.ScreenY + drawH / 2f) * Scale;
+                    alpha = ComputePatternCellAlpha(cx, cy, fadeRadius * Scale);
                     if (alpha <= 0.01f) continue;
                 }
 
@@ -3025,7 +3060,7 @@ class Program
             if (_animationConfig.FaceTravelDirection)
             {
                 float dx = _hasPrevFacingX ? _animX - _prevFacingX : 0f;
-                if (MathF.Abs(dx) > _width) dx = 0f;
+                if (MathF.Abs(dx) > _cw) dx = 0f;
                 _facingLeft = SyncTiming.ResolveFacingLeft(dx, _facingLeft);
                 flipX = _facingLeft;
             }
@@ -3120,15 +3155,20 @@ class Program
         if (_d2dContext == null) return;
 
         bool needsRotation = MathF.Abs(rotationDeg) > 0.01f;
-        bool needsTransform = needsRotation || flipX;
+        float scale = Scale;
+        bool needsScale = MathF.Abs(scale - 1f) > 0.0005f;
+        bool needsTransform = needsRotation || flipX || needsScale;
         Matrix3x2 prior = Matrix3x2.Identity;
         if (needsTransform)
         {
+            // x/y/w/h are canvas units; flip + rotate about the sprite center in canvas space,
+            // then scale canvas → device pixels (physical canvas, Tier 1.2).
             var center = new Vector2(x + w / 2f, y + h / 2f);
             prior = _d2dContext.Transform;
             var t = Matrix3x2.Identity;
             if (flipX) t = Matrix3x2.CreateScale(-1f, 1f, center);           // mirror about the sprite center
             if (needsRotation) t *= Matrix3x2.CreateRotation(rotationDeg * MathF.PI / 180f, center);
+            if (needsScale) t *= Matrix3x2.CreateScale(scale, scale);
             _d2dContext.Transform = t * prior;
         }
 
@@ -3225,13 +3265,16 @@ class Program
                 };
                 if (_layout.Width <= 0) _layout.Width = _width;
                 if (_layout.Height <= 0) _layout.Height = _height;
+                if (_layout.Scale <= 0f) _layout.Scale = 1f;
+                _cw = _layout.Width;
+                _ch = _layout.Height;
                 _virtualCanvasWidth = _layout.CanvasWidth > 0 ? _layout.CanvasWidth : _virtualCanvasWidth;
                 _virtualCanvasHeight = _layout.CanvasHeight > 0 ? _layout.CanvasHeight : _virtualCanvasHeight;
                 _monitorOffsetX = _layout.OffsetX;
                 _canvasOffsetY = _layout.OffsetY;
                 _nodeOrder = _layout.Order;
-                _logger?.LogInformation("[LOAD] Layout: offset=({OX},{OY}) canvas={CW}x{CH} mirrored={M} wraps={W} order={O}",
-                    _layout.OffsetX, _layout.OffsetY, _layout.CanvasWidth, _layout.CanvasHeight, _layout.Mirrored, _layout.Wraps, _layout.Order);
+                _logger?.LogInformation("[LOAD] Layout: offset=({OX},{OY}) canvas={CW}x{CH} slice={SW}x{SH} scale={S:F3} mirrored={M} wraps={W} order={O}",
+                    _layout.OffsetX, _layout.OffsetY, _layout.CanvasWidth, _layout.CanvasHeight, _cw, _ch, Scale, _layout.Mirrored, _layout.Wraps, _layout.Order);
                 _facingLeft = false;
                 _hasPrevFacingX = false;
                 _maskZones = cmd.MaskZones;
@@ -3405,7 +3448,7 @@ class Program
                 if ((_useNativeD2DComposition || _useNativeD2DVideo) && _animationConfig != null)
                 {
                     if (_centerInitialPosition || _pixelsPerSecond == 0)
-                        _animX = (_width - _animWidth) / 2f;
+                        _animX = (_cw - _animWidth) / 2f;
                     else
                         _animX = -_animWidth;
                 }

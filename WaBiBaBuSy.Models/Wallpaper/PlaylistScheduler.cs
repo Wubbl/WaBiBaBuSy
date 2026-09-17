@@ -18,10 +18,18 @@ public static class PlaylistScheduler
     /// one of StartY/EndY will get an approximate (still safe — over/under-rounds the dwell) lap here.
     /// </summary>
     public static int ComputeLapMs(MovementConfig m, int canvasWidth, int contentWidthPx)
+        => ComputeLapMs(m, canvasWidth, contentWidthPx, speedPxOverride: 0f);
+
+    /// <param name="speedPxOverride">
+    /// Effective canvas speed in px/s when the config's speed is authored in cm/s (see
+    /// <see cref="PhysicalUnits.EffectiveSpeedPx"/>); 0 = use <c>m.SpeedPixelsPerSecond</c>.
+    /// </param>
+    public static int ComputeLapMs(MovementConfig m, int canvasWidth, int contentWidthPx, float speedPxOverride)
     {
         if (m.Type != MovementType.Linear) return 0;
         if (!m.Loop) return 0;
-        if (m.SpeedPixelsPerSecond <= 0f) return 0;
+        float speed = speedPxOverride > 0f ? speedPxOverride : m.SpeedPixelsPerSecond;
+        if (speed <= 0f) return 0;
 
         float animWidth = Math.Max(0, contentWidthPx);
         float startX = m.StartX ?? (m.Reversed ? canvasWidth : -animWidth);
@@ -34,7 +42,7 @@ public static class PlaylistScheduler
         double distance = Math.Sqrt(dx * dx + dy * dy);
         if (distance < 1.0) return 0;
 
-        return (int)Math.Round(distance / m.SpeedPixelsPerSecond * 1000.0);
+        return (int)Math.Round(distance / speed * 1000.0);
     }
 
     /// <summary>
