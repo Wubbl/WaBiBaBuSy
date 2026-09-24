@@ -212,44 +212,48 @@
                                 ToolTip.Tip="Re-send the running animation (original shared start) to every client. Fixes a node that missed a command."/>
                     </StackPanel>
 
-                    <!-- Room layout (seat map): how the ordered node chain is broken into table rows
-                         and how the animation path travels between them. Persisted server-side. -->
-                    <Border Grid.Row="1" Background="#252526" CornerRadius="4" Padding="10,6" Margin="0,0,0,8">
-                        <WrapPanel Orientation="Horizontal">
-                            <TextBlock Text="Room" Foreground="#CCCCCC" FontSize="12" FontWeight="SemiBold"
-                                       VerticalAlignment="Center" Margin="0,0,12,0"/>
-                            <TextBlock Text="Rows" Foreground="#AAAAAA" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                            <NumericUpDown Value="{Binding RoomRowCount}" Minimum="1" Maximum="8" Increment="1"
-                                           Width="95" FontSize="11" Margin="0,0,12,0"/>
-                            <TextBlock Text="Seats / row" Foreground="#AAAAAA" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"
-                                       IsEnabled="{Binding IsRoomMultiRow}"/>
-                            <NumericUpDown Value="{Binding RoomSeatsPerRow}" Minimum="1" Maximum="50" Increment="1"
-                                           Width="95" FontSize="11" Margin="0,0,12,0" IsEnabled="{Binding IsRoomMultiRow}"/>
-                            <CheckBox IsChecked="{Binding RoomRowsFacing}" Content="Rows face each other"
-                                      FontSize="11" Margin="0,0,12,0" IsEnabled="{Binding IsRoomMultiRow}"/>
-                            <TextBlock Text="Path" Foreground="#AAAAAA" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                            <ComboBox SelectedIndex="{Binding RoomTraversalIndex}" Width="110" FontSize="11" Margin="0,0,12,0">
-                                <ComboBoxItem Content="Ring (loop)"/>
-                                <ComboBoxItem Content="Snake"/>
-                                <ComboBoxItem Content="Parallel"/>
-                            </ComboBox>
-                            <TextBlock Text="Turn gap (cm)" Foreground="#AAAAAA" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"
-                                       IsEnabled="{Binding IsRoomMultiRow}"/>
-                            <NumericUpDown Value="{Binding RoomTurnGapCm}" Minimum="0" Maximum="3000" Increment="10"
-                                           Width="105" FontSize="11" Margin="0,0,12,0"/>
-                            <CheckBox IsChecked="{Binding RoomPhysicalUnits}" Content="Physical units (cm)"
-                                      FontSize="11" Margin="0,0,12,0"
-                                      ToolTip.Tip="Canvas in reference pixels of this server's primary monitor: a sprite is the same number of centimeters and moves at the same cm/s on every monitor, whatever its resolution or size."/>
-                            <TextBlock Text="Align" Foreground="#AAAAAA" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                            <ComboBox SelectedIndex="{Binding RoomVerticalAnchorIndex}" Width="90" FontSize="11" Margin="0,0,12,0"
-                                      ToolTip.Tip="Where a monitor shorter than the canvas sits: centered (monitors on one table), top edges or bottom edges aligned.">
-                                <ComboBoxItem Content="Center"/>
-                                <ComboBoxItem Content="Top"/>
-                                <ComboBoxItem Content="Bottom"/>
-                            </ComboBox>
-                            <TextBlock Text="{Binding SeatMapSummary}" Foreground="#777777" FontSize="11" VerticalAlignment="Center"/>
-                        </WrapPanel>
-                    </Border>
+                    <!-- Room-wide settings live in a popover; rows are edited directly in the room view. -->
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+                        <Button Padding="8,4" FontSize="11" ToolTip.Tip="Room-wide layout: path, gaps, units, alignment">
+                            <TextBlock Text="{Binding RoomSummary, StringFormat='Room ⚙   {0}'}"/>
+                            <Button.Flyout>
+                                <Flyout Placement="BottomEdgeAlignedLeft">
+                                    <Grid ColumnDefinitions="Auto,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                                          RowSpacing="8" ColumnSpacing="10" Margin="4">
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Path" VerticalAlignment="Center" FontSize="12"/>
+                                        <ComboBox Grid.Row="0" Grid.Column="1" SelectedIndex="{Binding RoomTraversalIndex}" Width="150" FontSize="12">
+                                            <ComboBoxItem Content="Ring (loop)"/>
+                                            <ComboBoxItem Content="Snake"/>
+                                            <ComboBoxItem Content="Parallel"/>
+                                        </ComboBox>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Turn gap (cm)" VerticalAlignment="Center" FontSize="12"
+                                                   ToolTip.Tip="Distance the sprite travels between the end of one row and the start of the next"/>
+                                        <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding RoomTurnGapCm}" Minimum="0" Maximum="3000" Increment="10" Width="150"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Row gap (cm)" VerticalAlignment="Center" FontSize="12"
+                                                   ToolTip.Tip="Vertical distance between rows (Parallel path only)"/>
+                                        <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding RoomRowGapCm}" Minimum="0" Maximum="3000" Increment="10" Width="150"/>
+                                        <CheckBox Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" IsChecked="{Binding RoomPhysicalUnits}"
+                                                  Content="Physical units (cm)" FontSize="12"
+                                                  ToolTip.Tip="Canvas in reference pixels of this server's primary monitor: a sprite is the same number of centimeters and moves at the same cm/s on every monitor."/>
+                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Align" VerticalAlignment="Center" FontSize="12"/>
+                                        <ComboBox Grid.Row="4" Grid.Column="1" SelectedIndex="{Binding RoomVerticalAnchorIndex}" Width="150" FontSize="12"
+                                                  ToolTip.Tip="Where a monitor shorter than the canvas sits">
+                                            <ComboBoxItem Content="Center"/>
+                                            <ComboBoxItem Content="Top"/>
+                                            <ComboBoxItem Content="Bottom"/>
+                                        </ComboBox>
+                                        <Border Grid.Row="5" Grid.ColumnSpan="2" Height="1" Background="#3E3E42"/>
+                                        <StackPanel Grid.Row="6" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Text="Split evenly into" VerticalAlignment="Center" FontSize="12"/>
+                                            <NumericUpDown Value="{Binding RoomQuickRowCount}" Minimum="1" Maximum="8" Increment="1" Width="100"/>
+                                            <TextBlock Text="rows" VerticalAlignment="Center" FontSize="12"/>
+                                            <Button Content="Split" Command="{Binding SplitRoomEvenlyCommand}" FontSize="12"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
+                    </StackPanel>
 
                     <!-- Mixed-refresh-rate info banner (visible only when local monitors disagree) -->
                     <Border Grid.Row="2"

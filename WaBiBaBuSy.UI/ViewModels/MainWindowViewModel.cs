@@ -170,18 +170,15 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>Bumped whenever the seat map changes so the topology view re-lays out its lanes.</summary>
     [ObservableProperty] private int _seatMapVersion;
 
-    [ObservableProperty] private int _roomRowCount = 1;
-    [ObservableProperty] private int _roomSeatsPerRow = 10;
-    [ObservableProperty] private bool _roomRowsFacing = true;
     /// <summary>0 = Ring, 1 = Snake, 2 = Parallel (ComboBox order).</summary>
     [ObservableProperty] private int _roomTraversalIndex = 1;
     [ObservableProperty] private int _roomTurnGapCm = 150;
-
+    [ObservableProperty] private int _roomRowGapCm = 120;
     [ObservableProperty] private bool _roomPhysicalUnits;
     /// <summary>0 = Center, 1 = Top, 2 = Bottom (ComboBox order).</summary>
     [ObservableProperty] private int _roomVerticalAnchorIndex;
-
-    public bool IsRoomMultiRow => RoomRowCount > 1;
+    /// <summary>Row count for the "Split evenly" quick setup in the Room ⚙ popover.</summary>
+    [ObservableProperty] private int _roomQuickRowCount = 2;
 
     private float? _referencePixelsPerCm;
 
@@ -205,27 +202,27 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    partial void OnRoomPhysicalUnitsChanged(bool value) => RebuildSeatMap();
-    partial void OnRoomVerticalAnchorIndexChanged(int value) => RebuildSeatMap();
+    partial void OnRoomTraversalIndexChanged(int value) => UpdateRoomSettings();
+    partial void OnRoomTurnGapCmChanged(int value) => UpdateRoomSettings();
+    partial void OnRoomRowGapCmChanged(int value) => UpdateRoomSettings();
+    partial void OnRoomPhysicalUnitsChanged(bool value) => UpdateRoomSettings();
+    partial void OnRoomVerticalAnchorIndexChanged(int value) => UpdateRoomSettings();
 
-    public string SeatMapSummary
+    /// <summary>Short room description for the Room ⚙ button, e.g. "Ring · 150 cm turn · cm".</summary>
+    public string RoomSummary
     {
         get
         {
-            var units = _seatMap.CanvasMode == CanvasMode.Physical
-                ? (ReferencePixelsPerCm > 0f ? $" · cm @ {ReferencePixelsPerCm:0.0} px/cm" : " · cm (reference DPI unknown!)")
-                : "";
-            if (!_seatMap.IsMultiRow) return "single row, left → right" + units;
-            var facing = _seatMap.Rows.Skip(1).Any(r => r.Orientation == RowOrientation.Facing) ? "facing" : "same side";
-            return $"{_seatMap.Rows.Count} rows × {RoomSeatsPerRow} · {_seatMap.Traversal} · {facing}{units}";
+            var parts = new List<string> { _seatMap.Traversal.ToString() };
+            if (_seatMap.IsMultiRow) parts.Add($"{_seatMap.Rows.Count} rows · {_seatMap.TurnGapCm} cm turn");
+            if (_seatMap.CanvasMode == CanvasMode.Physical)
+                parts.Add(ReferencePixelsPerCm > 0f ? "cm" : "cm (reference DPI unknown!)");
+            return string.Join(" · ", parts);
         }
     }
 
-    partial void OnRoomRowCountChanged(int value) => RebuildSeatMap();
-    partial void OnRoomSeatsPerRowChanged(int value) => RebuildSeatMap();
-    partial void OnRoomRowsFacingChanged(bool value) => RebuildSeatMap();
-    partial void OnRoomTraversalIndexChanged(int value) => RebuildSeatMap();
-    partial void OnRoomTurnGapCmChanged(int value) => RebuildSeatMap();
+    /// <summary>Client ids in chain (topology) order — the input of every room edit.</summary>
+    public IReadOnlyList<string> RoomOrder => Clients.OrderBy(c => c.Order).Select(c => c.ClientId).Distinct().ToList();
 
     private void LoadSeatMap()
     {
@@ -233,9 +230,6 @@ public partial class MainWindowViewModel : ViewModelBase
         try
         {
             _seatMap = SeatMapStore.Load();
-            RoomRowCount = Math.Max(1, _seatMap.Rows.Count);
-            RoomSeatsPerRow = _seatMap.Rows.Count > 0 && _seatMap.Rows[0].SeatCount > 0 ? _seatMap.Rows[0].SeatCount : 10;
-            RoomRowsFacing = _seatMap.Rows.Count < 2 || _seatMap.Rows[1].Orientation == RowOrientation.Facing;
             RoomTraversalIndex = _seatMap.Traversal switch
             {
                 TraversalMode.Ring => 0,
@@ -243,47 +237,55 @@ public partial class MainWindowViewModel : ViewModelBase
                 _ => 1
             };
             RoomTurnGapCm = _seatMap.TurnGapCm;
+            RoomRowGapCm = _seatMap.RowGapCm;
             RoomPhysicalUnits = _seatMap.CanvasMode == CanvasMode.Physical;
             RoomVerticalAnchorIndex = _seatMap.VerticalAnchor switch { VerticalAnchor.Top => 1, VerticalAnchor.Bottom => 2, _ => 0 };
+            RoomQuickRowCount = Math.Max(2, _seatMap.Rows.Count);
         }
         finally
         {
             _seatMapLoading = false;
         }
         OnPropertyChanged(nameof(SeatMap));
-        OnPropertyChanged(nameof(IsRoomMultiRow));
-        OnPropertyChanged(nameof(SeatMapSummary));
+        OnPropertyChanged(nameof(RoomSummary));
     }
 
-    private void RebuildSeatMap()
+    /// <summary>Room-wide settings changed in the Room ⚙ popover: keep the rows, update the rest.</summary>
+    private void UpdateRoomSettings()
     {
         if (_seatMapLoading) return;
-        int rows = Math.Clamp(RoomRowCount, 1, 8);
-        var map = new SeatMap
-        {
-            Name = rows > 1 ? $"{rows} rows" : "Single row",
-            Traversal = RoomTraversalIndex switch { 0 => TraversalMode.Ring, 2 => TraversalMode.Parallel, _ => TraversalMode.Snake },
-            TurnGapCm = Math.Max(0, RoomTurnGapCm),
-            RowGapCm = _seatMap.RowGapCm,
-            CanvasMode = RoomPhysicalUnits ? CanvasMode.Physical : CanvasMode.Pixels,
-            VerticalAnchor = RoomVerticalAnchorIndex switch { 1 => VerticalAnchor.Top, 2 => VerticalAnchor.Bottom, _ => VerticalAnchor.Center }
-        };
-        for (int r = 0; r < rows; r++)
-        {
-            map.Rows.Add(new SeatRow
-            {
-                Name = $"Row {r + 1}",
-                Orientation = r == 0 || !RoomRowsFacing ? RowOrientation.SameSide : RowOrientation.Facing,
-                SeatCount = r == rows - 1 ? 0 : Math.Max(1, RoomSeatsPerRow)
-            });
-        }
+        var map = SeatMapEditor.Clone(_seatMap);
+        map.Traversal = RoomTraversalIndex switch { 0 => TraversalMode.Ring, 2 => TraversalMode.Parallel, _ => TraversalMode.Snake };
+        map.TurnGapCm = Math.Max(0, RoomTurnGapCm);
+        map.RowGapCm = Math.Max(0, RoomRowGapCm);
+        map.CanvasMode = RoomPhysicalUnits ? CanvasMode.Physical : CanvasMode.Pixels;
+        map.VerticalAnchor = RoomVerticalAnchorIndex switch { 1 => VerticalAnchor.Top, 2 => VerticalAnchor.Bottom, _ => VerticalAnchor.Center };
+        CommitSeatMap(map);
+    }
+
+    /// <summary>Single write path for the seat map. Only user actions call this — a topology refresh never does.</summary>
+    private void CommitSeatMap(SeatMap map)
+    {
         _seatMap = map;
         SeatMapStore.Save(map);
         SeatMapVersion++;
         OnPropertyChanged(nameof(SeatMap));
-        OnPropertyChanged(nameof(IsRoomMultiRow));
-        OnPropertyChanged(nameof(SeatMapSummary));
+        OnPropertyChanged(nameof(RoomSummary));
     }
+
+    /// <summary>Apply a room edit: new chain order onto the clients, then the seat map, then persist the order.</summary>
+    public async Task ApplyRoomEditAsync(RoomEdit edit)
+    {
+        var byId = Clients.GroupBy(c => c.ClientId).ToDictionary(g => g.Key, g => g.First());
+        for (int i = 0; i < edit.Order.Count; i++)
+            if (byId.TryGetValue(edit.Order[i], out var client))
+                client.Order = i;
+        CommitSeatMap(edit.Map);
+        await PersistClientOrderAsync();
+    }
+
+    [RelayCommand]
+    private Task SplitRoomEvenly() => ApplyRoomEditAsync(SeatMapEditor.SplitEvenly(_seatMap, RoomOrder, RoomQuickRowCount));
 
     // ── Live preview of the running scene (Tier 2.1) ────────────────────────
     [ObservableProperty] private SeatMapLayoutResult? _activeLayout;
