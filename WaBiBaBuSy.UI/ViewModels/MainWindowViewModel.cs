@@ -3142,6 +3142,7 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             Debug.WriteLine($"[ConfigureCrossScreen] ERROR: {ex.Message}");
             Debug.WriteLine($"[ConfigureCrossScreen] Stack trace: {ex.StackTrace}");
+            AppLogger.CreateLogger<MainWindowViewModel>().LogError(ex, "Failed to open the animation configuration dialog");
         }
     }
 

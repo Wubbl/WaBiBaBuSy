@@ -68,7 +68,7 @@ public partial class CrossScreenConfigDialog : Window
 
     private void UpdatePreview(bool restartClock)
     {
-        var preview = this.FindControl<ScenePreviewControl>("PreviewControl");
+        var preview = PreviewControl;
         if (preview == null || _vm == null) return;
         try
         {
@@ -86,18 +86,20 @@ public partial class CrossScreenConfigDialog : Window
 
     private void OnPreviewPauseClick(object? sender, RoutedEventArgs e)
     {
-        var preview = this.FindControl<ScenePreviewControl>("PreviewControl");
+        var preview = PreviewControl;
         if (preview == null) return;
         preview.IsPaused = !preview.IsPaused;
         if (sender is Button b) b.Content = preview.IsPaused ? "Play" : "Pause";
     }
 
     private void OnPreviewRestartClick(object? sender, RoutedEventArgs e)
-        => this.FindControl<ScenePreviewControl>("PreviewControl")?.RestartClock();
+        => PreviewControl?.RestartClock();
 
+    // Fires once during InitializeComponent (XAML SelectedIndex), before the name scope exists and
+    // before the generated field is assigned — so use the field and tolerate null, never FindControl.
     private void OnPreviewSpeedChanged(object? sender, SelectionChangedEventArgs e)
     {
-        var preview = this.FindControl<ScenePreviewControl>("PreviewControl");
+        var preview = PreviewControl;
         if (preview == null || sender is not ComboBox cb) return;
         preview.ClockSpeed = cb.SelectedIndex switch { 1 => 4.0, 2 => 16.0, _ => 1.0 };
     }
