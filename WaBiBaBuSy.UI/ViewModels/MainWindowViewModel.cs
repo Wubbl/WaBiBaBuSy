@@ -3045,6 +3045,8 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                 index++;
             }
 
+            AssignGroupColors();
+
             OnPropertyChanged(nameof(ShowHealthSummary));
             NotifyClientSelectionCommands();
             UpdatePlaylistNextLabel();
@@ -3056,6 +3058,50 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             Debug.WriteLine($"[UpdateClientList] Complete. Final client count: {Clients.Count}");
             Debug.WriteLine($"[UpdateClientList] Clients in collection: {string.Join(", ", Clients.Select(c => c.Hostname))}");
         });
+    }
+
+    // Palette of accent colors for multi-monitor machine groups.
+    private static readonly Avalonia.Media.Color[] GroupColorPalette =
+    [
+        Avalonia.Media.Color.Parse("#E8A020"), // amber
+        Avalonia.Media.Color.Parse("#3BAA6B"), // green
+        Avalonia.Media.Color.Parse("#A04DC8"), // purple
+        Avalonia.Media.Color.Parse("#20A8C8"), // teal
+        Avalonia.Media.Color.Parse("#E05050"), // red
+        Avalonia.Media.Color.Parse("#D07030"), // orange
+    ];
+
+    /// <summary>
+    /// Assign a distinct accent color to every node that shares a physical machine with
+    /// at least one other node. Single-monitor nodes get GroupColor = null.
+    /// </summary>
+    private void AssignGroupColors()
+    {
+        // Clear all group colors first
+        foreach (var c in Clients)
+            c.GroupColor = null;
+
+        var groups = Clients
+            .GroupBy(c => GetBaseMachineId(c.ClientId))
+            .Where(g => g.Count() > 1)
+            .ToList();
+
+        for (int i = 0; i < groups.Count; i++)
+        {
+            var color = GroupColorPalette[i % GroupColorPalette.Length];
+            foreach (var node in groups[i])
+                node.GroupColor = color;
+        }
+    }
+
+    /// <summary>
+    /// Extract the base machine ID from a client ID (strips _MONITOR_N suffix).
+    /// Two nodes with the same base ID are on the same physical machine.
+    /// </summary>
+    private static string GetBaseMachineId(string clientId)
+    {
+        var idx = clientId.LastIndexOf("_MONITOR_");
+        return idx >= 0 ? clientId[..idx] : clientId;
     }
 
     /// <summary>
