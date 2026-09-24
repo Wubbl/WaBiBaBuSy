@@ -664,6 +664,19 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     }
 
     /// <summary>
+    /// The bezel distance stored in the persisted topology for exactly this node id (server-local
+    /// monitors and expanded multi-monitor nodes are stored per id). Null when none is stored.
+    /// </summary>
+    public int? GetPersistedDistance(string clientId)
+    {
+        lock (_topologyLock)
+        {
+            var entry = _topology.Entries.FirstOrDefault(e => e.ClientId == clientId);
+            return entry?.PhysicalDistanceCm;
+        }
+    }
+
+    /// <summary>
     /// Handle client thumbnail upload
     /// </summary>
     public override Task<ThumbnailResponse> SendThumbnail(

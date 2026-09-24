@@ -460,6 +460,15 @@ public class WaBiBaBuSyService : IDisposable
     }
 
     /// <summary>
+    /// Get the persisted bezel distance (cm) for a server-local or expanded monitor node
+    /// (server mode only). Null when none has been stored or the server is not running.
+    /// </summary>
+    public int? GetServerLocalMonitorDistance(string clientId)
+    {
+        return _serverHost?.SyncService?.GetPersistedDistance(clientId);
+    }
+
+    /// <summary>
     /// Update client physical distance (when in client mode)
     /// </summary>
     public async Task<bool> UpdateClientDistanceAsync(string clientId, int distanceCm)

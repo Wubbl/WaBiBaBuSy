@@ -61,6 +61,16 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     // Guard flag: prevents RefreshTopology from overwriting order during reorder operations
     private volatile bool _isReorderingInProgress;
 
+    /// <summary>True while RoomView drags a tile (topology refresh paused); see <see cref="BeginNodeDrag"/>.</summary>
+    private bool _nodeDragActive;
+
+    /// <summary>
+    /// Gaps set in the room for nodes whose distance no store reads back: local-only monitors
+    /// (no server running) and expanded multi-monitor nodes in client mode. Session-only; read by
+    /// every topology refresh so the 2 s refresh does not snap edits back.
+    /// </summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _sessionGapCm = new();
+
     [ObservableProperty]
     private ObservableCollection<ClientNodeViewModel> _clients = new();
 
@@ -996,6 +1006,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         var c = FindClient(nodeId);
         if (c == null) return;
         c.PhysicalDistanceCm = SeatMapEditor.NormalizeGapCm(cm);
+        _sessionGapCm[nodeId] = c.PhysicalDistanceCm;
         await UpdateClientDistance(c);
         SeatMapVersion++;
     }
@@ -2613,7 +2624,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                         IpAddress = screen.Primary ? "Primary Monitor (Server)" : $"Monitor {i + 1} (Server)",
                         Status = WaBiBaBuSy.Grpc.ClientStatusEnum.ClientConnected,
                         OrderPosition = persistedOrder,
-                        PhysicalDistanceCm = 0,
+                        PhysicalDistanceCm = _service.GetServerLocalMonitorDistance(nodeId) ?? _sessionGapCm.GetValueOrDefault(nodeId),
                         ScreenConfig = serverScreenConfig
                     };
                     allNodes.Add(serverNode);
@@ -2642,7 +2653,8 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                                 IpAddress = client.IpAddress,
                                 Status = client.Status,
                                 OrderPosition = expandedOrder,
-                                PhysicalDistanceCm = client.PhysicalDistanceCm,
+                                // Expanded nodes are not connected clients: their gap lives only in the topology store.
+                                PhysicalDistanceCm = _service.GetServerLocalMonitorDistance(expandedId) ?? client.PhysicalDistanceCm,
                                 ScreenConfig = client.ScreenConfig,
                                 ClockOffsetMs = client.ClockOffsetMs,
                                 RttMs = client.RttMs,
@@ -2691,14 +2703,16 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                         {
                             for (int m = 0; m < client.ScreenConfig.Monitors.Count; m++)
                             {
+                                var expandedId = $"{client.ClientId}_MONITOR_{m}";
                                 expandedNodes.Add(new WaBiBaBuSy.Grpc.ConnectedClient
                                 {
-                                    ClientId = $"{client.ClientId}_MONITOR_{m}",
+                                    ClientId = expandedId,
                                     Hostname = $"{client.Hostname} - Monitor {m + 1}",
                                     IpAddress = client.IpAddress,
                                     Status = client.Status,
                                     OrderPosition = nextOrder++,
-                                    PhysicalDistanceCm = client.PhysicalDistanceCm,
+                                    // The server topology only reports the base client's gap; keep this session's edit.
+                                    PhysicalDistanceCm = _sessionGapCm.TryGetValue(expandedId, out var gap) ? gap : client.PhysicalDistanceCm,
                                     ScreenConfig = client.ScreenConfig,
                                     ClockOffsetMs = client.ClockOffsetMs,
                                     RttMs = client.RttMs,
@@ -2792,7 +2806,8 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                 IpAddress = screen.Primary ? "Primary Monitor" : $"Monitor {i + 1}",
                 Status = WaBiBaBuSy.Grpc.ClientStatusEnum.ClientConnected,
                 OrderPosition = i,
-                PhysicalDistanceCm = 0,
+                // No server, no store: gaps set in the room live for the session.
+                PhysicalDistanceCm = _sessionGapCm.GetValueOrDefault($"LOCAL_MACHINE_MONITOR_{i}"),
                 ScreenConfig = screenConfig // Share the same screen config across all nodes
             };
             nodes.Add(node);
