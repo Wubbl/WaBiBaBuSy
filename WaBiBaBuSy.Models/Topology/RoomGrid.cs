@@ -7,8 +7,11 @@ namespace WaBiBaBuSy.Models.Topology;
 /// <summary>Axis-aligned box in room-view pixels (half-open: right/bottom edges excluded).</summary>
 public readonly record struct Box(double X, double Y, double W, double H)
 {
+    /// <summary>X of the right edge (exclusive).</summary>
     public double Right => X + W;
+    /// <summary>Y of the bottom edge (exclusive).</summary>
     public double Bottom => Y + H;
+    /// <summary>True when the point lies inside the box (right/bottom edges excluded).</summary>
     public bool Contains(double px, double py) => px >= X && px < X + W && py >= Y && py < Y + H;
 }
 
@@ -32,26 +35,45 @@ public readonly record struct DropTarget(int Row, int ChainIndex, double MarkerX
 /// </summary>
 public sealed class RoomGrid
 {
+    /// <summary>Outer margin around the whole room (px).</summary>
     public const double Margin = 12;
+    /// <summary>Height of a lane's header strip (name, direction, chips).</summary>
     public const double HeaderH = 26;
+    /// <summary>Padding between a lane body's border and its tiles.</summary>
     public const double LanePad = 8;
+    /// <summary>Vertical space between two lanes.</summary>
     public const double LaneSpacing = 12;
+    /// <summary>Tile width.</summary>
     public const double TileW = 184;
+    /// <summary>Tile height (scene preview plus caption lines).</summary>
     public const double TileH = 158;
+    /// <summary>Width of the scene preview inside a tile.</summary>
     public const double SceneW = 176;
+    /// <summary>Height of the scene preview inside a tile (16:9 of <see cref="SceneW"/>).</summary>
     public const double SceneH = 99;
+    /// <summary>Offset of the scene preview from the tile top.</summary>
     public const double SceneTop = 4;
+    /// <summary>Horizontal space between two tiles; also the gap handle's width.</summary>
     public const double TileGap = 24;
+    /// <summary>Height of the "+ new row" drop zone.</summary>
     public const double NewRowH = 40;
+    /// <summary>Height of the header chips (facing toggle, ⋯ menu).</summary>
     public const double ChipH = 18;
+    /// <summary>Minimum lane width, so an empty or short row still has room for its header.</summary>
     public const double MinLaneW = 420;
     private const double GapHandleH = 24;
 
+    /// <summary>One lane per non-empty seat-map row, top to bottom.</summary>
     public IReadOnlyList<LaneBox> Lanes { get; }
+    /// <summary>Every node tile, lane by lane in physical seat order.</summary>
     public IReadOnlyList<TileBox> Tiles { get; }
+    /// <summary>Gap handles between adjacent tiles of the same lane.</summary>
     public IReadOnlyList<GapBox> Gaps { get; }
+    /// <summary>The "+ new row" drop zone below the last lane.</summary>
     public Box NewRowZone { get; }
+    /// <summary>Total width of the room content (px), margins included.</summary>
     public double Width { get; }
+    /// <summary>Total height of the room content (px), margins included.</summary>
     public double Height { get; }
 
     private RoomGrid(List<LaneBox> lanes, List<TileBox> tiles, List<GapBox> gaps, Box newRow, double width, double height)
@@ -60,6 +82,10 @@ public sealed class RoomGrid
     }
 
     /// <summary>Lay out lanes, tiles and gap handles for a seat-map layout.</summary>
+    /// <remarks>
+    /// <paramref name="layout"/> must be built from the same <paramref name="map"/> (see
+    /// <see cref="SeatMapLayoutBuilder"/>): row indices and reversed rows are read from both.
+    /// </remarks>
     public static RoomGrid Build(SeatMap map, SeatMapLayoutResult layout)
     {
         var lanes = new List<LaneBox>();
@@ -112,8 +138,10 @@ public sealed class RoomGrid
         return new RoomGrid(lanes, tiles, gaps, newRow, laneW + 2 * Margin, newRow.Bottom + Margin);
     }
 
+    /// <summary>The tile under the point, or null.</summary>
     public TileBox? HitTile(double x, double y) => Tiles.FirstOrDefault(t => t.Tile.Contains(x, y));
 
+    /// <summary>The gap handle under the point, or null.</summary>
     public GapBox? HitGap(double x, double y) => Gaps.FirstOrDefault(g => g.Hit.Contains(x, y));
 
     /// <summary>

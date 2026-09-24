@@ -880,9 +880,13 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     }
 
     // ── Selection bar ────────────────────────────────────────────────────────
+    /// <summary>Number of selected room nodes.</summary>
     public int SelectedNodeCount => Clients.Count(c => c.IsSelected);
+    /// <summary>True while at least one node is selected (shows the selection bar).</summary>
     public bool HasNodeSelection => SelectedNodeCount > 0;
+    /// <summary>True when exactly one node is selected.</summary>
     public bool IsSingleNodeSelection => SelectedNodeCount == 1;
+    /// <summary>True when two or more nodes are selected.</summary>
     public bool IsMultiNodeSelection => SelectedNodeCount > 1;
 
     /// <summary>"SEEPC - Monitor 1" for one node, "3 selected" for several.</summary>

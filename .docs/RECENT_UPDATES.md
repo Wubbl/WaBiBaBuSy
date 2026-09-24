@@ -35,8 +35,17 @@ and further polish are Plans 2–3, pending).
   by drag-to-reorder and the gap editor) and the "Active Animation" info panel in the gallery pane
   (file/mode/speed/background + its own `ScenePreviewControl` — superseded by the live scene in
   every room tile; the "next:" label lives in the toolbar).
-- **Known issues**: in local-only mode (no server running) a gap edit on a tile reverts to 0 on the
-  next refresh — pre-existing, local mode has no distance store to persist it to.
+- **Final-review fixes**: tiles stop painting the sprite when the show stops (Stop / Clear all /
+  per-node Clear) and, while live, paint with the layout the players were started with
+  (`RoomView.ActiveLayout`) — only on animating nodes that were part of the start; row edits that
+  change row 0 keep which rows face each other (`SeatMapEditor.Compose` flips orientations);
+  gap edits no longer snap back on refresh (server-local and expanded multi-monitor nodes read their
+  persisted gap back; local-only and client-mode expanded nodes keep a session value); a second
+  button/pointer during a drag is ignored and the refresh pause is idempotent; dragging near the
+  scroll viewport edge auto-scrolls; right-click on a row header opens the row menu.
+- **Known issues**: in local-only mode (no server running) gap edits last for the session only (no
+  distance store), and a drag that reorders nodes snaps back to monitor order on the next refresh
+  (the local-only refresh assigns `Order = monitor index`; pre-existing).
 
 ## 2026-09-17 — Show reliability: content pipeline (Tier 1.3)
 
