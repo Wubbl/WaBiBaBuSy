@@ -60,7 +60,7 @@ public static class SeatMapEditor
             bool last = r == defs.Count - 1;
             int remaining = order.Count - idx;
             int take = last || defs[r].SeatCount <= 0 ? remaining : Math.Min(defs[r].SeatCount, remaining);
-            slices.Add(new RowSlice(CloneRow(defs[r]), order.Skip(idx).Take(take).ToList()));
+            slices.Add(new RowSlice(CloneRowAt(defs[r], r), order.Skip(idx).Take(take).ToList()));
             idx += take;
         }
         return slices;
@@ -150,7 +150,7 @@ public static class SeatMapEditor
         for (int r = 0; r < rows; r++)
         {
             int take = baseSize + (r < extra ? 1 : 0);
-            var meta = r < map.Rows.Count ? CloneRow(map.Rows[r]) : NewRow(r);
+            var meta = r < map.Rows.Count ? CloneRowAt(map.Rows[r], r) : NewRow(r);
             slices.Add(new RowSlice(meta, order.Skip(idx).Take(take).ToList()));
             idx += take;
         }
@@ -177,6 +177,18 @@ public static class SeatMapEditor
     // ── helpers ─────────────────────────────────────────────────────────────
 
     private static SeatRow CloneRow(SeatRow r) => new() { Name = r.Name, Orientation = r.Orientation, SeatCount = r.SeatCount };
+
+    /// <summary>
+    /// Clone a stored row for editing. Row 0's own orientation is meaningless (the layout builder
+    /// treats row 0 as the reference side), so it is normalized to SameSide; <see cref="Compose"/>
+    /// then only sees a Facing row 0 when an edit really moved a facing row into first place.
+    /// </summary>
+    private static SeatRow CloneRowAt(SeatRow r, int index)
+    {
+        var row = CloneRow(r);
+        if (index == 0) row.Orientation = RowOrientation.SameSide;
+        return row;
+    }
 
     private static SeatRow NewRow(int index) => new()
     {
@@ -214,9 +226,16 @@ public static class SeatMapEditor
             return new RoomEdit(result, Array.Empty<string>());
         }
 
+        // Orientation is relative to row 0 (the builder ignores row 0's own flag). When an edit puts a
+        // Facing row at index 0 (row reorder, row 0 deleted or emptied), flip every row so the flags
+        // stay relative to the new row 0 — which then ends up SameSide.
+        bool flip = kept[0].Row.Orientation == RowOrientation.Facing;
+
         for (int i = 0; i < kept.Count; i++)
         {
             var row = CloneRow(kept[i].Row);
+            if (flip)
+                row.Orientation = row.Orientation == RowOrientation.Facing ? RowOrientation.SameSide : RowOrientation.Facing;
             row.SeatCount = i == kept.Count - 1 ? 0 : kept[i].Ids.Count;
             if (IsDefaultName(row.Name)) row.Name = $"Row {i + 1}";
             result.Rows.Add(row);

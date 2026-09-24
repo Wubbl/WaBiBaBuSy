@@ -261,4 +261,85 @@ public class SeatMapEditorTests
     [InlineData(900, 500)]
     public void NormalizeGapCm_Clamps(int input, int expected)
         => Assert.Equal(expected, SeatMapEditor.NormalizeGapCm(input));
+
+    /// <summary>Which physical side a row's screens face: row 0 defines side A, Facing rows are side B.</summary>
+    private static bool IsSideB(SeatMap map, int row)
+        => row != 0 && map.Rows[row].Orientation == RowOrientation.Facing;
+
+    /// <summary>Map with explicit orientations per row (seat counts as in <see cref="Map"/>).</summary>
+    private static SeatMap MapWith(int[] counts, params RowOrientation[] orientations)
+    {
+        var map = Map(counts);
+        for (int i = 0; i < orientations.Length; i++) map.Rows[i].Orientation = orientations[i];
+        return map;
+    }
+
+    [Fact]
+    public void MoveRow_SwapRow0_KeepsTablesFacing()
+    {
+        var e = SeatMapEditor.MoveRow(Map(3, 0), Ids(6), 1, -1);
+        Assert.Equal("n3,n4,n5|n0,n1,n2", Rows(e));
+        Assert.Equal(RowOrientation.SameSide, e.Map.Rows[0].Orientation);
+        Assert.Equal(RowOrientation.Facing, e.Map.Rows[1].Orientation);
+        Assert.NotEqual(IsSideB(e.Map, 0), IsSideB(e.Map, 1));
+    }
+
+    [Fact]
+    public void DeleteRow0_KeepsRemainingRowsRelative()
+    {
+        // Row 0 = side A, row 1 faces it (B), row 2 sits with row 0 (A) → rows 1 and 2 face each other.
+        var map = MapWith(new[] { 2, 2, 0 }, RowOrientation.SameSide, RowOrientation.Facing, RowOrientation.SameSide);
+        var e = SeatMapEditor.DeleteRow(map, Ids(6), 0);
+        AssertNormalized(e);
+        Assert.Equal("n0,n1,n2,n3|n4,n5", Rows(e));
+        Assert.Equal(RowOrientation.SameSide, e.Map.Rows[0].Orientation);
+        Assert.NotEqual(IsSideB(e.Map, 0), IsSideB(e.Map, 1));
+    }
+
+    [Fact]
+    public void MoveNode_EmptyingRow0_KeepsRelativeFacing()
+    {
+        // Rows 1 and 2 both face row 0 → they sit on the same side as each other.
+        var map = MapWith(new[] { 1, 2, 0 }, RowOrientation.SameSide, RowOrientation.Facing, RowOrientation.Facing);
+        var e = SeatMapEditor.MoveNode(map, Ids(5), "n0", 2, 0);
+        AssertNormalized(e);
+        Assert.Equal("n1,n2|n0,n3,n4", Rows(e));
+        Assert.Equal(IsSideB(e.Map, 0), IsSideB(e.Map, 1));
+        Assert.Equal(RowOrientation.SameSide, e.Map.Rows[1].Orientation);
+    }
+
+    [Fact]
+    public void Slice_LegacyNonLastRowWithZeroSeats_TakesAllRemaining()
+    {
+        var map = new SeatMap { Traversal = TraversalMode.Ring };
+        map.Rows.Add(new SeatRow { Name = "Row 1", Orientation = RowOrientation.SameSide, SeatCount = 2 });
+        map.Rows.Add(new SeatRow { Name = "Row 2", Orientation = RowOrientation.Facing, SeatCount = 0 });
+        map.Rows.Add(new SeatRow { Name = "Row 3", Orientation = RowOrientation.SameSide, SeatCount = 0 });
+        var slices = SeatMapEditor.Slice(map, Ids(5));
+        Assert.Equal(new[] { "n0", "n1" }, slices[0].Ids);
+        Assert.Equal(new[] { "n2", "n3", "n4" }, slices[1].Ids);
+        Assert.Empty(slices[2].Ids);
+
+        var inputs = Ids(5).Select(id => new LayoutNodeInput { Id = id, WidthPx = 1920, HeightPx = 1080 }).ToList();
+        var layout = SeatMapLayoutBuilder.Build(map, inputs);
+        Assert.All(new[] { "n2", "n3", "n4" }, id => Assert.Equal(1, layout.Nodes.Single(n => n.Id == id).RowIndex));
+    }
+
+    [Fact]
+    public void Edit_LegacyFacingRow0Flag_IsIgnoredNotFlipped()
+    {
+        // Legacy/hand-written map: row 0 stores Facing (ignored by the builder), row 1 faces row 0.
+        var map = MapWith(new[] { 3, 0 }, RowOrientation.Facing, RowOrientation.Facing);
+        var e = SeatMapEditor.RenameRow(map, Ids(6), 1, "Back");
+        Assert.Equal(RowOrientation.SameSide, e.Map.Rows[0].Orientation);
+        Assert.Equal(RowOrientation.Facing, e.Map.Rows[1].Orientation);
+    }
+
+    [Fact]
+    public void SetRowOrientation_Row0Facing_TurnsRow0AroundRelativeToOthers()
+    {
+        var e = SeatMapEditor.SetRowOrientation(Map(3, 0), Ids(6), 0, RowOrientation.Facing);
+        Assert.Equal(RowOrientation.SameSide, e.Map.Rows[0].Orientation);
+        Assert.Equal(RowOrientation.SameSide, e.Map.Rows[1].Orientation);
+    }
 }
