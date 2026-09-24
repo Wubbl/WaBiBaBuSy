@@ -229,32 +229,12 @@
                         </Button>
                     </StackPanel>
 
-                    <!-- Mixed-refresh-rate info banner (visible only when local monitors disagree) -->
-                    <Border Grid.Row="2"
-                            Background="#3B2E10"
-                            BorderBrush="#A07820"
-                            BorderThickness="1"
-                            CornerRadius="4"
-                            Padding="10,6"
-                            Margin="0,0,0,8"
-                            IsVisible="{Binding HasLocalRefreshRateMismatch}">
-                        <Grid ColumnDefinitions="Auto,*">
-                            <TextBlock Grid.Column="0" Text="&#9888;" Foreground="#FFD080" FontSize="14"
-                                       VerticalAlignment="Top" Margin="0,0,8,0"/>
-                            <TextBlock Grid.Column="1" Text="{Binding LocalRefreshRateMismatchWarning}"
-                                       Foreground="#FFE0A8" FontSize="11"
-                                       TextWrapping="Wrap"/>
-                        </Grid>
-                    </Border>
-
-                    <Border Grid.Row="3" Background="#1A1A1A" CornerRadius="5" ClipToBounds="True"
-                            Name="TopologyBorder">
-                        <ScrollViewer HorizontalScrollBarVisibility="Auto"
-                                      VerticalScrollBarVisibility="Auto">
-                            <Canvas Name="TopologyCanvas" Background="#1A1A1A"
-                                    ClipToBounds="True">
-                                <!-- Client nodes will be added programmatically in code-behind -->
-                            </Canvas>
+                    <Border Grid.Row="3" Background="#1A1A1A" CornerRadius="5" ClipToBounds="True">
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                            <controls:RoomView Host="{Binding}"
+                                               Scene="{Binding ActiveScene}"
+                                               SharedStartUtcMs="{Binding ActiveSharedStartMs}"
+                                               SpriteImagePath="{Binding ActiveSpriteImagePath}"/>
                         </ScrollViewer>
                     </Border>
 

@@ -33,9 +33,11 @@ using WaBiBaBuSy.Models.Topology;
 
 using WaBiBaBuSy.Models.Content;
 
+using WaBiBaBuSy.UI.Controls;
+
 namespace WaBiBaBuSy.UI.ViewModels;
 
-public partial class MainWindowViewModel : ViewModelBase
+public partial class MainWindowViewModel : ViewModelBase, IRoomHost
 {
     private readonly WaBiBaBuSyService _service;
     private readonly System.Timers.Timer _refreshTimer;
@@ -1020,6 +1022,91 @@ public partial class MainWindowViewModel : ViewModelBase
         foreach (var id in nodeIds.Where(id => !IsLocalMonitor(id)))
             if (await coordinator.ResyncClientAsync(id)) sent++;
         Debug.WriteLine($"[Resync] re-sent the active animation to {sent} of {nodeIds.Count} selected node(s)");
+    }
+
+    // ── IRoomHost (RoomView) ─────────────────────────────────────────────────
+    private ClientNodeViewModel? FindClient(string id) => Clients.FirstOrDefault(c => c.ClientId == id);
+
+    public void SelectOnly(string nodeId)
+    {
+        foreach (var c in Clients) c.IsSelected = c.ClientId == nodeId;
+        SelectedClient = FindClient(nodeId);
+    }
+
+    public void ToggleSelection(string nodeId)
+    {
+        var c = FindClient(nodeId);
+        if (c != null) c.IsSelected = !c.IsSelected;
+    }
+
+    public void AddToSelection(string nodeId)
+    {
+        var c = FindClient(nodeId);
+        if (c != null) c.IsSelected = true;
+    }
+
+    public void SetRubberBandSelection(IReadOnlyCollection<string> nodeIds, bool additive)
+    {
+        var set = new HashSet<string>(nodeIds);
+        foreach (var c in Clients)
+        {
+            if (set.Contains(c.ClientId)) c.IsSelected = true;
+            else if (!additive) c.IsSelected = false;
+        }
+    }
+
+    public void ClearSelection() => DeselectAll();
+
+    public void BeginNodeDrag() => StopRefreshTimer();
+    public void EndNodeDrag() => StartRefreshTimer();
+
+    public Task MoveNodeAsync(string nodeId, int row, int indexInRow)
+        => ApplyRoomEditAsync(SeatMapEditor.MoveNode(_seatMap, RoomOrder, nodeId, row, indexInRow));
+    public Task SplitRowAtAsync(string nodeId)
+        => ApplyRoomEditAsync(SeatMapEditor.SplitRowAt(_seatMap, RoomOrder, nodeId));
+    public Task MergeRowIntoPreviousAsync(int row)
+        => ApplyRoomEditAsync(SeatMapEditor.MergeRowIntoPrevious(_seatMap, RoomOrder, row));
+    public Task DeleteRowAsync(int row)
+        => ApplyRoomEditAsync(SeatMapEditor.DeleteRow(_seatMap, RoomOrder, row));
+    public Task MoveRowAsync(int row, int delta)
+        => ApplyRoomEditAsync(SeatMapEditor.MoveRow(_seatMap, RoomOrder, row, delta));
+    public Task RenameRowAsync(int row, string name)
+        => ApplyRoomEditAsync(SeatMapEditor.RenameRow(_seatMap, RoomOrder, row, name));
+
+    public Task ToggleRowFacingAsync(int row)
+    {
+        var current = row < _seatMap.Rows.Count ? _seatMap.Rows[row].Orientation : RowOrientation.Facing;
+        var next = current == RowOrientation.Facing ? RowOrientation.SameSide : RowOrientation.Facing;
+        return ApplyRoomEditAsync(SeatMapEditor.SetRowOrientation(_seatMap, RoomOrder, row, next));
+    }
+
+    public async Task SetGapCmAsync(string nodeId, int cm)
+    {
+        var c = FindClient(nodeId);
+        if (c == null) return;
+        c.PhysicalDistanceCm = SeatMapEditor.NormalizeGapCm(cm);
+        await UpdateClientDistance(c);
+        SeatMapVersion++;
+    }
+
+    public Task ShowNodeLogsAsync(string nodeId)
+    {
+        SelectOnly(nodeId);
+        return FetchClientLogs();
+    }
+
+    public bool CanFetchLogs(string nodeId) => IsServerMode && !IsLocalMonitor(nodeId);
+
+    public string? NodeWarning(string nodeId)
+    {
+        if (!IsLocalMonitor(nodeId)) return null;
+        var local = Clients.Where(c => IsLocalMonitor(c.ClientId) && c.MonitorRefreshHz > 0).ToList();
+        if (local.Select(c => c.MonitorRefreshHz).Distinct().Count() < 2) return null;
+        var me = local.FirstOrDefault(c => c.ClientId == nodeId);
+        int max = local.Max(c => c.MonitorRefreshHz);
+        return me != null && me.MonitorRefreshHz < max
+            ? $"Runs at {me.MonitorRefreshHz} Hz while another local monitor runs at {max} Hz — this panel may tear. Match refresh rates in Windows Display settings."
+            : null;
     }
 
     /// <summary>
