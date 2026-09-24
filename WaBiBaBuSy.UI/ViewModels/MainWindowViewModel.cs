@@ -300,10 +300,10 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     private Task SplitRoomEvenly() => ApplyRoomEditAsync(SeatMapEditor.SplitEvenly(_seatMap, RoomOrder, RoomQuickRowCount));
 
     // ── Live preview of the running scene (Tier 2.1) ────────────────────────
+    // Set by ApplyCrossScreenConfigAsync, cleared by ClearActiveScene when the players stop.
     [ObservableProperty] private SeatMapLayoutResult? _activeLayout;
     [ObservableProperty] private CrossScreenConfig? _activeScene;
     [ObservableProperty] private long _activeSharedStartMs;
-    [ObservableProperty] private IReadOnlyDictionary<string, string>? _activeLabels;
     [ObservableProperty] private string? _activeSpriteImagePath;
 
     /// <summary>Layout provider handed to the config dialog: selected node ids → seat-map layout.</summary>
@@ -766,6 +766,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     public void StopRefreshTimer()
     {
         Debug.WriteLine("[MainWindowViewModel] Stopping refresh timer");
+        _nodeDragActive = false;   // a drag cut short by the window closing must not restart the timer later
         _refreshTimer.Stop();
     }
 
@@ -827,9 +828,35 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
 
     partial void OnIsCrossScreenRunningChanged(bool value)
     {
+        if (!value) ClearActiveScene();
         OnPropertyChanged(nameof(HasActiveRenderer));
         StartCrossScreenCommand.NotifyCanExecuteChanged();
         ClearAllWallpapersCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>Stop the room's live preview: no scene, no shared clock, no layout, no sprite image.</summary>
+    private void ClearActiveScene()
+    {
+        ActiveScene = null;
+        ActiveSharedStartMs = 0;
+        ActiveSpriteImagePath = null;
+        ActiveLayout = null;
+    }
+
+    /// <summary>
+    /// Mark the nodes a scene targets as animating (empty selection = every node) and all others
+    /// as idle. The room only paints the live sprite on animating tiles.
+    /// </summary>
+    private void MarkAnimationTargets(CrossScreenConfig? config)
+    {
+        var animFileName = Path.GetFileName(config?.Animation.AnimationPath ?? string.Empty);
+        var selectedIds = new HashSet<string>(config?.SelectedMonitorIds ?? new List<string>());
+        foreach (var client in Clients)
+        {
+            bool target = selectedIds.Count == 0 || selectedIds.Contains(client.ClientId);
+            client.IsAnimating = target;
+            client.ActiveAnimationName = target ? animFileName : null;
+        }
     }
 
     partial void OnHasAnimationConfigChanged(bool value)
@@ -978,8 +1005,21 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
 
     public void ClearSelection() => DeselectAll();
 
-    public void BeginNodeDrag() => StopRefreshTimer();
-    public void EndNodeDrag() => StartRefreshTimer();
+    /// <inheritdoc />
+    public void BeginNodeDrag()
+    {
+        if (_nodeDragActive) return;
+        _nodeDragActive = true;
+        _refreshTimer.Stop();
+    }
+
+    /// <inheritdoc />
+    public void EndNodeDrag()
+    {
+        if (!_nodeDragActive) return;   // never paused, or the window closed meanwhile
+        _nodeDragActive = false;
+        StartRefreshTimer();
+    }
 
     public Task MoveNodeAsync(string nodeId, int row, int indexInRow)
         => ApplyRoomEditAsync(SeatMapEditor.MoveNode(_seatMap, RoomOrder, nodeId, row, indexInRow));
@@ -1228,6 +1268,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
 
         // Force IsCrossScreenRunning back to a sane state even if StopCrossScreen couldn't.
         IsCrossScreenRunning = false;
+        ClearActiveScene();   // also when only a playlist ran (it never sets IsCrossScreenRunning)
         OnPropertyChanged(nameof(HasActiveRenderer));
 
         Debug.WriteLine("[ClearAll] All wallpapers cleared");
@@ -3438,16 +3479,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             ClearAllWallpapersCommand.NotifyCanExecuteChanged();
 
             // Set animation indicators on participating clients
-            var animFileName = Path.GetFileName(_crossScreenConfig?.Animation.AnimationPath ?? string.Empty);
-            var selectedIds = new HashSet<string>(_crossScreenConfig?.SelectedMonitorIds ?? new List<string>());
-            foreach (var client in Clients)
-            {
-                if (selectedIds.Count == 0 || selectedIds.Contains(client.ClientId))
-                {
-                    client.IsAnimating = true;
-                    client.ActiveAnimationName = animFileName;
-                }
-            }
+            MarkAnimationTargets(_crossScreenConfig);
 
             Debug.WriteLine("[CrossScreen] D2D animation started successfully on all monitors");
         }
@@ -3791,11 +3823,11 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         }
 
         // Feed the live preview: same layout, same config, same shared epoch as the players.
-        ActiveLayout = layout;
-        ActiveScene = config;
-        ActiveLabels = allClients.GroupBy(c => c.ClientId).ToDictionary(g => g.Key, g => g.First().Hostname);
-        ActiveSpriteImagePath = ResolveSpriteImagePath(effAnimation.AnimationPath);
+        // Epoch and layout first so the room never paints the new scene on a stale clock/layout.
         ActiveSharedStartMs = sharedStartTimestamp;
+        ActiveLayout = layout;
+        ActiveSpriteImagePath = ResolveSpriteImagePath(effAnimation.AnimationPath);
+        ActiveScene = config;
 
         return new CrossScreenApplyResult
         {
@@ -3815,6 +3847,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             apply: config => Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
             {
                 var r = await ApplyCrossScreenConfigAsync(config);
+                MarkAnimationTargets(config);   // the room paints the live sprite on animating tiles only
                 return new WaBiBaBuSy.Core.Services.Animation.ApplyMetrics(r.VirtualCanvasWidth, r.ContentWidthPx, r.StartLeadMs, r.EffectiveSpeedPx);
             }),
             seedProvider: () => Environment.TickCount,

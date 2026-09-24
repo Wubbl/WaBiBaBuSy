@@ -64,6 +64,8 @@ public partial class RoomView
         }
     }
 
+    partial void HandleLaneSecondaryPress(LaneBox lane) => OpenLaneMenu(lane);
+
     private void OpenLaneMenu(LaneBox lane)
     {
         var host = _host!;

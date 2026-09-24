@@ -234,7 +234,8 @@
                             <controls:RoomView Host="{Binding}"
                                                Scene="{Binding ActiveScene}"
                                                SharedStartUtcMs="{Binding ActiveSharedStartMs}"
-                                               SpriteImagePath="{Binding ActiveSpriteImagePath}"/>
+                                               SpriteImagePath="{Binding ActiveSpriteImagePath}"
+                                               ActiveLayout="{Binding ActiveLayout}"/>
                         </ScrollViewer>
                     </Border>
 

@@ -11,6 +11,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Core.Services.Logging;
 using WaBiBaBuSy.Models.Networking;
@@ -29,23 +30,45 @@ namespace WaBiBaBuSy.UI.Controls;
 /// </summary>
 public partial class RoomView : Control
 {
+    /// <summary>Defines the <see cref="Host"/> property.</summary>
     public static readonly StyledProperty<IRoomHost?> HostProperty =
         AvaloniaProperty.Register<RoomView, IRoomHost?>(nameof(Host));
+    /// <summary>Defines the <see cref="Scene"/> property.</summary>
     public static readonly StyledProperty<CrossScreenConfig?> SceneProperty =
         AvaloniaProperty.Register<RoomView, CrossScreenConfig?>(nameof(Scene));
+    /// <summary>Defines the <see cref="SharedStartUtcMs"/> property.</summary>
     public static readonly StyledProperty<long> SharedStartUtcMsProperty =
         AvaloniaProperty.Register<RoomView, long>(nameof(SharedStartUtcMs));
+    /// <summary>Defines the <see cref="SpriteImagePath"/> property.</summary>
     public static readonly StyledProperty<string?> SpriteImagePathProperty =
         AvaloniaProperty.Register<RoomView, string?>(nameof(SpriteImagePath));
+    /// <summary>Defines the <see cref="ActiveLayout"/> property.</summary>
+    public static readonly StyledProperty<SeatMapLayoutResult?> ActiveLayoutProperty =
+        AvaloniaProperty.Register<RoomView, SeatMapLayoutResult?>(nameof(ActiveLayout));
 
+    /// <summary>The room's data and edit operations (normally the main window view model).</summary>
     public IRoomHost? Host { get => GetValue(HostProperty); set => SetValue(HostProperty, value); }
     /// <summary>Scene painted in the tiles (the running scene for now; the editor draft in Plan 2).</summary>
     public CrossScreenConfig? Scene { get => GetValue(SceneProperty); set => SetValue(SceneProperty, value); }
-    /// <summary>&gt; 0 = live clock (players' shared start).</summary>
+    /// <summary>
+    /// Epoch of the players' shared clock (UTC ms). &gt; 0 = live: tiles paint on the players' clock
+    /// with <see cref="ActiveLayout"/>; 0 = design clock over the current seat map.
+    /// </summary>
     public long SharedStartUtcMs { get => GetValue(SharedStartUtcMsProperty); set => SetValue(SharedStartUtcMsProperty, value); }
+    /// <summary>Local image file drawn as the sprite (null = placeholder shape).</summary>
     public string? SpriteImagePath { get => GetValue(SpriteImagePathProperty); set => SetValue(SpriteImagePathProperty, value); }
+    /// <summary>
+    /// Layout the running players were started with (target subset, start-time gaps and ppcm).
+    /// While live, node geometry comes from here and tiles missing from it are not painted:
+    /// the seat map may have been edited or nodes may have joined since the start.
+    /// </summary>
+    public SeatMapLayoutResult? ActiveLayout { get => GetValue(ActiveLayoutProperty); set => SetValue(ActiveLayoutProperty, value); }
 
     private const double DragThreshold = 5;
+    /// <summary>Distance from the scroll viewport edge (px) at which a tile drag auto-scrolls.</summary>
+    private const double AutoScrollEdge = 40;
+    /// <summary>Auto-scroll step per render tick (px, ~33 ms).</summary>
+    private const double AutoScrollStep = 18;
 
     private static readonly IBrush ViewBackground = new SolidColorBrush(Color.Parse("#1A1A1A"));
     private static readonly IBrush LaneFill = new SolidColorBrush(Color.Parse("#202023"));
@@ -83,10 +106,11 @@ public partial class RoomView : Control
     private KeyModifiers _pressModifiers;
     private DropTarget? _drop;
     private string? _hoverId;
+    private IPointer? _gesturePointer;
 
     static RoomView()
     {
-        AffectsRender<RoomView>(SceneProperty, SharedStartUtcMsProperty, SpriteImagePathProperty);
+        AffectsRender<RoomView>(SceneProperty, SharedStartUtcMsProperty, SpriteImagePathProperty, ActiveLayoutProperty);
         FocusableProperty.OverrideDefaultValue<RoomView>(true);
         ClipToBoundsProperty.OverrideDefaultValue<RoomView>(true);
     }
@@ -179,7 +203,9 @@ public partial class RoomView : Control
         base.OnAttachedToVisualTree(e);
         _timer ??= new DispatcherTimer(TimeSpan.FromMilliseconds(33), DispatcherPriority.Render, (_, _) =>
         {
-            if (IsEffectivelyVisible && (ScenePainter.HasSprite(Scene) || _gesture != Gesture.None)) InvalidateVisual();
+            if (_gesture == Gesture.DraggingTile) AutoScrollTick();
+            if (IsEffectivelyVisible && (_gesture != Gesture.None || (ScenePainter.HasSprite(Scene) && AnyTileAnimating())))
+                InvalidateVisual();
         });
         _timer.Start();
     }
@@ -187,8 +213,47 @@ public partial class RoomView : Control
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         _timer?.Stop();
-        CancelGesture();
+        // Only drop the gesture: the window is going away and its StopRefreshTimer clears the host's
+        // drag flag. Ending the drag here would restart the refresh timer of a closed window.
+        ResetGesture();
         base.OnDetachedFromVisualTree(e);
+    }
+
+    /// <summary>True while at least one tile shows a running animation (drives the 33 ms repaint).</summary>
+    private bool AnyTileAnimating()
+    {
+        if (_host == null) return false;
+        if (!_clock.IsLive) return true;   // design clock (editor draft): always animate
+        return _host.Clients.Any(c => c.IsAnimating);
+    }
+
+    /// <summary>
+    /// While a tile is dragged near (or past) the visible edge of the parent ScrollViewer, step its
+    /// offset toward that edge so every drop target is reachable. Drop marker and ghost stay in
+    /// RoomView coordinates, so shifting the pointer by the scrolled amount keeps them valid.
+    /// </summary>
+    private void AutoScrollTick()
+    {
+        var sv = this.FindAncestorOfType<ScrollViewer>();
+        if (sv == null) return;
+        var at = this.TranslatePoint(_pointer, sv);
+        if (at == null) return;
+        var p = at.Value;
+        var viewport = sv.Viewport;
+        double dx = p.X < AutoScrollEdge ? -AutoScrollStep : p.X > viewport.Width - AutoScrollEdge ? AutoScrollStep : 0;
+        double dy = p.Y < AutoScrollEdge ? -AutoScrollStep : p.Y > viewport.Height - AutoScrollEdge ? AutoScrollStep : 0;
+        if (dx == 0 && dy == 0) return;
+
+        var old = sv.Offset;
+        double maxX = Math.Max(0, sv.Extent.Width - viewport.Width);
+        double maxY = Math.Max(0, sv.Extent.Height - viewport.Height);
+        var next = new Vector(Math.Clamp(old.X + dx, 0, maxX), Math.Clamp(old.Y + dy, 0, maxY));
+        if (next == old) return;
+        sv.Offset = next;
+        // The content moved under a stationary pointer: follow it in RoomView coordinates.
+        _pointer = new Point(_pointer.X + (next.X - old.X), _pointer.Y + (next.Y - old.Y));
+        _drop = _grid.ResolveDrop(_pointer.X, _pointer.Y);
+        InvalidateVisual();
     }
 
     // ── rendering ────────────────────────────────────────────────────────────
@@ -203,12 +268,21 @@ public partial class RoomView : Control
         if (_grid.Tiles.Count == 0)
             DrawText(ctx, "No nodes yet — start the server or connect clients.", new Point(RoomGrid.Margin, RoomGrid.Margin + 4), Dim, 12);
 
-        var scene = ScenePainter.Resolve(Scene, _layout);
+        // Live: paint with the layout the players were started with; design clock: the current seat map.
+        bool live = _clock.IsLive;
+        var paintLayout = live ? ActiveLayout : _layout;
+        var scene = paintLayout == null ? null : ScenePainter.Resolve(Scene, paintLayout);
         long elapsed = _clock.ElapsedMs();
         var byId = host.Clients.GroupBy(c => c.ClientId).ToDictionary(g => g.Key, g => g.First());
 
         foreach (var lane in _grid.Lanes) DrawLane(ctx, lane, host.SeatMap);
-        foreach (var tile in _grid.Tiles) DrawTile(ctx, tile, byId.GetValueOrDefault(tile.Id), scene, elapsed);
+        foreach (var tile in _grid.Tiles)
+        {
+            var client = byId.GetValueOrDefault(tile.Id);
+            // Live: only nodes that are playing and were part of the start get the sprite.
+            var node = live && client?.IsAnimating != true ? null : paintLayout?.Get(tile.Id);
+            DrawTile(ctx, tile, client, node, scene, elapsed);
+        }
         foreach (var gap in _grid.Gaps) DrawGap(ctx, gap, byId.GetValueOrDefault(gap.HolderId));
         DrawNewRowZone(ctx);
 
@@ -245,7 +319,7 @@ public partial class RoomView : Control
         ctx.DrawText(ft, new Point(box.X + (box.W - ft.Width) / 2, box.Y + (box.H - ft.Height) / 2));
     }
 
-    private void DrawTile(DrawingContext ctx, TileBox t, ClientNodeViewModel? c, CrossScreenConfig? scene, long elapsed)
+    private void DrawTile(DrawingContext ctx, TileBox t, ClientNodeViewModel? c, NodeLayout? node, CrossScreenConfig? scene, long elapsed)
     {
         bool dragged = _gesture == Gesture.DraggingTile && t.Id == _pressedId;
         using var opacity = ctx.PushOpacity(dragged ? 0.35 : 1.0);
@@ -255,7 +329,6 @@ public partial class RoomView : Control
 
         var sceneBox = ToRect(t.Scene);
         ctx.FillRectangle(SceneBg, sceneBox, 4);
-        var node = _layout.Get(t.Id);
         if (node != null && ScenePainter.HasSprite(scene))
         {
             double s = Math.Min(sceneBox.Width / node.Width, sceneBox.Height / node.Height);
@@ -349,9 +422,15 @@ public partial class RoomView : Control
     /// <summary>Left press on lane chips or gap handles (Task 7). Set <paramref name="handled"/> to stop tile/rubber-band handling.</summary>
     partial void HandleChromePress(Point p, ref bool handled);
 
+    /// <summary>Right-click on a lane header (outside any tile): the lane menu.</summary>
+    partial void HandleLaneSecondaryPress(LaneBox lane);
+
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
+        // A second button / pointer during a gesture must neither restart it nor open a menu with
+        // indices that the drag is about to change.
+        if (_gesture != Gesture.None) { e.Handled = true; return; }
         var host = _host;
         if (host == null) return;
         var p = e.GetPosition(this);
@@ -366,6 +445,10 @@ public partial class RoomView : Control
                 // Windows convention: right-clicking outside the selection selects just that node first.
                 if (!IsSelected(tile.Id)) host.SelectOnly(tile.Id);
                 HandleSecondaryPress(tile);
+            }
+            else if (_grid.Lanes.FirstOrDefault(l => l.Header.Contains(p.X, p.Y)) is { } lane)
+            {
+                HandleLaneSecondaryPress(lane);
             }
             e.Handled = true;
             return;
@@ -388,6 +471,7 @@ public partial class RoomView : Control
             _gesture = Gesture.RubberBand;
             if (!e.KeyModifiers.HasFlag(KeyModifiers.Control)) host.ClearSelection();
         }
+        _gesturePointer = e.Pointer;
         e.Pointer.Capture(this);
         e.Handled = true;
         InvalidateVisual();
@@ -429,6 +513,9 @@ public partial class RoomView : Control
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
+        // Only the left button of the pointer that started the gesture ends it.
+        if (_gesture == Gesture.None || e.InitialPressMouseButton != MouseButton.Left || !ReferenceEquals(e.Pointer, _gesturePointer))
+            return;
         var host = _host;
         var gesture = _gesture;
         var id = _pressedId;
@@ -500,6 +587,7 @@ public partial class RoomView : Control
         _gesture = Gesture.None;
         _pressedId = null;
         _drop = null;
+        _gesturePointer = null;
         InvalidateVisual();
     }
 
