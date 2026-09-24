@@ -562,6 +562,25 @@ public class WallpaperSyncCoordinator
     }
 
     /// <summary>
+    /// Re-send the active cross-screen command to one client. False when that client has no active
+    /// command or the send failed.
+    /// </summary>
+    public async Task<bool> ResyncClientAsync(string clientId)
+    {
+        if (_syncService == null || !_activeCrossScreenCommands.TryGetValue(clientId, out var command))
+            return false;
+        try
+        {
+            return await _syncService.SendCommandToClientAsync(clientId, command);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Resync failed for {ClientId}", clientId);
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Send a Stop command to a specific client to terminate its cross-screen D2D player.
     /// </summary>
     public async Task StopCrossScreenOnClientAsync(string clientId, string contentId)

@@ -915,13 +915,111 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Notify CanExecute for commands that depend on client selection.
-    /// Called when a client's IsSelected property changes.
+    /// Notify CanExecute and the selection bar when client selection changes.
+    /// Called when a client's IsSelected property changes and after every topology update.
     /// </summary>
     private void NotifyClientSelectionCommands()
     {
         ApplyWallpaperToSelectedCommand.NotifyCanExecuteChanged();
         ApplyWallpaperViaDirect2DCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(SelectedNodeCount));
+        OnPropertyChanged(nameof(HasNodeSelection));
+        OnPropertyChanged(nameof(IsSingleNodeSelection));
+        OnPropertyChanged(nameof(IsMultiNodeSelection));
+        OnPropertyChanged(nameof(SelectionSummary));
+    }
+
+    // ── Selection bar ────────────────────────────────────────────────────────
+    public int SelectedNodeCount => Clients.Count(c => c.IsSelected);
+    public bool HasNodeSelection => SelectedNodeCount > 0;
+    public bool IsSingleNodeSelection => SelectedNodeCount == 1;
+    public bool IsMultiNodeSelection => SelectedNodeCount > 1;
+
+    /// <summary>"SEEPC - Monitor 1" for one node, "3 selected" for several.</summary>
+    public string SelectionSummary => SelectedNodeCount == 1
+        ? Clients.First(c => c.IsSelected).DisplayName
+        : $"{SelectedNodeCount} selected";
+
+    private IReadOnlyCollection<string> SelectedNodeIds => Clients.Where(c => c.IsSelected).Select(c => c.ClientId).ToList();
+
+    [RelayCommand]
+    private Task ClearSelectedNodes() => ClearNodesAsync(SelectedNodeIds);
+
+    [RelayCommand]
+    private Task ResyncSelectedNodes() => ResyncNodesAsync(SelectedNodeIds);
+
+    [RelayCommand]
+    private Task MakeRowFromSelection() => ApplyRoomEditAsync(SeatMapEditor.MakeRowFromSelection(_seatMap, RoomOrder, SelectedNodeIds));
+
+    [RelayCommand]
+    private void DeselectAll()
+    {
+        foreach (var c in Clients) c.IsSelected = false;
+        SelectedClient = null;
+    }
+
+    [RelayCommand]
+    private void OpenSettings() => new Views.SettingsWindow().Show();
+
+    [RelayCommand]
+    private void OpenLogFolder() => Process.Start(new ProcessStartInfo
+    {
+        FileName = WaBiBaBuSy.Common.PathHelper.GetLogsPath(),
+        UseShellExecute = true
+    });
+
+    /// <summary>
+    /// Stop what the given nodes show: local monitors dispose their D2D player / LibVLC renderer,
+    /// remote nodes get a cross-screen Stop. A running playlist puts them back on its next item —
+    /// use the toolbar Stop to end a show.
+    /// </summary>
+    public async Task ClearNodesAsync(IReadOnlyCollection<string> nodeIds)
+    {
+        foreach (var id in nodeIds)
+        {
+            if (IsLocalMonitor(id))
+            {
+                int monitorIndex = GetMonitorIndex(id);
+                if (_d2dCompositionServices.TryRemove(monitorIndex, out var d2d))
+                {
+                    d2d.GlobalLapCompleted -= OnSequentialLapCompleted;
+                    try { await d2d.StopAsync(); } catch (Exception ex) { Debug.WriteLine($"[ClearNodes] Stop {id}: {ex.Message}"); }
+                    try { d2d.Dispose(); } catch (Exception ex) { Debug.WriteLine($"[ClearNodes] Dispose {id}: {ex.Message}"); }
+                }
+                if (_localWallpaperRenderers.TryRemove(monitorIndex, out var renderer) && renderer is IDisposable disposable)
+                {
+                    try { disposable.Dispose(); } catch (Exception ex) { Debug.WriteLine($"[ClearNodes] Renderer {id}: {ex.Message}"); }
+                }
+            }
+            else if (_service.SyncCoordinator != null && !string.IsNullOrEmpty(_crossScreenContentId))
+            {
+                try { await _service.SyncCoordinator.StopCrossScreenOnClientAsync(id, _crossScreenContentId); }
+                catch (Exception ex) { Debug.WriteLine($"[ClearNodes] Remote stop {id}: {ex.Message}"); }
+            }
+
+            var client = Clients.FirstOrDefault(c => c.ClientId == id);
+            if (client != null)
+            {
+                client.IsAnimating = false;
+                client.IsCurrentAnimationTarget = false;
+                client.ActiveAnimationName = null;
+                client.ThumbnailImage = null;
+                client.CurrentWallpaper = null;
+            }
+        }
+        OnPropertyChanged(nameof(HasActiveRenderer));
+        ClearAllWallpapersCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>Re-send the running animation to the given remote nodes (local monitors are in-process and need no resync).</summary>
+    public async Task ResyncNodesAsync(IReadOnlyCollection<string> nodeIds)
+    {
+        var coordinator = _service.SyncCoordinator;
+        if (coordinator == null) return;
+        int sent = 0;
+        foreach (var id in nodeIds.Where(id => !IsLocalMonitor(id)))
+            if (await coordinator.ResyncClientAsync(id)) sent++;
+        Debug.WriteLine($"[Resync] re-sent the active animation to {sent} of {nodeIds.Count} selected node(s)");
     }
 
     /// <summary>
@@ -2861,6 +2959,7 @@ public partial class MainWindowViewModel : ViewModelBase
             }
 
             OnPropertyChanged(nameof(ShowHealthSummary));
+            NotifyClientSelectionCommands();
             UpdatePlaylistNextLabel();
 
             ClientCount = Clients.Count;
