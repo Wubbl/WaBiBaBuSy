@@ -58,6 +58,7 @@ public sealed class ScenePainter
         }
     }
 
+    /// <summary>True when the scene has an animation file to draw.</summary>
     public static bool HasSprite(CrossScreenConfig? scene) => scene != null && !string.IsNullOrEmpty(scene.Animation.AnimationPath);
 
     /// <summary>Resolve cm → canvas px exactly like the apply path does, so preview and wall agree.</summary>
@@ -236,6 +237,7 @@ public sealed class ScenePainter
         return string.Join("   ·   ", parts);
     }
 
+    /// <summary>Parse #RRGGBB / #AARRGGBB, black on null or invalid input.</summary>
     public static Color ParseHex(string? hex)
     {
         try { return string.IsNullOrWhiteSpace(hex) ? Colors.Black : Color.Parse(hex); }

@@ -19,6 +19,7 @@ public sealed class SceneClock
     /// <summary>Shared UTC start (ms). &gt; 0 switches to the live clock.</summary>
     public long SharedStartUtcMs { get; set; }
 
+    /// <summary>True when elapsed time follows the players' shared start instead of the design clock.</summary>
     public bool IsLive => SharedStartUtcMs > 0;
 
     /// <summary>Design-clock speed multiplier (min 0.01). Time run so far is kept at the old speed.</summary>
@@ -34,6 +35,7 @@ public sealed class SceneClock
         }
     }
 
+    /// <summary>Freeze the design clock; time run so far is kept.</summary>
     public bool IsPaused
     {
         get => _paused;
@@ -61,6 +63,7 @@ public sealed class SceneClock
         if (_paused) _stopwatch.Reset();
     }
 
+    /// <summary>Milliseconds since the scene started on the active clock (may be negative before a live start).</summary>
     public long ElapsedMs() => IsLive
         ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - SharedStartUtcMs
         : (long)(_accumulatedMs + RunningMs());
