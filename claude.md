@@ -10,9 +10,9 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 
 - Synchronized wallpaper playback across multiple Windows machines
 - Server-client architecture with visual network topology management (client ordering, physical distance/bezel gaps, refresh-rate display); order + distances persist across restarts (`topology.json`), clients keep a persistent identity
-- Room / seat map: the ordered node chain split into table rows with Ring (closed loop, seam-safe wrap), Snake or Parallel traversal; facing/same-side rows (mirroring); persisted in `seatmap.json` (`SeatMapLayoutBuilder` is the single layout authority)
+- Room / seat map: the ordered node chain split into table rows with Ring (closed loop, seam-safe wrap), Snake or Parallel traversal; rows are edited directly in the room view (drag nodes between lanes, right-click to split/merge, lane chips for facing), room-wide settings in the Room ⚙ popover
 - Physical canvas (opt-in per room): canvas in reference pixels of the server's primary monitor, per-node `Scale`, sizes in cm and speeds in cm/s resolved by `PhysicalUnits` before broadcast — the same sprite is the same centimeters and cm/s on every monitor
-- Live preview (`ScenePreviewControl`): the config dialog and the main window animate the scene over the seat-map lanes with the players' own deterministic math (design clock / live shared clock)
+- Live preview: the room view paints the running scene inside every node tile with the players' own deterministic math (`ScenePainter`); the config dialog keeps its own preview until the docked editor (UI redesign Plan 2)
 - Hardware-accelerated Direct2D rendering with separate player process
 - Precise timing synchronization via shared UTC start timestamp + deterministic math (±50ms tolerance)
 - Multi-monitor support: Sequential (spanning) and Simultaneous (per-monitor) modes
@@ -48,6 +48,7 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 - **[Archived Task List](.docs/2026.01_TODO_ACTIVE.md)** — Jan–Mar 2026 sprint (historical)
 
 ### Feature Designs (`.docs/plans/`)
+- **[UI Redesign (2026-09-24)](.docs/plans/2026-09-24-ui-redesign-design.md)** — room-first main window; Plan 1 (toolbar + RoomView) implemented
 - **[LAN-Party Roadmap (2026-09-17)](.docs/plans/2026-09-17-lan-party-roadmap.md)** — Analysis for the 2×10-machine scenario: findings F1–F8, Tier 0–3 plan, links to the six design docs below (**start here for animation/config work**)
   - [Seat Map & Ring Topology](.docs/plans/2026-09-17-seat-map-and-ring-topology-design.md) · [Physical Canvas](.docs/plans/2026-09-17-physical-canvas-design.md) · [Scene Layers](.docs/plans/2026-09-17-scene-layers-design.md) · [Authoring UX & Preview](.docs/plans/2026-09-17-authoring-ux-and-preview-design.md) · [Crossing Effects & Events](.docs/plans/2026-09-17-crossing-effects-and-events-design.md) · [Show Reliability](.docs/plans/2026-09-17-show-reliability-design.md)
 - **[Corridor Animation System](.docs/plans/corridor-animation-system.md)** — ThreeZone background + corridor-constrained animation (implemented 2026-04)

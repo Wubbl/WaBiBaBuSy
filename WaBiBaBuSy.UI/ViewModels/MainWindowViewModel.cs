@@ -780,38 +780,6 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             c.IsSelected = true;
     }
 
-    [RelayCommand]
-    private async Task MoveClientUp()
-    {
-        if (SelectedClient == null) return;
-        var sorted = Clients.OrderBy(c => c.Order).ToList();
-        var idx = sorted.IndexOf(SelectedClient);
-        if (idx > 0)
-        {
-            // Swap order values with the previous client
-            var prev = sorted[idx - 1];
-            (SelectedClient.Order, prev.Order) = (prev.Order, SelectedClient.Order);
-            Debug.WriteLine($"[Topology] Moved {SelectedClient.DisplayName} up: Order={SelectedClient.Order}");
-            await PersistClientOrderAsync();
-        }
-    }
-
-    [RelayCommand]
-    private async Task MoveClientDown()
-    {
-        if (SelectedClient == null) return;
-        var sorted = Clients.OrderBy(c => c.Order).ToList();
-        var idx = sorted.IndexOf(SelectedClient);
-        if (idx >= 0 && idx < sorted.Count - 1)
-        {
-            // Swap order values with the next client
-            var next = sorted[idx + 1];
-            (SelectedClient.Order, next.Order) = (next.Order, SelectedClient.Order);
-            Debug.WriteLine($"[Topology] Moved {SelectedClient.DisplayName} down: Order={SelectedClient.Order}");
-            await PersistClientOrderAsync();
-        }
-    }
-
     /// <summary>
     /// Persist the current client order to the server (or locally in server mode).
     /// Sets a guard flag to prevent RefreshTopology from overwriting during the operation.
@@ -841,71 +809,14 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     public bool HasActiveRenderer =>
         _d2dCompositionServices.Any() || _localWallpaperRenderers.Any() || IsCrossScreenRunning;
 
-    /// <summary>
-    /// True when no wallpaper is selected but a cross-screen animation is running
-    /// </summary>
-    public bool ShowAnimationInfo => SelectedWallpaper == null && IsCrossScreenRunning && _crossScreenConfig != null;
-
-    public string ActiveAnimationFileName => _crossScreenConfig?.Animation.AnimationPath != null
-        ? Path.GetFileName(_crossScreenConfig.Animation.AnimationPath) : string.Empty;
-
-    /// <summary>
-    /// Warning text when this machine has 2+ monitors at different refresh rates.
-    /// On Win11 24H2+, layered+WorkerW-parented wallpaper windows are forced through DWM
-    /// composition, which paces to the primary monitor's refresh rate — secondary panels
-    /// at lower refresh rates show tearing on horizontal-scrolling animations. Null when
-    /// only one monitor exists or all monitors share the same rate. See OpenIssues.md.
-    /// </summary>
-    public string? LocalRefreshRateMismatchWarning
-    {
-        get
-        {
-            try
-            {
-                var monitors = NativeMonitorInfo.GetAllMonitors();
-                var rates = monitors
-                    .Select(m => m.RefreshRateHz)
-                    .Where(hz => hz > 0)
-                    .Distinct()
-                    .OrderByDescending(hz => hz)
-                    .ToArray();
-                if (rates.Length < 2) return null;
-                return $"Mixed refresh rates on local monitors ({string.Join(" + ", rates.Select(r => $"{r} Hz"))}). The slower panel may show tearing — match rates in Windows Display settings to fix.";
-            }
-            catch
-            {
-                return null;
-            }
-        }
-    }
-
-    public bool HasLocalRefreshRateMismatch => LocalRefreshRateMismatchWarning != null;
-
-    public string ActiveDistributionMode => _crossScreenConfig?.DistributionMode switch
-    {
-        WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Sequential => "Sequential",
-        WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Simultaneous => "Simultaneous",
-        _ => "Unknown"
-    };
-
-    public int ActiveAnimationSpeed => _crossScreenConfig?.AnimationSpeedPxPerSecond ?? 0;
-
-    public string ActiveBackgroundColor => _crossScreenConfig?.Background.ColorHex ?? "#000000";
-
     partial void OnSelectedWallpaperChanged(WallpaperItemViewModel? value)
     {
-        OnPropertyChanged(nameof(ShowAnimationInfo));
         ApplyWallpaperToSelectedCommand.NotifyCanExecuteChanged();
         ApplyWallpaperViaDirect2DCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnIsCrossScreenRunningChanged(bool value)
     {
-        OnPropertyChanged(nameof(ShowAnimationInfo));
-        OnPropertyChanged(nameof(ActiveAnimationFileName));
-        OnPropertyChanged(nameof(ActiveDistributionMode));
-        OnPropertyChanged(nameof(ActiveAnimationSpeed));
-        OnPropertyChanged(nameof(ActiveBackgroundColor));
         OnPropertyChanged(nameof(HasActiveRenderer));
         StartCrossScreenCommand.NotifyCanExecuteChanged();
         ClearAllWallpapersCommand.NotifyCanExecuteChanged();

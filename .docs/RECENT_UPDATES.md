@@ -1,8 +1,42 @@
 # WaBiBaBuSy - Recent Updates & Changelog
 
-**Last Updated:** 2026-09-17
+**Last Updated:** 2026-09-24
 
 ---
+
+## 2026-09-24 — UI redesign Plan 1: room view
+
+Design: `.docs/plans/2026-09-24-ui-redesign-design.md` (Plan 1: toolbar + RoomView; docked editor
+and further polish are Plans 2–3, pending).
+
+- **Multi Monitor dialog fix**: the `Scene…` dialog (`CrossScreenConfigDialog`) failed to open on
+  this branch — a `FindControl` call during `InitializeComponent` ran before the named control
+  existed. Fixed; the dialog now opens reliably as a child of the main window.
+- **Compact toolbar**: the main window's top bar collapsed to one row — status (left), show
+  controls `Scene…` / `▶ Start` / `■ Stop` / `Playlist…` / next-item label / `Clear all` (center),
+  and a `⋯` flyout for connect-to-server, `Settings…`, `Open log folder` and a "Developer tools"
+  expander (composition mode, D2D/LibVLC apply, background color, debug overlay toggles) (right).
+- **Room ⚙ popover + split evenly**: room-wide layout settings (path, turn gap, row gap, physical
+  units, vertical align) moved into a popover off a single "Room ⚙" button; added "Split evenly
+  into N rows" for a quick starting layout.
+- **`RoomView`** (`WaBiBaBuSy.UI/Controls/RoomView.cs`, `RoomView.Menus.cs`): row lanes of node
+  tiles, each tile painting the live running scene; drag a tile between rows/positions; right-click
+  context menus on tiles and row headers (split/merge row, move row, rename, toggle facing,
+  per-node Clear/Resync/logs); inline gap editor on a tile; an empty "+ new row" drop zone. Backed
+  by `RoomGrid` (`WaBiBaBuSy.Models/Topology/RoomGrid.cs`, geometry/hit-testing) and `SeatMapEditor`
+  (`WaBiBaBuSy.Models/Topology/SeatMapEditor.cs`, pure row edits); talks to the view model only
+  through `IRoomHost` (`WaBiBaBuSy.UI/Controls/IRoomHost.cs`).
+- **Selection bar**: replaces per-node UI with a bar shown while nodes are selected — summary,
+  Clear, Resync (server mode), Logs (single node), "Make row from selection" (multi-select).
+- **`ScenePainter`/`SceneClock` extraction**: `ScenePreviewControl`'s drawing and clock logic split
+  into standalone classes so `RoomView` can reuse them for the live tiles; `ScenePreviewControl`
+  itself is unchanged in behavior and still used by `CrossScreenConfigDialog`.
+- **Removed panels**: the "Selected Client Details" border (order ▲/▼, distance textbox — superseded
+  by drag-to-reorder and the gap editor) and the "Active Animation" info panel in the gallery pane
+  (file/mode/speed/background + its own `ScenePreviewControl` — superseded by the live scene in
+  every room tile; the "next:" label lives in the toolbar).
+- **Known issues**: in local-only mode (no server running) a gap edit on a tile reverts to 0 on the
+  next refresh — pre-existing, local mode has no distance store to persist it to.
 
 ## 2026-09-17 — Show reliability: content pipeline (Tier 1.3)
 

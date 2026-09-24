@@ -1,6 +1,6 @@
 # UI Redesign — Room-first main window — Design
 
-**Date:** 2026-09-24 · **Status:** approved design, not implemented
+**Date:** 2026-09-24 · **Status:** Plan 1 (rollout steps 1–2) implemented 2026-09-24; Plans 2–3 pending
 **Supersedes:** §3 (dialog restructure) and §6 (main window) of
 [Authoring UX & Live Preview](2026-09-17-authoring-ux-and-preview-design.md). §2 (preview math),
 §4 (presets) and §5 (hidden parameters, done) of that doc still apply.
