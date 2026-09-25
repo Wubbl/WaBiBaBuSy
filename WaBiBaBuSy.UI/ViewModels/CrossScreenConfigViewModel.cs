@@ -77,10 +77,20 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     private string _backgroundColor = "#000000";
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(BackgroundImageFileName))]
     private string _backgroundImagePath = string.Empty;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AnimationFileName))]
     private string _animationPath = string.Empty;
+
+    /// <summary>Caption of the primary file in the Content tab.</summary>
+    public string AnimationFileName => string.IsNullOrWhiteSpace(AnimationPath)
+        ? "Pick a file in the strip above" : Path.GetFileName(AnimationPath);
+
+    /// <summary>Caption of the background image in the Background tab.</summary>
+    public string BackgroundImageFileName => string.IsNullOrWhiteSpace(BackgroundImagePath)
+        ? "No image yet" : Path.GetFileName(BackgroundImagePath);
 
     [ObservableProperty]
     private int _animationHeight = 720;
@@ -96,18 +106,21 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     /// </summary>
     public bool IsAnimationHeightRelevant => FitModeIndex == 4;
 
-    // Tier 1.2 physical units: 0 = px, 1 = cm (cm only takes effect on a physical canvas)
+    /// <summary>
+    /// Units follow the room (set by the host from Room ⚙ "Physical units"): cm and cm/s on a physical
+    /// canvas, px and px/s otherwise. Both values are stored in the config; only the matching one is shown.
+    /// </summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsSizeInCm))]
-    private int _sizeUnitIndex = 0;
-    [ObservableProperty] private float _animationHeightCm = 15f;
-    public bool IsSizeInCm => SizeUnitIndex == 1;
+    [NotifyPropertyChangedFor(nameof(IsSizeInCm), nameof(IsSpeedInCm))]
+    private bool _usePhysicalUnits;
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsSpeedInCm))]
-    private int _speedUnitIndex = 0;
+    [ObservableProperty] private float _animationHeightCm = 15f;
+    /// <summary>True when the height field shows cm (physical room).</summary>
+    public bool IsSizeInCm => UsePhysicalUnits;
+
     [ObservableProperty] private float _animationSpeedCm = 20f;
-    public bool IsSpeedInCm => SpeedUnitIndex == 1;
+    /// <summary>True when the speed slider shows cm/s (physical room).</summary>
+    public bool IsSpeedInCm => UsePhysicalUnits;
 
     [ObservableProperty]
     private int _verticalAlignmentIndex = 1; // Center
@@ -163,10 +176,23 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     // Tier 0.7: Wave mode — per-node clock shift in Simultaneous distribution (ms per node).
     [ObservableProperty] private int _nodePhaseDelayMs = 0;
 
-    public bool IsSimultaneousMode => AnimationDistributionModeIndex == 1;
+    /// <summary>Sequential radio button: true = one canvas spans all targets. Setting false is ignored (the other button sets its mode).</summary>
+    public bool IsSequentialMode
+    {
+        get => AnimationDistributionModeIndex == 0;
+        set { if (value) AnimationDistributionModeIndex = 0; }
+    }
+
+    /// <summary>Simultaneous radio button: true = every monitor plays its own copy. Setting false is ignored.</summary>
+    public bool IsSimultaneousMode
+    {
+        get => AnimationDistributionModeIndex == 1;
+        set { if (value) AnimationDistributionModeIndex = 1; }
+    }
 
     partial void OnAnimationDistributionModeIndexChanged(int value)
     {
+        OnPropertyChanged(nameof(IsSequentialMode));
         OnPropertyChanged(nameof(IsSimultaneousMode));
     }
 
@@ -255,21 +281,29 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     public bool IsPatternExplicit => PatternSizingIndex == 1;
     public bool IsPatternWithIconZone => PatternEnabled && IsIconZoneMode;
 
+    /// <summary>Count X/Y fields: pattern on and sized by explicit count.</summary>
+    public bool IsPatternCountVisible => PatternEnabled && PatternSizingIndex == 1;
+
     partial void OnPatternSizingIndexChanged(int value)
     {
         OnPropertyChanged(nameof(IsPatternFill));
         OnPropertyChanged(nameof(IsPatternExplicit));
+        OnPropertyChanged(nameof(IsPatternCountVisible));
     }
 
     partial void OnPatternEnabledChanged(bool value)
     {
         OnPropertyChanged(nameof(IsPatternWithIconZone));
+        OnPropertyChanged(nameof(IsPatternCountVisible));
     }
 
     // ── Multi-image (F4) ─────────────────────────────────────────────────────
     [ObservableProperty] private ObservableCollection<string> _additionalAnimationPaths = new();
     [ObservableProperty] private float _multiImageSpread = 0f;
     [ObservableProperty] private float _multiImagePhaseJitterMs = 0f;
+
+    /// <summary>True when extra source images are listed (shows the chip row).</summary>
+    public bool HasExtraImages => AdditionalAnimationPaths.Count > 0;
 
     public bool IsSolidColorMode => BackgroundModeIndex == 0;
     public bool IsImageMode => BackgroundModeIndex == 1 || BackgroundModeIndex == 2;
@@ -286,6 +320,51 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     public bool IsSineWaveMode => SelectedMovementType?.Type == MovementType.SineWave;
     public bool IsCircularMode => SelectedMovementType?.Type == MovementType.Circular;
     public bool IsRandomWalkMode => SelectedMovementType?.Type == MovementType.RandomWalk;
+
+    // ── Docked editor (UI redesign Plan 2) ───────────────────────────────────
+
+    /// <summary>One-line warnings shown as amber chips above the tabs (computed by the host from the draft + room).</summary>
+    public ObservableCollection<string> Warnings { get; } = new();
+
+    /// <summary>Crossing-time readout under the speed slider, e.g. "crosses the room in 12.5 s".</summary>
+    [ObservableProperty] private string _speedReadout = string.Empty;
+
+    /// <summary>Replace the warning chips and the speed readout. Unchanged warnings do not touch the collection.</summary>
+    public void SetChecks(IReadOnlyList<string> warnings, string speedReadout)
+    {
+        if (!Warnings.SequenceEqual(warnings))
+        {
+            Warnings.Clear();
+            foreach (var w in warnings) Warnings.Add(w);
+        }
+        SpeedReadout = speedReadout;
+    }
+
+    /// <summary>True while the next gallery-strip click sets the background image instead of the animation file.</summary>
+    [ObservableProperty] private bool _isPickingBackgroundImage;
+
+    /// <summary>
+    /// Apply a gallery-strip click: while picking a background it becomes the background image;
+    /// otherwise it becomes the primary file, or (additive, Ctrl+click) an extra source image.
+    /// </summary>
+    public void PickFromStrip(string path, bool additive)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        if (IsPickingBackgroundImage)
+        {
+            BackgroundImagePath = path;
+            IsPickingBackgroundImage = false;
+            return;
+        }
+        if (additive)
+        {
+            if (!string.Equals(path, AnimationPath, StringComparison.OrdinalIgnoreCase) && !AdditionalAnimationPaths.Contains(path))
+                AdditionalAnimationPaths.Add(path);
+            return;
+        }
+        AnimationPath = path;
+        AdditionalAnimationPaths.Remove(path);
+    }
 
     public bool DialogResult { get; private set; }
 
@@ -330,6 +409,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         var defaults = PaletteGenerator.GenerateHarmonious(8);
         for (int i = 0; i < defaults.Count; i++)
             _iconZonePalette.Add(new ZoneColorItem { ColorHex = defaults[i], Label = $"Zone {i + 1}" });
+        _additionalAnimationPaths.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasExtraImages));
     }
 
     partial void OnBackgroundModeIndexChanged(int value)
@@ -456,9 +536,8 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             ContentFitMode.TargetHeight => 4,
             _                           => 0
         };
-        SizeUnitIndex = config.Animation.SizeUnit == SizeUnit.Centimeters ? 1 : 0;
+        // The unit flags are not loaded: the room decides which of the two stored values is shown.
         AnimationHeightCm = config.Animation.TargetHeightCm;
-        SpeedUnitIndex = config.Movement.SpeedUnit == SpeedUnit.CentimetersPerSecond ? 1 : 0;
         AnimationSpeedCm = config.Movement.SpeedCmPerSecond;
         AnimationLoop = config.Animation.Loop;
         AnimationSpeed = config.AnimationSpeedPxPerSecond;
@@ -578,7 +657,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
 
         var movementType = SelectedMovementType.Type;
 
-        return new CrossScreenConfig
+        var config = new CrossScreenConfig
         {
             Background = new BackgroundLayerConfig
             {
@@ -610,7 +689,6 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                     4 => ContentFitMode.TargetHeight,
                     _ => ContentFitMode.Center
                 },
-                SizeUnit = SizeUnitIndex == 1 ? SizeUnit.Centimeters : SizeUnit.Pixels,
                 TargetHeightCm = Math.Max(0.5f, AnimationHeightCm),
                 Loop = AnimationLoop,
                 VerticalAlign = verticalAlign,
@@ -651,7 +729,6 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             {
                 Type = movementType,
                 SpeedPixelsPerSecond = AnimationSpeed,
-                SpeedUnit = SpeedUnitIndex == 1 ? SpeedUnit.CentimetersPerSecond : SpeedUnit.PixelsPerSecond,
                 SpeedCmPerSecond = Math.Max(0.1f, AnimationSpeedCm),
                 DirectionAngleDegrees = MovementAngle,
                 WaveAmplitudePixels = WaveAmplitude,
@@ -666,6 +743,8 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                 NodePhaseDelayMs = Math.Max(0, NodePhaseDelayMs)
             }
         };
+        PhysicalUnits.ApplyRoomUnits(config, UsePhysicalUnits);
+        return config;
     }
 
     [RelayCommand]

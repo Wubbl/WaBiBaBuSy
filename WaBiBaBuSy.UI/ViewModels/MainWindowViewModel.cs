@@ -3265,6 +3265,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
 
             // Set available monitors/clients for selection
             viewModel.SetAvailableMonitors(Clients);
+            viewModel.UsePhysicalUnits = RoomPhysicalUnits;
             viewModel.LayoutProvider = LayoutForSelection;
 
             // Give the dialog access to owner window and gallery for the gallery picker
@@ -3400,6 +3401,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             viewModel.SetStorageProvider(_storageProvider);
         }
         viewModel.SetAvailableMonitors(Clients);
+        viewModel.UsePhysicalUnits = RoomPhysicalUnits;
         viewModel.LayoutProvider = LayoutForSelection;
         viewModel.SetOwnerWindow(_mainWindow);
         viewModel.SetGalleryWallpapers(Wallpapers);
