@@ -20,7 +20,7 @@ public partial class PlaylistPanel : UserControl
         InitializeComponent();
         ItemsList.AddHandler(PointerMovedEvent, OnListPointerMoved, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
         ItemsList.AddHandler(PointerReleasedEvent, OnListPointerReleased, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
-        ItemsList.AddHandler(PointerCaptureLostEvent, (_, _) => EndDrag(), RoutingStrategies.Bubble, handledEventsToo: true);
+        ItemsList.AddHandler(PointerCaptureLostEvent, (_, _) => EndDrag(), RoutingStrategies.Direct, handledEventsToo: true);
     }
 
     private void OnHandlePressed(object? sender, PointerPressedEventArgs e)
@@ -53,7 +53,10 @@ public partial class PlaylistPanel : UserControl
         e.Handled = true;
     }
 
-    /// <summary>End a drag without moving anything. Safe to call repeatedly (capture loss re-enters it).</summary>
+    /// <summary>
+    /// End a drag without moving anything. Safe to call repeatedly: our own <c>Capture(null)</c> below
+    /// re-enters via the Direct-routed PointerCaptureLost handler, and the early return guards that.
+    /// </summary>
     private void EndDrag()
     {
         if (_dragFrom < 0) return;
