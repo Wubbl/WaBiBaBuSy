@@ -1,0 +1,536 @@
+<!-- WaBiBaBuSy.UI/Views/SceneEditorPanel.axaml -->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:WaBiBaBuSy.UI.ViewModels"
+             xmlns:views="using:WaBiBaBuSy.UI.Views"
+             xmlns:sys="using:System"
+             x:Class="WaBiBaBuSy.UI.Views.SceneEditorPanel"
+             x:DataType="vm:MainWindowViewModel"
+             FontSize="12">
+    <UserControl.Styles>
+        <Style Selector="TextBlock.label">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="#CCCCCC"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="TextBlock.hint">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Foreground" Value="#888888"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style Selector="Border.strip">
+            <Setter Property="BorderBrush" Value="#555555"/>
+        </Style>
+        <Style Selector="Border.strip.selected">
+            <Setter Property="BorderBrush" Value="#0078D4"/>
+        </Style>
+        <Style Selector="TabControl.editor > TabItem">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="Padding" Value="10,4"/>
+        </Style>
+        <Style Selector="Expander">
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
+        <!-- Gallery strip: click = primary file, Ctrl+click = extra image, right-click = remove -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,8,0,4">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding Wallpapers}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" Spacing="6"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:WallpaperItemViewModel">
+                            <Border Classes="strip" Classes.selected="{Binding IsSelected}"
+                                    Width="96" Height="72" CornerRadius="4" Background="#404040"
+                                    BorderThickness="2" ClipToBounds="True" Margin="0,0,0,10"
+                                    Cursor="Hand" ToolTip.Tip="{Binding Name}"
+                                    PointerPressed="OnStripItemPressed">
+                                <Border.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="Remove from gallery"
+                                                  Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).RemoveWallpaperCommand}"
+                                                  CommandParameter="{Binding}"/>
+                                    </ContextMenu>
+                                </Border.ContextMenu>
+                                <Panel>
+                                    <Image Source="{Binding Thumbnail}" Stretch="UniformToFill"
+                                           IsVisible="{Binding Thumbnail, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                                    <TextBlock Text="{Binding Name}" FontSize="10" Foreground="#AAAAAA" TextWrapping="Wrap" Margin="4"
+                                               IsVisible="{Binding Thumbnail, Converter={x:Static ObjectConverters.IsNull}}"/>
+                                    <Border Background="{Binding TypeBadgeBrush}" CornerRadius="3" Padding="3,1"
+                                            HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,3,3,0">
+                                        <TextBlock Text="{Binding TypeName}" Foreground="White" FontSize="8" FontWeight="Bold"/>
+                                    </Border>
+                                </Panel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+            <Button Grid.Column="1" Content="+ Add" Command="{Binding AddWallpaperCommand}"
+                    VerticalAlignment="Top" Margin="6,0,0,0"
+                    ToolTip.Tip="Add files to the gallery (or drop files onto this panel)"/>
+        </Grid>
+
+        <!-- Picking hint + validation chips -->
+        <StackPanel Grid.Row="1" Spacing="4" Margin="0,0,0,4">
+            <Border Background="#1A3A5C" CornerRadius="4" Padding="8,4"
+                    IsVisible="{Binding SceneEditor.IsPickingBackgroundImage}">
+                <TextBlock Text="Click a thumbnail to use it as the background image (click 'Choose from strip' again to cancel)"
+                           FontSize="11" TextWrapping="Wrap"/>
+            </Border>
+            <ItemsControl ItemsSource="{Binding SceneEditor.Warnings}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel/>
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="sys:String">
+                        <Border Background="#3A2E10" BorderBrush="#FFB020" BorderThickness="1" CornerRadius="10"
+                                Padding="8,2" Margin="0,0,4,4">
+                            <TextBlock Text="{Binding}" Foreground="#FFD080" FontSize="11"/>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+
+        <!-- Tabs: bound to the editor view model -->
+        <Border Grid.Row="2" DataContext="{Binding SceneEditor}">
+            <TabControl Classes="editor" x:DataType="vm:CrossScreenConfigViewModel" Padding="0">
+
+                <!-- CONTENT -->
+                <TabItem Header="Content">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Spacing="8" Margin="0,10,12,10">
+                            <Grid ColumnDefinitions="120,*">
+                                <TextBlock Classes="label" Text="File ⓘ"
+                                           ToolTip.Tip="Click a thumbnail in the strip above. Ctrl+click adds it as an extra source image."/>
+                                <TextBlock Grid.Column="1" Text="{Binding AnimationFileName}" FontWeight="SemiBold"
+                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                           ToolTip.Tip="{Binding AnimationPath}"/>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*" IsVisible="{Binding HasExtraImages}">
+                                <TextBlock Classes="label" Text="Extra images" VerticalAlignment="Top" Margin="0,3,0,0"/>
+                                <ItemsControl Grid.Column="1" ItemsSource="{Binding AdditionalAnimationPaths}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="sys:String">
+                                            <Border Background="#2D2D30" CornerRadius="10" Padding="8,1,2,1" Margin="0,0,4,4">
+                                                <StackPanel Orientation="Horizontal" Spacing="2">
+                                                    <TextBlock Text="{Binding Converter={x:Static views:FileNameConverter.Instance}}"
+                                                               FontSize="11" VerticalAlignment="Center" MaxWidth="140"
+                                                               TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding}"/>
+                                                    <Button Content="✕" FontSize="10" Padding="4,0" Background="Transparent"
+                                                            Command="{Binding $parent[TabControl].((vm:CrossScreenConfigViewModel)DataContext).RemoveAdditionalImageCommand}"
+                                                            CommandParameter="{Binding}" ToolTip.Tip="Remove this extra image"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*">
+                                <TextBlock Classes="label" Text="Fit"/>
+                                <ComboBox Grid.Column="1" SelectedIndex="{Binding FitModeIndex}" HorizontalAlignment="Stretch">
+                                    <ComboBoxItem Content="Center (native size)"/>
+                                    <ComboBoxItem Content="Fit into screen"/>
+                                    <ComboBoxItem Content="Fill screen"/>
+                                    <ComboBoxItem Content="Stretch to screen"/>
+                                    <ComboBoxItem Content="Target height"/>
+                                </ComboBox>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsAnimationHeightRelevant}">
+                                <TextBlock Classes="label" Text="Height"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                    <NumericUpDown Value="{Binding AnimationHeight}" Minimum="10" Maximum="4320" Increment="10"
+                                                   Width="130" IsVisible="{Binding !IsSizeInCm}"/>
+                                    <NumericUpDown Value="{Binding AnimationHeightCm}" Minimum="0.5" Maximum="200" Increment="0.5"
+                                                   FormatString="0.0" Width="130" IsVisible="{Binding IsSizeInCm}"/>
+                                    <TextBlock Classes="label" Text="px" IsVisible="{Binding !IsSizeInCm}"/>
+                                    <TextBlock Classes="label" Text="cm" IsVisible="{Binding IsSizeInCm}"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*">
+                                <TextBlock Classes="label" Text="Vertical align"/>
+                                <ComboBox Grid.Column="1" SelectedIndex="{Binding VerticalAlignmentIndex}" Width="140">
+                                    <ComboBoxItem Content="Top"/>
+                                    <ComboBoxItem Content="Center"/>
+                                    <ComboBoxItem Content="Bottom"/>
+                                </ComboBox>
+                            </Grid>
+                            <CheckBox IsChecked="{Binding AnimationLoop}" Content="Loop"/>
+                            <CheckBox IsChecked="{Binding FaceTravelDirection}" Content="Face travel direction ⓘ"
+                                      ToolTip.Tip="Mirror the sprite whenever it moves left."/>
+                            <Expander Header="Advanced">
+                                <StackPanel Spacing="8">
+                                    <Grid ColumnDefinitions="120,*">
+                                        <TextBlock Classes="label" Text="Playback speed ⓘ"
+                                                   ToolTip.Tip="GIF / video frame timing. 1.0 = native frame delays; independent of the movement speed."/>
+                                        <NumericUpDown Grid.Column="1" Value="{Binding SpeedMultiplier}" Minimum="0.1" Maximum="10"
+                                                       Increment="0.1" FormatString="0.0" Width="130" HorizontalAlignment="Left"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*">
+                                        <TextBlock Classes="label" Text="Image spread ⓘ"
+                                                   ToolTip.Tip="Extra images without a pattern: spread (px) between the copies."/>
+                                        <NumericUpDown Grid.Column="1" Value="{Binding MultiImageSpread}" Minimum="0" Maximum="1000"
+                                                       Increment="10" Width="130" HorizontalAlignment="Left"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*">
+                                        <TextBlock Classes="label" Text="Phase jitter ⓘ"
+                                                   ToolTip.Tip="Extra images without a pattern: time offset (ms) between the copies."/>
+                                        <NumericUpDown Grid.Column="1" Value="{Binding MultiImagePhaseJitterMs}" Minimum="0" Maximum="5000"
+                                                       Increment="50" Width="130" HorizontalAlignment="Left"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Expander>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- MOTION -->
+                <TabItem Header="Motion">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Spacing="8" Margin="0,10,12,10">
+                            <Grid ColumnDefinitions="120,*">
+                                <TextBlock Classes="label" Text="Pattern"/>
+                                <ComboBox Grid.Column="1" ItemsSource="{Binding AvailableMovementOptions}"
+                                          SelectedItem="{Binding SelectedMovementType}" HorizontalAlignment="Stretch">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:MovementTypeOption">
+                                            <TextBlock Text="{Binding Name}"/>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsMovementActive}">
+                                <TextBlock Classes="label" Text="Speed" VerticalAlignment="Top" Margin="0,8,0,0"/>
+                                <StackPanel Grid.Column="1" Spacing="2">
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" IsVisible="{Binding !IsSpeedInCm}">
+                                        <Slider Value="{Binding AnimationSpeed}" Minimum="50" Maximum="2000" TickFrequency="50" IsSnapToTickEnabled="True"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding AnimationSpeed, StringFormat={}{0} px/s}"
+                                                   VerticalAlignment="Center" MinWidth="72"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" IsVisible="{Binding IsSpeedInCm}">
+                                        <Slider Value="{Binding AnimationSpeedCm}" Minimum="1" Maximum="150" TickFrequency="1" IsSnapToTickEnabled="True"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding AnimationSpeedCm, StringFormat={}{0:0.0} cm/s}"
+                                                   VerticalAlignment="Center" MinWidth="72"/>
+                                    </Grid>
+                                    <TextBlock Classes="hint" Text="{Binding SpeedReadout}"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*">
+                                <TextBlock Classes="label" Text="Distribution ⓘ"
+                                           ToolTip.Tip="Sequential: one animation spans all target monitors as one canvas. Simultaneous: every monitor plays its own copy."/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
+                                    <RadioButton GroupName="SceneDistribution" Content="Sequential" IsChecked="{Binding IsSequentialMode}"/>
+                                    <RadioButton GroupName="SceneDistribution" Content="Simultaneous" IsChecked="{Binding IsSimultaneousMode}"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsDirectionVisible}">
+                                <TextBlock Classes="label" Text="Direction ⓘ" ToolTip.Tip="Degrees: 0 = right, 90 = down, 45 = diagonal."/>
+                                <NumericUpDown Grid.Column="1" Value="{Binding MovementAngle}" Minimum="0" Maximum="360" Increment="15"
+                                               Width="130" HorizontalAlignment="Left"/>
+                            </Grid>
+                            <CheckBox IsChecked="{Binding IsMovementReversed}" IsVisible="{Binding IsReversibleMode}"
+                                      Content="Reverse ⓘ"
+                                      ToolTip.Tip="Linear: first node → last node. Sine wave: right to left. Circular: counter-clockwise."/>
+                            <Expander Header="Advanced">
+                                <StackPanel Spacing="8">
+                                    <CheckBox IsChecked="{Binding IsMovementEndless}" IsVisible="{Binding IsLinearMode}"
+                                              Content="Endless (no loop reset) ⓘ"
+                                              ToolTip.Tip="The pattern scrolls forever; each cell keeps a unique color. Needs a Traveling color mode."/>
+                                    <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsSineWaveMode}">
+                                        <TextBlock Classes="label" Text="Amplitude (px)"/>
+                                        <NumericUpDown Grid.Column="1" Value="{Binding WaveAmplitude}" Minimum="50" Maximum="1000"
+                                                       Increment="25" Width="130" HorizontalAlignment="Left"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsSineWaveMode}">
+                                        <TextBlock Classes="label" Text="Frequency (Hz)"/>
+                                        <NumericUpDown Grid.Column="1" Value="{Binding WaveFrequency}" Minimum="0.1" Maximum="5.0"
+                                                       Increment="0.1" FormatString="F1" Width="130" HorizontalAlignment="Left"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsCircularMode}">
+                                        <TextBlock Classes="label" Text="Orbit radius (px)"/>
+                                        <NumericUpDown Grid.Column="1" Value="{Binding OrbitRadius}" Minimum="100" Maximum="2000"
+                                                       Increment="50" Width="130" HorizontalAlignment="Left"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsRandomWalkMode}">
+                                        <TextBlock Classes="label" Text="Iteration steps ⓘ"
+                                                   ToolTip.Tip="After this many steps the walk pattern changes. 0 = never."/>
+                                        <NumericUpDown Grid.Column="1" Value="{Binding RandomWalkIterationSteps}" Minimum="0" Maximum="500"
+                                                       Increment="5" Width="130" HorizontalAlignment="Left"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsRandomWalkMode}">
+                                        <TextBlock Classes="label" Text="Seed"/>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                            <NumericUpDown Value="{Binding RandomSeed}" Minimum="0" Maximum="999999" Increment="1" Width="130"/>
+                                            <Button Content="Randomize" Command="{Binding RandomizeMovementSeedCommand}" FontSize="11"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsRandomWalkMode}">
+                                        <TextBlock Classes="label" Text="Step interval (ms)"/>
+                                        <NumericUpDown Grid.Column="1" Value="{Binding RandomStepIntervalMs}" Minimum="100" Maximum="10000"
+                                                       Increment="100" Width="130" HorizontalAlignment="Left"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsSimultaneousMode}">
+                                        <TextBlock Classes="label" Text="Wave delay ⓘ"
+                                                   ToolTip.Tip="ms each node starts after the previous one, so a bounce or orbit runs down the row like a stadium wave. 0 = all in phase."/>
+                                        <NumericUpDown Grid.Column="1" Value="{Binding NodePhaseDelayMs}" Minimum="0" Maximum="5000"
+                                                       Increment="50" Width="130" HorizontalAlignment="Left"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Expander>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- LOOK -->
+                <TabItem Header="Look">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Spacing="8" Margin="0,10,12,10">
+                            <Grid ColumnDefinitions="120,*">
+                                <TextBlock Classes="label" Text="Color grading"/>
+                                <ComboBox Grid.Column="1" SelectedIndex="{Binding ColorGradingModeIndex}" HorizontalAlignment="Stretch">
+                                    <ComboBoxItem Content="None"/>
+                                    <ComboBoxItem Content="Rainbow (tint sweep)"/>
+                                    <ComboBoxItem Content="Random colors"/>
+                                    <ComboBoxItem Content="Gradient (ping-pong)"/>
+                                    <ComboBoxItem Content="Cycle color list"/>
+                                    <ComboBoxItem Content="Traveling colors (rainbow)"/>
+                                    <ComboBoxItem Content="Traveling colors (list)"/>
+                                    <ComboBoxItem Content="Traveling colors (random)"/>
+                                </ComboBox>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsColorGradingTimeBased}">
+                                <TextBlock Classes="label" Text="Cycles / second"/>
+                                <NumericUpDown Grid.Column="1" Value="{Binding ColorGradingCyclesPerSecond}" Minimum="0.01" Maximum="10"
+                                               Increment="0.1" Width="130" HorizontalAlignment="Left"/>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsColorGradingGradient}">
+                                <TextBlock Classes="label" Text="Colors A → B"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                    <TextBox Text="{Binding ColorGradingGradientA}" Width="90"/>
+                                    <TextBox Text="{Binding ColorGradingGradientB}" Width="90"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsColorGradingColorListMode}">
+                                <TextBlock Classes="label" Text="Color list ⓘ" ToolTip.Tip="Comma-separated hex colors."/>
+                                <TextBox Grid.Column="1" Text="{Binding ColorGradingColorListCsv}"/>
+                            </Grid>
+                            <CheckBox IsChecked="{Binding PatternEnabled}" Content="Pattern grid ⓘ"
+                                      ToolTip.Tip="Tile the animation into a deterministic grid. With an IconZone background the icon zones mask the grid so desktop icons stay visible."/>
+                            <Grid ColumnDefinitions="120,*" IsVisible="{Binding PatternEnabled}">
+                                <TextBlock Classes="label" Text="Sizing"/>
+                                <ComboBox Grid.Column="1" SelectedIndex="{Binding PatternSizingIndex}" Width="200">
+                                    <ComboBoxItem Content="Fill (edge to edge)"/>
+                                    <ComboBoxItem Content="Explicit count"/>
+                                </ComboBox>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsPatternCountVisible}">
+                                <TextBlock Classes="label" Text="Count X × Y"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                    <NumericUpDown Value="{Binding PatternCountX}" Minimum="1" Maximum="500" Increment="1" Width="100"/>
+                                    <NumericUpDown Value="{Binding PatternCountY}" Minimum="1" Maximum="500" Increment="1" Width="100"/>
+                                </StackPanel>
+                            </Grid>
+                            <Expander Header="Advanced">
+                                <StackPanel Spacing="8">
+                                    <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsColorGradingTraveling}">
+                                        <TextBlock Classes="label" Text="Colored cells ⓘ"
+                                                   ToolTip.Tip="100% = every cell colored; 10% = sparse colored cells among monochrome."/>
+                                        <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                            <Slider Minimum="0" Maximum="1" TickFrequency="0.01" Value="{Binding ColorGradingColoredCellPercentage}"/>
+                                            <TextBlock Grid.Column="1" VerticalAlignment="Center" MinWidth="40"
+                                                       Text="{Binding ColorGradingColoredCellPercentage, StringFormat={}{0:P0}}"/>
+                                        </Grid>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*" IsVisible="{Binding !IsColorGradingNone}">
+                                        <TextBlock Classes="label" Text="Color seed"/>
+                                        <NumericUpDown Grid.Column="1" Value="{Binding ColorGradingSeed}" Minimum="0" Maximum="999999"
+                                                       Increment="1" Width="130" HorizontalAlignment="Left"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*" IsVisible="{Binding PatternEnabled}">
+                                        <TextBlock Classes="label" Text="Spacing X × Y (px)"/>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                            <NumericUpDown Value="{Binding PatternSpacingX}" Minimum="0" Maximum="2000" Increment="5" Width="100"/>
+                                            <NumericUpDown Value="{Binding PatternSpacingY}" Minimum="0" Maximum="2000" Increment="5" Width="100"/>
+                                        </StackPanel>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*" IsVisible="{Binding PatternEnabled}">
+                                        <TextBlock Classes="label" Text="Margin (px)"/>
+                                        <NumericUpDown Grid.Column="1" Value="{Binding PatternMargin}" Minimum="0" Maximum="500"
+                                                       Increment="10" Width="100" HorizontalAlignment="Left"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*" IsVisible="{Binding PatternEnabled}">
+                                        <TextBlock Classes="label" Text="Pattern seed"/>
+                                        <NumericUpDown Grid.Column="1" Value="{Binding PatternSeed}" Minimum="0" Maximum="999999"
+                                                       Increment="1" Width="100" HorizontalAlignment="Left"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*" IsVisible="{Binding PatternEnabled}">
+                                        <TextBlock Classes="label" Text="Random offset (px)"/>
+                                        <NumericUpDown Grid.Column="1" Value="{Binding PatternRandomOffset}" Minimum="0" Maximum="500"
+                                                       Increment="5" Width="100" HorizontalAlignment="Left"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*" IsVisible="{Binding PatternEnabled}">
+                                        <TextBlock Classes="label" Text="Random rot. (°)"/>
+                                        <NumericUpDown Grid.Column="1" Value="{Binding PatternRandomRotation}" Minimum="0" Maximum="180"
+                                                       Increment="5" Width="100" HorizontalAlignment="Left"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsPatternWithIconZone}">
+                                        <TextBlock Classes="label" Text="Zone size (px) ⓘ" ToolTip.Tip="Expand the invisible zone beyond the detected icons."/>
+                                        <NumericUpDown Grid.Column="1" Value="{Binding IconZoneExpansionPx}" Minimum="0" Maximum="500"
+                                                       Increment="10" Width="100" HorizontalAlignment="Left"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsPatternWithIconZone}">
+                                        <TextBlock Classes="label" Text="Fade border (px) ⓘ" ToolTip.Tip="0 = hard edge; 40–120 px recommended."/>
+                                        <NumericUpDown Grid.Column="1" Value="{Binding IconFadePaddingPx}" Minimum="0" Maximum="500"
+                                                       Increment="10" Width="100" HorizontalAlignment="Left"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Expander>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- BACKGROUND -->
+                <TabItem Header="Background">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Spacing="8" Margin="0,10,12,10">
+                            <Grid ColumnDefinitions="120,*">
+                                <TextBlock Classes="label" Text="Mode"/>
+                                <ComboBox Grid.Column="1" SelectedIndex="{Binding BackgroundModeIndex}" HorizontalAlignment="Stretch">
+                                    <ComboBoxItem Content="Solid color"/>
+                                    <ComboBoxItem Content="Stretched image"/>
+                                    <ComboBoxItem Content="Tiled image"/>
+                                    <ComboBoxItem Content="Three zone (corridor)"/>
+                                    <ComboBoxItem Content="Icon zone (auto-detect)"/>
+                                </ComboBox>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsSolidColorMode}">
+                                <TextBlock Classes="label" Text="Color"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                    <TextBox Text="{Binding BackgroundColor}" Width="100" Watermark="#000000"/>
+                                    <Border Width="22" Height="22" CornerRadius="3" Background="{Binding BackgroundColor}"
+                                            BorderBrush="#555" BorderThickness="1" VerticalAlignment="Center"/>
+                                    <Button Content="Auto-detect" Command="{Binding AutoDetectBackgroundColorCommand}" FontSize="11"
+                                            ToolTip.Tip="Dominant edge color of the animation file"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsImageMode}">
+                                <TextBlock Classes="label" Text="Image" VerticalAlignment="Top" Margin="0,6,0,0"/>
+                                <StackPanel Grid.Column="1" Spacing="6">
+                                    <TextBlock Text="{Binding BackgroundImageFileName}" FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding BackgroundImagePath}"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <ToggleButton Content="Choose from strip" IsChecked="{Binding IsPickingBackgroundImage}"/>
+                                        <Button Content="Browse…" Command="{Binding BrowseBackgroundImageCommand}"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsThreeZoneMode}">
+                                <TextBlock Classes="label" Text="Top zone"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                    <TextBox Text="{Binding TopZoneColorHex}" Width="100"/>
+                                    <Border Width="22" Height="22" CornerRadius="3" Background="{Binding TopZoneColorHex}" BorderBrush="#555" BorderThickness="1"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsThreeZoneMode}">
+                                <TextBlock Classes="label" Text="Corridor"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                    <TextBox Text="{Binding CorridorColorHex}" Width="100"/>
+                                    <Border Width="22" Height="22" CornerRadius="3" Background="{Binding CorridorColorHex}" BorderBrush="#555" BorderThickness="1"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsThreeZoneMode}">
+                                <TextBlock Classes="label" Text="Bottom zone"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                    <TextBox Text="{Binding BottomZoneColorHex}" Width="100"/>
+                                    <Border Width="22" Height="22" CornerRadius="3" Background="{Binding BottomZoneColorHex}" BorderBrush="#555" BorderThickness="1"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsIconZoneMode}">
+                                <TextBlock Classes="label" Text="Corridor ⓘ"
+                                           ToolTip.Tip="Color of the free bands. Every node detects its own desktop icons; adjacent icons merge into one cluster."/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                    <TextBox Text="{Binding IconCorridorColorHex}" Width="100"/>
+                                    <Border Width="22" Height="22" CornerRadius="3" Background="{Binding IconCorridorColorHex}" BorderBrush="#555" BorderThickness="1"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsIconZoneMode}">
+                                <TextBlock Classes="label" Text="Zone colors" VerticalAlignment="Top" Margin="0,6,0,0"/>
+                                <StackPanel Grid.Column="1" Spacing="6">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Button Content="Randomize" Command="{Binding RandomizePaletteCommand}" FontSize="11"/>
+                                        <Button Content="+" Command="{Binding AddZoneColorCommand}" FontSize="11" ToolTip.Tip="Add a zone color"/>
+                                        <Button Content="−" Command="{Binding RemoveLastZoneColorCommand}" FontSize="11" ToolTip.Tip="Remove the last zone color"/>
+                                    </StackPanel>
+                                    <ItemsControl ItemsSource="{Binding IconZonePalette}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:ZoneColorItem">
+                                                <StackPanel Spacing="2" Margin="0,0,6,4" Width="54">
+                                                    <Border Height="24" CornerRadius="3" Background="{Binding ColorHex}" BorderBrush="#555" BorderThickness="1"/>
+                                                    <TextBox Text="{Binding ColorHex}" FontSize="9" Height="20" Padding="2,1"/>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Grid>
+                            <Expander Header="Advanced">
+                                <StackPanel Spacing="8">
+                                    <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsThreeZoneMode}">
+                                        <TextBlock Classes="label" Text="Corridor top (px)"/>
+                                        <NumericUpDown Grid.Column="1" Value="{Binding CorridorTopPx}" Minimum="0" Maximum="2000"
+                                                       Increment="10" Width="130" HorizontalAlignment="Left"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsThreeZoneMode}">
+                                        <TextBlock Classes="label" Text="Corridor height (px)"/>
+                                        <NumericUpDown Grid.Column="1" Value="{Binding CorridorHeightPx}" Minimum="50" Maximum="2000"
+                                                       Increment="10" Width="130" HorizontalAlignment="Left"/>
+                                    </Grid>
+                                    <CheckBox IsChecked="{Binding RotateWithPath}" IsVisible="{Binding IsIconZoneMode}"
+                                              Content="Rotate with path direction"/>
+                                    <TextBlock Classes="hint" Text="No advanced options for this background."
+                                               IsVisible="{Binding IsSolidColorMode}"/>
+                                    <TextBlock Classes="hint" Text="No advanced options for this background."
+                                               IsVisible="{Binding IsImageMode}"/>
+                                </StackPanel>
+                            </Expander>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+            </TabControl>
+        </Border>
+
+        <!-- Footer: targets + play; always visible -->
+        <Border Grid.Row="3" Background="#252526" CornerRadius="5" Padding="10,8" Margin="0,6,0,0">
+            <StackPanel Spacing="6">
+                <TextBlock Text="{Binding TargetsSummary}" FontSize="12" Foreground="#CCCCCC"
+                           ToolTip.Tip="Select nodes in the room to target them; with nothing selected the scene plays on every node."/>
+                <WrapPanel>
+                    <Button Content="▶ Play on selection" Command="{Binding PlayOnSelectionCommand}" Classes="accent" Margin="0,0,6,6"/>
+                    <Button Content="Play on all" Command="{Binding PlayOnAllCommand}" Margin="0,0,6,6"/>
+                    <Button Content="⟲ Revert" Command="{Binding RevertSceneCommand}" Margin="0,0,6,6"
+                            ToolTip.Tip="Back to the last played scene (or the default scene)"/>
+                </WrapPanel>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

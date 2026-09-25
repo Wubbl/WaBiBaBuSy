@@ -217,7 +217,11 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     partial void OnRoomTraversalIndexChanged(int value) => UpdateRoomSettings();
     partial void OnRoomTurnGapCmChanged(int value) => UpdateRoomSettings();
     partial void OnRoomRowGapCmChanged(int value) => UpdateRoomSettings();
-    partial void OnRoomPhysicalUnitsChanged(bool value) => UpdateRoomSettings();
+    partial void OnRoomPhysicalUnitsChanged(bool value)
+    {
+        UpdateRoomSettings();
+        SceneEditor.UsePhysicalUnits = value;   // editor units follow the room
+    }
     partial void OnRoomVerticalAnchorIndexChanged(int value) => UpdateRoomSettings();
 
     /// <summary>Short room description for the Room ⚙ button, e.g. "Ring · 150 cm turn · cm".</summary>
@@ -506,6 +510,9 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
 
         // Room layout (rows / ring) — single row until the user configures the room
         LoadSeatMap();
+
+        // Docked Scene editor: default draft, units from the room, preview wiring
+        InitSceneEditor();
     }
 
     /// <summary>
@@ -739,6 +746,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     public void SetStorageProvider(IStorageProvider storageProvider)
     {
         _storageProvider = storageProvider;
+        SceneEditor.SetStorageProvider(storageProvider);
     }
 
     /// <summary>
@@ -877,6 +885,9 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         OnPropertyChanged(nameof(IsSingleNodeSelection));
         OnPropertyChanged(nameof(IsMultiNodeSelection));
         OnPropertyChanged(nameof(SelectionSummary));
+        OnPropertyChanged(nameof(TargetsSummary));
+        PlayOnSelectionCommand.NotifyCanExecuteChanged();
+        ScheduleDraftUpdate();   // draft targets = selection; also covers nodes joining/leaving (called after every refresh)
     }
 
     // ── Selection bar ────────────────────────────────────────────────────────
@@ -3464,14 +3475,9 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
 
         if (_crossScreenConfig == null || string.IsNullOrEmpty(_crossScreenConfig.Animation.AnimationPath))
         {
-            Debug.WriteLine("[CrossScreen] No configuration. Opening config dialog...");
-            await ConfigureCrossScreen();
-
-            if (_crossScreenConfig == null || string.IsNullOrEmpty(_crossScreenConfig.Animation.AnimationPath))
-            {
-                Debug.WriteLine("[CrossScreen] Configuration cancelled or incomplete");
-                return;
-            }
+            Debug.WriteLine("[CrossScreen] No configuration — opening the Scene editor");
+            OpenSceneEditor();
+            return;
         }
 
         try

@@ -1,7 +1,8 @@
 // Same using set as before the rewrite (file-drop helpers such as TryGetFiles are extension methods).
+using System;
+using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Presenters;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
@@ -13,6 +14,10 @@ namespace WaBiBaBuSy.UI.Views;
 
 public partial class MainWindow : Window
 {
+    /// <summary>Right panel width restored when it is expanded again (px).</summary>
+    private double _panelWidth = 460;
+    private MainWindowViewModel? _vm;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -29,32 +34,32 @@ public partial class MainWindow : Window
         DataContextChanged += OnDataContextChanged;
     }
 
-    private void OnDataContextChanged(object? sender, System.EventArgs e)
+    private void OnDataContextChanged(object? sender, EventArgs e)
     {
-        // Click on empty gallery area deselects the wallpaper
-        var galleryScrollViewer = this.FindControl<ScrollViewer>("GalleryScrollViewer");
-        if (galleryScrollViewer != null)
-        {
-            galleryScrollViewer.PointerPressed -= OnGalleryPointerPressed;
-            galleryScrollViewer.PointerPressed += OnGalleryPointerPressed;
-        }
+        if (_vm != null) _vm.PropertyChanged -= OnVmPropertyChanged;
+        _vm = DataContext as MainWindowViewModel;
+        if (_vm == null) return;
+        _vm.PropertyChanged += OnVmPropertyChanged;
+        ApplyPanelState(_vm.IsRightPanelOpen);
     }
 
-    /// <summary>Handle click on gallery background to deselect wallpaper.</summary>
-    private void OnGalleryPointerPressed(object? sender, PointerPressedEventArgs e)
+    private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.Source is ScrollViewer or ScrollContentPresenter or ItemsControl or WrapPanel or Border { Name: "GalleryScrollViewer" })
-        {
-            if (DataContext is MainWindowViewModel viewModel)
-            {
-                foreach (var w in viewModel.Wallpapers)
-                    w.IsSelected = false;
-                viewModel.SelectedWallpaper = null;
-            }
-        }
+        if (e.PropertyName == nameof(MainWindowViewModel.IsRightPanelOpen) && _vm != null)
+            ApplyPanelState(_vm.IsRightPanelOpen);
     }
 
-    private void OnWindowOpened(object? sender, System.EventArgs e)
+    /// <summary>Open: restore the last panel width and the splitter. Collapsed: a 32 px rail, no splitter.</summary>
+    private void ApplyPanelState(bool open)
+    {
+        var column = MainSplit.ColumnDefinitions[2];
+        if (!open && column.ActualWidth > 100) _panelWidth = column.ActualWidth;
+        column.MinWidth = open ? 360 : 0;
+        column.Width = new GridLength(open ? _panelWidth : 32);
+        PanelSplitter.IsVisible = open;
+    }
+
+    private void OnWindowOpened(object? sender, EventArgs e)
     {
         if (DataContext is MainWindowViewModel viewModel)
         {
@@ -65,7 +70,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnWindowClosed(object? sender, System.EventArgs e)
+    private void OnWindowClosed(object? sender, EventArgs e)
     {
         if (DataContext is MainWindowViewModel viewModel)
             viewModel.StopRefreshTimer();
