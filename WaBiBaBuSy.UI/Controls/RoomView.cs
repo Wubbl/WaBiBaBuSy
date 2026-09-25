@@ -45,10 +45,19 @@ public partial class RoomView : Control
     /// <summary>Defines the <see cref="ActiveLayout"/> property.</summary>
     public static readonly StyledProperty<SeatMapLayoutResult?> ActiveLayoutProperty =
         AvaloniaProperty.Register<RoomView, SeatMapLayoutResult?>(nameof(ActiveLayout));
+    /// <summary>Defines the <see cref="IsClockPaused"/> property.</summary>
+    public static readonly StyledProperty<bool> IsClockPausedProperty =
+        AvaloniaProperty.Register<RoomView, bool>(nameof(IsClockPaused));
+    /// <summary>Defines the <see cref="ClockSpeed"/> property.</summary>
+    public static readonly StyledProperty<double> ClockSpeedProperty =
+        AvaloniaProperty.Register<RoomView, double>(nameof(ClockSpeed), 1.0);
+    /// <summary>Defines the <see cref="ClockRestartToken"/> property.</summary>
+    public static readonly StyledProperty<int> ClockRestartTokenProperty =
+        AvaloniaProperty.Register<RoomView, int>(nameof(ClockRestartToken));
 
     /// <summary>The room's data and edit operations (normally the main window view model).</summary>
     public IRoomHost? Host { get => GetValue(HostProperty); set => SetValue(HostProperty, value); }
-    /// <summary>Scene painted in the tiles (the running scene for now; the editor draft in Plan 2).</summary>
+    /// <summary>Scene painted in the tiles: the running scene (live) or the Scene editor's draft (design clock).</summary>
     public CrossScreenConfig? Scene { get => GetValue(SceneProperty); set => SetValue(SceneProperty, value); }
     /// <summary>
     /// Epoch of the players' shared clock (UTC ms). &gt; 0 = live: tiles paint on the players' clock
@@ -58,11 +67,18 @@ public partial class RoomView : Control
     /// <summary>Local image file drawn as the sprite (null = placeholder shape).</summary>
     public string? SpriteImagePath { get => GetValue(SpriteImagePathProperty); set => SetValue(SpriteImagePathProperty, value); }
     /// <summary>
-    /// Layout the running players were started with (target subset, start-time gaps and ppcm).
-    /// While live, node geometry comes from here and tiles missing from it are not painted:
-    /// the seat map may have been edited or nodes may have joined since the start.
+    /// Layout the tiles are painted with. Live: the layout the running players were started with
+    /// (target subset, start-time gaps and ppcm) — the seat map may have been edited or nodes may have
+    /// joined since. Design clock: the draft's target layout; null = the whole room. Tiles missing from
+    /// it are not painted either way.
     /// </summary>
     public SeatMapLayoutResult? ActiveLayout { get => GetValue(ActiveLayoutProperty); set => SetValue(ActiveLayoutProperty, value); }
+    /// <summary>Freeze the design clock (draft preview). No effect while live.</summary>
+    public bool IsClockPaused { get => GetValue(IsClockPausedProperty); set => SetValue(IsClockPausedProperty, value); }
+    /// <summary>Design-clock speed multiplier (1×, 4×, 16× in the preview bar). No effect while live.</summary>
+    public double ClockSpeed { get => GetValue(ClockSpeedProperty); set => SetValue(ClockSpeedProperty, value); }
+    /// <summary>Any change restarts the design clock at t = 0 (preview bar ⟲).</summary>
+    public int ClockRestartToken { get => GetValue(ClockRestartTokenProperty); set => SetValue(ClockRestartTokenProperty, value); }
 
     private const double DragThreshold = 5;
     /// <summary>Distance from the scroll viewport edge (px) at which a tile drag auto-scrolls.</summary>
@@ -124,6 +140,9 @@ public partial class RoomView : Control
         else if (change.Property == SpriteImagePathProperty) _painter.SpriteImagePath = SpriteImagePath;
         else if (change.Property == SharedStartUtcMsProperty) _clock.SharedStartUtcMs = SharedStartUtcMs;
         else if (change.Property == SceneProperty && !_clock.IsLive) _clock.Restart();
+        else if (change.Property == IsClockPausedProperty) { _clock.IsPaused = IsClockPaused; InvalidateVisual(); }
+        else if (change.Property == ClockSpeedProperty) _clock.Speed = ClockSpeed;
+        else if (change.Property == ClockRestartTokenProperty) { _clock.Restart(); InvalidateVisual(); }
     }
 
     private void AttachHost(IRoomHost? host)
@@ -223,7 +242,7 @@ public partial class RoomView : Control
     private bool AnyTileAnimating()
     {
         if (_host == null) return false;
-        if (!_clock.IsLive) return true;   // design clock (editor draft): always animate
+        if (!_clock.IsLive) return !_clock.IsPaused;   // design clock (editor draft): animate unless paused
         return _host.Clients.Any(c => c.IsAnimating);
     }
 
@@ -268,9 +287,10 @@ public partial class RoomView : Control
         if (_grid.Tiles.Count == 0)
             DrawText(ctx, "No nodes yet — start the server or connect clients.", new Point(RoomGrid.Margin, RoomGrid.Margin + 4), Dim, 12);
 
-        // Live: paint with the layout the players were started with; design clock: the current seat map.
+        // Live: the layout the players were started with. Design clock: the draft's target layout,
+        // or the current seat map when the host passes none.
         bool live = _clock.IsLive;
-        var paintLayout = live ? ActiveLayout : _layout;
+        var paintLayout = live ? ActiveLayout : ActiveLayout ?? _layout;
         var scene = paintLayout == null ? null : ScenePainter.Resolve(Scene, paintLayout);
         long elapsed = _clock.ElapsedMs();
         var byId = host.Clients.GroupBy(c => c.ClientId).ToDictionary(g => g.Key, g => g.First());
