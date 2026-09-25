@@ -10,6 +10,7 @@
 - Scene tab: gallery strip (click / Ctrl+click / right-click), Content · Motion · Look · Background tabs with Advanced sections, ⓘ tooltips, amber validation chips (`SceneChecks`), units follow Room ⚙ physical units, targets = room selection (`SceneTargets`, chain order).
 - Draft preview: editor changes reach the room tiles after 150 ms; preview badge toggles draft ↔ live, ⏸ ⟲ 1×/4×/16× for the draft clock; the 2 s topology refresh no longer restarts it (`SceneChecks.SameScene`).
 - Playlist tab: picker / New / Save, durations in seconds (`PlaylistEditing`), drag reorder, Duplicate / Remove, selecting an item loads it into the editor, Save to playlist → add / update.
+- Play on selection / Play on all first stop a running scene; a running show is stopped and every node cleared before the scene starts.
 - Toolbar: Show ▾ ▶ ■ ⏭ with "Now: … · next: …"; `PlaylistOrchestrator.Skip()`.
 - Removed: `CrossScreenConfigDialog`, `PlaylistDialog`, `ScenePreviewControl`, `WallpaperMultiSelectDialog`.
 

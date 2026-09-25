@@ -69,9 +69,11 @@ WaBiBaBuSy runs as a **system tray application**. The main window is hidden by d
     primary file, Ctrl+click = extra image, right-click = remove); tabs Content/Motion/Look/
     Background with Advanced expanders; ⓘ tooltips; amber validation chips (`SceneChecks`); units
     follow the Room ⚙ physical-units toggle; targets = the room selection (`SceneTargets`, chain
-    order); footer Play on selection / Play on all / Save to playlist ▾ / Revert. Draft preview:
-    editor changes reach the room tiles after 150 ms; a preview bar under the room shows a
-    draft/live badge, ⏸, ⟲, and 1×/4×/16× for the draft clock.
+    order); footer Play on selection / Play on all / Save to playlist ▾ / Revert — Play on
+    selection / Play on all first stop a running scene; a running show is stopped and every node
+    cleared before the scene starts. Draft preview: editor changes reach the room tiles after
+    150 ms; a preview bar under the room shows a draft/live badge, ⏸, ⟲, and 1×/4×/16× for the
+    draft clock.
   - **Playlist tab** (`PlaylistPanel` over `PlaylistViewModel`): picker/New/Save, name, Loop/
     Shuffle, default seconds, seconds per item, drag ≡ to reorder, right-click Duplicate/Remove,
     Details expander with lap-snap, ＋ Add current scene; selecting an item loads it into the
