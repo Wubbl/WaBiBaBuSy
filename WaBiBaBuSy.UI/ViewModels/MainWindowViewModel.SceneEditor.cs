@@ -67,6 +67,20 @@ public partial class MainWindowViewModel
     /// <summary>Bumped to restart the draft clock at t = 0.</summary>
     [ObservableProperty] private int _previewRestartToken;
 
+    /// <summary>
+    /// True while a Play button's request is in flight (draft build → teardown of any running show/scene
+    /// → start). Guards the two Play buttons and the toolbar show ▶ against starting a second scene
+    /// before the first has finished applying, which would otherwise leave its players/remote nodes
+    /// running untracked.
+    /// </summary>
+    [ObservableProperty] private bool _isStartingScene;
+
+    partial void OnIsStartingSceneChanged(bool value)
+    {
+        PlayOnSelectionCommand.NotifyCanExecuteChanged();
+        PlayOnAllCommand.NotifyCanExecuteChanged();
+    }
+
     /// <summary>Scene the room paints.</summary>
     public CrossScreenConfig? RoomScene => IsPreviewDraft ? DraftScene : ActiveScene;
     /// <summary>Shared clock epoch for the room; 0 = design clock (draft).</summary>
@@ -170,6 +184,9 @@ public partial class MainWindowViewModel
         _draftDebounce.Start();
     }
 
+    /// <summary>Message from the last logged <see cref="UpdateDraft"/> failure, to de-duplicate log spam.</summary>
+    private string? _lastDraftUpdateError;
+
     private void UpdateDraft()
     {
         try
@@ -183,11 +200,26 @@ public partial class MainWindowViewModel
             DraftSpriteImagePath = ResolveSpriteImagePath(config.Animation.AnimationPath);
             // The 2 s topology refresh re-runs this: only a real change may restart the draft clock.
             if (!SceneChecks.SameScene(DraftScene, config)) DraftScene = config;
-            SceneEditor.SetChecks(SceneChecks.Validate(config, layout), SceneChecks.CrossingReadout(config, layout));
+
+            var warnings = SceneChecks.Validate(config, layout).ToList();
+            var path = config.Animation.AnimationPath;
+            // UI-only check (Models stays pure): flag a file the editor points at but that no longer
+            // exists, instead of only catching it once the user hits Play.
+            if (!string.IsNullOrWhiteSpace(path) && !File.Exists(path))
+                warnings.Add($"File not found: {Path.GetFileName(path)}");
+            SceneEditor.SetChecks(warnings, SceneChecks.CrossingReadout(config, layout));
+
+            _lastDraftUpdateError = null;
         }
         catch (Exception ex)
         {
-            AppLogger.CreateLogger<MainWindowViewModel>().LogWarning(ex, "Scene draft preview update failed");
+            // The 150 ms debounce can re-run this many times while a bad edit stands; only log once per
+            // distinct failure instead of spamming the same warning on every keystroke.
+            if (_lastDraftUpdateError != ex.Message)
+            {
+                _lastDraftUpdateError = ex.Message;
+                AppLogger.CreateLogger<MainWindowViewModel>().LogWarning(ex, "Scene draft preview update failed");
+            }
         }
     }
 
@@ -217,51 +249,66 @@ public partial class MainWindowViewModel
         RightPanelTabIndex = 0;
     }
 
-    [RelayCommand(CanExecute = nameof(HasNodeSelection))]
+    private bool CanPlayOnSelection() => HasNodeSelection && !IsStartingScene;
+    private bool CanPlayOnAll() => !IsStartingScene;
+
+    [RelayCommand(CanExecute = nameof(CanPlayOnSelection))]
     private Task PlayOnSelection() => PlayDraftAsync(selectionOnly: true);
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanPlayOnAll))]
     private Task PlayOnAll() => PlayDraftAsync(selectionOnly: false);
 
     /// <summary>
     /// Send the draft to the machines: tears down a running show (playlist loop + its players/remote
     /// nodes) or a running scene first, then starts the draft on the selection (chain order) or on
-    /// every node.
+    /// every node. Guarded by <see cref="IsStartingScene"/> so the two Play buttons (and the toolbar
+    /// show ▶, via <see cref="StartPlaylist"/>) cannot both start a scene before the first apply
+    /// finishes tearing down what came before it.
     /// </summary>
     private async Task PlayDraftAsync(bool selectionOnly)
     {
-        var config = SceneEditor.BuildConfig();
-        var path = config.Animation.AnimationPath;
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        if (IsStartingScene) return;
+        IsStartingScene = true;
+        try
         {
-            var warnings = SceneEditor.Warnings.ToList();
-            warnings.Insert(0, string.IsNullOrWhiteSpace(path) ? "Pick an animation file from the strip" : $"File not found: {Path.GetFileName(path)}");
-            SceneEditor.SetChecks(warnings.Distinct().ToList(), SceneEditor.SpeedReadout);
-            return;
+            var config = SceneEditor.BuildConfig();
+            var path = config.Animation.AnimationPath;
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                var warnings = SceneEditor.Warnings.ToList();
+                warnings.Insert(0, string.IsNullOrWhiteSpace(path) ? "Pick an animation file from the strip" : $"File not found: {Path.GetFileName(path)}");
+                SceneEditor.SetChecks(warnings.Distinct().ToList(), SceneEditor.SpeedReadout);
+                return;
+            }
+
+            var targets = selectionOnly ? SceneTargets.Resolve(RoomOrder, SelectedNodeIds) : new List<string>();
+            if (selectionOnly && targets.Count == 0) return;   // stale selection: never fall back to "all"
+            config.SelectedMonitorIds = targets;
+
+            if (_playlistOrchestrator?.IsRunning == true)
+            {
+                // A show never sets IsCrossScreenRunning, so StopCrossScreen alone would only cancel the
+                // playlist loop and leave its current item's D2D players and remote nodes running.
+                await StopPlaylistAsync();
+                await ClearNodesAsync(Clients.Select(c => c.ClientId).Distinct().ToList());
+            }
+            if (IsCrossScreenRunning)
+                await StopCrossScreen();
+
+            _crossScreenConfig = config;
+            HasAnimationConfig = true;
+            await StartCrossScreen();
         }
-
-        var targets = selectionOnly ? SceneTargets.Resolve(RoomOrder, SelectedNodeIds) : new List<string>();
-        if (selectionOnly && targets.Count == 0) return;   // stale selection: never fall back to "all"
-        config.SelectedMonitorIds = targets;
-
-        if (_playlistOrchestrator?.IsRunning == true)
+        finally
         {
-            // A show never sets IsCrossScreenRunning, so StopCrossScreen alone would only cancel the
-            // playlist loop and leave its current item's D2D players and remote nodes running.
-            await StopPlaylistAsync();
-            await ClearNodesAsync(Clients.Select(c => c.ClientId).Distinct().ToList());
+            IsStartingScene = false;
         }
-        if (IsCrossScreenRunning)
-            await StopCrossScreen();
-
-        _crossScreenConfig = config;
-        HasAnimationConfig = true;
-        await StartCrossScreen();
     }
 
     [RelayCommand]
     private void RevertScene() => SceneEditor.LoadFromConfig(RevertTarget());
 
-    /// <summary>What Revert restores: the loaded playlist item, else the last played scene, else the default scene.</summary>
-    private CrossScreenConfig RevertTarget() => PlaylistEditor.LoadedItem?.Model.Config ?? _crossScreenConfig ?? DefaultScene();
+    /// <summary>What Revert restores: the loaded playlist item, else what is playing now (a running scene,
+    /// or the last one played), else the default scene.</summary>
+    private CrossScreenConfig RevertTarget() => PlaylistEditor.LoadedItem?.Model.Config ?? ActiveScene ?? _crossScreenConfig ?? DefaultScene();
 }

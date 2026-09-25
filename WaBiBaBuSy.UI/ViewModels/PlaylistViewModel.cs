@@ -4,6 +4,7 @@ using System.Collections.Specialized;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -301,7 +302,12 @@ public partial class PlaylistViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanStartShow))]
     private void StartPlaylistShow()
     {
-        StartShow?.Invoke(BuildPlaylist());
+        var playlist = BuildPlaylist();
+        // The orchestrator gets its own deep copy (like PlaylistEditing.Duplicate's JSON round-trip):
+        // editing items while the show runs must not mutate the running show or trigger unprefetched
+        // downloads. SavePlaylist() still calls BuildPlaylist() itself, so Save keeps using the live rows.
+        var snapshot = JsonSerializer.Deserialize<Playlist>(JsonSerializer.Serialize(playlist))!;
+        StartShow?.Invoke(snapshot);
         IsShowRunning = true;
     }
 

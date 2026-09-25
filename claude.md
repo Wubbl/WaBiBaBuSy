@@ -48,7 +48,7 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 - **[Archived Task List](.docs/2026.01_TODO_ACTIVE.md)** — Jan–Mar 2026 sprint (historical)
 
 ### Feature Designs (`.docs/plans/`)
-- **[UI Redesign (2026-09-24)](.docs/plans/2026-09-24-ui-redesign-design.md)** — room-first main window; Plan 1 (toolbar + RoomView) implemented
+- **[UI Redesign (2026-09-24)](.docs/plans/2026-09-24-ui-redesign-design.md)** — room-first main window; Plans 1–2 (toolbar + RoomView, docked Scene editor + Playlist tab) implemented, Plan 3 (Settings sidebar) pending
 - **[LAN-Party Roadmap (2026-09-17)](.docs/plans/2026-09-17-lan-party-roadmap.md)** — Analysis for the 2×10-machine scenario: findings F1–F8, Tier 0–3 plan, links to the six design docs below (**start here for animation/config work**)
   - [Seat Map & Ring Topology](.docs/plans/2026-09-17-seat-map-and-ring-topology-design.md) · [Physical Canvas](.docs/plans/2026-09-17-physical-canvas-design.md) · [Scene Layers](.docs/plans/2026-09-17-scene-layers-design.md) · [Authoring UX & Preview](.docs/plans/2026-09-17-authoring-ux-and-preview-design.md) · [Crossing Effects & Events](.docs/plans/2026-09-17-crossing-effects-and-events-design.md) · [Show Reliability](.docs/plans/2026-09-17-show-reliability-design.md)
 - **[Corridor Animation System](.docs/plans/corridor-animation-system.md)** — ThreeZone background + corridor-constrained animation (implemented 2026-04)
@@ -105,7 +105,7 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 | **Simultaneous** | "Simultaneous" | Animation plays **independently on each monitor** | `VirtualCanvasWidth = this monitor's width only` | `= 0` |
 
 **Implementation path:**
-1. `CrossScreenConfigDialog` → user picks mode → stored in `CrossScreenConfig.DistributionMode`
+1. Docked Scene editor (`SceneEditorPanel` → `CrossScreenConfigViewModel.BuildConfig`) → user picks mode → stored in `CrossScreenConfig.DistributionMode`
 2. `MainWindowViewModel.StartCrossScreen()` → converts to `perMonitorMode = (mode == Simultaneous)`
 3. `D2DCompositionService.InitializeAsync(perMonitorMode)` → adjusts `VirtualCanvasWidth` and `MonitorOffsetX`
 4. `Player.D2D` receives IPC message → uses `MovementCalculator` → subtracts `MonitorOffsetX` from virtual position

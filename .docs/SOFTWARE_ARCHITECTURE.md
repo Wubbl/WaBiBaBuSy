@@ -110,14 +110,16 @@ WaBiBaBuSy/
 │   ├── Views/
 │   │   ├── MainWindow.axaml                  # Main window (server panel + gallery)
 │   │   ├── SettingsWindow.axaml              # Settings dialog
-│   │   ├── CrossScreenConfigDialog.axaml     # Animation mode configuration
-│   │   └── WallpaperMultiSelectDialog.axaml  # Gallery multi-select
+│   │   ├── SceneEditorPanel.axaml             # Docked Scene editor (UI redesign Plan 2)
+│   │   └── PlaylistPanel.axaml                # Docked Playlist tab (UI redesign Plan 2)
 │   ├── ViewModels/
 │   │   ├── MainWindowViewModel.cs            # Primary UI logic
+│   │   ├── MainWindowViewModel.SceneEditor.cs # Scene editor draft/preview/Play wiring
+│   │   ├── MainWindowViewModel.Playlist.cs   # Playlist tab wiring
 │   │   ├── TrayViewModel.cs                  # System tray menu
 │   │   ├── SettingsViewModel.cs              # Settings management
 │   │   ├── CrossScreenConfigViewModel.cs     # Animation config logic
-│   │   ├── WallpaperMultiSelectDialogViewModel.cs
+│   │   ├── PlaylistViewModel.cs              # Playlist tab (pick/create/save/reorder, show start/stop)
 │   │   ├── WallpaperItemViewModel.cs         # Gallery item model
 │   │   ├── ClientNodeViewModel.cs            # Topology node model
 │   │   └── ViewModelBase.cs                  # Base class
@@ -298,7 +300,7 @@ await _service.ConnectToServerAsync(address, port, ApplyD2DFromRemoteAsync);
 
 ### Data Flow
 
-1. `CrossScreenConfigDialog` → user picks mode → `CrossScreenConfig.DistributionMode`
+1. Docked Scene editor (`SceneEditorPanel` → `CrossScreenConfigViewModel.BuildConfig`) → user picks mode → `CrossScreenConfig.DistributionMode`
 2. `MainWindowViewModel.StartCrossScreen()` → `perMonitorMode = (mode == Simultaneous)`
 3. `D2DCompositionService.InitializeAsync(perMonitorMode)` → sets `VirtualCanvasWidth` + `MonitorOffsetX`
 4. `Player.D2D` receives IPC → `MovementCalculator` positions animation deterministically

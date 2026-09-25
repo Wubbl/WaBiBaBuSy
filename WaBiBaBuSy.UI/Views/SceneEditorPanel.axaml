@@ -537,7 +537,7 @@
                         </Button.Flyout>
                     </Button>
                     <Button Content="⟲ Revert" Command="{Binding RevertSceneCommand}" Margin="0,0,6,6"
-                            ToolTip.Tip="Back to the loaded playlist item, else the last played scene"/>
+                            ToolTip.Tip="Back to the loaded playlist item, else what is playing now"/>
                 </WrapPanel>
             </StackPanel>
         </Border>

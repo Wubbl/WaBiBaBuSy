@@ -387,6 +387,8 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         var o = _playlistOrchestrator;
         if (o == null || !o.IsRunning || o.NextSwitchUtcMs <= 0)
         {
+            // The show ended (or was never started): the ▶ marker on the last-playing row is stale.
+            if (o == null || !o.IsRunning) PlaylistEditor.MarkPlaying(-1);
             PlaylistNextLabel = "";
             return;
         }
@@ -3646,6 +3648,13 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     /// <summary>Start rotating the given playlist across all nodes.</summary>
     public void StartPlaylist(WaBiBaBuSy.Models.Wallpaper.Playlist playlist)
     {
+        if (IsStartingScene)
+        {
+            AppLogger.CreateLogger<MainWindowViewModel>()
+                .LogWarning("StartPlaylist ignored: a scene is already starting (Play button in flight)");
+            return;
+        }
+
         if (_playlistOrchestrator == null)
         {
             _playlistOrchestrator = new WaBiBaBuSy.Core.Services.Animation.PlaylistOrchestrator(
@@ -3659,9 +3668,13 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                 seedProvider: () => Environment.TickCount,
                 prefetch: PrefetchShowAssetsAsync,
                 waitUntilNodesReady: WaitUntilRemotesPrefetchedAsync);
-            // Highlight the playing row in the Playlist tab.
+            // Highlight the playing row in the Playlist tab. Guard against a stale post landing after
+            // the show already stopped (or a new one started) and re-marking a row as playing.
             _playlistOrchestrator.ItemChanged += (_, index) =>
-                Avalonia.Threading.Dispatcher.UIThread.Post(() => PlaylistEditor.MarkPlaying(index));
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    if (_playlistOrchestrator?.IsRunning == true) PlaylistEditor.MarkPlaying(index);
+                });
         }
 
         _playlistOrchestrator.Start(playlist);
