@@ -1,8 +1,17 @@
 # WaBiBaBuSy - Recent Updates & Changelog
 
-**Last Updated:** 2026-09-24
+**Last Updated:** 2026-09-25
 
 ---
+
+## 2026-09-25 — UI redesign Plan 2: docked Scene editor + Playlist tab
+
+- Right panel `[Scene | Playlist]` replaces the gallery pane, `CrossScreenConfigDialog` and `PlaylistDialog`.
+- Scene tab: gallery strip (click / Ctrl+click / right-click), Content · Motion · Look · Background tabs with Advanced sections, ⓘ tooltips, amber validation chips (`SceneChecks`), units follow Room ⚙ physical units, targets = room selection (`SceneTargets`, chain order).
+- Draft preview: editor changes reach the room tiles after 150 ms; preview badge toggles draft ↔ live, ⏸ ⟲ 1×/4×/16× for the draft clock; the 2 s topology refresh no longer restarts it (`SceneChecks.SameScene`).
+- Playlist tab: picker / New / Save, durations in seconds (`PlaylistEditing`), drag reorder, Duplicate / Remove, selecting an item loads it into the editor, Save to playlist → add / update.
+- Toolbar: Show ▾ ▶ ■ ⏭ with "Now: … · next: …"; `PlaylistOrchestrator.Skip()`.
+- Removed: `CrossScreenConfigDialog`, `PlaylistDialog`, `ScenePreviewControl`, `WallpaperMultiSelectDialog`.
 
 ## 2026-09-24 — UI redesign Plan 1: room view
 

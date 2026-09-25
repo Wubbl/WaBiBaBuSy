@@ -2,7 +2,7 @@
 
 **Project Name:** WallpaperBiBaBuSync (BiBaBu = our club name)
 **Version:** 2.6.3 | **Framework:** .NET 9.0 | **Status:** MVP complete + post-MVP visual features + LAN-party Tier 0 / 1.1 / 2.1
-**Last Updated:** 2026-09-17 | **Next:** E2E Multi-Client Testing (incl. ring, physical canvas, prefetch + Tier 0 checks), then roadmap Tier 2.2 / 2.4 / 2.3
+**Last Updated:** 2026-09-25 | **Next:** E2E Multi-Client Testing (incl. ring, physical canvas, prefetch + Tier 0 checks), then roadmap Tier 2.2 / 2.4 / 2.3
 
 WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5% server CPU, ±50ms drift tolerance, and distributed client-side rendering. Supports images (JPG/PNG/BMP), videos (MP4/AVI/MKV), and GIFs across multi-monitor setups.
 
@@ -12,7 +12,7 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 - Server-client architecture with visual network topology management (client ordering, physical distance/bezel gaps, refresh-rate display); order + distances persist across restarts (`topology.json`), clients keep a persistent identity
 - Room / seat map: the ordered node chain split into table rows with Ring (closed loop, seam-safe wrap), Snake or Parallel traversal; rows are edited directly in the room view (drag nodes between lanes, right-click to split/merge, lane chips for facing), room-wide settings in the Room ⚙ popover
 - Physical canvas (opt-in per room): canvas in reference pixels of the server's primary monitor, per-node `Scale`, sizes in cm and speeds in cm/s resolved by `PhysicalUnits` before broadcast — the same sprite is the same centimeters and cm/s on every monitor
-- Live preview: the room view paints the running scene inside every node tile with the players' own deterministic math (`ScenePainter`); the config dialog keeps its own preview until the docked editor (UI redesign Plan 2)
+- Live preview: the room view paints the running scene or the docked Scene editor's draft inside every node tile with the players' own deterministic math (`ScenePainter`); the preview badge switches draft ↔ live
 - Hardware-accelerated Direct2D rendering with separate player process
 - Precise timing synchronization via shared UTC start timestamp + deterministic math (±50ms tolerance)
 - Multi-monitor support: Sequential (spanning) and Simultaneous (per-monitor) modes
@@ -21,7 +21,7 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 - Color grading: 8 modes — time-based (Rainbow, RandomColors, Gradient, CycleColorList) and per-cell Traveling Colors (Rainbow/List/Random)
 - Backgrounds: SolidColor, StretchedImage, TiledImage, ThreeZone corridor, IconZone (A* pathfinding around real desktop icons)
 - Debug overlay in player (F11 / IPC): A* path, icon rects, zone bands, movement trail, info panel
-- Playlist / Party Mode: rotate animation configs across all machines on a loop (per-item duration + global default, shuffle, opt-in Linear lap-snap; own dialog; JSON-persisted under `%APPDATA%\WaBiBaBuSy\playlists\`)
+- Playlist / Party Mode: rotate animation configs across all machines on a loop (per-item duration + global default, shuffle, opt-in Linear lap-snap; Playlist tab in the right panel, show controls in the toolbar; JSON-persisted under `%APPDATA%\WaBiBaBuSy\playlists\`)
 - Show reliability: hashed content ids, persistent client cache, every scene asset transferred, playlist prefetch with per-node readiness, server download throttle, health strip + Resync all
 - Auto-update system with SHA-256 verification and rollback
 - System tray operation with minimal UI footprint
