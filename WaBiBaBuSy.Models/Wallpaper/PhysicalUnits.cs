@@ -49,6 +49,17 @@ public static class PhysicalUnits
         return (movement, animation);
     }
 
+    /// <summary>
+    /// Set the size and speed unit flags from the room: cm and cm/s on a physical canvas, px and px/s
+    /// otherwise. Both stored values (px and cm) are left untouched, so switching the room back and
+    /// forth loses nothing. Used by the Scene editor's BuildConfig.
+    /// </summary>
+    public static void ApplyRoomUnits(CrossScreenConfig config, bool physicalRoom)
+    {
+        config.Animation.SizeUnit = physicalRoom ? SizeUnit.Centimeters : SizeUnit.Pixels;
+        config.Movement.SpeedUnit = physicalRoom ? SpeedUnit.CentimetersPerSecond : SpeedUnit.PixelsPerSecond;
+    }
+
     private static T Clone<T>(T value) where T : class
         => JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(value))!;
 }
