@@ -1,0 +1,91 @@
+<!-- WaBiBaBuSy.UI/Views/PlaylistPanel.axaml -->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:WaBiBaBuSy.UI.ViewModels"
+             x:Class="WaBiBaBuSy.UI.Views.PlaylistPanel"
+             x:DataType="vm:PlaylistViewModel"
+             FontSize="12">
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="0,8,0,0">
+        <!-- Picker · New · Save -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+            <ComboBox ItemsSource="{Binding SavedPlaylists}" SelectedItem="{Binding SelectedSavedPlaylist}"
+                      PlaceholderText="Saved playlists" HorizontalAlignment="Stretch"/>
+            <Button Grid.Column="1" Content="New" Command="{Binding NewPlaylistCommand}"/>
+            <Button Grid.Column="2" Content="Save" Command="{Binding SavePlaylistCommand}"
+                    ToolTip.Tip="Save under the name below (a new name saves a new file)"/>
+        </Grid>
+
+        <Grid Grid.Row="1" ColumnDefinitions="Auto,*" ColumnSpacing="8" Margin="0,8,0,0">
+            <TextBlock Text="Name" VerticalAlignment="Center"/>
+            <TextBox Grid.Column="1" Text="{Binding PlaylistName}"/>
+        </Grid>
+
+        <StackPanel Grid.Row="2" Spacing="4" Margin="0,8,0,6">
+            <WrapPanel>
+                <CheckBox Content="Loop" IsChecked="{Binding Loop}" Margin="0,0,12,0"/>
+                <CheckBox Content="Shuffle" IsChecked="{Binding Shuffle}" Margin="0,0,12,0"/>
+                <TextBlock Text="Default" VerticalAlignment="Center" Margin="0,0,6,0"
+                           ToolTip.Tip="Dwell time for every item whose own duration is empty"/>
+                <NumericUpDown Value="{Binding DefaultDurationSeconds}" Minimum="1" Maximum="86400" Increment="5" Width="110"/>
+                <TextBlock Text="s" VerticalAlignment="Center" Margin="4,0,0,0"/>
+            </WrapPanel>
+            <TextBlock Text="{Binding ShowSummary}" Opacity="0.75" FontSize="11" TextWrapping="Wrap"/>
+        </StackPanel>
+
+        <!-- Items: drag ≡ to reorder, right-click for Duplicate / Remove, click to load into the Scene tab -->
+        <Grid Grid.Row="3">
+            <ListBox Name="ItemsList" ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedItem}">
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:PlaylistItemRow">
+                        <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8" Background="Transparent">
+                            <Grid.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="Duplicate"
+                                              Command="{Binding $parent[ListBox].((vm:PlaylistViewModel)DataContext).DuplicateItemCommand}"
+                                              CommandParameter="{Binding}"/>
+                                    <MenuItem Header="Remove"
+                                              Command="{Binding $parent[ListBox].((vm:PlaylistViewModel)DataContext).RemoveItemCommand}"
+                                              CommandParameter="{Binding}"/>
+                                </ContextMenu>
+                            </Grid.ContextMenu>
+                            <TextBlock Grid.Column="0" Text="≡" FontSize="16" VerticalAlignment="Center" Cursor="SizeNorthSouth"
+                                       Foreground="#888888" PointerPressed="OnHandlePressed" ToolTip.Tip="Drag to reorder"/>
+                            <Border Grid.Column="1" Width="56" Height="40" CornerRadius="3" Background="#404040"
+                                    ClipToBounds="True" VerticalAlignment="Top">
+                                <Image Source="{Binding Thumbnail}" Stretch="UniformToFill"/>
+                            </Border>
+                            <StackPanel Grid.Column="2" Spacing="2">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="▶" Foreground="#00CC66" VerticalAlignment="Center" IsVisible="{Binding IsPlaying}"/>
+                                    <TextBox Text="{Binding Name}" MinWidth="120" PlaceholderText="Item name"/>
+                                </StackPanel>
+                                <Expander Header="Details" Padding="6,2">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Text="{Binding SourceSummary}" Opacity="0.75" FontSize="11" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding MovementSummary}" Opacity="0.75" FontSize="11" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding TargetSummary}" Opacity="0.75" FontSize="11" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding VisualsSummary}" Opacity="0.75" FontSize="11" TextWrapping="Wrap"/>
+                                        <CheckBox Content="Lap-snap" IsChecked="{Binding SnapToLap}" FontSize="11"
+                                                  ToolTip.Tip="Wait for the current movement lap to finish before switching (Linear without a pattern; otherwise hard-cut)."/>
+                                    </StackPanel>
+                                </Expander>
+                            </StackPanel>
+                            <StackPanel Grid.Column="3" Spacing="2" Width="84" VerticalAlignment="Top">
+                                <TextBox Text="{Binding DurationText}" PlaceholderText="default"
+                                         ToolTip.Tip="Seconds. Empty = the playlist default."/>
+                                <TextBlock Text="{Binding DurationSummary}" FontSize="10" Opacity="0.7"/>
+                            </StackPanel>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+            <Canvas IsHitTestVisible="False">
+                <Rectangle Name="DropMarker" Height="3" Fill="#0078D4" IsVisible="False"/>
+            </Canvas>
+        </Grid>
+
+        <Button Grid.Row="4" Content="＋ Add current scene" Command="{Binding AddCurrentSceneCommand}"
+                HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,6,0,0"
+                ToolTip.Tip="Append the Scene editor's draft as a new item"/>
+    </Grid>
+</UserControl>

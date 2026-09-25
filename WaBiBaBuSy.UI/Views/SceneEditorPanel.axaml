@@ -527,8 +527,17 @@
                 <WrapPanel>
                     <Button Content="▶ Play on selection" Command="{Binding PlayOnSelectionCommand}" Classes="accent" Margin="0,0,6,6"/>
                     <Button Content="Play on all" Command="{Binding PlayOnAllCommand}" Margin="0,0,6,6"/>
+                    <Button Content="＋ Save to playlist ▾" Margin="0,0,6,6">
+                        <Button.Flyout>
+                            <MenuFlyout>
+                                <MenuItem Header="Add as new item" Command="{Binding SaveSceneAsNewItemCommand}"/>
+                                <MenuItem Header="{Binding PlaylistEditor.LoadedItemName, StringFormat='Update “{0}”'}"
+                                          Command="{Binding UpdateLoadedPlaylistItemCommand}"/>
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
                     <Button Content="⟲ Revert" Command="{Binding RevertSceneCommand}" Margin="0,0,6,6"
-                            ToolTip.Tip="Back to the last played scene (or the default scene)"/>
+                            ToolTip.Tip="Back to the loaded playlist item, else the last played scene"/>
                 </WrapPanel>
             </StackPanel>
         </Border>

@@ -262,6 +262,6 @@ public partial class MainWindowViewModel
     [RelayCommand]
     private void RevertScene() => SceneEditor.LoadFromConfig(RevertTarget());
 
-    /// <summary>What Revert restores: the last played scene, else the default scene.</summary>
-    private CrossScreenConfig RevertTarget() => _crossScreenConfig ?? DefaultScene();
+    /// <summary>What Revert restores: the loaded playlist item, else the last played scene, else the default scene.</summary>
+    private CrossScreenConfig RevertTarget() => PlaylistEditor.LoadedItem?.Model.Config ?? _crossScreenConfig ?? DefaultScene();
 }

@@ -390,6 +390,8 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
 
     private void UpdatePlaylistNextLabel()
     {
+        // A non-looping show ends on its own: keep the tab's running flag honest.
+        PlaylistEditor.IsShowRunning = _playlistOrchestrator?.IsRunning == true;
         var o = _playlistOrchestrator;
         if (o == null || !o.IsRunning || o.NextSwitchUtcMs <= 0)
         {
@@ -513,6 +515,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
 
         // Docked Scene editor: default draft, units from the room, preview wiring
         InitSceneEditor();
+        InitPlaylist();
     }
 
     /// <summary>
@@ -3363,107 +3366,6 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         }
     }
 
-    /// <summary>
-    /// Opens the Playlist / Party Mode dialog. Wires the three PlaylistViewModel host callbacks:
-    /// item editing (reuses the CrossScreen config dialog), start show, and stop show.
-    /// </summary>
-    [RelayCommand]
-    private async Task OpenPlaylist()
-    {
-        var dialog = new Views.PlaylistDialog();
-        var vm = new PlaylistViewModel
-        {
-            EditConfigAsync = EditCrossScreenConfigForPlaylistAsync,
-            StartShow = StartPlaylist,
-            StopShow = StopPlaylistAsync,
-        };
-        dialog.DataContext = vm;
-
-        if (_mainWindow != null)
-        {
-            await dialog.ShowDialog(_mainWindow);
-        }
-        else
-        {
-            Debug.WriteLine("[OpenPlaylist] ERROR: _mainWindow is null; cannot show dialog");
-        }
-    }
-
-    /// <summary>
-    /// Opens the CrossScreen config dialog for the playlist editor. Seeds from <paramref name="existing"/>
-    /// when editing an existing item (blank IconZone default when null), and returns the built config ONLY
-    /// when the user confirms (DialogResult == true) and an animation path is set. Returns null on cancel.
-    /// This path deliberately does NOT read or mutate the main window's <c>_crossScreenConfig</c>, so a
-    /// cancelled edit never leaks stale state or adds a bogus playlist item.
-    /// </summary>
-    private async Task<CrossScreenConfig?> EditCrossScreenConfigForPlaylistAsync(CrossScreenConfig? existing)
-    {
-        if (_mainWindow == null)
-        {
-            Debug.WriteLine("[Playlist] ERROR: _mainWindow is null; cannot open config dialog");
-            return null;
-        }
-
-        var dialog = new Views.CrossScreenConfigDialog();
-        var viewModel = new CrossScreenConfigViewModel();
-
-        if (_storageProvider != null)
-        {
-            viewModel.SetStorageProvider(_storageProvider);
-        }
-        viewModel.SetAvailableMonitors(Clients);
-        viewModel.UsePhysicalUnits = RoomPhysicalUnits;
-        viewModel.LayoutProvider = LayoutForSelection;
-        viewModel.SetOwnerWindow(_mainWindow);
-        viewModel.SetGalleryWallpapers(Wallpapers);
-
-        if (existing != null)
-        {
-            // Editing an existing playlist item: seed the dialog from its saved config.
-            viewModel.LoadFromConfig(existing);
-        }
-        else
-        {
-            // New item: start from the same sensible default ConfigureCrossScreen uses.
-            var blank = new CrossScreenConfig
-            {
-                Background = new BackgroundLayerConfig
-                {
-                    Mode = BackgroundMode.IconZone,
-                    ColorHex = "#000000",
-                    IconZonePaletteHexes = PaletteGenerator.GenerateHarmonious(8),
-                    IconCorridorColorHex = "#1E1E1E"
-                },
-                Animation = new AnimationLayerConfig
-                {
-                    AnimationPath = string.Empty,
-                    TargetHeight = 720,
-                    Loop = true,
-                    VerticalAlign = VerticalAlignment.Center,
-                    RotateWithPath = true
-                },
-                AnimationSpeedPxPerSecond = 500
-            };
-            viewModel.LoadFromConfig(blank);
-        }
-
-        dialog.DataContext = viewModel;
-        viewModel.SetCloseAction(() => dialog.Close());
-
-        await dialog.ShowDialog(_mainWindow);
-
-        // DialogResult is the OK/Cancel signal (true only when the user confirmed).
-        if (viewModel.DialogResult)
-        {
-            var config = viewModel.BuildConfig();
-            if (!string.IsNullOrEmpty(config.Animation.AnimationPath))
-            {
-                return config;
-            }
-        }
-        return null;
-    }
-
     [RelayCommand(CanExecute = nameof(CanStartCrossScreen))]
     private async Task StartCrossScreen()
     {
@@ -3854,17 +3756,23 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     /// <summary>Start rotating the given playlist across all nodes.</summary>
     public void StartPlaylist(WaBiBaBuSy.Models.Wallpaper.Playlist playlist)
     {
-        _playlistOrchestrator ??= new WaBiBaBuSy.Core.Services.Animation.PlaylistOrchestrator(
-            AppLogger.CreateLogger<WaBiBaBuSy.Core.Services.Animation.PlaylistOrchestrator>(),
-            apply: config => Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
-            {
-                var r = await ApplyCrossScreenConfigAsync(config);
-                MarkAnimationTargets(config);   // the room paints the live sprite on animating tiles only
-                return new WaBiBaBuSy.Core.Services.Animation.ApplyMetrics(r.VirtualCanvasWidth, r.ContentWidthPx, r.StartLeadMs, r.EffectiveSpeedPx);
-            }),
-            seedProvider: () => Environment.TickCount,
-            prefetch: PrefetchShowAssetsAsync,
-            waitUntilNodesReady: WaitUntilRemotesPrefetchedAsync);
+        if (_playlistOrchestrator == null)
+        {
+            _playlistOrchestrator = new WaBiBaBuSy.Core.Services.Animation.PlaylistOrchestrator(
+                AppLogger.CreateLogger<WaBiBaBuSy.Core.Services.Animation.PlaylistOrchestrator>(),
+                apply: config => Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
+                {
+                    var r = await ApplyCrossScreenConfigAsync(config);
+                    MarkAnimationTargets(config);   // the room paints the live sprite on animating tiles only
+                    return new WaBiBaBuSy.Core.Services.Animation.ApplyMetrics(r.VirtualCanvasWidth, r.ContentWidthPx, r.StartLeadMs, r.EffectiveSpeedPx);
+                }),
+                seedProvider: () => Environment.TickCount,
+                prefetch: PrefetchShowAssetsAsync,
+                waitUntilNodesReady: WaitUntilRemotesPrefetchedAsync);
+            // Highlight the playing row in the Playlist tab.
+            _playlistOrchestrator.ItemChanged += (_, index) =>
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => PlaylistEditor.MarkPlaying(index));
+        }
 
         _playlistOrchestrator.Start(playlist);
     }
@@ -3874,6 +3782,8 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     {
         if (_playlistOrchestrator != null)
             await _playlistOrchestrator.StopAsync();
+        PlaylistEditor.IsShowRunning = false;
+        PlaylistEditor.MarkPlaying(-1);
     }
 
     /// <summary>

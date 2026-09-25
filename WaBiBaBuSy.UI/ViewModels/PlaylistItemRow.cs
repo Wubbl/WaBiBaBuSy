@@ -1,11 +1,12 @@
 using System.Collections.Generic;
 using System.Globalization;
+using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using WaBiBaBuSy.Models.Wallpaper;
 
 namespace WaBiBaBuSy.UI.ViewModels;
 
-/// <summary>Observable wrapper around a <see cref="PlaylistItem"/> for the playlist grid.</summary>
+/// <summary>Observable wrapper around a <see cref="PlaylistItem"/> for the Playlist tab.</summary>
 public partial class PlaylistItemRow : ViewModelBase
 {
     public PlaylistItem Model { get; }
@@ -14,14 +15,14 @@ public partial class PlaylistItemRow : ViewModelBase
     {
         Model = model;
         _name = model.Name;
-        _durationText = model.DurationMs?.ToString() ?? string.Empty;
+        _durationText = PlaylistEditing.FormatMsAsSeconds(model.DurationMs);
         _snapToLap = model.SnapToLap;
     }
 
     [ObservableProperty] private string _name;
     [ObservableProperty] private bool _snapToLap;
 
-    /// <summary>Blank = use the playlist default. Kept as text so an empty box round-trips to null.</summary>
+    /// <summary>Dwell in seconds as typed; blank = use the playlist default. Kept as text so an empty box round-trips to null.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(DurationSummary))]
     private string _durationText;
@@ -30,6 +31,12 @@ public partial class PlaylistItemRow : ViewModelBase
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(DurationSummary))]
     private int _playlistDefaultDurationMs = 30_000;
+
+    /// <summary>True while the running show is on this item.</summary>
+    [ObservableProperty] private bool _isPlaying;
+
+    /// <summary>Gallery thumbnail of the item's animation file (null when the gallery has none).</summary>
+    [ObservableProperty] private Bitmap? _thumbnail;
 
     // --- Detail lines -------------------------------------------------------
 
@@ -57,7 +64,7 @@ public partial class PlaylistItemRow : ViewModelBase
             var parts = new List<string>
             {
                 m.Type.ToString(),
-                $"{m.SpeedPixelsPerSecond:0} px/s",
+                m.SpeedUnit == SpeedUnit.CentimetersPerSecond ? $"{m.SpeedCmPerSecond:0.#} cm/s" : $"{m.SpeedPixelsPerSecond:0} px/s",
             };
 
             switch (m.Type)
@@ -154,14 +161,10 @@ public partial class PlaylistItemRow : ViewModelBase
         }
     }
 
-    /// <summary>Legacy single-line summary, kept for callers that want one compact string.</summary>
-    public string Summary => $"{SourceSummary} · {MovementSummary} · {TargetSummary}";
-
     /// <summary>Dwell actually used for this item, resolved against the playlist default.</summary>
     public int EffectiveDurationMs => ParseDuration() ?? PlaylistDefaultDurationMs;
 
-    private int? ParseDuration() =>
-        int.TryParse(DurationText, out var ms) && ms > 0 ? ms : null;
+    private int? ParseDuration() => PlaylistEditing.ParseSecondsToMs(DurationText);
 
     /// <summary>Push edited row fields back into the underlying model.</summary>
     public void CommitToModel()
@@ -169,6 +172,13 @@ public partial class PlaylistItemRow : ViewModelBase
         Model.Name = Name;
         Model.SnapToLap = SnapToLap;
         Model.DurationMs = ParseDuration();
+    }
+
+    /// <summary>Replace the item's scene (Save to playlist → Update) and refresh the detail lines.</summary>
+    public void ReplaceConfig(CrossScreenConfig config)
+    {
+        Model.Config = config;
+        RefreshSummary();
     }
 
     /// <summary>Re-raise change notification for the computed detail lines after the model's config changes.</summary>
@@ -179,6 +189,5 @@ public partial class PlaylistItemRow : ViewModelBase
         OnPropertyChanged(nameof(TargetSummary));
         OnPropertyChanged(nameof(VisualsSummary));
         OnPropertyChanged(nameof(DurationSummary));
-        OnPropertyChanged(nameof(Summary));
     }
 }
