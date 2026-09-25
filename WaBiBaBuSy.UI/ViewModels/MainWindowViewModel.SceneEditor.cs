@@ -224,8 +224,9 @@ public partial class MainWindowViewModel
     private Task PlayOnAll() => PlayDraftAsync(selectionOnly: false);
 
     /// <summary>
-    /// Send the draft to the machines: stops a running show or scene first, then starts the draft on
-    /// the selection (chain order) or on every node.
+    /// Send the draft to the machines: tears down a running show (playlist loop + its players/remote
+    /// nodes) or a running scene first, then starts the draft on the selection (chain order) or on
+    /// every node.
     /// </summary>
     private async Task PlayDraftAsync(bool selectionOnly)
     {
@@ -243,7 +244,14 @@ public partial class MainWindowViewModel
         if (selectionOnly && targets.Count == 0) return;   // stale selection: never fall back to "all"
         config.SelectedMonitorIds = targets;
 
-        if (_playlistOrchestrator?.IsRunning == true || IsCrossScreenRunning)
+        if (_playlistOrchestrator?.IsRunning == true)
+        {
+            // A show never sets IsCrossScreenRunning, so StopCrossScreen alone would only cancel the
+            // playlist loop and leave its current item's D2D players and remote nodes running.
+            await StopPlaylistAsync();
+            await ClearNodesAsync(Clients.Select(c => c.ClientId).Distinct().ToList());
+        }
+        if (IsCrossScreenRunning)
             await StopCrossScreen();
 
         _crossScreenConfig = config;
