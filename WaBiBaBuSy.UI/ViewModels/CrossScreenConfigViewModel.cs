@@ -10,7 +10,6 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WaBiBaBuSy.Core.Services.Desktop;
 using WaBiBaBuSy.Models.Wallpaper;
-using WaBiBaBuSy.UI.Views;
 using WaBiBaBuSy.WallpaperEngine.Services;
 // Note: DesktopIconService / ZonePlanner are intentionally NOT used here.
 // Each Player.D2D node detects its own desktop icons at runtime.
@@ -18,27 +17,6 @@ using WaBiBaBuSy.WallpaperEngine.Services;
 using WaBiBaBuSy.Models.Topology;
 
 namespace WaBiBaBuSy.UI.ViewModels;
-
-/// <summary>
-/// Represents a selectable monitor/client for animation
-/// </summary>
-public partial class MonitorSelectionItem : ViewModelBase
-{
-    [ObservableProperty]
-    private string _clientId = string.Empty;
-
-    [ObservableProperty]
-    private string _hostname = string.Empty;
-
-    [ObservableProperty]
-    private string _resolution = string.Empty;
-
-    [ObservableProperty]
-    private string _ipAddress = string.Empty;
-
-    [ObservableProperty]
-    private bool _isSelected = true;
-}
 
 public record MovementTypeOption(string Name, MovementType Type);
 
@@ -48,12 +26,14 @@ public partial class ZoneColorItem : ViewModelBase
     [ObservableProperty] private string _label    = "Zone";
 }
 
+/// <summary>
+/// The Scene editor's draft: every field of one <see cref="CrossScreenConfig"/>, loaded with
+/// <see cref="LoadFromConfig"/> and built with <see cref="BuildConfig"/>. Hosted by the main window's
+/// right panel (<c>SceneEditorPanel</c>); targets and preview come from the host.
+/// </summary>
 public partial class CrossScreenConfigViewModel : ViewModelBase
 {
     private IStorageProvider? _storageProvider;
-    private Action? _closeAction;
-    private Avalonia.Controls.Window? _ownerWindow;
-    private List<WallpaperItemViewModel> _galleryWallpapers = new();
 
     private static readonly MovementTypeOption[] AllMovementOptions =
     [
@@ -64,11 +44,6 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         new("Circular (Orbit)",    MovementType.Circular),
         new("Random Walk",         MovementType.RandomWalk),
     ];
-
-    /// <summary>
-    /// Pre-selected wallpaper from main gallery, used to auto-populate paths
-    /// </summary>
-    public WallpaperItemViewModel? PreSelectedWallpaper { get; set; }
 
     [ObservableProperty]
     private int _backgroundModeIndex = 4; // Icon Zone
@@ -130,12 +105,6 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
 
     [ObservableProperty]
     private int _animationSpeed = 500;
-
-    [ObservableProperty]
-    private ObservableCollection<MonitorSelectionItem> _availableMonitors = new();
-
-    [ObservableProperty]
-    private bool _hasMultipleMonitors = false;
 
     [ObservableProperty]
     private int _animationDistributionModeIndex = 0; // 0 = Sequential, 1 = Simultaneous
@@ -366,43 +335,6 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         AdditionalAnimationPaths.Remove(path);
     }
 
-    public bool DialogResult { get; private set; }
-
-    // ── Live preview (Tier 2.1) ──────────────────────────────────────────────
-    /// <summary>
-    /// Supplied by the main view model: lays the given selected node ids out over the room's seat
-    /// map. The preview uses exactly the layout the apply path will use.
-    /// </summary>
-    public Func<IReadOnlyList<string>, SeatMapLayoutResult>? LayoutProvider { get; set; }
-
-    /// <summary>Layout of the currently selected monitors, or null when no provider is wired.</summary>
-    public SeatMapLayoutResult? BuildPreviewLayout()
-    {
-        if (LayoutProvider == null) return null;
-        var ids = AvailableMonitors.Where(m => m.IsSelected).Select(m => m.ClientId).ToList();
-        return LayoutProvider(ids);
-    }
-
-    /// <summary>Node id → hostname captions for the preview.</summary>
-    public IReadOnlyDictionary<string, string> PreviewLabels =>
-        AvailableMonitors.GroupBy(m => m.ClientId).ToDictionary(g => g.Key, g => g.First().Hostname);
-
-    /// <summary>
-    /// Image the preview draws for the sprite: the animation file itself for images/GIFs, the
-    /// gallery thumbnail for videos (Avalonia cannot decode video), null when nothing is set.
-    /// </summary>
-    public string? ResolvePreviewImagePath()
-    {
-        if (string.IsNullOrWhiteSpace(AnimationPath)) return null;
-        var ext = Path.GetExtension(AnimationPath).ToLowerInvariant();
-        if (ext is ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv")
-        {
-            var item = _galleryWallpapers.FirstOrDefault(w => string.Equals(w.FilePath, AnimationPath, StringComparison.OrdinalIgnoreCase));
-            return item != null && !string.IsNullOrEmpty(item.ThumbnailPath) ? item.ThumbnailPath : null;
-        }
-        return AnimationPath;
-    }
-
     public CrossScreenConfigViewModel()
     {
         // Seed a default 8-color palette so Icon Zone mode is ready out of the box
@@ -446,52 +378,6 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     public void SetStorageProvider(IStorageProvider storageProvider)
     {
         _storageProvider = storageProvider;
-    }
-
-    public void SetOwnerWindow(Avalonia.Controls.Window? window) => _ownerWindow = window;
-
-    public void SetGalleryWallpapers(IEnumerable<WallpaperItemViewModel> wallpapers)
-        => _galleryWallpapers = wallpapers.ToList();
-
-    public void SetCloseAction(Action closeAction)
-    {
-        _closeAction = closeAction;
-    }
-
-    /// <summary>
-    /// Set the list of available monitors/clients for selection
-    /// </summary>
-    public void SetAvailableMonitors(IEnumerable<ClientNodeViewModel> clients)
-    {
-        AvailableMonitors.Clear();
-
-        var monitors = clients
-            .Where(c => c.IsConnected)
-            .OrderBy(c => c.Order)
-            .ToList();
-
-        HasMultipleMonitors = monitors.Count > 1;
-
-        // If any monitors are selected in topology, use that selection; otherwise default to all
-        var anySelected = monitors.Any(c => c.IsSelected);
-
-        foreach (var client in monitors)
-        {
-            var resolution = $"{client.MonitorWidth}x{client.MonitorHeight}";
-            if (resolution == "0x0")
-                resolution = "Unknown";
-
-            var monitorItem = new MonitorSelectionItem
-            {
-                ClientId = client.ClientId,
-                Hostname = client.Hostname,
-                Resolution = resolution,
-                IpAddress = client.IpAddress,
-                IsSelected = anySelected ? client.IsSelected : true
-            };
-
-            AvailableMonitors.Add(monitorItem);
-        }
     }
 
     public void LoadFromConfig(CrossScreenConfig config)
@@ -574,13 +460,6 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         SpeedMultiplier = config.Animation.SpeedMultiplier;
         FaceTravelDirection = config.Animation.FaceTravelDirection;
 
-        // Restore monitor selection from config
-        var selectedIds = new HashSet<string>(config.SelectedMonitorIds);
-        foreach (var monitor in AvailableMonitors)
-        {
-            monitor.IsSelected = selectedIds.Contains(monitor.ClientId) || config.SelectedMonitorIds.Count == 0;
-        }
-
         // Color grading
         var grading = config.Animation.ColorGrading ?? new ColorGradingConfig();
         ColorGradingModeIndex = (int)grading.Mode;
@@ -648,12 +527,6 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             1 => WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Simultaneous,
             _ => WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Sequential
         };
-
-        // Collect selected monitor IDs
-        var selectedMonitorIds = AvailableMonitors
-            .Where(m => m.IsSelected)
-            .Select(m => m.ClientId)
-            .ToList();
 
         var movementType = SelectedMovementType.Type;
 
@@ -723,7 +596,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                 MultiImagePhaseJitterMs = MultiImagePhaseJitterMs
             },
             AnimationSpeedPxPerSecond = AnimationSpeed,
-            SelectedMonitorIds = selectedMonitorIds,
+            SelectedMonitorIds = new List<string>(),   // targets are set by the caller (room selection / playlist item)
             DistributionMode = distributionMode,
             Movement = new MovementConfig
             {
@@ -771,68 +644,12 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         }
     }
 
-    [RelayCommand]
-    private async Task SelectAnimationFromGallery()
-    {
-        if (_ownerWindow == null || _galleryWallpapers.Count == 0) return;
-
-        var dialogVm = new WallpaperMultiSelectDialogViewModel();
-        dialogVm.LoadWallpapers(_galleryWallpapers);
-
-        var dialog = new WallpaperMultiSelectDialog { DataContext = dialogVm };
-        dialogVm.SetCloseAction(() => dialog.Close());
-        await dialog.ShowDialog(_ownerWindow);
-
-        if (dialogVm.DialogResult)
-        {
-            var selected = dialogVm.GetSelectedWallpapers();
-            if (selected.Count > 0)
-                AnimationPath = selected[0].FilePath;
-        }
-    }
-
-    /// <summary>F4: add images from gallery to the multi-image source list.</summary>
-    [RelayCommand]
-    private async Task AddAdditionalImagesFromGallery()
-    {
-        if (_ownerWindow == null || _galleryWallpapers.Count == 0) return;
-
-        var dialogVm = new WallpaperMultiSelectDialogViewModel();
-        dialogVm.LoadWallpapers(_galleryWallpapers);
-
-        var dialog = new WallpaperMultiSelectDialog { DataContext = dialogVm };
-        dialogVm.SetCloseAction(() => dialog.Close());
-        await dialog.ShowDialog(_ownerWindow);
-
-        if (dialogVm.DialogResult)
-        {
-            foreach (var item in dialogVm.GetSelectedWallpapers())
-                AdditionalAnimationPaths.Add(item.FilePath);
-        }
-    }
-
     /// <summary>F4: remove an additional image from the multi-image source list.</summary>
     [RelayCommand]
     private void RemoveAdditionalImage(string? path)
     {
         if (string.IsNullOrEmpty(path)) return;
         AdditionalAnimationPaths.Remove(path);
-    }
-
-    /// <summary>
-    /// Apply pre-selected wallpaper from main gallery to populate paths.
-    /// Call after setting PreSelectedWallpaper and before showing the dialog.
-    /// Only fills empty fields (won't overwrite existing config).
-    /// </summary>
-    public void ApplyPreSelectedWallpaper()
-    {
-        if (PreSelectedWallpaper == null) return;
-
-        // Auto-populate animation path for all media types (image/gif/video)
-        if (string.IsNullOrEmpty(AnimationPath))
-        {
-            AnimationPath = PreSelectedWallpaper.FilePath;
-        }
     }
 
     [RelayCommand]
@@ -850,28 +667,6 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         catch (Exception ex)
         {
             Debug.WriteLine($"[AutoDetect] Error: {ex.Message}");
-        }
-    }
-
-    [RelayCommand]
-    private void MoveMonitorUp(MonitorSelectionItem? monitor)
-    {
-        if (monitor == null) return;
-        var index = AvailableMonitors.IndexOf(monitor);
-        if (index > 0)
-        {
-            AvailableMonitors.Move(index, index - 1);
-        }
-    }
-
-    [RelayCommand]
-    private void MoveMonitorDown(MonitorSelectionItem? monitor)
-    {
-        if (monitor == null) return;
-        var index = AvailableMonitors.IndexOf(monitor);
-        if (index >= 0 && index < AvailableMonitors.Count - 1)
-        {
-            AvailableMonitors.Move(index, index + 1);
         }
     }
 
@@ -900,43 +695,4 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             IconZonePalette.RemoveAt(IconZonePalette.Count - 1);
     }
 
-    [RelayCommand]
-    private void Ok()
-    {
-        // Validate configuration
-        if (IsImageMode && string.IsNullOrWhiteSpace(BackgroundImagePath))
-        {
-            // TODO: Show error message
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(AnimationPath))
-        {
-            // TODO: Show error message
-            return;
-        }
-
-        if (!File.Exists(AnimationPath))
-        {
-            // TODO: Show error message
-            return;
-        }
-
-        // Validate at least one monitor is selected
-        if (!AvailableMonitors.Any(m => m.IsSelected))
-        {
-            // TODO: Show error message - "Please select at least one monitor for the animation"
-            return;
-        }
-
-        DialogResult = true;
-        _closeAction?.Invoke();
-    }
-
-    [RelayCommand]
-    private void Cancel()
-    {
-        DialogResult = false;
-        _closeAction?.Invoke();
-    }
 }

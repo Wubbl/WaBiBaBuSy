@@ -310,14 +310,6 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     [ObservableProperty] private long _activeSharedStartMs;
     [ObservableProperty] private string? _activeSpriteImagePath;
 
-    /// <summary>Layout provider handed to the config dialog: selected node ids → seat-map layout.</summary>
-    private SeatMapLayoutResult LayoutForSelection(IReadOnlyList<string> selectedIds)
-    {
-        var set = new HashSet<string>(selectedIds);
-        var chosen = set.Count > 0 ? Clients.Where(c => set.Contains(c.ClientId)) : Clients;
-        return BuildSeatLayout(chosen);
-    }
-
     // ── Tier 1.3 show reliability ────────────────────────────────────────────
 
     /// <summary>Content refs (hashed ids) for every existing file a scene references.</summary>
@@ -3263,111 +3255,6 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     }
 
     #region Cross-Screen Commands
-
-    [RelayCommand]
-    private async Task ConfigureCrossScreen()
-    {
-        Debug.WriteLine("[ConfigureCrossScreen] Button clicked - opening dialog");
-        try
-        {
-            Debug.WriteLine("[ConfigureCrossScreen] Creating dialog and viewmodel");
-            var dialog = new Views.CrossScreenConfigDialog();
-            var viewModel = new CrossScreenConfigViewModel();
-
-            // Set storage provider
-            if (_storageProvider != null)
-            {
-                viewModel.SetStorageProvider(_storageProvider);
-            }
-
-            // Set available monitors/clients for selection
-            viewModel.SetAvailableMonitors(Clients);
-            viewModel.UsePhysicalUnits = RoomPhysicalUnits;
-            viewModel.LayoutProvider = LayoutForSelection;
-
-            // Give the dialog access to owner window and gallery for the gallery picker
-            viewModel.SetOwnerWindow(_mainWindow);
-            viewModel.SetGalleryWallpapers(Wallpapers);
-
-            // Pre-populate from selected wallpaper in gallery
-            viewModel.PreSelectedWallpaper = SelectedWallpaper;
-
-            // Load existing configuration or create default
-            if (_crossScreenConfig != null)
-            {
-                viewModel.LoadFromConfig(_crossScreenConfig);
-            }
-            else
-            {
-                // Create default configuration
-                _crossScreenConfig = new CrossScreenConfig
-                {
-                    Background = new BackgroundLayerConfig
-                    {
-                        Mode = BackgroundMode.IconZone,
-                        ColorHex = "#000000",
-                        IconZonePaletteHexes = PaletteGenerator.GenerateHarmonious(8),
-                        IconCorridorColorHex = "#1E1E1E"
-                    },
-                    Animation = new AnimationLayerConfig
-                    {
-                        AnimationPath = string.Empty,
-                        TargetHeight = 720,
-                        Loop = true,
-                        VerticalAlign = VerticalAlignment.Center,
-                        RotateWithPath = true
-                    },
-                    AnimationSpeedPxPerSecond = 500
-                };
-                viewModel.LoadFromConfig(_crossScreenConfig);
-            }
-
-            // Apply pre-selected wallpaper to auto-populate empty fields
-            viewModel.ApplyPreSelectedWallpaper();
-
-            // Auto-detect background color if still at default (saves the user a manual click)
-            if ((string.IsNullOrEmpty(viewModel.BackgroundColor) || viewModel.BackgroundColor == "#000000")
-                && (!string.IsNullOrEmpty(viewModel.AnimationPath) || !string.IsNullOrEmpty(viewModel.BackgroundImagePath)))
-            {
-                try { await viewModel.AutoDetectBackgroundColorCommand.ExecuteAsync(null); }
-                catch (Exception ex) { Debug.WriteLine($"[CrossScreen] Auto-detect color failed: {ex.Message}"); }
-            }
-
-            dialog.DataContext = viewModel;
-
-            // Set close action so ViewModel can close the dialog
-            viewModel.SetCloseAction(() => dialog.Close());
-
-            // Show dialog using stored window reference
-            if (_mainWindow != null)
-            {
-                Debug.WriteLine("[ConfigureCrossScreen] Showing dialog");
-                await dialog.ShowDialog(_mainWindow);
-                Debug.WriteLine("[ConfigureCrossScreen] Dialog closed");
-
-                if (viewModel.DialogResult)
-                {
-                    _crossScreenConfig = viewModel.BuildConfig();
-                    HasAnimationConfig = !string.IsNullOrEmpty(_crossScreenConfig.Animation.AnimationPath);
-                    Debug.WriteLine("[CrossScreen] Configuration saved");
-                }
-                else
-                {
-                    Debug.WriteLine("[CrossScreen] Configuration cancelled");
-                }
-            }
-            else
-            {
-                Debug.WriteLine("[ConfigureCrossScreen] ERROR: Could not get main window reference. _mainWindow is null");
-            }
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[ConfigureCrossScreen] ERROR: {ex.Message}");
-            Debug.WriteLine($"[ConfigureCrossScreen] Stack trace: {ex.StackTrace}");
-            AppLogger.CreateLogger<MainWindowViewModel>().LogError(ex, "Failed to open the animation configuration dialog");
-        }
-    }
 
     [RelayCommand(CanExecute = nameof(CanStartCrossScreen))]
     private async Task StartCrossScreen()

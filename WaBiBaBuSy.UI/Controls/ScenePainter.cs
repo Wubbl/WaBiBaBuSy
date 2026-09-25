@@ -14,8 +14,8 @@ namespace WaBiBaBuSy.UI.Controls;
 /// Paints a cross-screen scene onto one node's rectangle with the very same pure functions the D2D
 /// players run (<see cref="MovementCalculator"/>, <see cref="PatternLayout"/>, <see cref="ColorGrader"/>,
 /// <see cref="NodeMapping"/>, <see cref="SyncTiming"/>). Geometry + color only: GIF frame timing,
-/// IconZone path-following and video are not simulated. Shared by <see cref="ScenePreviewControl"/>
-/// and RoomView; holds a one-entry sprite bitmap cache.
+/// IconZone path-following and video are not simulated. Used by <see cref="RoomView"/> for every tile;
+/// holds a one-entry sprite bitmap cache.
 /// </summary>
 public sealed class ScenePainter
 {
