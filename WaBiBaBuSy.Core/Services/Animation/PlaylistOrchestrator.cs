@@ -38,6 +38,9 @@ public class PlaylistOrchestrator
     private CancellationTokenSource? _cts;
     private Task? _loopTask;
 
+    /// <summary>Cancels only the current dwell wait (⏭). Null outside a dwell.</summary>
+    private volatile CancellationTokenSource? _skipCts;
+
     /// <summary>Delay before advancing after an apply failure, to avoid busy-looping on persistent errors.</summary>
     private const int FailureRetryDelayMs = 2000;
 
@@ -96,6 +99,13 @@ public class PlaylistOrchestrator
         CurrentItemIndex = -1;
         NextItem = null;
         NextSwitchUtcMs = 0;
+    }
+
+    /// <summary>Advance to the next item now (ends the current dwell). No-op when no show is running.</summary>
+    public void Skip()
+    {
+        try { _skipCts?.Cancel(); }
+        catch (ObjectDisposedException) { /* the dwell ended at the same moment */ }
     }
 
     private async Task RunLoopAsync(Playlist playlist, CancellationToken ct)
@@ -163,7 +173,22 @@ public class PlaylistOrchestrator
                         item.Name, index, dwell, lapMs, item.SnapToLap, lead);
 
                     NextSwitchUtcMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + dwell + lead;
-                    await Task.Delay(dwell + lead, ct);
+                    using (var skip = CancellationTokenSource.CreateLinkedTokenSource(ct))
+                    {
+                        _skipCts = skip;
+                        try
+                        {
+                            await Task.Delay(dwell + lead, skip.Token);
+                        }
+                        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                        {
+                            _logger.LogInformation("Playlist item '{Name}' skipped", item.Name);
+                        }
+                        finally
+                        {
+                            _skipCts = null;
+                        }
+                    }
                 }
             }
             while (playlist.Loop && !ct.IsCancellationRequested);

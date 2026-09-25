@@ -53,16 +53,20 @@
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6"
                             HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <Button Content="Scene…" Command="{Binding OpenSceneEditorCommand}"
-                            Height="28" Padding="10,4" FontSize="11"
-                            ToolTip.Tip="Open the Scene editor"/>
-                    <Button Content="&#9654; Start" Command="{Binding StartCrossScreenCommand}"
-                            IsVisible="{Binding HasAnimationConfig}" Height="28" Padding="10,4" FontSize="11"/>
-                    <Button Content="&#9632; Stop" Command="{Binding StopCrossScreenCommand}"
-                            IsVisible="{Binding IsCrossScreenRunning}" Height="28" Padding="10,4" FontSize="11"/>
-                    <Border Width="1" Height="20" Background="#3E3E42" VerticalAlignment="Center"/>
-                    <Button Content="Playlist…" Command="{Binding OpenPlaylistTabCommand}"
-                            Height="28" Padding="10,4" FontSize="11"/>
+                    <TextBlock Text="Show" Foreground="#AAAAAA" FontSize="11" VerticalAlignment="Center"/>
+                    <ComboBox ItemsSource="{Binding PlaylistEditor.SavedPlaylists}"
+                              SelectedItem="{Binding PlaylistEditor.SelectedSavedPlaylist}"
+                              PlaceholderText="Playlist" Width="150" Height="28" FontSize="11"
+                              ToolTip.Tip="Saved playlists — edit them in the Playlist tab"/>
+                    <Button Content="&#9654;" Command="{Binding PlaylistEditor.StartPlaylistShowCommand}"
+                            IsVisible="{Binding !PlaylistEditor.IsShowRunning}" Height="28" Padding="10,4" FontSize="11"
+                            ToolTip.Tip="Start the show (the playlist open in the Playlist tab)"/>
+                    <Button Content="&#9632;" Command="{Binding StopCrossScreenCommand}"
+                            IsVisible="{Binding IsAnythingPlaying}" Height="28" Padding="10,4" FontSize="11"
+                            ToolTip.Tip="Stop the show and the running scene"/>
+                    <Button Content="&#9197;" Command="{Binding SkipShowItemCommand}"
+                            IsVisible="{Binding PlaylistEditor.IsShowRunning}" Height="28" Padding="10,4" FontSize="11"
+                            ToolTip.Tip="Skip to the next item"/>
                     <TextBlock Text="{Binding PlaylistNextLabel}" Foreground="#FFC800" FontSize="11"
                                VerticalAlignment="Center" IsVisible="{Binding HasPlaylistNext}"/>
                     <Button Content="Clear all" Command="{Binding ClearAllWallpapersCommand}"

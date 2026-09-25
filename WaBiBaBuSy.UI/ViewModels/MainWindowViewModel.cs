@@ -382,7 +382,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         }
     }
 
-    /// <summary>"next: Logo Rain in 0:42" while a show runs, else empty.</summary>
+    /// <summary>"Now: Fish · next: Logo Rain in 0:42" while a show runs, else empty.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasPlaylistNext))]
     private string _playlistNextLabel = "";
@@ -400,9 +400,11 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         }
         var remaining = TimeSpan.FromMilliseconds(Math.Max(0, o.NextSwitchUtcMs - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
         var next = o.NextItem?.Name;
+        var now = o.CurrentItem?.Name;
+        var nowPart = string.IsNullOrWhiteSpace(now) ? "" : $"Now: {now} · ";
         PlaylistNextLabel = next == null
-            ? $"last item · ends in {remaining.Minutes}:{remaining.Seconds:00}"
-            : $"next: {next} in {remaining.Minutes}:{remaining.Seconds:00}";
+            ? $"{nowPart}last item · ends in {remaining.Minutes}:{remaining.Seconds:00}"
+            : $"{nowPart}next: {next} in {remaining.Minutes}:{remaining.Seconds:00}";
     }
 
     [RelayCommand]
@@ -841,6 +843,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     {
         if (!value) ClearActiveScene();
         OnPropertyChanged(nameof(HasActiveRenderer));
+        OnPropertyChanged(nameof(IsAnythingPlaying));
         StartCrossScreenCommand.NotifyCanExecuteChanged();
         ClearAllWallpapersCommand.NotifyCanExecuteChanged();
     }

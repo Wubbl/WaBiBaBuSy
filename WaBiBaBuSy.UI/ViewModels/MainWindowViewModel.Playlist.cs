@@ -23,9 +23,18 @@ public partial class MainWindowViewModel
         {
             if (e.PropertyName == nameof(PlaylistViewModel.HasLoadedItem))
                 UpdateLoadedPlaylistItemCommand.NotifyCanExecuteChanged();
+            else if (e.PropertyName == nameof(PlaylistViewModel.IsShowRunning))
+                OnPropertyChanged(nameof(IsAnythingPlaying));
         };
         _ = PlaylistEditor.InitializeAsync();
     }
+
+    /// <summary>True while a show or a manual scene is running (shows the toolbar ■).</summary>
+    public bool IsAnythingPlaying => IsCrossScreenRunning || PlaylistEditor.IsShowRunning;
+
+    /// <summary>Toolbar ⏭: advance the running show to its next item.</summary>
+    [RelayCommand]
+    private void SkipShowItem() => _playlistOrchestrator?.Skip();
 
     /// <summary>Editor footer: append the draft to the playlist as a new item.</summary>
     [RelayCommand]
