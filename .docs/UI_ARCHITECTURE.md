@@ -17,7 +17,7 @@ WaBiBaBuSy runs as a **system tray application**. The main window is hidden by d
 | View | File | Purpose |
 |------|------|---------|
 | **Main Window** | `MainWindow.axaml` | Room-first server control panel: one-row toolbar, `RoomView` (live scene in every node tile), selection bar, right panel `[Scene \| Playlist]`. Hidden by default, shown from tray. |
-| **Settings** | `SettingsWindow.axaml` | Configuration window with 150-px sidebar (Server · Client · Wallpaper · Logging sections); Advanced expanders per section; footer shows save errors; `SettingsWindow.ShowSingle()` keeps one instance; Enter = Save, Esc = Cancel; persists across form changes via `ConfigurationManager.Update*Configuration` (read-modify-write, preserves `ClientId`, `ServiceType`, `UpdateSettings`, log file settings) |
+| **Settings** | `SettingsWindow.axaml` | Configuration window with 150-px sidebar (Server · Client · Wallpaper · Logging sections); Advanced expanders per section; footer shows save errors; `SettingsWindow.ShowSingle()` keeps one instance; Enter = Save, Esc = Cancel; Save re-reads each config file and changes only the fields the dialog shows (`ConfigurationManager.Update*Configuration`), so `ClientId`, `ServiceType`, `UpdateSettings`, log file settings etc. survive; these read-modify-write calls are serialized in-process (a single lock) so a concurrent client registration writing `ClientId` can't race a Settings save |
 
 > **Note:** Server topology management and client connection are integrated into `MainWindow`, not separate windows.
 
