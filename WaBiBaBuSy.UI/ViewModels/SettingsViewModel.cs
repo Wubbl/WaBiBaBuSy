@@ -1,8 +1,11 @@
+using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WaBiBaBuSy.Models.Configuration;
 using WaBiBaBuSy.Core.Services.Logging;
 using System;
+using System.IO;
+using System.Threading.Tasks;
 
 namespace WaBiBaBuSy.UI.ViewModels;
 
@@ -70,6 +73,28 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _logFrameByFrame;
     [ObservableProperty] private string _logDirectory = string.Empty;
 
+    // ── Sidebar ──────────────────────────────────────────────────────────────
+
+    /// <summary>Sidebar section: 0 Server, 1 Client, 2 Wallpaper, 3 Logging.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsServerSection), nameof(IsClientSection),
+                              nameof(IsWallpaperSection), nameof(IsLoggingSection))]
+    private int _selectedSectionIndex;
+
+    public bool IsServerSection => SelectedSectionIndex == 0;
+    public bool IsClientSection => SelectedSectionIndex == 1;
+    public bool IsWallpaperSection => SelectedSectionIndex == 2;
+    public bool IsLoggingSection => SelectedSectionIndex == 3;
+
+    /// <summary>One-line error shown in the footer when saving failed; null when fine.</summary>
+    [ObservableProperty]
+    private string? _saveError;
+
+    private IStorageProvider? _storageProvider;
+
+    /// <summary>Called by the window so the Browse buttons can open a folder picker.</summary>
+    public void SetStorageProvider(IStorageProvider storageProvider) => _storageProvider = storageProvider;
+
     public event EventHandler? SettingsSaved;
     public event EventHandler? SettingsCancelled;
 
@@ -126,6 +151,7 @@ public partial class SettingsViewModel : ViewModelBase
     [RelayCommand]
     private void Save()
     {
+        SaveError = null;
         try
         {
             ConfigurationManager.UpdateServerConfiguration(s =>
@@ -174,6 +200,7 @@ public partial class SettingsViewModel : ViewModelBase
         catch (Exception ex)
         {
             Console.WriteLine($"Error saving settings: {ex.Message}");
+            SaveError = $"Could not save settings: {ex.Message}";
         }
     }
 
@@ -184,16 +211,31 @@ public partial class SettingsViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void BrowseContentDirectory()
+    private async Task BrowseContentDirectory()
     {
-        // TODO: Open folder picker dialog
-        Console.WriteLine("Browse content directory clicked");
+        var path = await PickFolderAsync("Content directory", ContentDirectory);
+        if (path != null) ContentDirectory = path;
     }
 
     [RelayCommand]
-    private void BrowseCacheDirectory()
+    private async Task BrowseCacheDirectory()
     {
-        // TODO: Open folder picker dialog
-        Console.WriteLine("Browse cache directory clicked");
+        var path = await PickFolderAsync("Cache directory", CacheDirectory);
+        if (path != null) CacheDirectory = path;
+    }
+
+    private async Task<string?> PickFolderAsync(string title, string current)
+    {
+        if (_storageProvider == null) return null;
+        var start = Directory.Exists(current)
+            ? await _storageProvider.TryGetFolderFromPathAsync(current)
+            : null;
+        var folders = await _storageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = title,
+            AllowMultiple = false,
+            SuggestedStartLocation = start
+        });
+        return folders.Count > 0 ? folders[0].TryGetLocalPath() : null;
     }
 }

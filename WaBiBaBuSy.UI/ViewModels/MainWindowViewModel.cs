@@ -924,7 +924,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     }
 
     [RelayCommand]
-    private void OpenSettings() => new Views.SettingsWindow().Show();
+    private void OpenSettings() => Views.SettingsWindow.ShowSingle();
 
     [RelayCommand]
     private void OpenLogFolder() => Process.Start(new ProcessStartInfo

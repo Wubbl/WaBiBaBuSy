@@ -214,8 +214,7 @@ public partial class TrayViewModel : ObservableObject
     [RelayCommand]
     private void Settings()
     {
-        var settingsWindow = new SettingsWindow();
-        settingsWindow.Show();
+        SettingsWindow.ShowSingle();
     }
 
     [RelayCommand]
