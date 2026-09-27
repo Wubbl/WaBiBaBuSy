@@ -17,7 +17,7 @@ WaBiBaBuSy runs as a **system tray application**. The main window is hidden by d
 | View | File | Purpose |
 |------|------|---------|
 | **Main Window** | `MainWindow.axaml` | Room-first server control panel: one-row toolbar, `RoomView` (live scene in every node tile), selection bar, right panel `[Scene \| Playlist]`. Hidden by default, shown from tray. |
-| **Settings** | `SettingsWindow.axaml` | Server/client config, ports, directories, logging toggles |
+| **Settings** | `SettingsWindow.axaml` | Configuration window with 150-px sidebar (Server · Client · Wallpaper · Logging sections); Advanced expanders per section; footer shows save errors; `SettingsWindow.ShowSingle()` keeps one instance; Enter = Save, Esc = Cancel; persists across form changes via `ConfigurationManager.Update*Configuration` (read-modify-write, preserves `ClientId`, `ServiceType`, `UpdateSettings`, log file settings) |
 
 > **Note:** Server topology management and client connection are integrated into `MainWindow`, not separate windows.
 
@@ -29,7 +29,7 @@ WaBiBaBuSy runs as a **system tray application**. The main window is hidden by d
 |-----------|---------------|
 | `MainWindowViewModel` | Primary UI logic: gallery, topology, playback controls, animation start/stop, D2D composition lifecycle; implements `IRoomHost` for `RoomView` (selection, drag/split/merge, per-node clear/resync, gap edits) |
 | `TrayViewModel` | System tray context menu: Start/Stop Server, Connect, Settings, Exit |
-| `SettingsViewModel` | Configuration load/save, logging settings (level, component toggles, file output) |
+| `SettingsViewModel` | Configuration load/save, section selection (`SelectedSectionIndex` → Server/Client/Wallpaper/Logging), logging settings (level, component toggles, file output), save error tracking |
 | `CrossScreenConfigViewModel` | Animation mode selection, distance settings; backs the Scene tab's `SceneEditorPanel` |
 | `PlaylistViewModel` | Playlist load/save, item durations, drag reorder, Duplicate/Remove; backs the Playlist tab's `PlaylistPanel` |
 | `WallpaperItemViewModel` | Single gallery item (thumbnail, name, type, selection state) |
@@ -78,6 +78,19 @@ WaBiBaBuSy runs as a **system tray application**. The main window is hidden by d
     Shuffle, default seconds, seconds per item, drag ≡ to reorder, right-click Duplicate/Remove,
     Details expander with lap-snap, ＋ Add current scene; selecting an item loads it into the
     Scene tab.
+
+### Settings Window (UI redesign Plan 3, 2026-09-27)
+- **Sidebar** (150 px): four sections — Server, Client, Wallpaper, Logging; selected via `SelectedSectionIndex` ListBox binding
+- **Content per section**:
+  - **Server**: port, max clients, service name; Advanced expander for max backlog, heartbeat timeout
+  - **Client**: port, node name, heartbeat interval; Advanced expander for max cache size, cache path, update management, log file limits
+  - **Wallpaper**: browse button for storage directory, auto-update toggle
+  - **Logging**: level (Verbose/Info/Warning/Error), component toggles (Animation, Network, Rendering, D2D), file output toggle, LogDirectory folder picker; Advanced expander for performance metrics, frame-by-frame logging
+- **Persistence**: `ConfigurationManager.UpdateServerConfiguration / UpdateClientConfiguration / UpdateLoggingConfiguration(Action<T>)` pattern — read current, apply edits, write back. Preserves `ClientId`, `ServiceType`, `UpdateSettings`, log file limits across save operations
+- **Footer**: amber error message on save failure, keeps window open (does not dismiss on error)
+- **Instance management**: `SettingsWindow.ShowSingle()` via tray icon and ⋯ menu — only one window at a time
+- **Keyboard**: Enter = Save, Esc = Cancel; CenterScreen positioning
+- **Browse buttons**: open a folder picker for directory fields
 
 ### Background Color
 - Auto-detected from edge pixels of the animation file (`BackgroundColorDetector`)

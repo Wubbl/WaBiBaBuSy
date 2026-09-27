@@ -1,8 +1,20 @@
 # WaBiBaBuSy - Recent Updates & Changelog
 
-**Last Updated:** 2026-09-25
+**Last Updated:** 2026-09-27
 
 ---
+
+## 2026-09-27 — UI redesign Plan 3: Settings sidebar
+
+- **Settings sidebar**: 150-px ListBox with four sections (Server · Client · Wallpaper · Logging), `SelectedSectionIndex` binding; Advanced expanders per section.
+- **Server section**: port, max clients, service name; Advanced expander for max backlog, heartbeat timeout.
+- **Client section**: port, node name, heartbeat interval; Advanced expander for max cache size, cache path, update management (enable/channel/prerelease toggles), log file size/count limits.
+- **Wallpaper section**: storage path Browse button, auto-update toggle.
+- **Logging section**: level (Verbose/Info/Warning/Error), component toggles (Animation, Network, Rendering, D2D); file output toggle, LogDirectory folder picker; Advanced expander for performance metrics and frame-by-frame logging.
+- **Fix: Settings Save preserves identity and operational fields** — `ConfigurationManager.UpdateServerConfiguration / UpdateClientConfiguration / UpdateLoggingConfiguration(Action<T>)` pattern (read-modify-write) no longer resets `ClientId`, `ServiceType`, update settings, or log file limits. Tests: `WaBiBaBuSy.Tests/ConfigurationUpdateTests.cs` (6 tests).
+- **Browse buttons**: fold-open picker for directory fields (storage, log directory).
+- **Persistence**: footer shows save errors in amber; window stays open on error. `SettingsWindow.ShowSingle()` keeps one instance (tray icon, ⋯ menu). Enter = Save, Esc = Cancel; CenterScreen.
+- **GUI verification pending** (user will do interactive checks).
 
 ## 2026-09-25 — UI redesign Plan 2: docked Scene editor + Playlist tab
 
