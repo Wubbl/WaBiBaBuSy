@@ -82,15 +82,15 @@ WaBiBaBuSy runs as a **system tray application**. The main window is hidden by d
 ### Settings Window (UI redesign Plan 3, 2026-09-27)
 - **Sidebar** (150 px): four sections — Server, Client, Wallpaper, Logging; selected via `SelectedSectionIndex` ListBox binding
 - **Content per section**:
-  - **Server**: port, max clients, service name; Advanced expander for max backlog, heartbeat timeout
-  - **Client**: port, node name, heartbeat interval; Advanced expander for max cache size, cache path, update management, log file limits
-  - **Wallpaper**: browse button for storage directory, auto-update toggle
-  - **Logging**: level (Verbose/Info/Warning/Error), component toggles (Animation, Network, Rendering, D2D), file output toggle, LogDirectory folder picker; Advanced expander for performance metrics, frame-by-frame logging
-- **Persistence**: `ConfigurationManager.UpdateServerConfiguration / UpdateClientConfiguration / UpdateLoggingConfiguration(Action<T>)` pattern — read current, apply edits, write back. Preserves `ClientId`, `ServiceType`, `UpdateSettings`, log file limits across save operations
-- **Footer**: amber error message on save failure, keeps window open (does not dismiss on error)
-- **Instance management**: `SettingsWindow.ShowSingle()` via tray icon and ⋯ menu — only one window at a time
-- **Keyboard**: Enter = Save, Esc = Cancel; CenterScreen positioning
-- **Browse buttons**: open a folder picker for directory fields
+  - **Server**: Port, Content Directory (Browse button), Enable Auto-Discovery (mDNS). Advanced: Max Clients, Service Name.
+  - **Client**: Server Address, Server Port, Cache Directory (Browse button), Auto-connect on startup, Prefer auto-discovery. Advanced: Heartbeat Interval (s), Max Cache Size (MB).
+  - **Wallpaper**: Pause wallpaper when a fullscreen app is detected (only control).
+  - **Logging**: Global level (Information/Debug/Warning/Error); Log to file toggle (shows Log Directory textbox when on); Component filters (UI, D2D Player, Composition, Renderers, Networking, Animation, File Transfer). Advanced: Performance metrics, Frame-by-frame.
+- **Browse buttons**: Content Directory and Cache Directory only (folder picker).
+- **Preserved-but-not-editable fields**: `ClientId`, `ServiceType`, `UpdateSettings`, log file size/count limits are preserved across save via `ConfigurationManager.UpdateServerConfiguration / UpdateClientConfiguration / UpdateLoggingConfiguration(Action<T>)` (read-modify-write pattern) but are not exposed in the UI.
+- **Footer**: amber error message on save failure; window stays open on error.
+- **Instance management**: `SettingsWindow.ShowSingle()` via tray icon and ⋯ menu — only one window at a time.
+- **Keyboard**: Enter = Save, Esc = Cancel; CenterScreen positioning.
 
 ### Background Color
 - Auto-detected from edge pixels of the animation file (`BackgroundColorDetector`)
