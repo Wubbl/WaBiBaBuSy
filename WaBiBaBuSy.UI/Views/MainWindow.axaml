@@ -10,7 +10,7 @@
         x:DataType="vm:MainWindowViewModel"
         Icon="/Assets/BiBaBuColorIcon.ico"
         Title="WaBiBaBuSy - Wallpaper Sync Control"
-        Width="1200" Height="700"
+        Width="1400" Height="800"
         MinWidth="900" MinHeight="600">
 
     <Design.DataContext>
@@ -49,6 +49,27 @@
                     <Border Background="#AA4400" CornerRadius="3" Padding="6,4" IsVisible="{Binding IsConnecting}">
                         <TextBlock Text="Connecting..." Foreground="White" FontSize="11" FontWeight="SemiBold"/>
                     </Border>
+
+                    <!-- Client role: connect to a server (hidden while this machine is the server) -->
+                    <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="6,0,0,0"
+                                IsVisible="{Binding !IsServerMode}">
+                        <TextBlock Text="or" Foreground="#888888" FontSize="11" VerticalAlignment="Center" Margin="0,0,2,0"
+                                   IsVisible="{Binding !IsClientConnected}"/>
+                        <TextBox Text="{Binding ConnectServerAddress}" PlaceholderText="Server IP (empty = auto)"
+                                 Width="160" Height="28" FontSize="11" VerticalContentAlignment="Center"
+                                 IsEnabled="{Binding !IsClientConnected}"
+                                 ToolTip.Tip="Server IP or host name. Leave empty and press Connect to auto-discover a server on the LAN (mDNS), or use Find… to pick one."/>
+                        <TextBox Text="{Binding ConnectServerPort}" PlaceholderText="Port"
+                                 Width="60" Height="28" FontSize="11" TextAlignment="Center" VerticalContentAlignment="Center"
+                                 IsEnabled="{Binding !IsClientConnected}"/>
+                        <Button Content="Connect" Command="{Binding ConnectToServerCommand}" Padding="8,4" FontSize="11"
+                                IsEnabled="{Binding !IsConnecting}" IsVisible="{Binding !IsClientConnected}"/>
+                        <Button Content="Find…" Command="{Binding FindServersCommand}" Padding="8,4" FontSize="11"
+                                IsEnabled="{Binding !IsConnecting}" IsVisible="{Binding !IsClientConnected}"
+                                ToolTip.Tip="Browse servers discovered on the local network (mDNS)"/>
+                        <Button Content="Disconnect" Command="{Binding DisconnectFromServerCommand}" Padding="8,4" FontSize="11"
+                                IsVisible="{Binding IsClientConnected}"/>
+                    </StackPanel>
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6"
@@ -76,42 +97,25 @@
 
                 <Button Grid.Column="2" Content="&#8943;" FontSize="16" Height="28" Padding="10,0"
                         VerticalAlignment="Center"
-                        ToolTip.Tip="Connect to a server, settings, logs, developer tools">
+                        ToolTip.Tip="Settings, logs, developer tools">
                     <Button.Flyout>
                         <Flyout Placement="BottomEdgeAlignedRight">
-                            <StackPanel Spacing="8" Width="360" Margin="4">
-                                <StackPanel Spacing="4" IsVisible="{Binding !IsServerMode}">
-                                    <TextBlock Text="Connect to a server" FontWeight="SemiBold" FontSize="12"/>
-                                    <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <TextBox Text="{Binding ConnectServerAddress}" PlaceholderText="Server IP"
-                                                 Width="130" FontSize="11" IsEnabled="{Binding !IsClientConnected}"/>
-                                        <TextBox Text="{Binding ConnectServerPort}" PlaceholderText="Port"
-                                                 Width="60" FontSize="11" TextAlignment="Center" IsEnabled="{Binding !IsClientConnected}"/>
-                                        <Button Content="Connect" Command="{Binding ConnectToServerCommand}" FontSize="11"
-                                                IsEnabled="{Binding !IsConnecting}" IsVisible="{Binding !IsClientConnected}"/>
-                                        <Button Content="Find…" Command="{Binding FindServersCommand}" FontSize="11"
-                                                IsEnabled="{Binding !IsConnecting}" IsVisible="{Binding !IsClientConnected}"
-                                                ToolTip.Tip="Browse servers discovered on the local network (mDNS)"/>
-                                        <Button Content="Disconnect" Command="{Binding DisconnectFromServerCommand}" FontSize="11"
-                                                IsVisible="{Binding IsClientConnected}"/>
-                                    </StackPanel>
-                                    <Border Height="1" Background="#3E3E42" Margin="0,4,0,0"/>
-                                </StackPanel>
+                            <StackPanel Spacing="8" Width="400" Margin="4">
                                 <Button Content="Settings…" Command="{Binding OpenSettingsCommand}" HorizontalAlignment="Stretch"/>
                                 <Button Content="Open log folder" Command="{Binding OpenLogFolderCommand}" HorizontalAlignment="Stretch"/>
                                 <Expander Header="Developer tools" HorizontalAlignment="Stretch">
                                     <StackPanel Spacing="8">
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <TextBlock Text="Composition" VerticalAlignment="Center" FontSize="11" Foreground="#AAAAAA"/>
-                                            <ComboBox SelectedIndex="{Binding SelectedFitModeIndex}" Width="90" FontSize="11">
+                                        <WrapPanel Orientation="Horizontal">
+                                            <TextBlock Text="Composition" VerticalAlignment="Center" FontSize="11" Foreground="#AAAAAA" Margin="0,0,6,6"/>
+                                            <ComboBox SelectedIndex="{Binding SelectedFitModeIndex}" Width="90" FontSize="11" Margin="0,0,6,6">
                                                 <ComboBoxItem Content="Stretch"/>
                                                 <ComboBoxItem Content="Center"/>
                                                 <ComboBoxItem Content="Fit"/>
                                                 <ComboBoxItem Content="Fill"/>
                                             </ComboBox>
-                                            <Button Content="Apply D2D" Command="{Binding ApplyWallpaperViaDirect2DCommand}" FontSize="11"/>
-                                            <Button Content="Apply via LibVLC" Command="{Binding ApplyWallpaperToSelectedCommand}" FontSize="11"/>
-                                        </StackPanel>
+                                            <Button Content="Apply D2D" Command="{Binding ApplyWallpaperViaDirect2DCommand}" FontSize="11" Margin="0,0,6,6"/>
+                                            <Button Content="Apply via LibVLC" Command="{Binding ApplyWallpaperToSelectedCommand}" FontSize="11" Margin="0,0,0,6"/>
+                                        </WrapPanel>
                                         <StackPanel Orientation="Horizontal" Spacing="6">
                                             <TextBlock Text="Background" VerticalAlignment="Center" FontSize="11" Foreground="#AAAAAA"/>
                                             <Border Width="18" Height="18" CornerRadius="9" BorderBrush="#666666" BorderThickness="1" VerticalAlignment="Center">
@@ -168,7 +172,7 @@
         </Border>
 
         <!-- Main Split View: Client Graph (Left) | Wallpaper Gallery (Right) -->
-        <Grid Grid.Row="2" Name="MainSplit" ColumnDefinitions="*,5,460">
+        <Grid Grid.Row="2" Name="MainSplit" ColumnDefinitions="*,6,650">
 
             <!-- Left Panel: Client Network Graph -->
             <Border Grid.Column="0" Background="#1E1E1E" Padding="15">

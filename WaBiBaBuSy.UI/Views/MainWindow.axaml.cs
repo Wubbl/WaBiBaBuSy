@@ -14,13 +14,14 @@ namespace WaBiBaBuSy.UI.Views;
 
 public partial class MainWindow : Window
 {
-    /// <summary>Right panel width restored when it is expanded again (px).</summary>
-    private double _panelWidth = 460;
+    /// <summary>Right panel width restored when it is expanded again (px); starts at the width set in MainWindow.axaml.</summary>
+    private double _panelWidth;
     private MainWindowViewModel? _vm;
 
     public MainWindow()
     {
         InitializeComponent();
+        _panelWidth = MainSplit.ColumnDefinitions[2].Width.Value;
 
         // Pre-initialize LibVLC in background to eliminate ~9s delay on first wallpaper
         _ = LibVLCPreloader.PreloadAsync(AppLogger.CreateLogger<MainWindow>());

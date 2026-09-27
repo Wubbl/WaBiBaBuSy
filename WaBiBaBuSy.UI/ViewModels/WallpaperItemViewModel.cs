@@ -3,6 +3,7 @@ using System.IO;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
+using WaBiBaBuSy.Models.Wallpaper;
 
 namespace WaBiBaBuSy.UI.ViewModels;
 
@@ -15,9 +16,11 @@ public partial class WallpaperItemViewModel : ObservableObject
     private string _wallpaperId = string.Empty;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ToolTipText))]
     private string _name = string.Empty;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ToolTipText))]
     private string _filePath = string.Empty;
 
     [ObservableProperty]
@@ -27,6 +30,7 @@ public partial class WallpaperItemViewModel : ObservableObject
     private Bitmap? _thumbnail;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TypeName), nameof(TypeBadgeBrush), nameof(Caption), nameof(ToolTipText))]
     private WallpaperType _type;
 
     [ObservableProperty]
@@ -36,10 +40,46 @@ public partial class WallpaperItemViewModel : ObservableObject
     private bool _isSelected;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasResolution), nameof(Caption), nameof(ToolTipText))]
     private string _resolution = string.Empty;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FileSize), nameof(ToolTipText))]
     private long _fileSizeBytes;
+
+    /// <summary>Video length / one GIF loop in ms; 0 = unknown or still image.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Caption), nameof(ToolTipText))]
+    private long _durationMs;
+
+    /// <summary>GIF frame count; 0 = unknown.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Caption), nameof(ToolTipText))]
+    private int _frameCount;
+
+    /// <summary>Video frame rate; 0 = unknown.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ToolTipText))]
+    private double _frameRate;
+
+    /// <summary>
+    /// Thumbnail caption: resolution, plus length (video) or frames + length (GIF).
+    /// </summary>
+    public string Caption => MediaDetails.CaptionLine(Type.ToString(), Resolution, DurationMs, FrameCount);
+
+    /// <summary>
+    /// Multi-line tooltip: name, type · resolution · size, animation details, path.
+    /// </summary>
+    public string ToolTipText => MediaDetails.ToolTip(Name, Type.ToString(), Resolution, FileSize,
+        DurationMs, FrameCount, FrameRate, FilePath);
+
+    /// <summary>
+    /// True while the metadata of an animated file (or any resolution) still has to be read.
+    /// </summary>
+    public bool NeedsMediaDetails =>
+        string.IsNullOrEmpty(MediaDetails.CleanResolution(Resolution))
+        || (Type == WallpaperType.Gif && FrameCount == 0)
+        || (Type == WallpaperType.Video && DurationMs == 0);
 
     /// <summary>
     /// Short display label for the wallpaper type

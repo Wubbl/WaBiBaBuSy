@@ -595,6 +595,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             var gallery = ConfigurationManager.LoadWallpaperGallery();
 
             Debug.WriteLine($"Loading {gallery.Wallpapers.Count} wallpapers from gallery");
+            var needDetails = new List<WallpaperItemViewModel>();
 
             foreach (var item in gallery.Wallpapers)
             {
@@ -614,39 +615,16 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                     Type = Enum.Parse<WallpaperType>(item.Type),
                     Resolution = item.Resolution,
                     FileSizeBytes = item.FileSizeBytes,
+                    DurationMs = item.DurationMs,
+                    FrameCount = item.FrameCount,
+                    FrameRate = item.FrameRate,
                     IsActive = item.IsActive
                 };
 
-                // Re-detect resolution if missing or unknown
-                if (string.IsNullOrEmpty(viewModel.Resolution) || viewModel.Resolution == "Unknown")
-                {
-                    if (viewModel.Type == WallpaperType.Image || viewModel.Type == WallpaperType.Gif)
-                    {
-                        try
-                        {
-                            using var image = System.Drawing.Image.FromFile(item.FilePath);
-                            viewModel.Resolution = $"{image.Width}x{image.Height}";
-                        }
-                        catch { /* ignore */ }
-                    }
-                    else if (viewModel.Type == WallpaperType.Video)
-                    {
-                        // Schedule async resolution detection for videos
-                        var vm = viewModel;
-                        _ = Task.Run(async () =>
-                        {
-                            try
-                            {
-                                var videoRes = await _thumbnailGenerator.GetVideoResolution(item.FilePath);
-                                if (!string.IsNullOrEmpty(videoRes))
-                                {
-                                    await Dispatcher.UIThread.InvokeAsync(() => vm.Resolution = videoRes);
-                                }
-                            }
-                            catch { /* ignore */ }
-                        });
-                    }
-                }
+                // Galleries saved before the metadata fields (or with "Unknown" resolution) are re-read once,
+                // after the loop so a finished probe never saves a half-loaded gallery
+                if (viewModel.NeedsMediaDetails)
+                    needDetails.Add(viewModel);
 
                 // Set thumbnail path for images and GIFs
                 if (viewModel.Type == WallpaperType.Image || viewModel.Type == WallpaperType.Gif)
@@ -703,6 +681,9 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             }
 
             Debug.WriteLine($"Loaded {Wallpapers.Count} wallpapers successfully");
+
+            foreach (var vm in needDetails)
+                ScheduleMediaDetails(vm);
         }
         catch (Exception ex)
         {
@@ -727,6 +708,9 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                     Type = vm.Type.ToString(),
                     Resolution = vm.Resolution,
                     FileSizeBytes = vm.FileSizeBytes,
+                    DurationMs = vm.DurationMs,
+                    FrameCount = vm.FrameCount,
+                    FrameRate = vm.FrameRate,
                     IsActive = vm.IsActive
                 }).ToList()
             };
@@ -737,6 +721,58 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         {
             Debug.WriteLine($"Error saving wallpaper gallery: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Reads resolution, length and frame data of a gallery item in the background
+    /// (System.Drawing for images/GIFs, FFProbe for videos), then updates the item and saves the gallery.
+    /// </summary>
+    private void ScheduleMediaDetails(WallpaperItemViewModel item)
+    {
+        var path = item.FilePath;
+        var type = item.Type;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                string? resolution = null;
+                long durationMs = 0;
+                int frameCount = 0;
+                double frameRate = 0;
+
+                if (type == WallpaperType.Video)
+                {
+                    var probe = await _thumbnailGenerator.ProbeVideo(path);
+                    if (probe == null) return;
+                    (resolution, durationMs, frameRate) = (probe.Resolution, probe.DurationMs, probe.FrameRate);
+                }
+                else if (type == WallpaperType.Gif)
+                {
+                    var gif = GifMetadataReader.Read(path);
+                    if (gif == null) return;
+                    (resolution, frameCount, durationMs) = gif.Value;
+                }
+                else
+                {
+                    using var image = System.Drawing.Image.FromFile(path);
+                    resolution = $"{image.Width}x{image.Height}";
+                }
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (!string.IsNullOrEmpty(resolution)) item.Resolution = resolution;
+                    item.DurationMs = durationMs;
+                    item.FrameCount = frameCount;
+                    item.FrameRate = frameRate;
+                    if (Wallpapers.Contains(item))
+                        SaveWallpaperGallery();
+                });
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Could not read media details for {path}: {ex.Message}");
+            }
+        });
     }
 
     /// <summary>
@@ -2196,7 +2232,6 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                     {
                         Debug.WriteLine($"Starting FFmpeg thumbnail generation for: {filePath}");
                         var thumb = await _thumbnailGenerator.GenerateThumbnail(filePath);
-                        var videoRes = await _thumbnailGenerator.GetVideoResolution(filePath);
 
                         await Dispatcher.UIThread.InvokeAsync(() =>
                         {
@@ -2213,9 +2248,6 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                                 {
                                     Debug.WriteLine($"Thumbnail generation failed for: {filePath}");
                                 }
-
-                                if (!string.IsNullOrEmpty(videoRes))
-                                    wallpaperItem.Resolution = videoRes;
                             }
                         });
                     }
@@ -2244,6 +2276,10 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
 
             // Add to collection
             Wallpapers.Add(wallpaper);
+
+            // Video length / GIF frames (and a video's resolution) are read in the background
+            if (wallpaper.NeedsMediaDetails)
+                ScheduleMediaDetails(wallpaper);
 
             Debug.WriteLine($"Added wallpaper: {fileName} ({type}, {wallpaper.FileSize})");
 
@@ -2295,16 +2331,25 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         if (IsClientConnected || _service.IsClientConnected)
             return;
 
+        var address = ConnectServerAddress.Trim();
+        var port = ConnectServerPort;
         IsConnecting = true;
-        ClientConnectionStatus = "Discovering...";
+        ClientConnectionStatus = string.IsNullOrEmpty(address) ? "Discovering..." : $"Connecting to {address}...";
 
         try
         {
-            var address = ConnectServerAddress.Trim();
-            var port = ConnectServerPort;
-            if (string.IsNullOrEmpty(address)) address = "localhost";
-
-            var connected = await _service.DiscoverAndConnectAsync(address, port, ApplyD2DFromRemoteAsync);
+            // A typed address is used as-is; an empty field auto-discovers (mDNS) and falls back to localhost
+            bool connected;
+            if (string.IsNullOrEmpty(address))
+            {
+                connected = await _service.DiscoverAndConnectAsync("localhost", port, ApplyD2DFromRemoteAsync);
+            }
+            else
+            {
+                connected = await _service.ConnectToServerAsync(address, port);
+                if (connected)
+                    _service.SetD2DApplyDelegate(ApplyD2DFromRemoteAsync);
+            }
             if (connected)
             {
                 _service.SetD2DCrossScreenApplyDelegate(ApplyCrossScreenD2DFromRemoteAsync);

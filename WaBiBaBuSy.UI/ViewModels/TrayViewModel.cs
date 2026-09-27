@@ -104,6 +104,8 @@ public partial class TrayViewModel : ObservableObject
                 DataContext = new MainWindowViewModel(_service)
             };
             _mainWindow.Show();
+            // Bring it to the front so the first click (e.g. on the splitter) is not spent activating the window
+            _mainWindow.Activate();
         }
         else
         {

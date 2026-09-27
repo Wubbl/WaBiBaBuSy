@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-09-27 — UI redesign testing feedback
+
+- **Connect row in the toolbar**: Server IP · Port · Connect · Find… (or Disconnect) now sit next to `Start Server` on the left (hidden in server mode) instead of inside the `⋯` flyout — first-run users see both roles immediately. Placeholder "Server IP (empty = auto)" + tooltip.
+- **Connect semantics fix**: a typed server address is now connected to directly; only an empty field runs mDNS auto-discovery (fallback localhost). Before, Connect always ran discovery first and silently preferred the first discovered server over the typed IP.
+- **Main window**: starts at 1400×800 with the right panel at 650 px. Fix: `MainWindow.axaml.cs` hard-coded the panel width to 460 px and overrode the XAML column width; it now takes its initial width from the XAML. The window is activated when opened from the tray so the first click (e.g. on the splitter) is not spent on activation.
+- **Developer tools**: flyout widened to 400 px, composition row wraps so `Apply via LibVLC` is no longer clipped.
+- **Scene gallery**: multi-row wrapping thumbnail grid (vertical scroll) instead of a single horizontal strip; a row splitter between gallery and editor tabs lets the user trade space between them (gallery min 120 px, editor min 260 px).
+- **Gallery thumbnails 192×144** with a caption band (name + resolution, GIF frames + loop length, video length) and a multi-line tooltip (type · resolution · size, frames / loop / ≈fps for GIFs, length / fps for videos, full path). `+ Add` sits in the gallery's bottom-right corner.
+- **Media metadata**: `WallpaperGalleryItem` persists `DurationMs`, `FrameCount`, `FrameRate`; read once in the background (`GifMetadataReader` via System.Drawing — delays normalized like the D2D player, `VideoThumbnailGenerator.ProbeVideo` via FFProbe) for new files and for galleries saved before these fields. Formatting is pure in `MediaDetails` (Models), tests: `MediaDetailsTests`.
+
 ## 2026-09-27 — UI redesign Plan 3: Settings sidebar
 
 - **Settings sidebar**: 150-px ListBox with four sections (Server · Client · Wallpaper · Logging), `SelectedSectionIndex` binding; Advanced expanders per section.

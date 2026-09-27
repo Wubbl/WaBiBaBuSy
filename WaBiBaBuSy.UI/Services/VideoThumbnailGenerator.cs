@@ -118,9 +118,9 @@ public class VideoThumbnailGenerator : IDisposable
     }
 
     /// <summary>
-    /// Get the resolution (WxH) of a video file using FFProbe
+    /// Read resolution, length and frame rate of a video file using FFProbe; null when it cannot be read.
     /// </summary>
-    public async Task<string?> GetVideoResolution(string videoPath)
+    public async Task<VideoProbeResult?> ProbeVideo(string videoPath)
     {
         if (!File.Exists(videoPath))
             return null;
@@ -129,15 +129,16 @@ public class VideoThumbnailGenerator : IDisposable
         {
             var mediaInfo = await FFProbe.AnalyseAsync(videoPath);
             var stream = mediaInfo.VideoStreams.FirstOrDefault();
-            if (stream != null)
-                return $"{stream.Width}x{stream.Height}";
+            return new VideoProbeResult(
+                stream != null ? $"{stream.Width}x{stream.Height}" : null,
+                (long)mediaInfo.Duration.TotalMilliseconds,
+                stream?.FrameRate ?? 0);
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Could not read resolution for {VideoPath}", videoPath);
+            _logger.LogDebug(ex, "Could not probe {VideoPath}", videoPath);
+            return null;
         }
-
-        return null;
     }
 
     /// <summary>
@@ -175,3 +176,6 @@ public class VideoThumbnailGenerator : IDisposable
         // Nothing to dispose
     }
 }
+
+/// <summary>Video metadata read by <see cref="VideoThumbnailGenerator.ProbeVideo"/>.</summary>
+public sealed record VideoProbeResult(string? Resolution, long DurationMs, double FrameRate);

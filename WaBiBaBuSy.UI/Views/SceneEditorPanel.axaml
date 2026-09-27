@@ -34,22 +34,30 @@
         </Style>
     </UserControl.Styles>
 
-    <Grid RowDefinitions="Auto,Auto,*,Auto">
-        <!-- Gallery strip: click = primary file, Ctrl+click = extra image, right-click = remove -->
-        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,8,0,4">
-            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                <ItemsControl ItemsSource="{Binding Wallpapers}">
+    <!-- Gallery (resizable via the splitter) · editor tabs + footer -->
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="200" MinHeight="120"/>
+            <RowDefinition Height="6"/>
+            <RowDefinition Height="*" MinHeight="260"/>
+        </Grid.RowDefinitions>
+
+        <!-- Gallery grid: click = primary file, Ctrl+click = extra image, right-click = remove -->
+        <Panel Grid.Row="0" Margin="0,8,0,0">
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                <!-- bottom margin keeps the last row scrollable clear of the + Add button -->
+                <ItemsControl ItemsSource="{Binding Wallpapers}" Margin="0,0,0,36">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
-                            <StackPanel Orientation="Horizontal" Spacing="6"/>
+                            <WrapPanel Orientation="Horizontal"/>
                         </ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:WallpaperItemViewModel">
                             <Border Classes="strip" Classes.selected="{Binding IsSelected}"
-                                    Width="96" Height="72" CornerRadius="4" Background="#404040"
-                                    BorderThickness="2" ClipToBounds="True" Margin="0,0,0,10"
-                                    Cursor="Hand" ToolTip.Tip="{Binding Name}"
+                                    Width="192" Height="144" CornerRadius="4" Background="#404040"
+                                    BorderThickness="2" ClipToBounds="True" Margin="0,0,6,6"
+                                    Cursor="Hand" ToolTip.Tip="{Binding ToolTipText}"
                                     PointerPressed="OnStripItemPressed">
                                 <Border.ContextMenu>
                                     <ContextMenu>
@@ -61,11 +69,18 @@
                                 <Panel>
                                     <Image Source="{Binding Thumbnail}" Stretch="UniformToFill"
                                            IsVisible="{Binding Thumbnail, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-                                    <TextBlock Text="{Binding Name}" FontSize="10" Foreground="#AAAAAA" TextWrapping="Wrap" Margin="4"
-                                               IsVisible="{Binding Thumbnail, Converter={x:Static ObjectConverters.IsNull}}"/>
-                                    <Border Background="{Binding TypeBadgeBrush}" CornerRadius="3" Padding="3,1"
-                                            HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,3,3,0">
-                                        <TextBlock Text="{Binding TypeName}" Foreground="White" FontSize="8" FontWeight="Bold"/>
+                                    <Border Background="{Binding TypeBadgeBrush}" CornerRadius="3" Padding="4,1"
+                                            HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,4,4,0">
+                                        <TextBlock Text="{Binding TypeName}" Foreground="White" FontSize="9" FontWeight="Bold"/>
+                                    </Border>
+                                    <!-- Caption: name + resolution / length / frames -->
+                                    <Border Background="#B0000000" VerticalAlignment="Bottom" Padding="6,3">
+                                        <StackPanel Spacing="1">
+                                            <TextBlock Text="{Binding Name}" FontSize="11" FontWeight="SemiBold" Foreground="White"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding Caption}" FontSize="10" Foreground="#CCCCCC"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
                                     </Border>
                                 </Panel>
                             </Border>
@@ -73,13 +88,18 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
             </ScrollViewer>
-            <Button Grid.Column="1" Content="+ Add" Command="{Binding AddWallpaperCommand}"
-                    VerticalAlignment="Top" Margin="6,0,0,0"
+            <Button Content="+ Add" Command="{Binding AddWallpaperCommand}"
+                    HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,14,4"
                     ToolTip.Tip="Add files to the gallery (or drop files onto this panel)"/>
-        </Grid>
+        </Panel>
 
+        <GridSplitter Grid.Row="1" ResizeDirection="Rows" Background="#3E3E42"
+                      HorizontalAlignment="Stretch"
+                      ToolTip.Tip="Drag to resize the gallery"/>
+
+        <Grid Grid.Row="2" RowDefinitions="Auto,*,Auto">
         <!-- Picking hint + validation chips -->
-        <StackPanel Grid.Row="1" Spacing="4" Margin="0,0,0,4">
+        <StackPanel Grid.Row="0" Spacing="4" Margin="0,4,0,4">
             <Border Background="#1A3A5C" CornerRadius="4" Padding="8,4"
                     IsVisible="{Binding SceneEditor.IsPickingBackgroundImage}">
                 <TextBlock Text="Click a thumbnail to use it as the background image (click 'Choose from strip' again to cancel)"
@@ -103,7 +123,7 @@
         </StackPanel>
 
         <!-- Tabs: bound to the editor view model -->
-        <Border Grid.Row="2" DataContext="{Binding SceneEditor}">
+        <Border Grid.Row="1" DataContext="{Binding SceneEditor}">
             <TabControl Classes="editor" x:DataType="vm:CrossScreenConfigViewModel" Padding="0">
 
                 <!-- CONTENT -->
@@ -520,7 +540,7 @@
         </Border>
 
         <!-- Footer: targets + play; always visible -->
-        <Border Grid.Row="3" Background="#252526" CornerRadius="5" Padding="10,8" Margin="0,6,0,0">
+        <Border Grid.Row="2" Background="#252526" CornerRadius="5" Padding="10,8" Margin="0,6,0,0">
             <StackPanel Spacing="6">
                 <TextBlock Text="{Binding TargetsSummary}" FontSize="12" Foreground="#CCCCCC"
                            ToolTip.Tip="Select nodes in the room to target them; with nothing selected the scene plays on every node."/>
@@ -541,5 +561,6 @@
                 </WrapPanel>
             </StackPanel>
         </Border>
+        </Grid>
     </Grid>
 </UserControl>

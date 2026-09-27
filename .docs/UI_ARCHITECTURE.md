@@ -46,10 +46,11 @@ WaBiBaBuSy runs as a **system tray application**. The main window is hidden by d
 - Main window toggled from tray
 
 ### Server Control Panel (MainWindow) — room-first (UI redesign Plan 1, 2026-09-24; docked editor + Playlist tab, Plan 2, 2026-09-25)
-- **Toolbar (one row)**: role/status (left) · show controls — `Show ▾` picker, `▶`/`■`, `⏭` (skip,
-  `PlaylistOrchestrator.Skip()`), "Now: … · next: …" label, `Clear all` (center) · `⋯` flyout for
-  connect-to-server, `Settings…`, `Open log folder` and a "Developer tools" expander (composition
-  mode, D2D/LibVLC apply, background color, debug overlay toggles) (right)
+- **Toolbar (one row)**: role/status (left) — `Start Server` plus, while not the server, the
+  connect row (Server IP · Port · Connect · Find… / Disconnect; empty IP = mDNS auto-discover, a typed IP connects directly) · show controls — `Show ▾` picker,
+  `▶`/`■`, `⏭` (skip, `PlaylistOrchestrator.Skip()`), "Now: … · next: …" label, `Clear all`
+  (center) · `⋯` flyout for `Settings…`, `Open log folder` and a "Developer tools" expander
+  (composition mode, D2D/LibVLC apply, background color, debug overlay toggles) (right)
 - **Room ⚙ popover**: room-wide layout — traversal path (Ring/Snake/Parallel), turn gap, row gap,
   physical units toggle, vertical alignment, and "Split evenly into N rows"
 - **`RoomView`** (`Controls/RoomView.cs` + `RoomView.Menus.cs`): the room itself — row lanes with
@@ -65,8 +66,10 @@ WaBiBaBuSy runs as a **system tray application**. The main window is hidden by d
 - **Selection bar**: appears while nodes are selected — summary, Clear, Resync (server mode),
   Logs (single node), "Make row from selection" (multi-select), Deselect
 - **Right panel `[Scene | Playlist]`**: replaces the gallery pane and the old modal dialogs.
-  - **Scene tab** (`SceneEditorPanel` over `CrossScreenConfigViewModel`): gallery strip (click =
-    primary file, Ctrl+click = extra image, right-click = remove); tabs Content/Motion/Look/
+  - **Scene tab** (`SceneEditorPanel` over `CrossScreenConfigViewModel`): multi-row gallery grid
+    of 192×144 thumbnails with a caption (name, resolution, GIF frames/loop, video length) and a
+    detailed tooltip (`MediaDetails`), `+ Add` bottom-right (click = primary file, Ctrl+click =
+    extra image, right-click = remove) above a drag splitter that resizes gallery vs. editor; tabs Content/Motion/Look/
     Background with Advanced expanders; ⓘ tooltips; amber validation chips (`SceneChecks`); units
     follow the Room ⚙ physical-units toggle; targets = the room selection (`SceneTargets`, chain
     order); footer Play on selection / Play on all / Save to playlist ▾ / Revert — Play on
