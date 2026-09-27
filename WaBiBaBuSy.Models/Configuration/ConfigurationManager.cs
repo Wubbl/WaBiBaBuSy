@@ -24,6 +24,13 @@ public class ConfigurationManager
     };
 
     /// <summary>
+    /// Serializes all <see cref="UpdateJsonFile{T}"/> read-modify-write calls within this process,
+    /// so a concurrent Settings save and <see cref="UpdateClientId"/> continuation cannot interleave
+    /// their read and write and lose an edit, or read mid-truncation from another thread's write.
+    /// </summary>
+    private static readonly object ConfigFileLock = new();
+
+    /// <summary>
     /// Load server configuration from file, or create default if not exists
     /// </summary>
     public static ServerConfiguration LoadServerConfiguration()
@@ -156,30 +163,39 @@ public class ConfigurationManager
         UpdateJsonFile(LoggingConfigPath, edit);
 
     /// <summary>
-    /// Load <paramref name="path"/> (missing or unreadable → defaults), apply <paramref name="edit"/>,
-    /// write it back. Throws if the write fails.
+    /// Load <paramref name="path"/> (missing or corrupt JSON → defaults), apply <paramref name="edit"/>,
+    /// write it back. The whole read-modify-write is serialized within this process via
+    /// <see cref="ConfigFileLock"/>, so concurrent callers (e.g. a Settings save and
+    /// <see cref="UpdateClientId"/> running on a thread-pool continuation) cannot interleave and lose
+    /// each other's edits or observe a partially-written file.
+    /// Only a corrupt/unparsable file (<see cref="JsonException"/>) falls back to <c>new T()</c>;
+    /// read I/O errors (<see cref="IOException"/>, <see cref="UnauthorizedAccessException"/>) propagate
+    /// to the caller instead of silently discarding the file's contents. Also throws if the write fails.
     /// </summary>
     internal static T UpdateJsonFile<T>(string path, Action<T> edit) where T : class, new()
     {
-        var dir = Path.GetDirectoryName(path);
-        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-
-        T config;
-        try
+        lock (ConfigFileLock)
         {
-            config = File.Exists(path)
-                ? JsonSerializer.Deserialize<T>(File.ReadAllText(path), JsonOptions) ?? new T()
-                : new T();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error loading {Path.GetFileName(path)}: {ex.Message}. Using defaults.");
-            config = new T();
-        }
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
-        edit(config);
-        File.WriteAllText(path, JsonSerializer.Serialize(config, JsonOptions));
-        return config;
+            T config;
+            try
+            {
+                config = File.Exists(path)
+                    ? JsonSerializer.Deserialize<T>(File.ReadAllText(path), JsonOptions) ?? new T()
+                    : new T();
+            }
+            catch (JsonException ex)
+            {
+                Console.WriteLine($"Error parsing {Path.GetFileName(path)}: {ex.Message}. Using defaults.");
+                config = new T();
+            }
+
+            edit(config);
+            File.WriteAllText(path, JsonSerializer.Serialize(config, JsonOptions));
+            return config;
+        }
     }
 
     /// <summary>

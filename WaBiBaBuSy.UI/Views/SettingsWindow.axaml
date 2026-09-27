@@ -40,6 +40,7 @@
     <Grid RowDefinitions="*,Auto" ColumnDefinitions="150,*">
         <!-- Sidebar -->
         <ListBox Grid.Row="0" Grid.Column="0" Classes="sidebar" Background="#1E1E1E"
+                 SelectionMode="Single,AlwaysSelected"
                  SelectedIndex="{Binding SelectedSectionIndex}">
             <ListBoxItem Content="Server"/>
             <ListBoxItem Content="Client"/>

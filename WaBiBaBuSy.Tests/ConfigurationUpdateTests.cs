@@ -110,4 +110,38 @@ public class ConfigurationUpdateTests : IDisposable
 
         Assert.Equal(7000, Read<ServerConfiguration>().Port);
     }
+
+    [Fact]
+    public void Update_ConcurrentEdits_AllSurvive()
+    {
+        File.WriteAllText(_path, "{}");
+
+        const int count = 50;
+        Parallel.For(0, count, i =>
+        {
+            ConfigurationManager.UpdateJsonFile<Dictionary<string, int>>(_path, d => d[$"k{i}"] = i);
+        });
+
+        var saved = Read<Dictionary<string, int>>();
+        Assert.Equal(count, saved.Count);
+        for (var i = 0; i < count; i++)
+        {
+            Assert.Equal(i, saved[$"k{i}"]);
+        }
+    }
+
+    [Fact]
+    public void Update_ReadIoError_Throws()
+    {
+        Write(new ClientConfiguration { ServerAddress = "original" });
+        var before = File.ReadAllText(_path);
+
+        using (new FileStream(_path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            Assert.ThrowsAny<IOException>(() =>
+                ConfigurationManager.UpdateJsonFile<ClientConfiguration>(_path, c => c.ServerAddress = "x"));
+        }
+
+        Assert.Equal(before, File.ReadAllText(_path));
+    }
 }
