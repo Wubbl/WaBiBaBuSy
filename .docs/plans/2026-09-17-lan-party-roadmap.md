@@ -145,6 +145,7 @@ remotes pending — fold into the multi-client test in OPEN_ITEMS §1.
 | 2.3 | **Scene layers** — N independent sprites per scene, each with own source/movement/look/z-order/phase/spawn window; player refactor from static single-layer state to `LayerRuntime` instances | XL | 1.3 (multi-file transfer) | scene-layers doc |
 | 2.4 | **Crossing effects + events** — bezel entry/exit glow/flash/ripple, deterministic trails, scale pulse/spin, one-shot events (spotlight machine, celebration burst, "logo swims once"), scheduled interrupt shows, hotkeys | L | 1.1 (ring), 1.3 (pre-announce) | effects doc |
 | 2.5 | Cross-item **transitions** (fade / wipe along the ring) on playlist switches | S–M | 1.3 (pre-announce), 2.4 | effects doc §5 |
+| 2.6 | **Seat choreography** (added 2026-09-27) — seat stops on the canvas; `Hop` movement (dwell + eased arc flight; Forward / PingPong / seeded random shuffle across all seats, no cross-table hops); seat light (screens light up as the logo passes, with anticipation); speed profiles; convoy; row mosaic; tempo grid (manual BPM); motion segments; GIF motion sync; sprite shadow/outline/glow | M–L (staged) | 1.1, 1.2, 2.1 | [seat-choreography doc](2026-09-27-seat-choreography-design.md) |
 
 ### Tier 3 — Stretch
 - Audio-reactive mode (server taps audio → broadcasts BPM + phase; clients stay deterministic).
