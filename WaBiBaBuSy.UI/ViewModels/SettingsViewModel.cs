@@ -128,48 +128,42 @@ public partial class SettingsViewModel : ViewModelBase
     {
         try
         {
-            // Create configuration objects
-            var serverConfig = new ServerConfiguration
+            ConfigurationManager.UpdateServerConfiguration(s =>
             {
-                Port = ServerPort,
-                MaxClients = MaxClients,
-                ContentDirectory = ContentDirectory,
-                EnableAutoDiscovery = EnableAutoDiscovery,
-                ServiceName = ServiceName
-            };
+                s.Port = ServerPort;
+                s.MaxClients = MaxClients;
+                s.ContentDirectory = ContentDirectory;
+                s.EnableAutoDiscovery = EnableAutoDiscovery;
+                s.ServiceName = ServiceName;
+            });
 
-            var clientConfig = new ClientConfiguration
+            ConfigurationManager.UpdateClientConfiguration(c =>
             {
-                ServerAddress = ServerAddress,
-                ServerPort = ClientServerPort,
-                AutoConnect = AutoConnect,
-                PreferAutoDiscovery = PreferAutoDiscovery,
-                CacheDirectory = CacheDirectory,
-                MaxCacheSizeMB = MaxCacheSizeMB,
-                HeartbeatIntervalSeconds = HeartbeatIntervalSeconds,
-                PauseOnFullscreen = PauseOnFullscreen
-            };
+                c.ServerAddress = ServerAddress;
+                c.ServerPort = ClientServerPort;
+                c.AutoConnect = AutoConnect;
+                c.PreferAutoDiscovery = PreferAutoDiscovery;
+                c.CacheDirectory = CacheDirectory;
+                c.MaxCacheSizeMB = MaxCacheSizeMB;
+                c.HeartbeatIntervalSeconds = HeartbeatIntervalSeconds;
+                c.PauseOnFullscreen = PauseOnFullscreen;
+            });
 
-            var loggingConfig = new LoggingConfiguration
+            var loggingConfig = ConfigurationManager.UpdateLoggingConfiguration(l =>
             {
-                Level           = LogLevelDebug ? "Debug" : LogLevelWarning ? "Warning" : LogLevelError ? "Error" : "Information",
-                LogUI           = LogUI,
-                LogD2DPlayer    = LogD2DPlayer,
-                LogComposition  = LogComposition,
-                LogRenderers    = LogRenderers,
-                LogNetworking   = LogNetworking,
-                LogAnimation    = LogAnimation,
-                LogFileTransfer = LogFileTransfer,
-                LogToFile       = LogToFile,
-                LogPerformanceMetrics = LogPerformanceMetrics,
-                LogFrameByFrame = LogFrameByFrame,
-                LogDirectory    = LogDirectory
-            };
-
-            // Save to file
-            ConfigurationManager.SaveServerConfiguration(serverConfig);
-            ConfigurationManager.SaveClientConfiguration(clientConfig);
-            ConfigurationManager.SaveLoggingConfiguration(loggingConfig);
+                l.Level           = LogLevelDebug ? "Debug" : LogLevelWarning ? "Warning" : LogLevelError ? "Error" : "Information";
+                l.LogUI           = LogUI;
+                l.LogD2DPlayer    = LogD2DPlayer;
+                l.LogComposition  = LogComposition;
+                l.LogRenderers    = LogRenderers;
+                l.LogNetworking   = LogNetworking;
+                l.LogAnimation    = LogAnimation;
+                l.LogFileTransfer = LogFileTransfer;
+                l.LogToFile       = LogToFile;
+                l.LogPerformanceMetrics = LogPerformanceMetrics;
+                l.LogFrameByFrame = LogFrameByFrame;
+                l.LogDirectory    = LogDirectory;
+            });
 
             // Apply immediately – no restart needed
             AppLogger.ApplyConfig(loggingConfig);

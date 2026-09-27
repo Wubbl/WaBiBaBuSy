@@ -126,15 +126,60 @@ public class ConfigurationManager
         if (string.IsNullOrWhiteSpace(clientId)) return;
         try
         {
-            var config = LoadClientConfiguration();
-            if (config.ClientId == clientId) return;
-            config.ClientId = clientId;
-            SaveClientConfiguration(config);
+            if (LoadClientConfiguration().ClientId == clientId) return;
+            UpdateClientConfiguration(c => c.ClientId = clientId);
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error persisting client id: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Re-read the server config, apply <paramref name="edit"/> and save. Fields the edit does
+    /// not touch keep their on-disk values.
+    /// </summary>
+    public static void UpdateServerConfiguration(Action<ServerConfiguration> edit) =>
+        UpdateJsonFile(ServerConfigPath, edit);
+
+    /// <summary>
+    /// Re-read the client config, apply <paramref name="edit"/> and save. Keeps fields the
+    /// dialog never shows, such as <see cref="ClientConfiguration.ClientId"/>.
+    /// </summary>
+    public static void UpdateClientConfiguration(Action<ClientConfiguration> edit) =>
+        UpdateJsonFile(ClientConfigPath, edit);
+
+    /// <summary>
+    /// Re-read the logging config, apply <paramref name="edit"/>, save, and return the saved config.
+    /// </summary>
+    public static LoggingConfiguration UpdateLoggingConfiguration(Action<LoggingConfiguration> edit) =>
+        UpdateJsonFile(LoggingConfigPath, edit);
+
+    /// <summary>
+    /// Load <paramref name="path"/> (missing or unreadable → defaults), apply <paramref name="edit"/>,
+    /// write it back. Throws if the write fails.
+    /// </summary>
+    internal static T UpdateJsonFile<T>(string path, Action<T> edit) where T : class, new()
+    {
+        var dir = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+
+        T config;
+        try
+        {
+            config = File.Exists(path)
+                ? JsonSerializer.Deserialize<T>(File.ReadAllText(path), JsonOptions) ?? new T()
+                : new T();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading {Path.GetFileName(path)}: {ex.Message}. Using defaults.");
+            config = new T();
+        }
+
+        edit(config);
+        File.WriteAllText(path, JsonSerializer.Serialize(config, JsonOptions));
+        return config;
     }
 
     /// <summary>
