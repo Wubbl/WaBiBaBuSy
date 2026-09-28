@@ -13,9 +13,9 @@
         Width="1400" Height="800"
         MinWidth="900" MinHeight="600">
 
-    <Design.DataContext>
-        <vm:MainWindowViewModel/>
-    </Design.DataContext>
+    <!-- No Design.DataContext: MainWindowViewModel needs the live WaBiBaBuSyService and its
+         constructor has side effects (kills orphan players, loads config/gallery). The designer
+         renders the layout with empty bindings; x:DataType keeps compiled bindings checked. -->
 
     <Window.Resources>
         <views:HexToColorConverter x:Key="HexToColor"/>

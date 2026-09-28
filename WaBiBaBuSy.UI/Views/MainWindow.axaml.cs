@@ -24,7 +24,8 @@ public partial class MainWindow : Window
         _panelWidth = MainSplit.ColumnDefinitions[2].Width.Value;
 
         // Pre-initialize LibVLC in background to eliminate ~9s delay on first wallpaper
-        _ = LibVLCPreloader.PreloadAsync(AppLogger.CreateLogger<MainWindow>());
+        if (!Design.IsDesignMode)
+            _ = LibVLCPreloader.PreloadAsync(AppLogger.CreateLogger<MainWindow>());
 
         // Drag-and-drop of files onto the window adds them to the gallery
         AddHandler(DragDrop.DropEvent, OnFileDrop);
