@@ -25,41 +25,48 @@ the Tier 0 / 1.x rows of `2026-09-17-lan-party-roadmap.md`.
 Launch `dotnet run --project WaBiBaBuSy.UI` → tray → Start Server → Open Server Control Panel.
 
 ### 1.1 Main window & toolbar
-- [ ] Window opens at 1400×800 and comes to the front when opened from the tray
-- [ ] One toolbar row: server button + badges left, show controls in the middle, `⋯` right
-- [ ] Connect row (IP, port, Connect, Find, Disconnect) sits next to Start Server; placeholder "Server IP (empty = auto)"
-- [ ] `⋯` → Settings…, Open log folder, collapsed "Developer tools"; the flyout is wide enough, LibVLC button not clipped
+- [y] Window opens at 1400×800 and comes to the front when opened from the tray
+- [y] One toolbar row: server button + badges left, show controls in the middle, `⋯` right
+- [y] Connect row (IP, port, Connect, Find, Disconnect) sits next to Start Server; placeholder "Server IP (empty = auto)"
+- [y] `⋯` → Settings…, Open log folder, collapsed "Developer tools"; the flyout is wide enough, LibVLC button not clipped
 
 ### 1.2 Room view
-- [ ] Lanes with headers ("Row 1 →"), one tile per node with #n, name, resolution, status dot
-- [ ] Room ⚙ → Split evenly into 2 rows → two lanes; row 2 header shows "←" and a "↕ facing" chip
-- [ ] Changing Path (Ring / Snake / Parallel) updates the Room ⚙ button text
-- [ ] Click / Ctrl+click / Shift+click / rubber band select; the selection bar follows; Ctrl+click a selected tile deselects it
-- [ ] Ctrl+click two nodes → "2 selected" + "Make row from selection" → creates a new lane
-- [ ] Drag a tile within its lane → insert marker, drop reorders, #n badges renumber
-- [ ] Drag a tile into the other lane and onto "+ new row" → lanes update
-- [ ] Escape mid-drag → nothing moves
-- [ ] Drop, wait two refresh cycles (~5 s) → order stays, no jump back
-- [ ] Right-click a tile → Start new row here (disabled on first seat), Merge into previous row (disabled in row 1), Clear, Resync, View logs (remote nodes only)
-- [ ] "Start new row here" on the 3rd tile of a 5-tile row → new lane with the last 3 nodes
-- [ ] Select A and B, right-click C → only C selected, "Clear wallpaper" without "(n)", clears only C
-- [ ] Lane chip toggles "↕ facing" ↔ "⇉ same side"; lane `⋯` → Rename… / Move row up/down / Delete row
-- [ ] Gap number between tiles → inline editor: 12 → shows 12; empty → 0; 900 → clamped to 500
-- [ ] Close and reopen the app → lanes, traversal and gaps are kept (`seatmap.json`, `topology.json`)
+- [y] Lanes with headers ("Row 1 →"), one tile per node with #n, name, resolution, status dot
+- [y] Room ⚙ → Split evenly into 2 rows → two lanes; row 2 header shows "←" and a "↕ facing" chip
+- [y] Changing Path (Ring / Snake / Parallel) updates the Room ⚙ button text
+- [y] Click / Ctrl+click / Shift+click / rubber band select; the selection bar follows; Ctrl+click a selected tile deselects it
+- [y] Ctrl+click two nodes → "2 selected" + "Make row from selection" → creates a new lane
+- [y] Drag a tile within its lane → insert marker, drop reorders, #n badges renumber
+- [y] Drag a tile into the other lane and onto "+ new row" → lanes update
+- [y] Escape mid-drag → nothing moves
+- [y] Drop, wait two refresh cycles (~5 s) → order stays, no jump back
+- [n] Right-click a tile → Start new row here (disabled on first seat), Merge into previous row (disabled in row 1), Clear, Resync, View logs (remote nodes only)
+All good but View logs never comes back. Shows "Requesting logs .." but that's it
+- [n] "Start new row here" on the 3rd tile of a 5-tile row → new lane with the last 3 nodes
+Works but the order of the last 3 nodes is different in the new row
+- [y] Select A and B, right-click C → only C selected, "Clear wallpaper" without "(n)", clears only C
+- [y] Lane chip toggles "↕ facing" ↔ "⇉ same side"; lane `⋯` → Rename… / Move row up/down / Delete row
+- [y] Gap number between tiles → inline editor: 12 → shows 12; empty → 0; 900 → clamped to 500
+- [y] Close and reopen the app → lanes, traversal and gaps are kept (`seatmap.json`, `topology.json`)
 
 ### 1.3 Scene editor (right panel)
-- [ ] Gallery: multi-row grid of thumbnails with caption band (name, resolution, GIF frames + loop length, video length) and a tooltip; `+ Add` bottom-right; splitter between gallery and tabs works
-- [ ] Badge reads "◉ Preview: draft (not live)"; a fresh start shows the default draft, tiles still until a file is picked
-- [ ] Click a GIF → tiles paint it within ~150 ms; Ctrl+click another → "Extra images" chip; right-click removes it
-- [ ] Motion → Pattern / Speed changes → tiles update; readout says "crosses the room in … s"
-- [ ] Leave it 10 s untouched → sprite keeps moving, does **not** restart every 2 s
-- [ ] Select one node → "Targets: 1 selected", only that tile animates; deselect → all tiles
-- [ ] Room ⚙ → "Physical units" on → size/speed fields show cm; off → the old px values are back
-- [ ] Draft controls: 16× and ⏸ affect only the draft; clicking the badge → "● Preview: live"
-- [ ] `⟩` collapses the panel to a rail (badge → live); `⟨` restores the width; resize with splitter, collapse/expand again → width kept
-- [ ] Motion → Advanced → Endless with color grading None → amber chip "Endless needs a Traveling color mode"
-- [ ] Hidden params exposed: Random seed + "Randomize", step interval, speed multiplier, Wave delay, Face travel direction
-- [ ] ▶ Play on selection with one node → only that machine plays; Play on all → every node; badge live shows the same scene
+- [y] Gallery: multi-row grid of thumbnails with caption band (name, resolution, GIF frames + loop length, video length) and a tooltip; `+ Add` bottom-right; splitter between gallery and tabs works
+- [y] Badge reads "◉ Preview: draft (not live)"; a fresh start shows the default draft, tiles still until a file is picked
+- [y] Click a GIF → tiles paint it within ~150 ms; Ctrl+click another → "Extra images" chip; right-click removes it
+Works i guess but what is the Extra images chip ?
+- [y] Motion → Pattern / Speed changes → tiles update; readout says "crosses the room in … s"
+- [y] Leave it 10 s untouched → sprite keeps moving, does **not** restart every 2 s
+- [y] Select one node → "Targets: 1 selected", only that tile animates; deselect → all tiles
+- [y] Room ⚙ → "Physical units" on → size/speed fields show cm; off → the old px values are back
+- [y] Draft controls: 16× and ⏸ affect only the draft; clicking the badge → "● Preview: live"
+- [y] `⟩` collapses the panel to a rail (badge → live); `⟨` restores the width; resize with splitter, collapse/expand again → width kept
+- [n] Motion → Advanced → Endless with color grading None → amber chip "Endless needs a Traveling color mode"
+There is no "Endless" in Motion -> Advanced ?
+- [y] Hidden params exposed: Random seed + "Randomize", step interval, speed multiplier, Wave delay, Face travel direction
+- [y] ▶ Play on selection with one node → only that machine plays; Play on all → every node; badge live shows the same scene
+- [ ] Motion → Static with the default IconZone background → Play → sprite stays centered on every machine (no path wandering, no rotation)
+- [ ] Gallery right-click → "Show as plain wallpaper on all nodes" on a JPG, a GIF and an MP4 → each fills every monitor, still / looping, no colors; the editor shows SolidColor · Fill · Simultaneous · Static
+- [ ] Footer "▣ Plain wallpaper ▾" → On selection (disabled with nothing selected) → only the selected node shows the current file plainly
 
 ### 1.4 Playlist tab & show controls
 - [ ] Tab loads the newest saved playlist; a 30 000 ms item shows "30"

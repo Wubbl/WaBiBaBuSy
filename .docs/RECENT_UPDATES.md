@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-09-29 — Fix: Static movement ignored on IconZone backgrounds · Plain wallpaper button
+
+- **Symptom**: movement set to Static (colors off) but the machines still moved and rotated the sprite; the room preview showed it still.
+- **Root cause**: `Player.D2D` `UpdateAnimationPosition` ran IconZone A* path-following for every movement type, before `MovementCalculator` was consulted — Static was never checked and the path speed came from `SpeedPixelsPerSecond` (500 by default). The editor's default scene uses an IconZone background with RotateWithPath on, so any "Static" scene built from it wandered. `ScenePainter` does not simulate the path, which hid it in the preview.
+- **Fix**: `MovementCalculator.FollowsIconPath(backgroundMode, movement)` (false for Static; a missing movement config keeps the legacy path-following) gates the player's path branch, its "no path" warning and the preview's "IconZone path not previewed" note. Static on IconZone now paints the zones and keeps the sprite centered.
+- **Plain wallpaper**: `PlainScene.Create(path)` (Models) — SolidColor background, Fill, Simultaneous, Static, no color grading / pattern / rotation, loop on. Gallery right-click → "Show as plain wallpaper on selection / on all nodes"; Scene editor footer → "▣ Plain wallpaper ▾" (current file). The plain scene is loaded into the editor before playing, so preview, Revert and Save to playlist match what is live. Remote machines need the updated player.
+- Tests: `WaBiBaBuSy.Tests/PlainSceneTests.cs` (10 tests).
+
 ## 2026-09-29 — Fix: auto-update crashed on clients (System.CommandLine missing)
 
 - **Symptom**: remote client update failed without an updater log; Event Viewer showed `WaBiBaBuSy.Updater.exe` FileNotFound for `System.CommandLine, Version=2.0.12.0`.
