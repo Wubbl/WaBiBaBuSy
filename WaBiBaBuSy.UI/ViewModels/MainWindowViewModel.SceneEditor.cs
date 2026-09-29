@@ -79,6 +79,8 @@ public partial class MainWindowViewModel
     {
         PlayOnSelectionCommand.NotifyCanExecuteChanged();
         PlayOnAllCommand.NotifyCanExecuteChanged();
+        PlayPlainOnSelectionCommand.NotifyCanExecuteChanged();
+        PlayPlainOnAllCommand.NotifyCanExecuteChanged();
     }
 
     /// <summary>Scene the room paints.</summary>
@@ -257,6 +259,33 @@ public partial class MainWindowViewModel
 
     [RelayCommand(CanExecute = nameof(CanPlayOnAll))]
     private Task PlayOnAll() => PlayDraftAsync(selectionOnly: false);
+
+    private bool CanPlayPlainOnSelection(WallpaperItemViewModel? item) => CanPlayOnSelection();
+    private bool CanPlayPlainOnAll(WallpaperItemViewModel? item) => CanPlayOnAll();
+
+    /// <summary>Plain wallpaper on the selection: a gallery item, or the editor's file when null.</summary>
+    [RelayCommand(CanExecute = nameof(CanPlayPlainOnSelection))]
+    private Task PlayPlainOnSelection(WallpaperItemViewModel? item) => PlayPlainAsync(item, selectionOnly: true);
+
+    /// <summary>Plain wallpaper on every node: a gallery item, or the editor's file when null.</summary>
+    [RelayCommand(CanExecute = nameof(CanPlayPlainOnAll))]
+    private Task PlayPlainOnAll(WallpaperItemViewModel? item) => PlayPlainAsync(item, selectionOnly: false);
+
+    /// <summary>
+    /// Show a file as a plain wallpaper (<see cref="PlainScene"/>: fills each monitor, no movement,
+    /// colors, pattern or rotation). The plain scene is loaded into the editor first, so the editor,
+    /// the preview, Revert and Save to playlist all see exactly what is playing; then it plays like a draft.
+    /// </summary>
+    private Task PlayPlainAsync(WallpaperItemViewModel? item, bool selectionOnly)
+    {
+        if (IsStartingScene) return Task.CompletedTask;
+        var path = item?.FilePath ?? SceneEditor.AnimationPath;
+        if (string.IsNullOrWhiteSpace(path)) return PlayDraftAsync(selectionOnly);   // reports "Pick an animation file"
+
+        if (item != null) SelectWallpaper(item);
+        SceneEditor.LoadFromConfig(PlainScene.Create(path));
+        return PlayDraftAsync(selectionOnly);
+    }
 
     /// <summary>
     /// Send the draft to the machines: tears down a running show (playlist loop + its players/remote

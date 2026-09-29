@@ -923,6 +923,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         OnPropertyChanged(nameof(SelectionSummary));
         OnPropertyChanged(nameof(TargetsSummary));
         PlayOnSelectionCommand.NotifyCanExecuteChanged();
+        PlayPlainOnSelectionCommand.NotifyCanExecuteChanged();
         ScheduleDraftUpdate();   // draft targets = selection; also covers nodes joining/leaving (called after every refresh)
     }
 

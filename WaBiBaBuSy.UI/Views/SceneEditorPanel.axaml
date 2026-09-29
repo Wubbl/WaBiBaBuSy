@@ -42,7 +42,7 @@
             <RowDefinition Height="*" MinHeight="260"/>
         </Grid.RowDefinitions>
 
-        <!-- Gallery grid: click = primary file, Ctrl+click = extra image, right-click = remove -->
+        <!-- Gallery grid: click = primary file, Ctrl+click = extra image, right-click = plain wallpaper / remove -->
         <Panel Grid.Row="0" Margin="0,8,0,0">
             <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                 <!-- bottom margin keeps the last row scrollable clear of the + Add button -->
@@ -61,6 +61,13 @@
                                     PointerPressed="OnStripItemPressed">
                                 <Border.ContextMenu>
                                     <ContextMenu>
+                                        <MenuItem Header="Show as plain wallpaper on selection"
+                                                  Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).PlayPlainOnSelectionCommand}"
+                                                  CommandParameter="{Binding}"/>
+                                        <MenuItem Header="Show as plain wallpaper on all nodes"
+                                                  Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).PlayPlainOnAllCommand}"
+                                                  CommandParameter="{Binding}"/>
+                                        <Separator/>
                                         <MenuItem Header="Remove from gallery"
                                                   Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).RemoveWallpaperCommand}"
                                                   CommandParameter="{Binding}"/>
@@ -547,6 +554,15 @@
                 <WrapPanel>
                     <Button Content="▶ Play on selection" Command="{Binding PlayOnSelectionCommand}" Classes="accent" Margin="0,0,6,6"/>
                     <Button Content="Play on all" Command="{Binding PlayOnAllCommand}" Margin="0,0,6,6"/>
+                    <Button Content="▣ Plain wallpaper ▾" Margin="0,0,6,6"
+                            ToolTip.Tip="Show the current file as-is: fills each monitor, no movement, colors or pattern. Also on a gallery item's right-click.">
+                        <Button.Flyout>
+                            <MenuFlyout>
+                                <MenuItem Header="On selection" Command="{Binding PlayPlainOnSelectionCommand}"/>
+                                <MenuItem Header="On all nodes" Command="{Binding PlayPlainOnAllCommand}"/>
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
                     <Button Content="＋ Save to playlist ▾" Margin="0,0,6,6">
                         <Button.Flyout>
                             <MenuFlyout>
