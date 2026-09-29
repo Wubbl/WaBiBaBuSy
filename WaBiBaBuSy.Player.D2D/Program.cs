@@ -2126,7 +2126,8 @@ class Program
             // Fall through to standard MovementCalculator branch below (the pattern translates as a unit).
         }
         // IconZone: path-following. Path is in virtual-canvas space; subtract MonitorOffsetX to get local coords.
-        else if (_backgroundMode == BackgroundMode.IconZone && _animPath.Count >= 2)
+        // Static never follows the path: the zones are painted, the sprite stays centered (MovementCalculator).
+        else if (MovementCalculator.FollowsIconPath(_backgroundMode, _movementConfig) && _animPath.Count >= 2)
         {
             float speed = _movementConfig?.SpeedPixelsPerSecond ?? 300f;
 
@@ -2228,7 +2229,7 @@ class Program
         }
 
         // Warn if IconZone mode has no path to follow (should not happen since ZonePlanner has fallback)
-        if (_backgroundMode == BackgroundMode.IconZone && _animPath.Count < 2)
+        if (MovementCalculator.FollowsIconPath(_backgroundMode, _movementConfig) && _animPath.Count < 2)
             _logger?.LogWarning("[IconZone] Path-following skipped: only {Count} waypoints available. Check icon detection and ZonePlanner output.", _animPath.Count);
 
         // Standard movement via MovementCalculator (Static returns a centered, time-invariant position).

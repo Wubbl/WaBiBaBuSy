@@ -226,7 +226,7 @@ public sealed class ScenePainter
                 : $"{layout.CanvasWidth:N0} px canvas" + (layout.Wraps ? " · ring" : ""));
             if (layout.IsPhysical && animW > 0)
                 parts.Add($"sprite {PhysicalUnits.PxToCm(animW, layout.RefPixelsPerCm):0.0} cm wide");
-            if (scene.Background.Mode == BackgroundMode.IconZone) parts.Add("IconZone path not previewed");
+            if (MovementCalculator.FollowsIconPath(scene.Background.Mode, scene.Movement)) parts.Add("IconZone path not previewed");
             if (hotId != null)
             {
                 string name = labels != null && labels.TryGetValue(hotId, out var l) ? l : hotId;

@@ -10,6 +10,14 @@ namespace WaBiBaBuSy.Models.Wallpaper;
 public static class MovementCalculator
 {
     /// <summary>
+    /// True when the sprite follows the IconZone A* path instead of <see cref="Calculate"/>.
+    /// Static never moves, so an IconZone background only paints its zones then. A missing
+    /// movement config keeps the legacy path-following.
+    /// </summary>
+    public static bool FollowsIconPath(BackgroundMode backgroundMode, MovementConfig? movement)
+        => backgroundMode == BackgroundMode.IconZone && movement?.Type != MovementType.Static;
+
+    /// <summary>
     /// Calculate animation position in virtual canvas coordinates.
     /// </summary>
     /// <param name="config">Movement configuration</param>
