@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
+using WaBiBaBuSy.Common.Update;
 
 namespace WaBiBaBuSy.Core.Services.Update;
 
@@ -35,12 +36,18 @@ public class UpdateApplicator
             if (string.IsNullOrEmpty(updaterExePath))
             {
                 // Look in the update package first
-                updaterExePath = Path.Combine(updateDirectory, "updater", "WaBiBaBuSy.Updater.exe");
+                updaterExePath = Path.Combine(updateDirectory, "updater", UpdaterFiles.ExeName);
+
+                if (File.Exists(updaterExePath) && !EnsurePackageUpdaterDependencies(updateDirectory))
+                {
+                    // Package updater would crash on startup (missing assembly) — use the installed one
+                    updaterExePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, UpdaterFiles.ExeName);
+                }
 
                 if (!File.Exists(updaterExePath))
                 {
                     // Try current directory
-                    updaterExePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WaBiBaBuSy.Updater.exe");
+                    updaterExePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, UpdaterFiles.ExeName);
                 }
 
                 if (!File.Exists(updaterExePath))
@@ -97,6 +104,32 @@ public class UpdateApplicator
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error launching updater");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Make sure the package's updater folder contains the updater's dependency assemblies.
+    /// Packages built by older servers shipped only <c>WaBiBaBuSy.Updater.*</c>; the missing
+    /// System.CommandLine.dll is taken from the package's <c>binaries/</c> folder.
+    /// </summary>
+    /// <returns>True if the package updater has everything it needs to start.</returns>
+    private bool EnsurePackageUpdaterDependencies(string updateDirectory)
+    {
+        var updaterDir = Path.Combine(updateDirectory, "updater");
+        try
+        {
+            var missing = UpdaterFiles.RepairDependencies(updaterDir, Path.Combine(updateDirectory, "binaries"));
+            if (missing.Count == 0)
+                return true;
+
+            _logger.LogWarning("Package updater is missing dependencies {Missing}; falling back to the installed updater",
+                string.Join(", ", missing));
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not verify package updater dependencies; falling back to the installed updater");
             return false;
         }
     }

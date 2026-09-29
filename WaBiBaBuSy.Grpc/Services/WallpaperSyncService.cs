@@ -1,4 +1,5 @@
 using Grpc.Core;
+using WaBiBaBuSy.Common.Update;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.IO.Compression;
@@ -946,7 +947,9 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         var updatesDir = _serverConfig.UpdateManagement.UpdatesDirectory;
         Directory.CreateDirectory(updatesDir);
 
-        var packagePath = Path.Combine(updatesDir, $"UpdatePackage_{serverVersion}.zip");
+        // Build number in the name: a rebuilt server with the same app version must not serve a stale package
+        var packagePath = Path.Combine(updatesDir,
+            $"UpdatePackage_{serverVersion}.{WaBiBaBuSy.Common.Version.VersionInfo.BuildNumber}.zip");
 
         // Return cached path if package already exists and matches current version
         if (_cachedUpdatePackagePath != null && File.Exists(_cachedUpdatePackagePath))
@@ -1015,17 +1018,15 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                     }
                 }
 
-                // Copy updater exe — required for clients to apply the update
-                var updaterExe = Path.Combine(serverInstallDir, "WaBiBaBuSy.Updater.exe");
+                // Copy updater exe + its dependency assemblies (System.CommandLine) — required for clients to apply the update
+                var updaterExe = Path.Combine(serverInstallDir, UpdaterFiles.ExeName);
                 if (File.Exists(updaterExe))
                 {
-                    File.Copy(updaterExe, Path.Combine(updaterDir, "WaBiBaBuSy.Updater.exe"), overwrite: true);
-
-                    // Also copy updater dependencies
-                    foreach (var file in Directory.GetFiles(serverInstallDir, "WaBiBaBuSy.Updater.*"))
+                    var missingDeps = UpdaterFiles.CopyUpdater(serverInstallDir, updaterDir);
+                    if (missingDeps.Count > 0)
                     {
-                        var fileName = Path.GetFileName(file);
-                        File.Copy(file, Path.Combine(updaterDir, fileName), overwrite: true);
+                        _logger.LogError("Updater dependencies missing in server install dir {Dir}: {Missing} — clients will fall back to their installed updater",
+                            serverInstallDir, string.Join(", ", missingDeps));
                     }
                 }
                 else

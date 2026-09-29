@@ -1,8 +1,17 @@
 # WaBiBaBuSy - Recent Updates & Changelog
 
-**Last Updated:** 2026-09-27
+**Last Updated:** 2026-09-29
 
 ---
+
+## 2026-09-29 — Fix: auto-update crashed on clients (System.CommandLine missing)
+
+- **Symptom**: remote client update failed without an updater log; Event Viewer showed `WaBiBaBuSy.Updater.exe` FileNotFound for `System.CommandLine, Version=2.0.12.0`.
+- **Root cause**: the server-built update package copied only `WaBiBaBuSy.Updater.*` into `updater/`. The updater is framework-dependent, so its NuGet dependency ships as a separate DLL; the client ran the package updater first and it died while JIT-ing `Main`, before the log file was opened.
+- **Server fix**: `UpdaterFiles.CopyUpdater` (`WaBiBaBuSy.Common/Update/UpdaterFiles.cs`) reads `WaBiBaBuSy.Updater.deps.json` and ships every runtime dependency (plus available satellite resources) in `updater/`. The package file name now includes the build number (`UpdatePackage_{version}.{build}.zip`) so a rebuilt server no longer serves a stale cached package.
+- **Client fix**: `UpdateApplicator` repairs legacy packages by copying missing updater dependencies from `binaries/`; if still incomplete it falls back to the installed updater.
+- **Recovery for already-broken clients**: copy `binaries\System.CommandLine.dll` from `%LOCALAPPDATA%\WaBiBaBuSy\Updates\Pending\Extract_<ver>\` into its `updater\` folder and run the updater manually (admin, `--process-id 0`).
+- Tests: `WaBiBaBuSy.Tests/UpdaterFilesTests.cs` (6 tests).
 
 ## 2026-09-27 — UI redesign testing feedback
 
