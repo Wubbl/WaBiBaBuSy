@@ -108,6 +108,42 @@ public class ScenarioLoaderTests : IDisposable
     }
 
     [Theory]
+    [InlineData("""{ "name": "x", "steps": null }""", "steps is missing")]
+    [InlineData("""{ "name": "x", "steps": [ null ] }""", "step 1 is null")]
+    [InlineData("""{ "name": "x", "requires": null, "thresholds": null, "steps": [ { "type": "wait", "ms": 1 } ] }""", "requires is null")]
+    [InlineData("""{ "name": "x", "thresholds": null, "steps": [ { "type": "wait", "ms": 1 } ] }""", "thresholds is null")]
+    [InlineData("""{ "name": "x", "steps": [ { "type": "testMode", "simulatedClockSkewMs": null } ] }""", "simulatedClockSkewMs is null")]
+    [InlineData("""{ "name": "x", "steps": [ { "type": "playScene", "scene": "scenes/linear.json", "targets": null } ] }""", "targets is null")]
+    public void Parse_JsonNulls_AreScenarioErrors(string json, string expected)
+    {
+        var ex = Assert.Throws<ScenarioException>(() => ScenarioLoader.Parse(json, _dir, "nulls.json"));
+        Assert.Contains("nulls.json", ex.Message);
+        Assert.Contains(expected, ex.Message);
+    }
+
+    [Theory]
+    [InlineData("""{ "Animation": null }""", "Animation is null")]
+    [InlineData("""{ "Animation": { "AnimationPath": "marker.png" }, "Background": null }""", "Background is null")]
+    [InlineData("""{ "Animation": { "AnimationPath": "marker.png" }, "Movement": null }""", "Movement is null")]
+    [InlineData("""{ "Animation": { "AnimationPath": "marker.png", "AdditionalAnimationPaths": null } }""", "AdditionalAnimationPaths is null")]
+    public void SceneFile_Load_JsonNulls_AreScenarioErrors(string json, string expected)
+    {
+        var path = Path.Combine(_dir, "scenes", "nulls.json");
+        File.WriteAllText(path, json);
+        var ex = Assert.Throws<ScenarioException>(() => SceneFile.Load(path));
+        Assert.Contains(path, ex.Message);
+        Assert.Contains(expected, ex.Message);
+    }
+
+    [Fact]
+    public void SceneFile_Load_MissingFile_IsAScenarioError()
+    {
+        var path = Path.Combine(_dir, "scenes", "gone.json");
+        var ex = Assert.Throws<ScenarioException>(() => SceneFile.Load(path));
+        Assert.Contains(path, ex.Message);
+    }
+
+    [Theory]
     [InlineData("start+150ms", ProbeAnchor.Start, 150)]
     [InlineData("now+2000ms", ProbeAnchor.Now, 2000)]
     [InlineData("START+5", ProbeAnchor.Start, 5)]

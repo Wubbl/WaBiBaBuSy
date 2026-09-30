@@ -24,16 +24,28 @@ public static class SceneFile
     public static CrossScreenConfig Load(string path)
     {
         var full = Path.GetFullPath(path);
+        if (!File.Exists(full)) throw new ScenarioException($"{full}: scene file not found");
         CrossScreenConfig? config;
         try
         {
             config = JsonSerializer.Deserialize<CrossScreenConfig>(File.ReadAllText(full), JsonOptions);
         }
-        catch (JsonException ex)
+        catch (Exception ex) when (ex is JsonException or NotSupportedException)
         {
             throw new ScenarioException($"{full}: invalid scene JSON — {ex.Message}");
         }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new ScenarioException($"{full}: cannot read the scene — {ex.Message}");
+        }
         if (config == null) throw new ScenarioException($"{full}: empty scene");
+        // JSON "null" overrides the defaults: report it instead of crashing later.
+        var nulls = new List<string>();
+        if (config.Animation == null) nulls.Add("Animation");
+        else if (config.Animation.AdditionalAnimationPaths == null) nulls.Add("Animation.AdditionalAnimationPaths");
+        if (config.Background == null) nulls.Add("Background");
+        if (config.Movement == null) nulls.Add("Movement");
+        if (nulls.Count > 0) throw new ScenarioException($"{full}: {string.Join(", ", nulls.Select(n => n + " is null"))}");
 
         var dir = Path.GetDirectoryName(full)!;
         config.Animation.AnimationPath = Absolute(dir, config.Animation.AnimationPath);

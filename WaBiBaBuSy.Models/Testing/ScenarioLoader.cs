@@ -19,9 +19,20 @@ public static class ScenarioLoader
     /// <summary>Load and validate a scenario file.</summary>
     public static TestScenario Load(string path)
     {
-        var full = Path.GetFullPath(path);
+        string full;
+        try { full = Path.GetFullPath(path); }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            throw new ScenarioException($"{path}: invalid scenario path — {ex.Message}");
+        }
         if (!File.Exists(full)) throw new ScenarioException($"Scenario file not found: {full}");
-        return Parse(File.ReadAllText(full), Path.GetDirectoryName(full)!, full);
+        string json;
+        try { json = File.ReadAllText(full); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new ScenarioException($"{full}: cannot read the scenario — {ex.Message}");
+        }
+        return Parse(json, Path.GetDirectoryName(full)!, full);
     }
 
     /// <summary>Parse and validate scenario JSON; relative paths resolve against <paramref name="baseDirectory"/>.</summary>
@@ -49,20 +60,34 @@ public static class ScenarioLoader
     public static IReadOnlyList<string> Validate(TestScenario scenario)
     {
         var errors = new List<string>();
+        // JSON "null" overrides the defaults: report it instead of crashing later.
         if (string.IsNullOrWhiteSpace(scenario.Name)) errors.Add("name is empty");
-        if (scenario.Steps.Count == 0) errors.Add("steps is empty");
-        if (scenario.Requires.MinRemoteNodes < 0) errors.Add("requires.minRemoteNodes must be >= 0");
+        if (scenario.Steps == null) errors.Add("steps is missing (null)");
+        else if (scenario.Steps.Count == 0) errors.Add("steps is empty");
+        if (scenario.Requires == null) errors.Add("requires is null");
+        else if (scenario.Requires.MinRemoteNodes < 0) errors.Add("requires.minRemoteNodes must be >= 0");
+        if (scenario.Thresholds == null) errors.Add("thresholds is null");
 
         bool scenePlaying = false;
-        for (int i = 0; i < scenario.Steps.Count; i++)
+        var steps = scenario.Steps ?? new List<TestStep>();
+        for (int i = 0; i < steps.Count; i++)
         {
-            var step = scenario.Steps[i];
+            var step = steps[i];
+            if (step == null)
+            {
+                errors.Add($"step {i + 1} is null");
+                continue;
+            }
             string at = $"step {i + 1} ({step.Kind})";
             if (step.TimeoutMs is <= 0) errors.Add($"{at}: timeoutMs must be > 0");
 
             switch (step)
             {
+                case TestModeStep mode:
+                    if (mode.SimulatedClockSkewMs == null) errors.Add($"{at}: simulatedClockSkewMs is null");
+                    break;
                 case PlaySceneStep play:
+                    if (play.Targets == null) errors.Add($"{at}: targets is null");
                     if (string.IsNullOrWhiteSpace(play.Scene)) errors.Add($"{at}: scene is empty");
                     else if (!File.Exists(ResolvePath(scenario, play.Scene)))
                         errors.Add($"{at}: scene file not found: {ResolvePath(scenario, play.Scene)}");

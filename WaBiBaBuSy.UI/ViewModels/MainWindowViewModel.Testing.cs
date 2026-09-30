@@ -161,8 +161,11 @@ public partial class MainWindowViewModel
         {
             run = TestCoordinator.StartAsync(path);   // validates synchronously
         }
-        catch (Exception ex) when (ex is ScenarioException or InvalidOperationException)
+        catch (Exception ex)
         {
+            // ScenarioException / InvalidOperationException are expected; anything else (IO, a bug) must not
+            // escape the menu command and crash the app either.
+            if (ex is not (ScenarioException or InvalidOperationException)) Console.Error.WriteLine($"Test run could not start: {ex}");
             TestRunStatusText = $"Test not started: {ex.Message.Split('\n')[0]}";
             return;
         }
