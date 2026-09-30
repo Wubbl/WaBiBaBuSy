@@ -2006,6 +2006,7 @@ class Program
 
         var saved = SaveAnimationState();
         ID2D1Bitmap1? target = null, readback = null;
+        bool drawing = false;
         try
         {
             var size = new SizeI(_width, _height);
@@ -2014,13 +2015,16 @@ class Program
                 new BitmapProperties1 { PixelFormat = format, DpiX = 96f, DpiY = 96f, BitmapOptions = BitmapOptions.Target });
             _d2dContext.Target = target;
             _d2dContext.BeginDraw();
+            drawing = true;
             _hasPrevFacingX = false;
             _facingLeft = false;
             DrawNativeGifScene(elapsed);
             reply.AnimX = _animX; reply.AnimY = _animY; reply.AnimWidth = _animWidth; reply.AnimHeight = _animHeight;
             reply.Flipped = _lastFlipX;
             reply.PhaseMs = 0;   // exact frames are rendered at the given effective elapsed; no phase applies
-            _d2dContext.EndDraw();
+            var hr = _d2dContext.EndDraw();
+            drawing = false;
+            if (hr.Failure) throw new InvalidOperationException($"EndDraw failed 0x{hr.Code:X8}");
             _d2dContext.Target = null;
 
             readback = _d2dContext.CreateBitmap(size, IntPtr.Zero, 0,
@@ -2051,6 +2055,11 @@ class Program
         catch (Exception ex)
         {
             _logger?.LogError(ex, "[Probe] Exact frame failed");
+            if (drawing)
+            {
+                // Close the open draw so the next live BeginDraw does not nest; drop any transform the failed draw left behind.
+                try { _d2dContext.Transform = Matrix3x2.Identity; _d2dContext.EndDraw(); } catch { /* already broken */ }
+            }
             try { _d2dContext.Target = null; } catch { /* already reset */ }
             reply.Error = $"exact frame failed: {ex.Message}";
             _ = EmitProbeReplyAsync(reply, Task.FromResult<string?>(null));
@@ -2058,6 +2067,7 @@ class Program
         finally
         {
             RestoreAnimationState(saved);
+            try { _d2dContext.Transform = Matrix3x2.Identity; } catch { /* context lost */ }   // live frames start from identity
             readback?.Dispose();
             target?.Dispose();
         }
