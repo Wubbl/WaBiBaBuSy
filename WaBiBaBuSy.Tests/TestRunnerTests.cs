@@ -161,6 +161,43 @@ public class TestRunnerTests : IDisposable
         Assert.NotNull(parity.DiffImagePath);
     }
 
+    [Fact]
+    public async Task SilentRemote_SeriesStaysOnSchedule()
+    {
+        _transport.SilentUntilTimeout = true;
+        var report = await Runner().RunAsync(Scenario($$"""{{PlayMarker}}, { "type": "probeSeries", "label": "s", "everyMs": 100, "forMs": 500, "perf": false, "capture": false }"""),
+            "unit.json", CancellationToken.None);
+        var step = report.Steps[1];
+        Assert.DoesNotContain("timed out", step.Message);
+        Assert.Equal(5, step.Probes.Count);
+        Assert.All(step.Probes, p => Assert.True(p.Samples.Single(s => s.NodeName == "pc-02").Missing));
+        // Awaiting each probe would take 5 x (grace 500 + upload 200 ms) = 3500 ms; on schedule it is about 500 ms + one grace.
+        Assert.True(step.DurationMs < 2500, $"series took {step.DurationMs} ms");
+    }
+
+    [Fact]
+    public async Task PlaySceneThrows_PreviousSceneStillRestored()
+    {
+        _host.ThrowOnPlay = true;
+        var report = await Runner().RunAsync(Scenario($$"""{{PlayMarker}}, { "type": "probe", "label": "p", "at": "now+30ms", "capture": false }"""),
+            "unit.json", CancellationToken.None);
+        Assert.Equal(Verdict.Fail, report.Steps[0].Verdict);
+        Assert.Equal(Verdict.Fail, report.Steps[1].Verdict);             // no scene is playing
+        Assert.Equal("no scene is playing", report.Steps[1].Message);
+        Assert.True(_host.Restored);
+        Assert.True(File.Exists(Path.Combine(report.ResultsDirectory, "report.json")));
+    }
+
+    [Fact]
+    public async Task UnexpectedHostException_ReportsAborted()
+    {
+        _host.ThrowOnGetNodes = true;
+        var report = await Runner().RunAsync(Scenario(PlayMarker), "unit.json", CancellationToken.None);
+        Assert.True(report.Aborted);
+        Assert.Contains("node list unavailable", report.AbortReason);
+        Assert.True(File.Exists(Path.Combine(report.ResultsDirectory, "report.json")));
+    }
+
     // ── fakes ──────────────────────────────────────────────────────────────
 
     private static long Now() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -222,6 +259,8 @@ public class TestRunnerTests : IDisposable
             new() { NodeId = "SERVER_LOCALHOST_MONITOR_0", Name = "server #0", IsLocal = true, MonitorIndex = 0, Width = W, Height = H, SeatOrder = 0 },
             new() { NodeId = "client-1", Name = "pc-02", IsLocal = false, Width = W, Height = H, SeatOrder = 1 },
         };
+        public bool ThrowOnPlay { get; set; }
+        public bool ThrowOnGetNodes { get; set; }
         public int PlayCount { get; private set; }
         public bool Restored { get; private set; }
         public FakeTarget Target(int monitor) => _targets.Single(t => t.MonitorIndex == monitor);
@@ -232,11 +271,13 @@ public class TestRunnerTests : IDisposable
             _nodes.Insert(index, new TestNodeInfo { NodeId = $"SERVER_LOCALHOST_MONITOR_{index}", Name = $"server #{index}", IsLocal = true, MonitorIndex = index, Width = W, Height = H });
         }
 
-        public Task<IReadOnlyList<TestNodeInfo>> GetNodesAsync() => Task.FromResult<IReadOnlyList<TestNodeInfo>>(_nodes);
+        public Task<IReadOnlyList<TestNodeInfo>> GetNodesAsync() =>
+            ThrowOnGetNodes ? throw new InvalidOperationException("node list unavailable") : Task.FromResult<IReadOnlyList<TestNodeInfo>>(_nodes);
 
         public Task<SceneStartInfo> PlaySceneAsync(CrossScreenConfig scene, IReadOnlyList<string> targetNodeIds, CancellationToken ct)
         {
             PlayCount++;
+            if (ThrowOnPlay) throw new InvalidOperationException("play failed");
             long start = Now() + 10;
             foreach (var t in _targets) t.Start = start;
             FakeTransport.SharedStart = start;
@@ -262,6 +303,8 @@ public class TestRunnerTests : IDisposable
         public List<(bool, int)> Modes { get; } = new();
         public long ContentLagMs { get; set; }
         public bool Silent { get; set; }
+        /// <summary>Like a node that never answers: each probe waits out its whole timeout, then returns null.</summary>
+        public bool SilentUntilTimeout { get; set; }
         public string? Error { get; set; }
 
         public Task<bool> SendTestModeAsync(string clientId, bool timecode, int clockSkewMs)
@@ -272,6 +315,7 @@ public class TestRunnerTests : IDisposable
 
         public Task<RemoteProbeResult?> ProbeAsync(string clientId, ProbeRequest request, TimeSpan timeout, CancellationToken ct)
         {
+            if (SilentUntilTimeout) return NeverAnswers(timeout, ct);
             if (Silent) return Task.FromResult<RemoteProbeResult?>(null);
             if (Error != null) return Task.FromResult<RemoteProbeResult?>(new RemoteProbeResult { ClientId = clientId, ProbeId = request.ProbeId, Error = Error });
             // Client clock 1000 ms behind the server; the offset (server − client) is +1000.
@@ -290,6 +334,12 @@ public class TestRunnerTests : IDisposable
                     },
                 },
             });
+        }
+
+        private static async Task<RemoteProbeResult?> NeverAnswers(TimeSpan timeout, CancellationToken ct)
+        {
+            await Task.Delay(timeout, ct);
+            return null;
         }
 
         public Task<string?> FetchLogsAsync(string clientId, long fromUtcMs, long toUtcMs, TimeSpan timeout) =>

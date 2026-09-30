@@ -116,18 +116,36 @@ public sealed class TestRunner
             report.Aborted = true;
             report.AbortReason = ex.Message;
         }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Test run \"{Scenario}\" aborted by an unexpected error", scenario.Name);
+            report.Aborted = true;
+            report.AbortReason = ex.Message;
+        }
         finally
         {
-            await CleanupAsync(ctx, previousScene);
-            await CollectLogsAsync(ctx, startedMs);
-            report.FinishedUtc = DateTimeOffset.FromUnixTimeMilliseconds(_o.NowUtcMs());
-            report.Verdict = report.Steps.Aggregate(Verdict.Skipped, (v, s) => Verdicts.Worst(v, s.Verdict));
-            if (report.Aborted) report.Verdict = Verdicts.Worst(report.Verdict, Verdict.Warn);
-            try { TestReportWriter.Write(report); }
-            catch (Exception ex) { _logger.LogError(ex, "Could not write the test report to {Dir}", report.ResultsDirectory); }
-            try { Directory.Delete(Path.Combine(report.ResultsDirectory, "tmp"), recursive: true); } catch { /* may not exist */ }
-            _status = _status with { Running = false, ResultsDirectory = report.ResultsDirectory, LastVerdict = report.Verdict };
-            _host.ReportProgress($"Test: {report.Verdict.ToString().ToLowerInvariant()}{(report.Aborted ? " (aborted)" : "")} · {report.ResultsDirectory}");
+            try
+            {
+                await CleanupAsync(ctx, previousScene);
+                await CollectLogsAsync(ctx, startedMs);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Test run cleanup failed");
+                report.Warnings.Add($"cleanup failed: {ex.Message}");
+            }
+            finally
+            {
+                report.FinishedUtc = DateTimeOffset.FromUnixTimeMilliseconds(_o.NowUtcMs());
+                report.Verdict = report.Steps.Aggregate(Verdict.Skipped, (v, s) => Verdicts.Worst(v, s.Verdict));
+                if (report.Aborted) report.Verdict = Verdicts.Worst(report.Verdict, Verdict.Warn);
+                try { TestReportWriter.Write(report); }
+                catch (Exception ex) { _logger.LogError(ex, "Could not write the test report to {Dir}", report.ResultsDirectory); }
+                try { Directory.Delete(Path.Combine(report.ResultsDirectory, "tmp"), recursive: true); } catch { /* may not exist */ }
+                _status = _status with { Running = false, ResultsDirectory = report.ResultsDirectory, LastVerdict = report.Verdict };
+                try { _host.ReportProgress($"Test: {report.Verdict.ToString().ToLowerInvariant()}{(report.Aborted ? " (aborted)" : "")} · {report.ResultsDirectory}"); }
+                catch (Exception ex) { _logger.LogWarning(ex, "Could not report test progress"); }
+            }
         }
         return report;
     }
@@ -225,11 +243,13 @@ public sealed class TestRunner
                     sr.Message = $"no node matches targets \"{play.Targets}\"";
                     break;
                 }
+                ctx.ScenePlayed = true;   // before the await: a failed / timed-out play still gets the previous scene restored
+                ctx.Active = null;
+                ctx.ActiveScene = null;
                 ctx.Active = await _host.PlaySceneAsync(scene, targets ?? new List<string>(), ct);
                 ctx.ActiveScene = scene;
                 ctx.ActiveTargets = targets?.ToHashSet();
                 ctx.Marker = play.Marker;
-                ctx.ScenePlayed = true;
                 // New local players start without test mode (remote clients apply it before their start).
                 await ProbeFanOut.SetTestModeAllAsync(_host.LocalProbeTargets(), ctx.Timecode, 0);
                 sr.Scene = play.Scene;
@@ -238,6 +258,12 @@ public sealed class TestRunner
                 break;
 
             case ProbeStep probe:
+                if (ctx.Active == null)
+                {
+                    sr.Verdict = Verdict.Fail;
+                    sr.Message = "no scene is playing";
+                    break;
+                }
                 ProbeAt.TryParse(probe.At, out var anchor, out var offset);
                 long at = ProbeAt.Resolve(anchor, offset, ctx.Active!.SharedStartServerUtcMs, _o.NowUtcMs(), _o.MinLeadMs);
                 var single = await ProbeOnceAsync(ctx, sr, at, probe.Capture, exactElapsedMs: null, perf: false, ct);
@@ -247,12 +273,7 @@ public sealed class TestRunner
                 break;
 
             case ProbeSeriesStep series:
-                long seriesStart = _o.NowUtcMs() + _o.MinLeadMs;
-                for (long offsetMs = 0; offsetMs < series.ForMs; offsetMs += series.EveryMs)
-                {
-                    long due = Math.Max(seriesStart + offsetMs, _o.NowUtcMs() + _o.MinLeadMs);
-                    sr.Probes.Add(await ProbeOnceAsync(ctx, sr, due, series.Capture, exactElapsedMs: null, perf: series.Perf, ct));
-                }
+                sr.Probes.AddRange(await RunSeriesAsync(ctx, sr, series, ct));
                 sr.Verdict = sr.Probes.Aggregate(Verdict.Skipped, (v, p) => Verdicts.Worst(v, p.Verdict));
                 var spreads = sr.Probes.Where(p => p.Drift is { Verdict: not Verdict.Skipped }).Select(p => p.Drift!.SpreadMs).ToList();
                 sr.Message = spreads.Count == 0
@@ -263,7 +284,13 @@ public sealed class TestRunner
                 break;
 
             case ExactFrameStep exact:
-                if (ctx.ActiveScene!.Background.Mode == BackgroundMode.IconZone)
+                if (ctx.Active == null || ctx.ActiveScene == null)
+                {
+                    sr.Verdict = Verdict.Fail;
+                    sr.Message = "no scene is playing";
+                    break;
+                }
+                if (ctx.ActiveScene.Background.Mode == BackgroundMode.IconZone)
                 {
                     sr.Verdict = Verdict.Skipped;
                     sr.Message = "exact frames are not supported on IconZone backgrounds";
@@ -289,6 +316,38 @@ public sealed class TestRunner
                 sr.Verdict = Verdict.Pass;
                 break;
         }
+    }
+
+    /// <summary>
+    /// Probes on schedule: each probe is started MinLeadMs before its instant without waiting for the previous
+    /// one's replies, so a silent node (each probe waits out its grace) cannot stretch the series.
+    /// Players hold one pending-probe slot, so when the spacing is below the lead each probe is awaited first.
+    /// </summary>
+    private async Task<List<ProbeReport>> RunSeriesAsync(RunContext ctx, StepReport sr, ProbeSeriesStep series, CancellationToken ct)
+    {
+        long seriesStart = _o.NowUtcMs() + _o.MinLeadMs;
+        bool sequential = series.EveryMs < _o.MinLeadMs;
+        var tasks = new List<Task<ProbeReport>>();
+        try
+        {
+            for (long offsetMs = 0; offsetMs < series.ForMs; offsetMs += series.EveryMs)
+            {
+                long now = _o.NowUtcMs();
+                long due = Math.Max(seriesStart + offsetMs, now + _o.MinLeadMs);
+                long waitMs = due - _o.MinLeadMs - now;
+                if (waitMs > 0) await Task.Delay((int)Math.Min(waitMs, int.MaxValue), ct);
+                // ProbeOnceAsync assigns its probe id before its first await, so ids stay ordered.
+                var task = ProbeOnceAsync(ctx, sr, due, series.Capture, exactElapsedMs: null, perf: series.Perf, ct);
+                tasks.Add(task);
+                if (sequential) await task;
+            }
+        }
+        catch
+        {
+            try { await Task.WhenAll(tasks); } catch { /* the original error is what matters */ }
+            throw;
+        }
+        return (await Task.WhenAll(tasks)).ToList();
     }
 
     // ── one probe across all nodes ──────────────────────────────────────────
@@ -381,8 +440,17 @@ public sealed class TestRunner
             MarkerDetection? detected = null;
             if (s.CapturePath != null)
             {
-                var img = PngPixels.Decode(Path.Combine(ctx.Dir, s.CapturePath));
-                detected = MarkerDetector.Detect(img.Pixels, img.Width, img.Height, img.Stride);
+                try
+                {
+                    var img = PngPixels.Decode(Path.Combine(ctx.Dir, s.CapturePath));
+                    detected = MarkerDetector.Detect(img.Pixels, img.Width, img.Height, img.Stride);
+                }
+                catch (Exception ex)
+                {
+                    pr.Positions.Add(new PositionCheckResult { NodeId = s.NodeId, NodeName = s.NodeName, MonitorIndex = s.MonitorIndex, Verdict = Verdict.Fail, Message = $"frame unreadable: {ex.Message}" });
+                    pr.Verdict = Verdicts.Worst(pr.Verdict, Verdict.Fail);
+                    continue;
+                }
             }
             var check = PositionCheck.Evaluate(s, expected, detected, layout.Scale, ctx.Scenario.Thresholds.PositionErrorPx);
             pr.Positions.Add(check);
@@ -401,10 +469,29 @@ public sealed class TestRunner
             var members = group.ToList();
             if (members.Count < 2) continue;
             var reference = members[0];
-            var refImg = PngPixels.Decode(Path.Combine(ctx.Dir, reference.CapturePath!));
+            PngPixels.Image refImg;
+            try
+            {
+                refImg = PngPixels.Decode(Path.Combine(ctx.Dir, reference.CapturePath!));
+            }
+            catch (Exception ex)
+            {
+                foreach (var other in members.Skip(1))
+                    AddParityFailure(pr, other, reference, $"reference frame of {reference.NodeName} unreadable: {ex.Message}");
+                continue;
+            }
             foreach (var other in members.Skip(1))
             {
-                var img = PngPixels.Decode(Path.Combine(ctx.Dir, other.CapturePath!));
+                PngPixels.Image img;
+                try
+                {
+                    img = PngPixels.Decode(Path.Combine(ctx.Dir, other.CapturePath!));
+                }
+                catch (Exception ex)
+                {
+                    AddParityFailure(pr, other, reference, $"frame unreadable: {ex.Message}");
+                    continue;
+                }
                 var diff = PixelDiff.Compare(refImg.Pixels, refImg.Width, refImg.Height, refImg.Stride, img.Pixels, img.Width, img.Height, img.Stride);
                 var result = new PixelParityResult
                 {
@@ -417,7 +504,7 @@ public sealed class TestRunner
                 result.Message = diff.SizeMismatch ? "different frame size" : $"{diff.DiffPct:F3} % of pixels differ";
                 if (diff.DiffPixels > 0 && diff.DiffImage != null)
                 {
-                    var rel = RelativeCapturePath(sr, pr.ProbeId, other, "diff");
+                    var rel = RelativeCapturePath(sr, pr.ProbeId, other, "diff-mon" + other.MonitorIndex);
                     PngPixels.Encode(diff.DiffImage, img.Width, img.Height, img.Width * 4, Path.Combine(ctx.Dir, rel));
                     result.DiffImagePath = rel.Replace('\\', '/');
                 }
@@ -425,6 +512,19 @@ public sealed class TestRunner
                 pr.Verdict = Verdicts.Worst(pr.Verdict, result.Verdict);
             }
         }
+    }
+
+    private static void AddParityFailure(ProbeReport pr, NodeProbeSample node, NodeProbeSample reference, string message)
+    {
+        pr.Parity.Add(new PixelParityResult
+        {
+            NodeId = node.NodeId,
+            NodeName = node.NodeName,
+            ReferenceNodeName = reference.NodeName,
+            Verdict = Verdict.Fail,
+            Message = message,
+        });
+        pr.Verdict = Verdicts.Worst(pr.Verdict, Verdict.Fail);
     }
 
     private static void EvaluatePerf(ProbeReport pr, ScenarioThresholds t)
@@ -450,7 +550,10 @@ public sealed class TestRunner
         try
         {
             foreach (var n in ctx.Remotes)
-                await _transport.SendTestModeAsync(n.NodeId, false, 0);
+            {
+                try { await _transport.SendTestModeAsync(n.NodeId, false, 0); }
+                catch (Exception ex) { _logger.LogWarning(ex, "Could not switch test mode off on {Node}", n.Name); }
+            }
             await ProbeFanOut.SetTestModeAllAsync(_host.LocalProbeTargets(), false, 0);
         }
         catch (Exception ex)
@@ -471,15 +574,30 @@ public sealed class TestRunner
     {
         long toMs = _o.NowUtcMs();
         var logDir = Path.Combine(ctx.Dir, "logs");
-        Directory.CreateDirectory(logDir);
+        try
+        {
+            Directory.CreateDirectory(logDir);
+        }
+        catch (Exception ex)
+        {
+            ctx.Report.Warnings.Add($"logs not collected: {ex.Message}");
+            return;
+        }
         foreach (var n in ctx.Remotes)
         {
             string text;
             try { text = await _transport.FetchLogsAsync(n.NodeId, startedMs - 5000, toMs, _o.LogFetchTimeout) ?? "[no reply within the timeout]"; }
             catch (Exception ex) { text = $"[log fetch failed: {ex.Message}]"; }
             var file = $"{Sanitize(n.Name)}.log";
-            await File.WriteAllTextAsync(Path.Combine(logDir, file), text);
-            ctx.Report.LogFiles.Add($"logs/{file}");
+            try
+            {
+                await File.WriteAllTextAsync(Path.Combine(logDir, file), text);
+                ctx.Report.LogFiles.Add($"logs/{file}");
+            }
+            catch (Exception ex)
+            {
+                ctx.Report.Warnings.Add($"log of {n.Name} not saved: {ex.Message}");
+            }
         }
 
         try
