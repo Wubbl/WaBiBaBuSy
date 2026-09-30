@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Drawing;
 using System.Numerics;
@@ -18,6 +19,7 @@ using WaBiBaBuSy.WallpaperEngine.Composition;
 using WaBiBaBuSy.WallpaperEngine.Services;
 using WaBiBaBuSy.Models.Wallpaper;
 using WaBiBaBuSy.Models.Topology;
+using WaBiBaBuSy.Models.Testing;
 
 namespace WaBiBaBuSy.Player.D2D;
 
@@ -569,6 +571,33 @@ class Program
     private static volatile bool _testModeEnabled = false;
     private static DateTime _lastColorToggle = DateTime.MinValue;
 
+    // ── Automated test mode (2026-09-30 design §5) ─────────────────────────
+    // Nothing below changes a frame unless the host sent cmd_test_mode / cmd_probe.
+    private static volatile bool _testTimecode;
+    private static volatile int _testClockSkewMs;
+    private static readonly FrameIntervalTracker _frameTracker = new(120);
+    private static readonly object _probeLock = new();
+    private static PlayerProbeRequest? _pendingProbe;                              // guarded by _probeLock
+    private static readonly List<PendingPresentProbe> _awaitingPresent = new();   // render thread only
+    private static long _lastFrameElapsedMs = long.MinValue;                       // MinValue = not playing
+    private static int _lastFramePhaseMs;
+    private static long _lastFrameRenderUtcMs;
+    private static bool _lastFlipX;
+    private static int _refreshHz;
+    private static ID2D1SolidColorBrush? _timecodeWhite, _timecodeBlack;
+
+    private sealed class PendingPresentProbe
+    {
+        public required PlayerProbeReply Reply { get; init; }
+        public required uint PresentCount { get; init; }
+        public required long DeadlineTick { get; init; }
+        public required Task<string?> Capture { get; init; }
+    }
+
+    /// <summary>UTC now as this node sees it: the real clock plus the simulated test skew (0 outside tests).</summary>
+    private static DateTime NowUtc => _testClockSkewMs == 0 ? DateTime.UtcNow : DateTime.UtcNow.AddMilliseconds(_testClockSkewMs);
+    private static long NowUtcMs => new DateTimeOffset(NowUtc).ToUnixTimeMilliseconds();
+
     // Logging
     private static ILogger? _logger;
 
@@ -858,6 +887,7 @@ class Program
             var od = output.Description;
             var r = od.DesktopCoordinates;
             int refreshHz = QueryDisplayRefreshHz(od.DeviceName);
+            _refreshHz = refreshHz;
             _logger?.LogInformation(
                 "[SwapChain] containingOutput={Name} rect=({L},{T})-({R},{B}) panel={W}x{H}@{Hz}Hz | buffer={BufW}x{BufH} scaling={Scaling} swapEffect={SwapEffect}",
                 od.DeviceName, r.Left, r.Top, r.Right, r.Bottom,
@@ -947,7 +977,7 @@ class Program
     private static void RenderLoop()
     {
         _logger?.LogInformation("Render loop started");
-        _renderLoopStart = DateTime.UtcNow;
+        _renderLoopStart = NowUtc;
 
         while (_running)
         {
@@ -1204,6 +1234,8 @@ class Program
                         try
                         {
                             var elapsedMs = ComputeEffectiveElapsedMs();
+                            _lastFrameElapsedMs = elapsedMs;
+                            _lastFrameRenderUtcMs = NowUtcMs;
 
                             // Draw background (Stage 3)
                             DrawBackground();
@@ -1259,6 +1291,8 @@ class Program
                         try
                         {
                             var elapsedMs = ComputeEffectiveElapsedMs();
+                            _lastFrameElapsedMs = elapsedMs;
+                            _lastFrameRenderUtcMs = NowUtcMs;
 
                             DrawBackground();
                             bool drawAnim = SyncTiming.ShouldDrawAnimation(elapsedMs);
@@ -1312,6 +1346,7 @@ class Program
                     else
                     {
                         // Fallback to solid color
+                        _lastFrameElapsedMs = long.MinValue;
                         Color4 color;
                         lock (_colorLock)
                         {
@@ -1322,10 +1357,17 @@ class Program
 
                     RecordMovementTrailSample();
                     DrawDebugOverlay();
+                    if (_testTimecode) DrawTimecodeStrip(_lastFrameElapsedMs);
 
                     _d2dContext.EndDraw();
+                    // Test mode: a due probe reads this exact frame back before it is presented.
+                    var probe = TakeDueLiveProbe();
+                    var capture = probe != null ? StartCapture(backBuffer, probe) : null;
                     _d2dContext.Target = null;
                     _swapChain.Present(1, PresentFlags.None);
+                    _frameTracker.Record(Stopwatch.GetTimestamp());
+                    if (probe != null) QueueForPresentStats(probe, capture!);
+                    PollPresentStats();
 
                     if (_frameCount % 60 == 0 && _frameCount > 0)
                     {
@@ -1473,8 +1515,10 @@ class Program
     /// </summary>
     private static long ComputeEffectiveElapsedMs()
     {
-        long raw = (long)(DateTime.UtcNow - _renderLoopStart).TotalMilliseconds;
-        return SyncTiming.ApplyNodePhase(raw, _nodeOrder, _movementConfig?.NodePhaseDelayMs ?? 0, _perMonitorMode);
+        long raw = (long)(NowUtc - _renderLoopStart).TotalMilliseconds;
+        long effective = SyncTiming.ApplyNodePhase(raw, _nodeOrder, _movementConfig?.NodePhaseDelayMs ?? 0, _perMonitorMode);
+        _lastFramePhaseMs = (int)(raw - effective);   // reported by probes
+        return effective;
     }
 
     private static int GetCurrentGifFrameIndex(long elapsedMs)
@@ -1884,6 +1928,185 @@ class Program
         _movementTrail[_movementTrailHead] = (cx, cy);
         _movementTrailHead = (_movementTrailHead + 1) % MOVEMENT_TRAIL_CAPACITY;
         if (_movementTrailCount < MOVEMENT_TRAIL_CAPACITY) _movementTrailCount++;
+    }
+
+    // ================================
+    // Automated test mode
+    // ================================
+
+    /// <summary>Bottom-left binary strip of the rendered elapsed ms (device px, ignores the physical-canvas scale).</summary>
+    private static void DrawTimecodeStrip(long elapsedMs)
+    {
+        if (_d2dContext == null || elapsedMs == long.MinValue) return;
+        _timecodeWhite ??= _d2dContext.CreateSolidColorBrush(new Color4(1f, 1f, 1f, 1f));
+        _timecodeBlack ??= _d2dContext.CreateSolidColorBrush(new Color4(0f, 0f, 0f, 1f));
+
+        var cells = TimecodeStrip.Encode(TimecodeStrip.ToCode(elapsedMs));
+        var (ox, oy) = TimecodeStrip.Origin(_height);
+        var savedTransform = _d2dContext.Transform;
+        _d2dContext.Transform = Matrix3x2.Identity;
+        for (int i = 0; i < cells.Length; i++)
+        {
+            var cell = new RectangleF(ox + i * TimecodeStrip.CellPx, oy, TimecodeStrip.CellPx, TimecodeStrip.CellPx);
+            _d2dContext.FillRectangle(cell, cells[i] ? _timecodeWhite : _timecodeBlack);
+        }
+        _d2dContext.Transform = savedTransform;
+    }
+
+    /// <summary>The pending live probe once its instant has arrived, filled with this frame's timing.</summary>
+    private static PlayerProbeReply? TakeDueLiveProbe()
+    {
+        PlayerProbeRequest? req;
+        lock (_probeLock)
+        {
+            req = _pendingProbe;
+            if (req == null || req.ExactElapsedMs != null) return null;
+            bool playing = _lastFrameElapsedMs != long.MinValue;
+            bool due = playing ? _lastFrameRenderUtcMs >= req.AtLocalUtcMs : NowUtcMs >= req.AtLocalUtcMs;
+            if (!due) return null;
+            _pendingProbe = null;
+        }
+
+        bool notPlaying = _lastFrameElapsedMs == long.MinValue;
+        return new PlayerProbeReply
+        {
+            ProbeId = req.ProbeId,
+            Error = notPlaying ? "player is not playing an animation" : null,
+            RenderedElapsedMs = notPlaying ? 0 : _lastFrameElapsedMs,
+            PhaseMs = _lastFramePhaseMs,
+            RenderLocalUtcMs = notPlaying ? NowUtcMs : _lastFrameRenderUtcMs,
+            FrameIndex = _frameCount,
+            Frames = _frameTracker.Snapshot(_refreshHz),
+            AnimX = _animX,
+            AnimY = _animY,
+            AnimWidth = _animWidth,
+            AnimHeight = _animHeight,
+            Flipped = _lastFlipX,
+            Width = _width,
+            Height = _height,
+            CapturePath = req.Capture ? Path.Combine(req.CaptureDirectory, $"probe-{req.ProbeId}-{Environment.ProcessId}.png") : null,
+        };
+    }
+
+    /// <summary>Copy the back buffer to CPU memory now (render thread, a few ms); encode the PNG on the thread pool.</summary>
+    private static Task<string?> StartCapture(IDXGISurface backBuffer, PlayerProbeReply reply)
+    {
+        if (reply.CapturePath == null) return Task.FromResult<string?>(null);
+        try
+        {
+            var (pixels, stride) = ReadSurfaceBgra(backBuffer);
+            int w = _width, h = _height;
+            string path = reply.CapturePath;
+            return Task.Run<string?>(() => { SavePng(pixels, w, h, stride, path); return path; });
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "[Probe] Back-buffer readback failed");
+            reply.Error = $"readback failed: {ex.Message}";
+            reply.CapturePath = null;
+            return Task.FromResult<string?>(null);
+        }
+    }
+
+    /// <summary>Back buffer → staging texture → tightly packed BGRA bytes.</summary>
+    private static (byte[] Pixels, int Stride) ReadSurfaceBgra(IDXGISurface surface)
+    {
+        var context = _d3dDevice!.ImmediateContext;
+        using var texture = surface.QueryInterface<ID3D11Texture2D>();
+        var desc = texture.Description;
+        desc.Usage = ResourceUsage.Staging;
+        desc.BindFlags = BindFlags.None;
+        desc.CPUAccessFlags = CpuAccessFlags.Read;
+        desc.MiscFlags = ResourceOptionFlags.None;
+        using var staging = _d3dDevice.CreateTexture2D(desc);
+        context.CopyResource(staging, texture);
+        var mapped = context.Map(staging, 0, MapMode.Read, Vortice.Direct3D11.MapFlags.None);
+        try
+        {
+            int width = (int)desc.Width, height = (int)desc.Height, stride = width * 4;
+            var pixels = new byte[stride * height];
+            for (int y = 0; y < height; y++)
+                Marshal.Copy(mapped.DataPointer + y * (int)mapped.RowPitch, pixels, y * stride, stride);
+            return (pixels, stride);
+        }
+        finally
+        {
+            context.Unmap(staging, 0);
+        }
+    }
+
+    private static void SavePng(byte[] bgra, int width, int height, int stride, string path)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var handle = GCHandle.Alloc(bgra, GCHandleType.Pinned);
+        try
+        {
+            using var bmp = new Bitmap(width, height, stride, System.Drawing.Imaging.PixelFormat.Format32bppRgb, handle.AddrOfPinnedObject());
+            bmp.Save(path, ImageFormat.Png);
+        }
+        finally
+        {
+            handle.Free();
+        }
+    }
+
+    private static void QueueForPresentStats(PlayerProbeReply reply, Task<string?> capture)
+    {
+        uint presentCount = 0;
+        try { presentCount = _swapChain!.LastPresentCount; } catch { /* statistics unsupported → fallback below */ }
+        _awaitingPresent.Add(new PendingPresentProbe
+        {
+            Reply = reply,
+            PresentCount = presentCount,
+            DeadlineTick = Environment.TickCount64 + 500,
+            Capture = capture,
+        });
+    }
+
+    /// <summary>
+    /// Resolve queued probes once DXGI reports when their frame reached the screen; after 500 ms
+    /// without statistics the probe is sent with PresentLocalUtcMs = null (the report then uses render time).
+    /// </summary>
+    private static void PollPresentStats()
+    {
+        if (_awaitingPresent.Count == 0 || _swapChain == null) return;
+        FrameStatistics stats = default;
+        bool haveStats;
+        try { haveStats = _swapChain.GetFrameStatistics(out stats).Success && stats.PresentCount != 0; }
+        catch { haveStats = false; }
+
+        for (int i = _awaitingPresent.Count - 1; i >= 0; i--)
+        {
+            var p = _awaitingPresent[i];
+            bool resolved = haveStats && p.PresentCount != 0 && stats.PresentCount >= p.PresentCount;
+            if (!resolved && Environment.TickCount64 < p.DeadlineTick) continue;
+
+            if (resolved)
+            {
+                long syncQpc = stats.SyncQPCTime;
+                uint behind = stats.PresentCount - p.PresentCount;
+                if (behind > 0 && _refreshHz > 0)
+                    syncQpc -= (long)(behind * (double)Stopwatch.Frequency / _refreshHz);   // earlier frame: step back whole refreshes
+                double ageMs = (Stopwatch.GetTimestamp() - syncQpc) * 1000.0 / Stopwatch.Frequency;
+                p.Reply.PresentLocalUtcMs = NowUtcMs - (long)Math.Round(ageMs);
+                p.Reply.PresentEstimated = behind > 0;
+            }
+            _awaitingPresent.RemoveAt(i);
+            _ = EmitProbeReplyAsync(p.Reply, p.Capture);
+        }
+    }
+
+    /// <summary>Wait for the PNG (if any), then send the reply on stderr.</summary>
+    private static async Task EmitProbeReplyAsync(PlayerProbeReply reply, Task<string?> capture)
+    {
+        try { reply.CapturePath = await capture; }
+        catch (Exception ex)
+        {
+            reply.CapturePath = null;
+            reply.Error ??= $"PNG encode failed: {ex.Message}";
+        }
+        Console.Error.WriteLine("SIGNAL:PROBE:" + JsonConvert.SerializeObject(reply));
+        Console.Error.Flush();
     }
 
     /// <summary>
@@ -2579,6 +2802,36 @@ class Program
                         _pendingNewPath = pathCmd.Path;
                     break;
 
+                case "cmd_test_mode":
+                    // No stdout reply: the host does not wait for one (would break command/response pairing).
+                    var testCmd = JsonConvert.DeserializeObject<PlayerCommandTestMode>(json);
+                    if (testCmd != null)
+                    {
+                        _testTimecode = testCmd.Timecode;
+                        _testClockSkewMs = testCmd.ClockSkewMs;
+                        _logger?.LogInformation("[Test] Timecode={Timecode} ClockSkew={Skew}ms", testCmd.Timecode, testCmd.ClockSkewMs);
+                    }
+                    break;
+
+                case "cmd_probe":
+                    var probeCmd = JsonConvert.DeserializeObject<PlayerCommandProbe>(json);
+                    if (probeCmd != null)
+                    {
+                        lock (_probeLock)
+                        {
+                            _pendingProbe = new PlayerProbeRequest
+                            {
+                                ProbeId = probeCmd.ProbeId,
+                                AtLocalUtcMs = probeCmd.AtLocalUtcMs,
+                                Capture = probeCmd.Capture,
+                                ExactElapsedMs = probeCmd.ExactElapsedMs,
+                                CaptureDirectory = probeCmd.CaptureDirectory,
+                            };
+                        }
+                        _logger?.LogInformation("[Test] Probe {Id} at {At} (exact={Exact})", probeCmd.ProbeId, probeCmd.AtLocalUtcMs, probeCmd.ExactElapsedMs);
+                    }
+                    break;
+
                 default:
                     Console.WriteLine($"ERROR:Unknown JSON message type: {wrapper.MessageType}");
                     Console.Out.Flush();
@@ -3065,6 +3318,7 @@ class Program
                 _facingLeft = SyncTiming.ResolveFacingLeft(dx, _facingLeft);
                 flipX = _facingLeft;
             }
+            _lastFlipX = flipX;
             _prevFacingX = _animX;
             _hasPrevFacingX = true;
 
@@ -3430,14 +3684,14 @@ class Program
                 if (cmd.StartTimestampMs > 0)
                 {
                     // Convert UTC ms timestamp to DateTime for consistent elapsed calculation
-                    _renderLoopStart = DateTime.UtcNow.AddMilliseconds(
-                        -(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - cmd.StartTimestampMs));
+                    // The shared start as an instant; elapsed = NowUtc − start (same result as before when no test skew is set).
+                    _renderLoopStart = DateTimeOffset.FromUnixTimeMilliseconds(cmd.StartTimestampMs).UtcDateTime;
                     _logger?.LogInformation("[START-CMD] Using shared timestamp: {Ts}ms, offset from now: {Offset}ms",
-                        cmd.StartTimestampMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - cmd.StartTimestampMs);
+                        cmd.StartTimestampMs, NowUtcMs - cmd.StartTimestampMs);
                 }
                 else
                 {
-                    _renderLoopStart = DateTime.UtcNow;
+                    _renderLoopStart = NowUtc;
                 }
                 _isPlaying = true;
 
