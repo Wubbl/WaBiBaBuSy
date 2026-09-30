@@ -30,6 +30,9 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     // Tier 1.3: 20 clients fetching the same 20 MB GIF at once would thrash one server — queue them.
     private readonly SemaphoreSlim _downloadSlots = new(MaxConcurrentDownloads, MaxConcurrentDownloads);
     private const int MaxConcurrentDownloads = 6;
+    // One byte-rate budget for every server → client transfer (content + update packages).
+    private readonly BandwidthLimiter _uploadLimiter;
+    private volatile bool _thumbnailsWanted;
     // Tier 0.3: order + bezel distance per node survive server restarts and client reconnects.
     private readonly TopologyStore _topology;
     private readonly object _topologyLock = new();
@@ -43,6 +46,16 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     /// </summary>
     public event EventHandler<string>? ClientRegistered;
 
+    /// <summary>
+    /// Whether any server window currently shows client thumbnails. Relayed to clients in
+    /// every heartbeat response; while false they neither capture nor upload thumbnails.
+    /// </summary>
+    public bool ThumbnailsWanted
+    {
+        get => _thumbnailsWanted;
+        set => _thumbnailsWanted = value;
+    }
+
     public WallpaperSyncService(
         ILogger<WallpaperSyncService> logger,
         ServerConfiguration serverConfig)
@@ -54,6 +67,9 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         _clientThumbnails = new ConcurrentDictionary<string, ThumbnailData>();
         _contentRegistry = new ConcurrentDictionary<string, string>();
         _clientLogs = new ConcurrentDictionary<string, ClientLogData>();
+        _uploadLimiter = BandwidthLimiter.FromMegabytesPerSecond(serverConfig.UploadLimitMBps);
+        if (_uploadLimiter.BytesPerSecond > 0)
+            _logger.LogInformation("Server → client transfers capped at {LimitMBps} MB/s in total", serverConfig.UploadLimitMBps);
 
         // Ensure content directory exists
         Directory.CreateDirectory(_serverConfig.ContentDirectory);
@@ -262,12 +278,21 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                 client.RttMs = request.RttMs;
                 client.LastDriftReportUtc = nowMs;
 
-                // Record returns true only on a NEW breach — log once, not every heartbeat.
-                if (_driftMonitor.Record(request.ClientId, request.ClockOffsetMs, request.RttMs, nowMs))
+                // The raw offset is corrected client-side; only RTT/2 uncertainty and sudden
+                // offset jumps affect sync. Record flags each on its NEW occurrence — log once.
+                var previousOffsetMs = _driftMonitor.GetDrift(request.ClientId)?.OffsetMs;
+                var events = _driftMonitor.Record(request.ClientId, request.ClockOffsetMs, request.RttMs, nowMs);
+                if (events.HasFlag(DriftEvent.Breach))
                 {
                     _logger.LogWarning(
-                        "Client {ClientId} clock offset {OffsetMs:F1}ms exceeds the ±{ToleranceMs:F0}ms sync tolerance (RTT {RttMs:F1}ms)",
-                        request.ClientId, request.ClockOffsetMs, DriftMonitor.BreachThresholdMs, request.RttMs);
+                        "Client {ClientId} sync uncertainty ±{ErrorMs:F1}ms exceeds the ±{ToleranceMs:F0}ms sync tolerance (RTT {RttMs:F1}ms) — network latency too high",
+                        request.ClientId, DriftMonitor.SyncErrorMs(request.RttMs), DriftMonitor.BreachThresholdMs, request.RttMs);
+                }
+                if (events.HasFlag(DriftEvent.ClockStep))
+                {
+                    _logger.LogWarning(
+                        "Clock offset to client {ClientId} jumped {PreviousMs:F0}ms → {OffsetMs:F0}ms — a wall clock was adjusted; a running scene there is off by the jump until Resync all",
+                        request.ClientId, previousOffsetMs, request.ClockOffsetMs);
                 }
             }
 
@@ -276,7 +301,8 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
             return Task.FromResult(new HeartbeatResponse
             {
                 Acknowledged = true,
-                ServerTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                ServerTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                ThumbnailsPaused = !ThumbnailsWanted
             });
         }
 
@@ -902,6 +928,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                     PackageHash = packageHash
                 };
 
+                await _uploadLimiter.WaitAsync(bytesRead, context.CancellationToken);
                 await responseStream.WriteAsync(chunk);
                 chunkIndex++;
             }
@@ -1177,6 +1204,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                     Hash = fileHash
                 };
 
+                await _uploadLimiter.WaitAsync(bytesRead, context.CancellationToken);
                 await responseStream.WriteAsync(chunk);
                 chunkIndex++;
             }

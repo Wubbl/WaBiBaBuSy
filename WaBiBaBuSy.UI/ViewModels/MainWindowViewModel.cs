@@ -364,12 +364,11 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             int cached = remotes.Count(c => c.IsPrefetchComplete);
             int fetching = remotes.Count(c => c.PrefetchTotal > 0 && !c.IsPrefetchComplete);
             int stale = remotes.Count(c => c.DriftState == DriftState.Stale);
-            double worst = remotes.Where(c => c.DriftState is not DriftState.None and not DriftState.Stale)
-                                  .Select(c => Math.Abs(c.DriftMs)).DefaultIfEmpty(0).Max();
+            var reporting = remotes.Where(c => c.DriftState is not DriftState.None and not DriftState.Stale).ToList();
             var parts = new List<string> { $"{connected}/{remotes.Count} remote online" };
             if (cached > 0 || fetching > 0) parts.Add(fetching > 0 ? $"{cached} cached · {fetching} fetching" : $"{cached} cached");
             if (stale > 0) parts.Add($"{stale} stale");
-            if (worst > 0) parts.Add($"worst ±{worst:F0} ms");
+            if (reporting.Count > 0) parts.Add($"worst ping {reporting.Max(c => c.RttMs):F0} ms");
             return string.Join(" · ", parts);
         }
     }
@@ -798,6 +797,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     public void StartRefreshTimer()
     {
         Debug.WriteLine("[MainWindowViewModel] Starting refresh timer");
+        _service.ThumbnailsWanted = true; // clients resume thumbnail uploads with their next heartbeat
         _refreshTimer.Start();
         // Do an immediate refresh
         RefreshTopology();
@@ -810,6 +810,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     {
         Debug.WriteLine("[MainWindowViewModel] Stopping refresh timer");
         _nodeDragActive = false;   // a drag cut short by the window closing must not restart the timer later
+        _service.ThumbnailsWanted = false; // nobody looks: clients stop capturing + uploading
         _refreshTimer.Stop();
     }
 
@@ -2962,7 +2963,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                     existing.PrefetchReady = grpcClient.PrefetchReady;
                     existing.PrefetchTotal = grpcClient.PrefetchTotal;
                     existing.DriftState = DriftMonitor.Classify(
-                        grpcClient.ClockOffsetMs,
+                        DriftMonitor.SyncErrorMs(grpcClient.RttMs),
                         grpcClient.LastDriftReportUtc,
                         DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
 
@@ -3049,7 +3050,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                         PrefetchReady = grpcClient.PrefetchReady,
                         PrefetchTotal = grpcClient.PrefetchTotal,
                         DriftState = DriftMonitor.Classify(
-                            grpcClient.ClockOffsetMs,
+                            DriftMonitor.SyncErrorMs(grpcClient.RttMs),
                             grpcClient.LastDriftReportUtc,
                             DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
                     };

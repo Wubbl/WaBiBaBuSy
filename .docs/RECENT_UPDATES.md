@@ -1,8 +1,18 @@
 # WaBiBaBuSy - Recent Updates & Changelog
 
-**Last Updated:** 2026-09-29
+**Last Updated:** 2026-09-30
 
 ---
+
+## 2026-09-30 — Fix: misleading "±2153ms" drift label · LAN bandwidth diet
+
+- **Symptom**: remote tiles showed a red "±2153ms" that never changed, read as a 2-second ping on a local network.
+- **Root cause**: the label (and the server's "exceeds sync tolerance" warning) showed the raw clock offset between the two PCs' wall clocks. Windows only resyncs its clock about weekly, so seconds of offset are normal — and every client already subtracts that offset from all server timestamps (`WallpaperSyncClient` SyncStream). The 2026-07-18 drift-telemetry design assumed "offset IS the sync error"; it is not. What remains after the correction is the estimate's uncertainty, ±RTT/2 (well under 1 ms on a LAN).
+- **Fix**: `DriftMonitor.SyncErrorMs(rtt)` = RTT/2 drives `DriftState` (Ok ≤25 · Warn ≤50 · Breach >50 ms). Tiles show `ping N ms` coloured by that state; the tooltip lists sync ±, ping and the (corrected) clock offset; the health strip shows the worst ping. `DriftMonitor.Record` returns `DriftEvent` flags: `Breach` (new RTT breach) and `ClockStep` (offset jumped > 50 ms between reports — a wall clock was adjusted, and since players pace on wall-clock time a running scene there is off by the jump until Resync all). Both are logged once.
+- **Clock-step recovery**: `ClockOffsetEstimator` restarts its 16-sample window when a new sample contradicts the best one beyond both ±RTT/2 bounds + 20 ms. Before, the min-RTT pick kept serving the pre-step offset for up to 80 s.
+- **Thumbnails**: `HeartbeatResponse.thumbnails_paused` — the server sets it while its main window is closed (`WaBiBaBuSyService.ThumbnailsWanted`, driven by the refresh timer start/stop). Clients then skip capture (a full-resolution `PrintWindow` copy) and upload. When wanted: at most every 5 s (was 1 s), and unchanged frames (static wallpapers) are not resent. Default false keeps older servers receiving thumbnails.
+- **Upload limit**: `BandwidthLimiter` (Models/Networking) — one shared byte-rate schedule for every server → client transfer (`DownloadContent` and `DownloadUpdate`). `ServerConfiguration.UploadLimitMBps` defaults to 20 MB/s (0 = unlimited); Settings → Server → Advanced → Upload Limit. Applied when the server starts. The 6-slot download semaphore stays.
+- Tests: `DriftMonitorTests`, `ClockOffsetEstimatorTests` (clock step), `BandwidthLimiterTests` (6 tests).
 
 ## 2026-09-29 — Fix: Static movement ignored on IconZone backgrounds · Plain wallpaper button
 

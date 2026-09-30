@@ -5,12 +5,19 @@ namespace WaBiBaBuSy.Models.Networking;
 /// (client send time t0, server timestamp, client receive time t3);
 /// <see cref="OffsetMs"/> estimates (server_clock - client_clock) using the
 /// sample with the lowest round-trip time in a sliding window — the lowest-RTT
-/// sample has the smallest possible asymmetry error.
+/// sample has the smallest possible asymmetry error. A sample that contradicts the
+/// best one beyond both RTT bounds means a wall clock stepped: the window restarts.
 /// Thread-safe: heartbeat loop writes, command stream reads.
 /// </summary>
 public class ClockOffsetEstimator
 {
     private const int WindowSize = 16;
+
+    /// <summary>
+    /// Slack on top of the two samples' ±RTT/2 bounds before they count as contradicting
+    /// (absorbs clock-read jitter and slow slewing between heartbeats).
+    /// </summary>
+    private const long StepToleranceMs = 20;
     private readonly object _lock = new();
     private readonly Queue<(long Rtt, long Offset)> _samples = new();
 
@@ -76,6 +83,14 @@ public class ClockOffsetEstimator
         var offset = serverTimestampMs - (clientSendMs + clientReceiveMs) / 2;
         lock (_lock)
         {
+            // A clock step makes every older sample wrong, and the min-RTT pick would
+            // keep serving one of them for up to a whole window.
+            if (_samples.Count > 0)
+            {
+                var best = _samples.MinBy(s => s.Rtt);
+                if (Math.Abs(offset - best.Offset) > best.Rtt / 2 + rtt / 2 + StepToleranceMs)
+                    _samples.Clear();
+            }
             _samples.Enqueue((rtt, offset));
             while (_samples.Count > WindowSize)
                 _samples.Dequeue();

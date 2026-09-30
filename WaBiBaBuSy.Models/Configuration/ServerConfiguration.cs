@@ -38,6 +38,12 @@ public class ServerConfiguration
     public string ServiceType { get; set; } = "_wabibabusy._tcp";
 
     /// <summary>
+    /// Total cap for server → client transfers (content downloads and update packages),
+    /// shared by all concurrent downloads, in MB/s. 0 = unlimited. Applied when the server starts.
+    /// </summary>
+    public int UploadLimitMBps { get; set; } = 20;
+
+    /// <summary>
     /// Update management configuration
     /// </summary>
     public UpdateManagementConfiguration UpdateManagement { get; set; } = new();

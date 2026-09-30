@@ -95,4 +95,23 @@ public class ClockOffsetEstimatorTests
         estimator.AddSample(clientSendMs: 2000, serverTimestampMs: 2500, clientReceiveMs: 2050);
         Assert.Equal(50, estimator.RttMs);
     }
+
+    [Fact]
+    public void ClockStep_DropsStaleSamples_EvenIfTheyHadLowerRtt()
+    {
+        var estimator = new ClockOffsetEstimator();
+        estimator.AddSample(1000, 3153, 1000);   // rtt=0, offset=2153 — would win on RTT alone
+        estimator.AddSample(6000, 6015, 6010);   // rtt=10, offset=10: the clock was just resynced
+        Assert.Equal(10, estimator.OffsetMs);
+        Assert.Equal(10, estimator.RttMs);
+    }
+
+    [Fact]
+    public void OffsetWobbleWithinRttBounds_KeepsMinRttSample()
+    {
+        var estimator = new ClockOffsetEstimator();
+        estimator.AddSample(1000, 1500, 1000);   // rtt=0, offset=500
+        estimator.AddSample(2000, 2512, 2020);   // rtt=20, offset=502 — consistent within ±RTT/2 + tolerance
+        Assert.Equal(500, estimator.OffsetMs);
+    }
 }

@@ -89,7 +89,10 @@ public partial class ClientNodeViewModel : ObservableObject
     [ObservableProperty]
     private string? _activeAnimationName;
 
-    /// <summary>Last reported clock offset (server − client), ms. Only meaningful when DriftState is not None.</summary>
+    /// <summary>
+    /// Last reported clock offset (server − client), ms. Only meaningful when DriftState is not None.
+    /// Informational: the client already corrects for it; sync quality comes from <see cref="RttMs"/>.
+    /// </summary>
     [ObservableProperty]
     private double _driftMs;
 

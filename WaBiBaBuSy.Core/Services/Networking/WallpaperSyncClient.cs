@@ -29,6 +29,11 @@ public class WallpaperSyncClient : IDisposable
     private CancellationTokenSource? _thumbnailCts;
     private Task? _thumbnailTask;
     private ThumbnailCaptureService? _thumbnailCaptureService;
+    // Thumbnail upload: server-driven pause (heartbeat response), 5 s cadence, unchanged frames skipped.
+    private const int ThumbnailIntervalMs = 5000;
+    private volatile bool _thumbnailsPaused;
+    private byte[]? _lastSentThumbnail;
+    private long _thumbnailDueTick;
     private readonly ClockOffsetEstimator _clockOffset = new();
     private readonly ReconnectBackoff _backoff = new();
     private string? _serverAddress;
@@ -118,6 +123,12 @@ public class WallpaperSyncClient : IDisposable
             _backoff.Reset();
             ConnectionStatusChanged?.Invoke(this,
                 new ConnectionStatusChangedEventArgs(true, serverAddress, serverPort));
+
+            // Fresh session: the server lost our last thumbnail, and until the first heartbeat
+            // answers we don't know whether anyone is watching.
+            _thumbnailsPaused = true;
+            _lastSentThumbnail = null;
+            _thumbnailDueTick = 0;
 
             // Start heartbeat
             StartHeartbeat();
@@ -433,6 +444,8 @@ public class WallpaperSyncClient : IDisposable
         // NTP-style clock sync: every heartbeat is a free offset/RTT sample.
         if (response.Acknowledged && response.ServerTimestamp != 0)
             _clockOffset.AddSample(sendMs, response.ServerTimestamp, receiveMs);
+        if (response.Acknowledged)
+            _thumbnailsPaused = response.ThumbnailsPaused;
 
         _logger.LogDebug("Heartbeat acknowledged: {Acknowledged}, clock offset: {Offset}ms",
             response.Acknowledged, _clockOffset.OffsetMs);
@@ -1059,7 +1072,9 @@ public class WallpaperSyncClient : IDisposable
     #region Thumbnail Sending
 
     /// <summary>
-    /// Start periodic thumbnail sending (every ~1 second)
+    /// Start periodic thumbnail sending: at most every 5 s, only while the server shows
+    /// thumbnails, and only when the image changed. The 1 s tick just checks those
+    /// conditions, so a resumed server gets a fresh thumbnail within a second.
     /// </summary>
     private void StartThumbnailSending()
     {
@@ -1070,7 +1085,7 @@ public class WallpaperSyncClient : IDisposable
             {
                 try
                 {
-                    await SendThumbnailAsync();
+                    await SendThumbnailIfDueAsync();
                     await Task.Delay(1000, _thumbnailCts.Token);
                 }
                 catch (OperationCanceledException)
@@ -1100,17 +1115,35 @@ public class WallpaperSyncClient : IDisposable
     }
 
     /// <summary>
-    /// Capture and send a thumbnail to the server
+    /// Capture and send a thumbnail to the server when one is due, wanted and changed.
     /// </summary>
-    private async Task SendThumbnailAsync()
+    private async Task SendThumbnailIfDueAsync()
     {
         if (_client == null || string.IsNullOrEmpty(_clientId) || _thumbnailCaptureService == null)
         {
             return;
         }
 
+        var now = Environment.TickCount64;
+        if (_thumbnailsPaused)
+        {
+            _thumbnailDueTick = 0; // due as soon as the server resumes
+            return;
+        }
+        if (now < _thumbnailDueTick)
+        {
+            return;
+        }
+        _thumbnailDueTick = now + ThumbnailIntervalMs;
+
         var jpegBytes = _thumbnailCaptureService.CaptureCurrentThumbnail();
         if (jpegBytes == null)
+        {
+            return;
+        }
+
+        // A static wallpaper encodes to the same bytes every time; the server still holds it.
+        if (_lastSentThumbnail != null && jpegBytes.AsSpan().SequenceEqual(_lastSentThumbnail))
         {
             return;
         }
@@ -1125,6 +1158,7 @@ public class WallpaperSyncClient : IDisposable
         };
 
         await _client.SendThumbnailAsync(thumbnailData);
+        _lastSentThumbnail = jpegBytes;
         _logger.LogDebug("Sent thumbnail: {Size} bytes", jpegBytes.Length);
     }
 

@@ -139,9 +139,10 @@ public class WaBiBaBuSyService : IDisposable
 
             await _serverHost.StartAsync();
 
-            // Wire log events
+            // Carry over the thumbnail demand, wire log events
             if (_serverHost.SyncService != null)
             {
+                _serverHost.SyncService.ThumbnailsWanted = _thumbnailsWanted;
                 _serverHost.SyncService.ClientLogsReceived += (s, e) =>
                     ClientLogsReceived?.Invoke(this, e);
             }
@@ -414,6 +415,23 @@ public class WaBiBaBuSyService : IDisposable
     {
         var thumbnail = _serverHost?.SyncService?.GetClientThumbnail(clientId);
         return thumbnail?.ThumbnailJpeg?.ToByteArray();
+    }
+
+    private bool _thumbnailsWanted;
+
+    /// <summary>
+    /// Set while the server window shows client thumbnails. Clients learn it from the next
+    /// heartbeat and pause capture + upload otherwise. Survives server restarts.
+    /// </summary>
+    public bool ThumbnailsWanted
+    {
+        get => _thumbnailsWanted;
+        set
+        {
+            _thumbnailsWanted = value;
+            if (_serverHost?.SyncService is { } syncService)
+                syncService.ThumbnailsWanted = value;
+        }
     }
 
     /// <summary>

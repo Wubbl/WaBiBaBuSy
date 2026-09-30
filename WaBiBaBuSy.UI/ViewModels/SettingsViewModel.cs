@@ -29,6 +29,10 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty]
     private string _serviceName = string.Empty;
 
+    /// <summary>Total server → client transfer cap in MB/s; 0 = unlimited.</summary>
+    [ObservableProperty]
+    private int _uploadLimitMBps;
+
     [ObservableProperty]
     private string _serverAddress = string.Empty;
 
@@ -115,6 +119,7 @@ public partial class SettingsViewModel : ViewModelBase
         ContentDirectory = serverConfig.ContentDirectory;
         EnableAutoDiscovery = serverConfig.EnableAutoDiscovery;
         ServiceName = serverConfig.ServiceName;
+        UploadLimitMBps = Math.Max(0, serverConfig.UploadLimitMBps);
 
         // Client settings
         ServerAddress = clientConfig.ServerAddress;
@@ -161,6 +166,7 @@ public partial class SettingsViewModel : ViewModelBase
                 s.ContentDirectory = ContentDirectory;
                 s.EnableAutoDiscovery = EnableAutoDiscovery;
                 s.ServiceName = ServiceName;
+                s.UploadLimitMBps = Math.Max(0, UploadLimitMBps);
             });
 
             ConfigurationManager.UpdateClientConfiguration(c =>

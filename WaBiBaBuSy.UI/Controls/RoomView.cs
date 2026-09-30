@@ -391,17 +391,20 @@ public partial class RoomView : Control
         if (status.Length > 0) DrawText(ctx, status, new Point(x, y), statusBrush, 9, maxWidth: w);
     }
 
-    /// <summary>Drift label first, then prefetch progress, then the running animation name (same wording as the old topology).</summary>
+    /// <summary>
+    /// Ping label first (coloured by sync quality — the clock offset itself is corrected and only
+    /// shows in the tooltip), then prefetch progress, then the running animation name.
+    /// </summary>
     private static (string Text, IBrush Brush) StatusLine(ClientNodeViewModel? c)
     {
         if (c == null) return ("", Dim);
         switch (c.DriftState)
         {
             case DriftState.Stale: return ("sync: —", Dim);
-            case DriftState.Ok: return ($"±{Math.Abs(c.DriftMs):F0}ms", Green);
-            case DriftState.Warn: return ($"±{Math.Abs(c.DriftMs):F0}ms", Yellow);
+            case DriftState.Ok: return ($"ping {c.RttMs:F0} ms", Green);
+            case DriftState.Warn: return ($"ping {c.RttMs:F0} ms", Yellow);
             case DriftState.None: break;
-            default: return ($"±{Math.Abs(c.DriftMs):F0}ms", Red);
+            default: return ($"ping {c.RttMs:F0} ms", Red);
         }
         if (c.PrefetchTotal > 0)
             return c.IsPrefetchComplete ? ("✓ cached", Green) : ($"⬇ {c.PrefetchReady}/{c.PrefetchTotal}", Yellow);
@@ -625,6 +628,8 @@ public partial class RoomView : Control
         var c = _host?.Clients.FirstOrDefault(x => x.ClientId == id);
         if (c == null) return id;
         var lines = new List<string> { c.DisplayName, c.IpAddress, c.MonitorDisplayName };
+        if (c.DriftState is not DriftState.None and not DriftState.Stale)
+            lines.Add($"Sync ±{DriftMonitor.SyncErrorMs(c.RttMs):F1} ms · ping {c.RttMs:F0} ms · clock offset {c.DriftMs:+0;-0;0} ms (corrected)");
         var warning = _host?.NodeWarning(id);
         if (warning != null) lines.Add("⚠ " + warning);
         return string.Join(Environment.NewLine, lines.Where(l => !string.IsNullOrWhiteSpace(l)));

@@ -67,11 +67,15 @@
                                   IsChecked="{Binding EnableAutoDiscovery}" Foreground="White"/>
                     </Grid>
                     <Expander Header="Advanced">
-                        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
+                        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto">
                             <TextBlock Grid.Row="0" Classes="label" Text="Max Clients:"/>
                             <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding MaxClients}" Minimum="1" Maximum="100" Margin="0,0,0,10"/>
                             <TextBlock Grid.Row="1" Classes="label" Text="Service Name:"/>
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding ServiceName}"/>
+                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding ServiceName}" Margin="0,0,0,10"/>
+                            <TextBlock Grid.Row="2" Classes="label" Text="Upload Limit (MB/s):"/>
+                            <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding UploadLimitMBps}" Minimum="0" Maximum="1000" Increment="5"/>
+                            <TextBlock Grid.Row="3" Grid.Column="1" Foreground="#888888" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Text="Total for all content and update downloads to clients. 0 = unlimited. Takes effect when the server starts."/>
                         </Grid>
                     </Expander>
                 </StackPanel>

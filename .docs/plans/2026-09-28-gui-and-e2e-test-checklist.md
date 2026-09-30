@@ -134,8 +134,11 @@ Play each scene on all nodes; compare the wall with the room preview ("sprite on
 - [ ] Restart a client during the show → it rejoins the current item at the right position, no re-download (`cache-index.json`)
 - [ ] Health strip reflects reality; "Resync all" re-sends the running animation to everyone
 - [ ] Linear lap-snap: an item switch waits for the lap end when enabled
-- [ ] Drift labels "±Xms" on the tiles are small and stable; the heartbeat log shows a stable `clock offset`
-- [ ] Skew one client's clock by ±2 s → animation stays aligned; its drift label shows the offset
+- [ ] Tiles show a green "ping N ms" (LAN: 0–2 ms); the tooltip shows sync ±, ping and the corrected clock offset
+- [ ] Skew one client's clock by ±2 s *before* starting → animation stays aligned; the tooltip's clock offset shows ≈ ±2000 ms, the label stays green
+- [ ] Step a client's clock *during* a scene (`w32tm /resync` or set the time) → server log warns "Clock offset … jumped" once; Resync all realigns it
+- [ ] Close the server window → client thumbnail uploads stop within one heartbeat (5 s); reopen → thumbnails return within ~6 s
+- [ ] Prefetch a large video to all clients → total server upload stays at the Settings → Server → Upload Limit (default 20 MB/s, Task Manager → Ethernet)
 - [ ] **10-minute run:** no visible drift between machines (MVP target ±50 ms); watch CPU (<15%) / GPU (<10%) / memory (<200 MB) on a client
 
 ## 5. Failure & recovery

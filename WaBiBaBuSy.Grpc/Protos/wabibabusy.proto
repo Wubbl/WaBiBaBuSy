@@ -128,6 +128,9 @@ message HeartbeatRequest {
 message HeartbeatResponse {
   bool acknowledged = 1;
   int64 server_timestamp = 2;
+  // True while no server window shows client thumbnails: clients skip capture + upload.
+  // Default false keeps pre-flag servers receiving thumbnails.
+  bool thumbnails_paused = 3;
 }
 
 // Synchronization command

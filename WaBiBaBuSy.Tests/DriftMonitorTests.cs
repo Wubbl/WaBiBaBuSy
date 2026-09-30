@@ -16,7 +16,7 @@ public class DriftMonitorTests
         Assert.Equal(DriftState.None, DriftMonitor.Classify(0, lastReportUtcMs: 0, nowUtcMs: Now));
     }
 
-    // --- Classify: thresholds (|offset|, boundaries inclusive on the lower state) ---
+    // --- Classify: thresholds (|sync error|, boundaries inclusive on the lower state) ---
 
     [Theory]
     [InlineData(0.0, DriftState.Ok)]
@@ -24,11 +24,32 @@ public class DriftMonitorTests
     [InlineData(25.1, DriftState.Warn)]
     [InlineData(50.0, DriftState.Warn)]    // boundary: ≤50 is Warn
     [InlineData(50.1, DriftState.Breach)]
-    [InlineData(-60.0, DriftState.Breach)] // negative offsets use absolute value
+    [InlineData(-60.0, DriftState.Breach)] // negative values use absolute value
     [InlineData(-25.0, DriftState.Ok)]
-    public void Classify_FreshReport_ByOffset(double offsetMs, DriftState expected)
+    public void Classify_FreshReport_BySyncError(double syncErrorMs, DriftState expected)
     {
-        Assert.Equal(expected, DriftMonitor.Classify(offsetMs, lastReportUtcMs: Now, nowUtcMs: Now));
+        Assert.Equal(expected, DriftMonitor.Classify(syncErrorMs, lastReportUtcMs: Now, nowUtcMs: Now));
+    }
+
+    // --- SyncErrorMs: the offset is corrected, only the RTT/2 uncertainty remains ---
+
+    [Theory]
+    [InlineData(0.0, 0.0)]
+    [InlineData(2.0, 1.0)]
+    [InlineData(120.0, 60.0)]
+    [InlineData(-5.0, 0.0)] // garbage RTT never yields a negative error
+    public void SyncErrorMs_IsHalfTheRoundTrip(double rttMs, double expected)
+    {
+        Assert.Equal(expected, DriftMonitor.SyncErrorMs(rttMs));
+    }
+
+    [Fact]
+    public void LargeCorrectedClockOffset_OnFastLan_ClassifiesOk()
+    {
+        // Two PCs 2.1 s apart on a 1 ms LAN: the offset is compensated, so sync is fine.
+        const double rttMs = 1.0;
+        Assert.Equal(DriftState.Ok,
+            DriftMonitor.Classify(DriftMonitor.SyncErrorMs(rttMs), lastReportUtcMs: Now, nowUtcMs: Now));
     }
 
     // --- Classify: staleness (2 × heartbeat interval; default interval 5s → 10 000ms) ---
@@ -60,21 +81,55 @@ public class DriftMonitorTests
     // --- Record: breach-transition signal (for log-once-per-breach behavior) ---
 
     [Fact]
-    public void Record_FirstBreach_ReturnsTrue_RepeatBreach_ReturnsFalse()
+    public void Record_FirstBreach_Flagged_RepeatBreach_NotFlagged()
     {
+        // Breach = RTT/2 > 50 ms, i.e. RTT > 100 ms. Offsets stay constant: no clock step.
         var monitor = new DriftMonitor();
-        Assert.True(monitor.Record("c1", offsetMs: 60, rttMs: 5, reportUtcMs: Now));   // enters breach
-        Assert.False(monitor.Record("c1", offsetMs: 70, rttMs: 5, reportUtcMs: Now));  // still breached
-        Assert.False(monitor.Record("c1", offsetMs: 10, rttMs: 5, reportUtcMs: Now));  // recovers
-        Assert.True(monitor.Record("c1", offsetMs: 60, rttMs: 5, reportUtcMs: Now));   // re-enters breach
+        Assert.Equal(DriftEvent.Breach, monitor.Record("c1", offsetMs: 0, rttMs: 120, reportUtcMs: Now)); // enters breach
+        Assert.Equal(DriftEvent.None, monitor.Record("c1", offsetMs: 0, rttMs: 140, reportUtcMs: Now));   // still breached
+        Assert.Equal(DriftEvent.None, monitor.Record("c1", offsetMs: 0, rttMs: 2, reportUtcMs: Now));     // recovers
+        Assert.Equal(DriftEvent.Breach, monitor.Record("c1", offsetMs: 0, rttMs: 120, reportUtcMs: Now)); // re-enters breach
     }
 
     [Fact]
-    public void Record_NonBreach_ReturnsFalse()
+    public void Record_LargeButSteadyOffset_IsNotABreach()
+    {
+        // The reported ±2153 ms case: clocks apart, but corrected and steady.
+        var monitor = new DriftMonitor();
+        Assert.Equal(DriftEvent.None, monitor.Record("c1", offsetMs: 2153, rttMs: 1, reportUtcMs: Now));
+        Assert.Equal(DriftEvent.None, monitor.Record("c1", offsetMs: 2154, rttMs: 1, reportUtcMs: Now));
+    }
+
+    [Fact]
+    public void Record_NonBreach_NotFlagged()
     {
         var monitor = new DriftMonitor();
-        Assert.False(monitor.Record("c1", offsetMs: 10, rttMs: 5, reportUtcMs: Now));
-        Assert.False(monitor.Record("c1", offsetMs: 50, rttMs: 5, reportUtcMs: Now)); // 50 is Warn, not Breach
+        Assert.Equal(DriftEvent.None, monitor.Record("c1", offsetMs: 10, rttMs: 5, reportUtcMs: Now));
+        Assert.Equal(DriftEvent.None, monitor.Record("c1", offsetMs: 10, rttMs: 100, reportUtcMs: Now)); // RTT/2 = 50 is Warn
+    }
+
+    // --- Record: clock-step signal ---
+
+    [Fact]
+    public void Record_OffsetJump_FlagsClockStep()
+    {
+        var monitor = new DriftMonitor();
+        monitor.Record("c1", offsetMs: 2153, rttMs: 1, reportUtcMs: Now);
+        Assert.Equal(DriftEvent.ClockStep, monitor.Record("c1", offsetMs: 12, rttMs: 1, reportUtcMs: Now)); // w32tm resync
+    }
+
+    [Fact]
+    public void Record_OffsetChangeWithinThreshold_IsNotAClockStep()
+    {
+        var monitor = new DriftMonitor();
+        monitor.Record("c1", offsetMs: 100, rttMs: 1, reportUtcMs: Now);
+        Assert.Equal(DriftEvent.None, monitor.Record("c1", offsetMs: 100 + DriftMonitor.ClockStepThresholdMs, rttMs: 1, reportUtcMs: Now));
+    }
+
+    [Fact]
+    public void Record_FirstReport_IsNeverAClockStep()
+    {
+        Assert.Equal(DriftEvent.None, new DriftMonitor().Record("c1", offsetMs: 5000, rttMs: 1, reportUtcMs: Now));
     }
 
     // --- Record/GetDrift/Remove: storage ---
