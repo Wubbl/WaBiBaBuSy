@@ -263,6 +263,7 @@ message ConnectedClient {
   int64 last_drift_report_utc = 11; // server receive time of last report (UTC ms)
   int32 prefetch_ready = 12;        // cached assets of the last PREFETCH list
   int32 prefetch_total = 13;        // size of the last PREFETCH list (0 = none)
+  string app_version = 14;          // from ClientInfo at registration (test-run preflight compares builds)
 }
 
 // Client order update

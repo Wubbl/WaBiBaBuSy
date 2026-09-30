@@ -223,7 +223,8 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                 PhysicalDistanceCm = distanceCm,
                 Status = ClientStatusEnum.ClientConnected,
                 LastHeartbeat = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                ScreenConfig = request.ScreenConfig
+                ScreenConfig = request.ScreenConfig,
+                AppVersion = request.AppVersion
             };
 
             // Add or update client
@@ -1312,6 +1313,48 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
 
     #endregion
 
+    #region Automated test mode
+
+    /// <summary>A client uploaded one probe result (header JSON + PNG bytes per monitor).</summary>
+    public event EventHandler<ProbeResultReceivedEventArgs>? ProbeResultReceived;
+
+    public override async Task<ProbeResultAck> SubmitProbeResult(
+        IAsyncStreamReader<ProbeResultChunk> requestStream,
+        ServerCallContext context)
+    {
+        ProbeResultHeader? header = null;
+        var captures = new Dictionary<int, MemoryStream>();
+        try
+        {
+            await foreach (var chunk in requestStream.ReadAllAsync(context.CancellationToken))
+            {
+                switch (chunk.PartCase)
+                {
+                    case ProbeResultChunk.PartOneofCase.Header:
+                        header = chunk.Header;
+                        break;
+                    case ProbeResultChunk.PartOneofCase.Capture:
+                        if (!captures.TryGetValue(chunk.Capture.MonitorIndex, out var buffer))
+                            captures[chunk.Capture.MonitorIndex] = buffer = new MemoryStream();
+                        chunk.Capture.Data.WriteTo(buffer);
+                        break;
+                }
+            }
+            if (header == null) return new ProbeResultAck { Success = false, Message = "missing header" };
+
+            ProbeResultReceived?.Invoke(this, new ProbeResultReceivedEventArgs(
+                header.ClientId, header.ProbeId, header.ResultJson,
+                captures.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray())));
+            return new ProbeResultAck { Success = true };
+        }
+        finally
+        {
+            foreach (var buffer in captures.Values) buffer.Dispose();
+        }
+    }
+
+    #endregion
+
     #region Distributed Animation Composition (Phase 3)
 
     /// <summary>
@@ -1517,5 +1560,21 @@ public class ClientLogsReceivedEventArgs : EventArgs
     {
         ClientId = clientId;
         LogContent = logContent;
+    }
+}
+
+public class ProbeResultReceivedEventArgs : EventArgs
+{
+    public string ClientId { get; }
+    public string ProbeId { get; }
+    public string ResultJson { get; }
+    public IReadOnlyDictionary<int, byte[]> Captures { get; }
+
+    public ProbeResultReceivedEventArgs(string clientId, string probeId, string resultJson, IReadOnlyDictionary<int, byte[]> captures)
+    {
+        ClientId = clientId;
+        ProbeId = probeId;
+        ResultJson = resultJson;
+        Captures = captures;
     }
 }
