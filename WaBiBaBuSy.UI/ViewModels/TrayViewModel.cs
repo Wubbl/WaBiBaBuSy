@@ -34,6 +34,8 @@ public partial class TrayViewModel : ObservableObject
     private readonly DesktopWindowManager _desktopManager;
     private readonly TestRunCoordinator _testCoordinator;
     private MainWindow? _mainWindow;
+    // Read from Kestrel threads (control API): must not touch Avalonia objects such as _mainWindow.DataContext.
+    private volatile MainWindowViewModel? _mainViewModel;
     // D2D services for remote-triggered rendering on this client
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, D2DCompositionService> _clientD2DServices = new();
 
@@ -70,7 +72,7 @@ public partial class TrayViewModel : ObservableObject
         _desktop.Exit += OnApplicationExit;
 
         _testCoordinator = new TestRunCoordinator(
-            () => _mainWindow?.DataContext is MainWindowViewModel vm ? new TestHostAdapter(vm) : null,
+            () => _mainViewModel is { } vm ? new TestHostAdapter(vm) : null,
             () => _service.ServerSyncService is { } sync ? new ServerTestChannel(sync) : null,
             AppLogger.Factory);
         _service.TestRunControl = _testCoordinator;
@@ -109,10 +111,14 @@ public partial class TrayViewModel : ObservableObject
     {
         if (_mainWindow == null || !_mainWindow.IsVisible)
         {
-            _mainWindow = new MainWindow
+            var viewModel = new MainWindowViewModel(_service) { TestCoordinator = _testCoordinator };
+            var window = new MainWindow { DataContext = viewModel };
+            window.Closed += (_, _) =>
             {
-                DataContext = new MainWindowViewModel(_service) { TestCoordinator = _testCoordinator }
+                if (ReferenceEquals(_mainViewModel, viewModel)) _mainViewModel = null;
             };
+            _mainWindow = window;
+            _mainViewModel = viewModel;
             _mainWindow.Show();
             // Bring it to the front so the first click (e.g. on the splitter) is not spent activating the window
             _mainWindow.Activate();

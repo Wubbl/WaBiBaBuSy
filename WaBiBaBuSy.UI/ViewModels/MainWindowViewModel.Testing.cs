@@ -156,15 +156,27 @@ public partial class MainWindowViewModel
     private async Task StartTestRunAsync(string path)
     {
         if (TestCoordinator == null) return;
+        Task<TestRunReport> run;
         try
         {
-            IsTestRunning = true;
-            var report = await TestCoordinator.StartAsync(path);
-            TestRunStatusText = $"Test: {report.Verdict.ToString().ToLowerInvariant()}{(report.Aborted ? " (aborted)" : "")} — Open last results";
+            run = TestCoordinator.StartAsync(path);   // validates synchronously
         }
         catch (Exception ex) when (ex is ScenarioException or InvalidOperationException)
         {
             TestRunStatusText = $"Test not started: {ex.Message.Split('\n')[0]}";
+            return;
+        }
+
+        IsTestRunning = true;
+        try
+        {
+            var report = await run;
+            TestRunStatusText = $"Test: {report.Verdict.ToString().ToLowerInvariant()}{(report.Aborted ? " (aborted)" : "")} \u2014 Open last results";
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Test run failed: {ex}");
+            TestRunStatusText = $"Test run failed: {ex.Message.Split('\n')[0]}";
         }
         finally
         {

@@ -53,6 +53,7 @@ public sealed class TestRunCoordinator : ITestRunControl
             var host = _hostFactory() ?? throw new InvalidOperationException("open the server control panel first");
             var transport = _transportFactory() ?? throw new InvalidOperationException("start the server first");
 
+            _cts?.Dispose();   // the previous run has finished (checked above)
             _cts = new CancellationTokenSource();
             _runner = new TestRunner(host, transport, _loggerFactory.CreateLogger<TestRunner>(), _options);
             var runner = _runner;
@@ -62,7 +63,8 @@ public sealed class TestRunCoordinator : ITestRunControl
                 try
                 {
                     var report = await runner.RunAsync(scenario, Path.GetFullPath(scenarioPath), token);
-                    RunFinished?.Invoke(this, report);
+                    try { RunFinished?.Invoke(this, report); }
+                    catch (Exception ex) { _loggerFactory.CreateLogger<TestRunCoordinator>().LogError(ex, "A RunFinished subscriber threw"); }
                     return report;
                 }
                 finally
