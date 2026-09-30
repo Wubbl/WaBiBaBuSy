@@ -9,6 +9,8 @@ the Tier 0 / 1.x rows of `2026-09-17-lan-party-roadmap.md`.
 **How to use:** tick items as you go. Anything that fails → a line in `.docs/2025.12_OpenIssues.md`
 (what you did, what you saw, which machine, log excerpt). Screenshots help for layout issues.
 
+§3–§4 timing and parity items: run `TestScenarios/sync-basic.json`, `parity-matrix.json`, `clock-skew.json` (see `TestScenarios/README.md`) and attach `report.html`.
+
 ---
 
 ## 0. Setup

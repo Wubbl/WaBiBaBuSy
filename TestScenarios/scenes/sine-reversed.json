@@ -1,0 +1,6 @@
+{
+  "Background": { "Mode": "SolidColor", "ColorHex": "#202020" },
+  "Animation": { "AnimationPath": "../assets/marker.png", "TargetHeight": 64, "FitMode": "Center", "Loop": true },
+  "Movement": { "Type": "SineWave", "SpeedPixelsPerSecond": 300, "WaveAmplitudePixels": 150, "WaveFrequencyHz": 0.5, "Reversed": true },
+  "DistributionMode": "Sequential"
+}

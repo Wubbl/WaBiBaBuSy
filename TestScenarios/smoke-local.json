@@ -1,0 +1,14 @@
+{
+  "name": "smoke-local",
+  "requires": { "minRemoteNodes": 0 },
+  "steps": [
+    { "type": "testMode", "timecode": true },
+    { "type": "playScene", "scene": "scenes/linear-sequential.json", "marker": true },
+    { "type": "probe", "label": "clean-start", "at": "start+150ms", "capture": true },
+    { "type": "probe", "label": "moving", "at": "start+3000ms", "capture": true },
+    { "type": "probeSeries", "label": "30s", "everyMs": 5000, "forMs": 30000, "perf": true },
+    { "type": "playScene", "scene": "scenes/pattern-traveling.json" },
+    { "type": "exactFrame", "label": "pattern-parity", "elapsedMs": 12345 },
+    { "type": "stop" }
+  ]
+}

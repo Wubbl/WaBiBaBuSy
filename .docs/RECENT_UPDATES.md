@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-09-30 — Automated test mode (spec 1) · fix: View logs hang · fix: remote thumbnails
+
+- **Test mode**: scenario-driven runs across server + clients (`WaBiBaBuSy.Models/Testing`, `WaBiBaBuSy.Core/Services/Testing`). Steps: `testMode` (timecode strip, simulated clock skew), `playScene`, `probe` / `probeSeries` (present-time drift per node, marker position check, CPU/GPU/memory), `exactFrame` (offscreen render, pixel parity between nodes), `wait`, `stop`. Probe instants are server UTC ms, at least 500 ms ahead; series are scheduled on time (sequential only when `everyMs` < `MinLeadMs` + 100). The player draws a binary timecode strip (bottom-left) and answers `SIGNAL:PROBE` on stderr; clients upload results via `SubmitProbeResult`.
+- **Entry points**: Developer tools > Run test suite, `--test-run <file> [--exit]` (exit 0 = no failed step, 1 = failed step, 2 = aborted), localhost control API on 127.0.0.1:50052 (`POST /test/run`, `GET /test/status`, `DELETE /test/run`, `GET /test/runs`; gated on the real loopback connection, application/json and local paths only). Server setting `EnableTestMode` (default off), client setting `AllowTestRuns` (default on).
+- **Results**: `%LOCALAPPDATA%\WaBiBaBuSy\TestRuns\<yyyy-MM-dd_HHmm>_<scenario>\` with `report.json`, self-contained `report.html` (drift chart, annotated captures), `nodes/<node>/*.png`, `logs/`. `ProbeReport.Error` carries per-node failures.
+- **Bundled**: `TestScenarios/` (`smoke-local`, `sync-basic`, `parity-matrix`, `clock-skew`, scenes, `assets/marker.png` from `tools/make-test-marker.ps1`), copied next to the exe; `BundledScenario_IsValid` tests parse them. See `TestScenarios/README.md`.
+- **Design corrections**: the drift metric adds `phaseMs` back (`error = renderedElapsedMs + phaseMs − (presentServerUtcMs − sharedStart)`); the timecode strip has no text (DirectWrite not used by the player yet). Ring / Snake / facing / Physical units come from the room, not the scenario.
+- **Fix: View logs hang** (`6ac1607`): the log is read through the logger's file lock, the client always replies and the server times out after 10 s.
+- **Fix: remote thumbnails** (`580245f`): remote clients never uploaded thumbnails because the capture service was never assigned.
+- **First single-machine run** (`smoke-local`, server with two monitors, Debug build): captures, timecode strip and marker boxes correct, pattern parity 0.000 % differing pixels. Spread on a clean start 4-13 ms, but in the 30 s series occasional spikes (34 ms; 121 and 57 ms on a second run) coincide with `presentEstimated` samples whose estimated present time lies before the render time; under investigation. Server memory 540-575 MB (Debug, two players) exceeds the 200 MB client threshold, so the series warns.
+
 ## 2026-09-30 — Fix: misleading "±2153ms" drift label · LAN bandwidth diet
 
 - **Symptom**: remote tiles showed a red "±2153ms" that never changed, read as a 2-second ping on a local network.

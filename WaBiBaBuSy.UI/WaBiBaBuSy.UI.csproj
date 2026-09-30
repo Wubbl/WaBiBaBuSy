@@ -23,6 +23,11 @@
     <AvaloniaResource Include="Assets\**" />
   </ItemGroup>
 
+  <!-- Automated test mode: ship the bundled scenarios next to the exe -->
+  <ItemGroup>
+    <None Include="..\TestScenarios\**\*" LinkBase="TestScenarios" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.1.2" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.2" />

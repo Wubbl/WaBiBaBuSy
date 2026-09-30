@@ -1,6 +1,6 @@
 # Automated Multi-Machine Test Mode — Design
 
-**Created:** 2026-09-30 · **Status:** design approved, not implemented · **Scope:** spec 1 of 2 (harness + Sync & timing + Visual parity)
+**Created:** 2026-09-30 · **Status:** implemented 2026-09-30 (spec 1) · **Scope:** spec 1 of 2 (harness + Sync & timing + Visual parity)
 **Motivation:** [`2026-09-28-gui-and-e2e-test-checklist.md`](2026-09-28-gui-and-e2e-test-checklist.md) §3–§4 are slow,
 subjective and not repeatable by hand ("no visible drift", "same frame on all nodes"). This design turns them
 into a run that measures, captures and reports, so results can be analysed and optimised afterwards.
@@ -140,8 +140,8 @@ and replies `SIGNAL:PROBE:{json}` on stderr. The client adds `clockOffsetMs`, `r
 uploads everything via `SubmitProbeResult` (client-streaming: header message, then PNG chunks of 256 KB).
 
 **Metric.** Per node-monitor *i*, converted to server time with that node's offset:
-`error_i = renderedElapsedMs_i − (presentServerUtcMs_i − sharedStartServerUtcMs) − phaseMs_i`,
-where `phaseMs_i` is the configured wave / node delay. `driftSpread = max(error_i) − min(error_i)`.
+`error_i = renderedElapsedMs_i + phaseMs_i − (presentServerUtcMs_i − sharedStartServerUtcMs)`,
+where `phaseMs_i` is the configured wave / node delay (added back: `renderedElapsedMs` is already phase-shifted). `driftSpread = max(error_i) − min(error_i)`.
 Pass ≤ `driftWarnMs`, warn ≤ `driftSpreadMs`, fail above. `mean(error)` is reported separately as the
 common latency (same on all nodes → invisible, but tells how far behind wall time the whole wall runs).
 
@@ -176,8 +176,9 @@ math is unchanged.
 ### 5.4 Timecode strip
 
 In test mode each player draws, bottom-left, a 32-bit binary strip of `renderedElapsedMs` (32 cells of
-8×8 px, black/white, with a start/stop guard pattern) plus the same number as text. It makes every screenshot
-self-describing and is designed to be decoded from a phone photo later.
+8×8 px, black/white, with a start/stop guard pattern). Binary strip only; the number as text needs DirectWrite,
+which the player does not use yet (deferred). It makes every screenshot self-describing and is designed to be
+decoded from a phone photo later.
 
 ### 5.5 Simulated clock skew
 

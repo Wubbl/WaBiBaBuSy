@@ -1,0 +1,10 @@
+{
+  "Background": { "Mode": "SolidColor", "ColorHex": "#202020" },
+  "Animation": {
+    "AnimationPath": "../assets/marker.png", "TargetHeight": 64, "FitMode": "Center", "Loop": true,
+    "Pattern": { "Sizing": "Fill", "SpacingX": 40, "SpacingY": 40, "RandomOffsetMaxPx": 12, "RandomRotationMaxDeg": 20, "Seed": 7 },
+    "ColorGrading": { "Mode": "TravelingRainbow", "CyclesPerSecond": 0.2, "Seed": 3 }
+  },
+  "Movement": { "Type": "Linear", "SpeedPixelsPerSecond": 200 },
+  "DistributionMode": "Simultaneous"
+}

@@ -151,4 +151,19 @@ public class ScenarioLoaderTests : IDisposable
         File.WriteAllText(path, """{ "Animation": { "AnimationPath": "gone.gif" } }""");
         Assert.Contains("asset not found", Assert.Throws<ScenarioException>(() => SceneFile.Load(path)).Message);
     }
+
+    [Theory]
+    [InlineData("smoke-local.json")]
+    [InlineData("sync-basic.json")]
+    [InlineData("parity-matrix.json")]
+    [InlineData("clock-skew.json")]
+    public void BundledScenario_IsValid(string file)
+    {
+        var root = AppContext.BaseDirectory;
+        while (root != null && !Directory.Exists(Path.Combine(root, "TestScenarios"))) root = Path.GetDirectoryName(root);
+        Assert.NotNull(root);
+        var scenario = ScenarioLoader.Load(Path.Combine(root!, "TestScenarios", file));
+        foreach (var play in scenario.Steps.OfType<PlaySceneStep>())
+            SceneFile.Load(ScenarioLoader.ResolvePath(scenario, play.Scene));   // every scene + asset resolves
+    }
 }
