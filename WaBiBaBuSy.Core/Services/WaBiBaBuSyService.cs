@@ -600,16 +600,20 @@ public class WaBiBaBuSyService : IDisposable
     /// <summary>
     /// Request logs from a remote client (server mode only)
     /// </summary>
-    public async Task RequestClientLogsAsync(string clientId)
+    public async Task<bool> RequestClientLogsAsync(string clientId)
     {
         if (_serverHost?.SyncService == null)
         {
             _logger.LogWarning("Cannot request logs - server not running");
-            return;
+            return false;
         }
-
-        await _serverHost.SyncService.RequestClientLogsAsync(clientId);
+        return await _serverHost.SyncService.RequestClientLogsAsync(clientId);
     }
+
+    /// <summary>Request a client's log and wait for it (server mode); null when unavailable or timed out.</summary>
+    public Task<WaBiBaBuSy.Grpc.ClientLogData?> FetchClientLogsAsync(string clientId, long fromUtcMs, long toUtcMs, TimeSpan timeout) =>
+        _serverHost?.SyncService?.FetchClientLogsAsync(clientId, fromUtcMs, toUtcMs, timeout)
+        ?? Task.FromResult<WaBiBaBuSy.Grpc.ClientLogData?>(null);
 
     /// <summary>
     /// Get stored logs for a client (server mode only)

@@ -22,6 +22,8 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     private readonly ConcurrentDictionary<string, ThumbnailData> _clientThumbnails;
     private readonly ConcurrentDictionary<string, string> _contentRegistry; // contentId -> server file path
     private readonly ConcurrentDictionary<string, ClientLogData> _clientLogs; // clientId -> latest logs
+    // FetchClientLogsAsync waiters, completed by SendClientLogs (one pending fetch per client).
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<ClientLogData>> _logWaiters = new();
     private readonly ConcurrentDictionary<string, int> _serverLocalMonitorOrders = new(); // SERVER_LOCALHOST_MONITOR_* order overrides
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _writeLocks = new(); // per-client gRPC stream write serialization
     private readonly DriftMonitor _driftMonitor = new(); // per-client drift telemetry from heartbeats
@@ -1245,6 +1247,8 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
             request.ClientId, request.LogContent.Length);
 
         _clientLogs[request.ClientId] = request;
+        if (_logWaiters.TryGetValue(request.ClientId, out var waiter))
+            waiter.TrySetResult(request);
 
         // Raise event for UI
         ClientLogsReceived?.Invoke(this, new ClientLogsReceivedEventArgs(request.ClientId, request.LogContent));
@@ -1257,19 +1261,40 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     }
 
     /// <summary>
-    /// Request a client to send its logs by sending FETCH_LOGS command
+    /// Ask a client for its log (FETCH_LOGS). False when the client has no command stream.
+    /// A nonzero window limits the reply to lines between the two UTC instants.
     /// </summary>
-    public async Task RequestClientLogsAsync(string clientId)
+    public async Task<bool> RequestClientLogsAsync(string clientId, long fromUtcMs = 0, long toUtcMs = 0)
     {
         var command = new SyncCommand
         {
             Type = CommandType.FetchLogs,
             TimestampUtc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            ContentId = clientId
+            ContentId = clientId,
+            Params = new SyncParameters { LogFromUtcMs = fromUtcMs, LogToUtcMs = toUtcMs }
         };
 
-        await SendCommandToClientAsync(clientId, command);
-        _logger.LogInformation("Requested logs from client {ClientId}", clientId);
+        bool sent = await SendCommandToClientAsync(clientId, command);
+        if (sent) _logger.LogInformation("Requested logs from client {ClientId}", clientId);
+        else _logger.LogWarning("Could not request logs from client {ClientId}: no command stream", clientId);
+        return sent;
+    }
+
+    /// <summary>Request a client's log and wait for the reply; null on send failure or timeout.</summary>
+    public async Task<ClientLogData?> FetchClientLogsAsync(string clientId, long fromUtcMs, long toUtcMs, TimeSpan timeout)
+    {
+        var waiter = new TaskCompletionSource<ClientLogData>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _logWaiters[clientId] = waiter;
+        try
+        {
+            if (!await RequestClientLogsAsync(clientId, fromUtcMs, toUtcMs)) return null;
+            var finished = await Task.WhenAny(waiter.Task, Task.Delay(timeout));
+            return finished == waiter.Task ? await waiter.Task : null;
+        }
+        finally
+        {
+            _logWaiters.TryRemove(new KeyValuePair<string, TaskCompletionSource<ClientLogData>>(clientId, waiter));
+        }
     }
 
     /// <summary>

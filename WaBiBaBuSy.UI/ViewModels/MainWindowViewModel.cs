@@ -1975,7 +1975,10 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             RemoteClientLogs = $"Requesting logs from {selectedRemote.Hostname}...";
             IsClientLogsVisible = true;
 
-            await _service.RequestClientLogsAsync(selectedRemote.ClientId);
+            // The reply also arrives through OnClientLogsReceived; this only covers "no answer".
+            var logs = await _service.FetchClientLogsAsync(selectedRemote.ClientId, 0, 0, TimeSpan.FromSeconds(10));
+            if (logs == null)
+                RemoteClientLogs = $"No reply from {selectedRemote.Hostname} within 10 s. Is it connected? Its logs are in %LOCALAPPDATA%\\WaBiBaBuSy\\Logs on that machine.";
         }
         catch (Exception ex)
         {

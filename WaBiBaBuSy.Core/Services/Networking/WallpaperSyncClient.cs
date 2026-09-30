@@ -1,6 +1,7 @@
 using Grpc.Core;
 using Grpc.Net.Client;
 using Microsoft.Extensions.Logging;
+using WaBiBaBuSy.Common.IO;
 using WaBiBaBuSy.Grpc;
 using WaBiBaBuSy.Models.Configuration;
 using WaBiBaBuSy.Models.Networking;
@@ -742,9 +743,11 @@ public class WallpaperSyncClient : IDisposable
     }
 
     /// <summary>
-    /// Upload local log file to the server (triggered by FETCH_LOGS command)
+    /// Upload the local log file to the server (FETCH_LOGS). Always answers: a read failure is
+    /// sent back as text so the server never waits forever. A nonzero window returns only the
+    /// lines between the two UTC instants (test runs).
     /// </summary>
-    public async Task SendLogsToServerAsync(string logDirectory)
+    public async Task SendLogsToServerAsync(string logDirectory, long fromUtcMs = 0, long toUtcMs = 0)
     {
         if (_client == null || string.IsNullOrEmpty(_clientId))
         {
@@ -752,34 +755,39 @@ public class WallpaperSyncClient : IDisposable
             return;
         }
 
+        var logDate = DateTime.Today.ToString("yyyy-MM-dd");
+        var logPath = Path.Combine(logDirectory, $"wabibabusy-{logDate}.log");
+        string logContent;
         try
         {
-            // Find today's log file
-            var logDate = DateTime.Today.ToString("yyyy-MM-dd");
-            var logPath = Path.Combine(logDirectory, $"wabibabusy-{logDate}.log");
-
-            string logContent;
             if (File.Exists(logPath))
             {
-                // Read last 500 lines (avoid sending huge files)
-                var lines = await File.ReadAllLinesAsync(logPath);
-                var lastLines = lines.Length > 500 ? lines[^500..] : lines;
-                logContent = string.Join(Environment.NewLine, lastLines);
+                bool windowed = fromUtcMs > 0 && toUtcMs >= fromUtcMs;
+                var lines = await LogTail.ReadLastLinesAsync(logPath, windowed ? 20000 : 500);
+                if (windowed)
+                    lines = LogTail.FilterWindow(lines, ToLocalTimeOfDay(fromUtcMs), ToLocalTimeOfDay(toUtcMs));
+                logContent = string.Join(Environment.NewLine, lines);
             }
             else
             {
-                logContent = $"[No log file found at {logPath}]";
+                logContent = $"[No log file at {logPath} — enable Settings → Logging → Log to file on this machine]";
             }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not read log file {Path}", logPath);
+            logContent = $"[Could not read {logPath}: {ex.Message}]";
+        }
 
-            var logData = new ClientLogData
+        try
+        {
+            var response = await _client.SendClientLogsAsync(new ClientLogData
             {
                 ClientId = _clientId,
                 LogContent = logContent,
                 Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 LogDate = logDate
-            };
-
-            var response = await _client.SendClientLogsAsync(logData);
+            });
             _logger.LogInformation("Logs sent to server: {Success}", response.Success);
         }
         catch (Exception ex)
@@ -787,6 +795,9 @@ public class WallpaperSyncClient : IDisposable
             _logger.LogError(ex, "Error sending logs to server");
         }
     }
+
+    private static TimeSpan ToLocalTimeOfDay(long utcMs) =>
+        DateTimeOffset.FromUnixTimeMilliseconds(utcMs).ToLocalTime().TimeOfDay;
 
     /// <summary>
     /// Compute SHA-256 hash of a file
@@ -882,10 +893,9 @@ public class WallpaperSyncClient : IDisposable
                     if (command.Type == CommandType.FetchLogs)
                     {
                         _logger.LogInformation("Server requested logs - sending log file");
-                        var logDir = Path.Combine(
-                            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                            "WaBiBaBuSy", "Logs");
-                        _ = Task.Run(() => SendLogsToServerAsync(logDir));
+                        var logDir = ConfigurationManager.LoadLoggingConfiguration().LogDirectory;
+                        long from = command.Params?.LogFromUtcMs ?? 0, to = command.Params?.LogToUtcMs ?? 0;
+                        _ = Task.Run(() => SendLogsToServerAsync(logDir, from, to));
                         continue;
                     }
 
