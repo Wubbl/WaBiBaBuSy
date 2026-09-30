@@ -2551,6 +2551,16 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         await d2dService.StartAsync(startTimestampMs: req.SharedStartTimestampMs, pixelsPerSecond: pixelsPerSecond);
 
         _remoteD2DServices[monitorIndex] = d2dService;
+
+        // Remote thumbnails: the client uploads this player's window (the primary one when
+        // several monitors play). Without this the upload loop returns early on every remote.
+        var syncClient = _service.Client;
+        if (syncClient != null && (monitorIndex == 0 || syncClient.ThumbnailCaptureService == null))
+        {
+            syncClient.ThumbnailCaptureService ??= new ThumbnailCaptureService(AppLogger.CreateLogger<ThumbnailCaptureService>());
+            syncClient.ThumbnailCaptureService.SetWallpaperHwnd(d2dService.PlayerHwnd, Path.GetFileName(req.FilePath));
+        }
+
         Debug.WriteLine($"[D2D-CrossScreen] SUCCESS: Cross-screen D2D started on monitor {monitorIndex}");
     }
 
@@ -2582,6 +2592,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             try { kvp.Value.Dispose(); } catch { }
         }
         _remoteD2DServices.Clear();
+        _service.Client?.ThumbnailCaptureService?.ClearWallpaperHwnd();
         Debug.WriteLine("[D2D-CrossScreen] All remote D2D services stopped");
     }
 
