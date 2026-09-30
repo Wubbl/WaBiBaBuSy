@@ -71,6 +71,8 @@ public sealed class ProbeReport
     public List<PositionCheckResult> Positions { get; set; } = new();
     public List<PixelParityResult> Parity { get; set; } = new();
     public List<string> PerfViolations { get; set; } = new();
+    /// <summary>Set when the probe itself broke (IO error, unreadable frame, ...); the verdict is then Fail.</summary>
+    public string? Error { get; set; }
 }
 
 public sealed class PixelParityResult

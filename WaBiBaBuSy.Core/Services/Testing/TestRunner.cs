@@ -273,14 +273,23 @@ public sealed class TestRunner
                 break;
 
             case ProbeSeriesStep series:
-                sr.Probes.AddRange(await RunSeriesAsync(ctx, sr, series, ct));
-                sr.Verdict = sr.Probes.Aggregate(Verdict.Skipped, (v, p) => Verdicts.Worst(v, p.Verdict));
-                var spreads = sr.Probes.Where(p => p.Drift is { Verdict: not Verdict.Skipped }).Select(p => p.Drift!.SpreadMs).ToList();
-                sr.Message = spreads.Count == 0
-                    ? "no timing data"
-                    : $"{sr.Probes.Count} probes, spread max {spreads.Max():F1} ms / mean {spreads.Average():F1} ms";
-                var perfIssues = sr.Probes.SelectMany(p => p.PerfViolations).Distinct().ToList();
-                if (perfIssues.Count > 0) sr.Message += $"; perf: {string.Join("; ", perfIssues)}";
+                try
+                {
+                    await RunSeriesAsync(ctx, sr, series, ct);
+                }
+                finally
+                {
+                    // Also on cancel / timeout: summarise the probes that completed (RunAsync may still override with Fail).
+                    sr.Verdict = sr.Probes.Aggregate(Verdict.Skipped, (v, p) => Verdicts.Worst(v, p.Verdict));
+                    var spreads = sr.Probes.Where(p => p.Drift is { Verdict: not Verdict.Skipped }).Select(p => p.Drift!.SpreadMs).ToList();
+                    sr.Message = spreads.Count == 0
+                        ? "no timing data"
+                        : $"{sr.Probes.Count} probes, spread max {spreads.Max():F1} ms / mean {spreads.Average():F1} ms";
+                    var perfIssues = sr.Probes.SelectMany(p => p.PerfViolations).Distinct().ToList();
+                    if (perfIssues.Count > 0) sr.Message += $"; perf: {string.Join("; ", perfIssues)}";
+                    var faults = sr.Probes.Where(p => p.Error != null).Select(p => $"{p.ProbeId}: {p.Error}").ToList();
+                    if (faults.Count > 0) sr.Message += $"; {faults.Count} probe(s) failed: {string.Join("; ", faults.Take(3))}";
+                }
                 break;
 
             case ExactFrameStep exact:
@@ -323,15 +332,17 @@ public sealed class TestRunner
     /// one's replies, so a silent node (each probe waits out its grace) cannot stretch the series.
     /// Players hold one pending-probe slot, so when the spacing is below the lead each probe is awaited first.
     /// </summary>
-    private async Task<List<ProbeReport>> RunSeriesAsync(RunContext ctx, StepReport sr, ProbeSeriesStep series, CancellationToken ct)
+    private async Task RunSeriesAsync(RunContext ctx, StepReport sr, ProbeSeriesStep series, CancellationToken ct)
     {
         long seriesStart = _o.NowUtcMs() + _o.MinLeadMs;
-        bool sequential = series.EveryMs < _o.MinLeadMs;
+        // A player's single pending-probe slot frees only once a frame at/after the instant rendered: keep a margin.
+        bool sequential = series.EveryMs < _o.MinLeadMs + 100;
         var tasks = new List<Task<ProbeReport>>();
         try
         {
             for (long offsetMs = 0; offsetMs < series.ForMs; offsetMs += series.EveryMs)
             {
+                ct.ThrowIfCancellationRequested();
                 long now = _o.NowUtcMs();
                 long due = Math.Max(seriesStart + offsetMs, now + _o.MinLeadMs);
                 long waitMs = due - _o.MinLeadMs - now;
@@ -342,12 +353,12 @@ public sealed class TestRunner
                 if (sequential) await task;
             }
         }
-        catch
+        finally
         {
-            try { await Task.WhenAll(tasks); } catch { /* the original error is what matters */ }
-            throw;
+            // On success, cancel or timeout alike: keep every probe that completed, in schedule order.
+            try { await Task.WhenAll(tasks); } catch { /* cancelled probes are simply not kept */ }
+            sr.Probes.AddRange(tasks.Where(t => t.IsCompletedSuccessfully).Select(t => t.Result));
         }
-        return (await Task.WhenAll(tasks)).ToList();
     }
 
     // ── one probe across all nodes ──────────────────────────────────────────
@@ -356,6 +367,24 @@ public sealed class TestRunner
     {
         string probeId = $"{sr.Index:D2}-{++ctx.ProbeSeq:D3}";
         var pr = new ProbeReport { ProbeId = probeId, AtServerUtcMs = atServerUtcMs, Exact = exactElapsedMs != null };
+        try
+        {
+            await CollectProbeAsync(ctx, sr, pr, capture, exactElapsedMs, perf, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            // One broken probe (IO error, bad frame, ...) must not take the series or the run down with it.
+            _logger.LogWarning(ex, "Probe {ProbeId} failed", probeId);
+            pr.Verdict = Verdict.Fail;
+            pr.Error = ex.Message;
+        }
+        return pr;
+    }
+
+    private async Task CollectProbeAsync(RunContext ctx, StepReport sr, ProbeReport pr, bool capture, long? exactElapsedMs, bool perf, CancellationToken ct)
+    {
+        string probeId = pr.ProbeId;
+        long atServerUtcMs = pr.AtServerUtcMs;
         var timeout = TimeSpan.FromMilliseconds(Math.Max(0, atServerUtcMs - _o.NowUtcMs()) + _o.ProbeGraceMs);
 
         var localTask = ProbeFanOut.ProbeAllAsync(_host.LocalProbeTargets(), new PlayerProbeRequest
@@ -422,7 +451,6 @@ public sealed class TestRunner
         }
         if (exactElapsedMs != null) EvaluateParity(ctx, sr, pr);
         if (perf) EvaluatePerf(pr, t);
-        return pr;
     }
 
     private void EvaluatePositions(RunContext ctx, ProbeReport pr)
@@ -468,30 +496,23 @@ public sealed class TestRunner
         {
             var members = group.ToList();
             if (members.Count < 2) continue;
-            var reference = members[0];
-            PngPixels.Image refImg;
-            try
+            // The first frame that decodes is the reference; every unreadable frame fails on its own.
+            var decoded = new List<(NodeProbeSample Node, PngPixels.Image? Image, string? Error)>();
+            foreach (var m in members)
             {
-                refImg = PngPixels.Decode(Path.Combine(ctx.Dir, reference.CapturePath!));
+                try { decoded.Add((m, PngPixels.Decode(Path.Combine(ctx.Dir, m.CapturePath!)), null)); }
+                catch (Exception ex) { decoded.Add((m, null, ex.Message)); }
             }
-            catch (Exception ex)
+            var first = decoded.FirstOrDefault(d => d.Image != null);
+            foreach (var bad in decoded.Where(d => d.Image == null))
+                AddParityFailure(pr, bad.Node, first.Node?.NodeName ?? string.Empty, $"frame unreadable: {bad.Error}");
+            if (first.Node == null) continue;
+            var reference = first.Node;
+            var refImg = first.Image!;
+            foreach (var entry in decoded.Where(d => d.Image != null && d.Node != reference))
             {
-                foreach (var other in members.Skip(1))
-                    AddParityFailure(pr, other, reference, $"reference frame of {reference.NodeName} unreadable: {ex.Message}");
-                continue;
-            }
-            foreach (var other in members.Skip(1))
-            {
-                PngPixels.Image img;
-                try
-                {
-                    img = PngPixels.Decode(Path.Combine(ctx.Dir, other.CapturePath!));
-                }
-                catch (Exception ex)
-                {
-                    AddParityFailure(pr, other, reference, $"frame unreadable: {ex.Message}");
-                    continue;
-                }
+                var other = entry.Node;
+                var img = entry.Image!;
                 var diff = PixelDiff.Compare(refImg.Pixels, refImg.Width, refImg.Height, refImg.Stride, img.Pixels, img.Width, img.Height, img.Stride);
                 var result = new PixelParityResult
                 {
@@ -514,13 +535,13 @@ public sealed class TestRunner
         }
     }
 
-    private static void AddParityFailure(ProbeReport pr, NodeProbeSample node, NodeProbeSample reference, string message)
+    private static void AddParityFailure(ProbeReport pr, NodeProbeSample node, string referenceNodeName, string message)
     {
         pr.Parity.Add(new PixelParityResult
         {
             NodeId = node.NodeId,
             NodeName = node.NodeName,
-            ReferenceNodeName = reference.NodeName,
+            ReferenceNodeName = referenceNodeName,
             Verdict = Verdict.Fail,
             Message = message,
         });

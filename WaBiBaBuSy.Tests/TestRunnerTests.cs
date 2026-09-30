@@ -165,7 +165,7 @@ public class TestRunnerTests : IDisposable
     public async Task SilentRemote_SeriesStaysOnSchedule()
     {
         _transport.SilentUntilTimeout = true;
-        var report = await Runner().RunAsync(Scenario($$"""{{PlayMarker}}, { "type": "probeSeries", "label": "s", "everyMs": 100, "forMs": 500, "perf": false, "capture": false }"""),
+        var report = await Runner().RunAsync(Scenario($$"""{{PlayMarker}}, { "type": "probeSeries", "label": "s", "everyMs": 150, "forMs": 750, "perf": false, "capture": false }"""),
             "unit.json", CancellationToken.None);
         var step = report.Steps[1];
         Assert.DoesNotContain("timed out", step.Message);
@@ -196,6 +196,40 @@ public class TestRunnerTests : IDisposable
         Assert.True(report.Aborted);
         Assert.Contains("node list unavailable", report.AbortReason);
         Assert.True(File.Exists(Path.Combine(report.ResultsDirectory, "report.json")));
+    }
+
+    [Fact]
+    public async Task CancelledSeries_KeepsCompletedProbes()
+    {
+        using var cts = new CancellationTokenSource();
+        var run = Runner().RunAsync(Scenario($$"""{{PlayMarker}}, { "type": "probeSeries", "label": "s", "everyMs": 100, "forMs": 5000, "perf": false, "capture": false }"""),
+            "unit.json", cts.Token);
+        await Task.Delay(700);
+        cts.Cancel();
+        var report = await run;
+
+        Assert.True(report.Aborted);
+        var step = report.Steps[1];
+        Assert.True(step.Probes.Count >= 3, $"kept {step.Probes.Count} probes");
+        Assert.True(step.Probes.Count < 50);
+        Assert.Equal(step.Probes.Select(p => p.ProbeId).OrderBy(id => id), step.Probes.Select(p => p.ProbeId));   // schedule order
+        Assert.NotEqual(Verdict.Skipped, step.Verdict);
+    }
+
+    [Fact]
+    public async Task FaultingProbe_BecomesFailedProbe_SeriesContinues()
+    {
+        _transport.ThrowOnProbeId = "02-002";
+        var report = await Runner().RunAsync(Scenario($$"""{{PlayMarker}}, { "type": "probeSeries", "label": "s", "everyMs": 150, "forMs": 600, "perf": false, "capture": false }"""),
+            "unit.json", CancellationToken.None);
+        var step = report.Steps[1];
+        Assert.False(report.Aborted, report.AbortReason);
+        Assert.Equal(4, step.Probes.Count);
+        Assert.Equal(Verdict.Fail, step.Probes[1].Verdict);
+        Assert.Contains("probe exploded", step.Probes[1].Error);
+        Assert.All(step.Probes.Where(p => p.ProbeId != "02-002"), p => Assert.Null(p.Error));
+        Assert.Equal(Verdict.Fail, step.Verdict);
+        Assert.Contains("1 probe(s) failed", step.Message);
     }
 
     // ── fakes ──────────────────────────────────────────────────────────────
@@ -305,6 +339,8 @@ public class TestRunnerTests : IDisposable
         public bool Silent { get; set; }
         /// <summary>Like a node that never answers: each probe waits out its whole timeout, then returns null.</summary>
         public bool SilentUntilTimeout { get; set; }
+        /// <summary>The transport call itself throws for this probe id (an error that really faults the runner's probe).</summary>
+        public string? ThrowOnProbeId { get; set; }
         public string? Error { get; set; }
 
         public Task<bool> SendTestModeAsync(string clientId, bool timecode, int clockSkewMs)
@@ -316,6 +352,7 @@ public class TestRunnerTests : IDisposable
         public Task<RemoteProbeResult?> ProbeAsync(string clientId, ProbeRequest request, TimeSpan timeout, CancellationToken ct)
         {
             if (SilentUntilTimeout) return NeverAnswers(timeout, ct);
+            if (request.ProbeId == ThrowOnProbeId) throw new InvalidOperationException("probe exploded");
             if (Silent) return Task.FromResult<RemoteProbeResult?>(null);
             if (Error != null) return Task.FromResult<RemoteProbeResult?>(new RemoteProbeResult { ClientId = clientId, ProbeId = request.ProbeId, Error = Error });
             // Client clock 1000 ms behind the server; the offset (server − client) is +1000.
