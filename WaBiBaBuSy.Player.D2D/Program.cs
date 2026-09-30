@@ -1157,6 +1157,8 @@ class Program
 
                 if (_d2dContext != null && _swapChain != null)
                 {
+                    RenderDueExactFrame();   // test mode only: offscreen, never presented
+
                     // Stage 1: Per-frame pattern - bind DeviceContext to current back buffer
                     using var backBuffer = _swapChain.GetBuffer<IDXGISurface>(0);
                     var targetProps = new BitmapProperties1
@@ -1237,20 +1239,7 @@ class Program
                             _lastFrameElapsedMs = elapsedMs;
                             _lastFrameRenderUtcMs = NowUtcMs;
 
-                            // Draw background (Stage 3)
-                            DrawBackground();
-
-                            // Before the shared start (future T0) or before this node's wave phase
-                            // arrives, only the background is shown — every node then reveals the
-                            // sprite on the same frame instead of early nodes showing it mid-canvas.
-                            if (SyncTiming.ShouldDrawAnimation(elapsedMs))
-                            {
-                                // Update animation position (Stage 4)
-                                UpdateAnimationPosition(elapsedMs);
-
-                                // Pattern/multi-image/grading-aware draw (falls back to single DrawBitmap when none active)
-                                DrawAnimationLayer(elapsedMs);
-                            }
+                            DrawNativeGifScene(elapsedMs);
 
                             if (_frameCount % 60 == 0)
                             {
@@ -1951,6 +1940,127 @@ class Program
             _d2dContext.FillRectangle(cell, cells[i] ? _timecodeWhite : _timecodeBlack);
         }
         _d2dContext.Transform = savedTransform;
+    }
+
+    /// <summary>One native-D2D GIF/image frame at <paramref name="elapsedMs"/>: background, then movement + animation once started.</summary>
+    private static void DrawNativeGifScene(long elapsedMs)
+    {
+        DrawBackground();
+
+        // Before the shared start (future T0) or before this node's wave phase arrives, only the
+        // background is shown — every node then reveals the sprite on the same frame.
+        if (SyncTiming.ShouldDrawAnimation(elapsedMs))
+        {
+            UpdateAnimationPosition(elapsedMs);
+            DrawAnimationLayer(elapsedMs);
+        }
+    }
+
+    private readonly record struct AnimationStateSnapshot(
+        float AnimX, float AnimY, float AnimVirtualX, float RotationRad, int EndlessCellOffsetI,
+        bool FacingLeft, float PrevFacingX, bool HasPrevFacingX, int TraverseCount, bool LastFlipX);
+
+    private static AnimationStateSnapshot SaveAnimationState() => new(
+        _animX, _animY, _animVirtualX, _animRotationRad, _endlessCellOffsetI,
+        _facingLeft, _prevFacingX, _hasPrevFacingX, _traverseCount, _lastFlipX);
+
+    private static void RestoreAnimationState(in AnimationStateSnapshot s)
+    {
+        _animX = s.AnimX; _animY = s.AnimY; _animVirtualX = s.AnimVirtualX; _animRotationRad = s.RotationRad;
+        _endlessCellOffsetI = s.EndlessCellOffsetI; _facingLeft = s.FacingLeft; _prevFacingX = s.PrevFacingX;
+        _hasPrevFacingX = s.HasPrevFacingX; _traverseCount = s.TraverseCount; _lastFlipX = s.LastFlipX;
+    }
+
+    /// <summary>
+    /// Test mode: render one offscreen frame at exactly the requested elapsed and read it back. It is
+    /// never presented; the live animation state is restored afterwards. GIF/image scenes only, not IconZone
+    /// (its lap logic rebuilds paths). Face-travel flip has no frame history here and is drawn unflipped.
+    /// </summary>
+    private static void RenderDueExactFrame()
+    {
+        PlayerProbeRequest? req;
+        lock (_probeLock)
+        {
+            req = _pendingProbe;
+            if (req?.ExactElapsedMs == null || NowUtcMs < req.AtLocalUtcMs) return;
+            _pendingProbe = null;
+        }
+
+        long elapsed = req.ExactElapsedMs.Value;
+        var reply = new PlayerProbeReply
+        {
+            ProbeId = req.ProbeId, Exact = true, RenderedElapsedMs = elapsed, RenderLocalUtcMs = NowUtcMs,
+            FrameIndex = _frameCount, Width = _width, Height = _height,
+        };
+
+        bool gifPlaying;
+        lock (_compositionLock) gifPlaying = _useNativeD2DComposition && _isPlaying && _d2dGifFrames != null;
+        if (!gifPlaying || _backgroundMode == BackgroundMode.IconZone || _d2dContext == null)
+        {
+            reply.Error = _backgroundMode == BackgroundMode.IconZone
+                ? "exact frames are not supported on IconZone backgrounds"
+                : "exact frames need a playing GIF/image animation (video is not supported)";
+            _ = EmitProbeReplyAsync(reply, Task.FromResult<string?>(null));
+            return;
+        }
+
+        var saved = SaveAnimationState();
+        ID2D1Bitmap1? target = null, readback = null;
+        try
+        {
+            var size = new SizeI(_width, _height);
+            var format = new Vortice.DCommon.PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Ignore);
+            target = _d2dContext.CreateBitmap(size, IntPtr.Zero, 0,
+                new BitmapProperties1 { PixelFormat = format, DpiX = 96f, DpiY = 96f, BitmapOptions = BitmapOptions.Target });
+            _d2dContext.Target = target;
+            _d2dContext.BeginDraw();
+            _hasPrevFacingX = false;
+            _facingLeft = false;
+            DrawNativeGifScene(elapsed);
+            reply.AnimX = _animX; reply.AnimY = _animY; reply.AnimWidth = _animWidth; reply.AnimHeight = _animHeight;
+            reply.Flipped = _lastFlipX;
+            reply.PhaseMs = 0;   // exact frames are rendered at the given effective elapsed; no phase applies
+            _d2dContext.EndDraw();
+            _d2dContext.Target = null;
+
+            readback = _d2dContext.CreateBitmap(size, IntPtr.Zero, 0,
+                new BitmapProperties1 { PixelFormat = format, DpiX = 96f, DpiY = 96f, BitmapOptions = BitmapOptions.CpuRead | BitmapOptions.CannotDraw });
+            readback.CopyFromBitmap(target);
+            int stride = _width * 4;
+            var pixels = new byte[stride * _height];
+            var mapped = readback.Map(MapOptions.Read);
+            try
+            {
+                for (int y = 0; y < _height; y++)
+                    Marshal.Copy(mapped.Bits + y * (int)mapped.Pitch, pixels, y * stride, stride);
+            }
+            finally
+            {
+                readback.Unmap();
+            }
+
+            Task<string?> capture = Task.FromResult<string?>(null);
+            if (req.Capture)
+            {
+                string path = Path.Combine(req.CaptureDirectory, $"exact-{req.ProbeId}-{Environment.ProcessId}.png");
+                int w = _width, h = _height;
+                capture = Task.Run<string?>(() => { SavePng(pixels, w, h, stride, path); return path; });
+            }
+            _ = EmitProbeReplyAsync(reply, capture);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "[Probe] Exact frame failed");
+            try { _d2dContext.Target = null; } catch { /* already reset */ }
+            reply.Error = $"exact frame failed: {ex.Message}";
+            _ = EmitProbeReplyAsync(reply, Task.FromResult<string?>(null));
+        }
+        finally
+        {
+            RestoreAnimationState(saved);
+            readback?.Dispose();
+            target?.Dispose();
+        }
     }
 
     /// <summary>The pending live probe once its instant has arrived, filled with this frame's timing.</summary>
