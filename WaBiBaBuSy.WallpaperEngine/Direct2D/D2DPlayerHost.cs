@@ -671,9 +671,22 @@ public class D2DPlayerHost : IDisposable
         }
 
         _logger.LogDebug("Sending command to player: {Command}", command.Substring(0, Math.Min(100, command.Length)));
-        await _playerStdin.WriteLineAsync(command);
-        await _playerStdin.FlushAsync();
+        // One writer at a time: test mode adds concurrent senders (fire-and-forget test mode, probes
+        // from Task.Run) next to the host's own commands; interleaved lines would corrupt the JSON protocol.
+        await _stdinLock.WaitAsync();
+        try
+        {
+            await _playerStdin.WriteLineAsync(command);
+            await _playerStdin.FlushAsync();
+        }
+        finally
+        {
+            _stdinLock.Release();
+        }
     }
+
+    // Serializes writes to the player's stdin (see SendCommandAsync). Never disposed: late senders must not throw ObjectDisposedException.
+    private readonly SemaphoreSlim _stdinLock = new(1, 1);
 
     private void OnPlayerExited(object? sender, EventArgs e)
     {
@@ -704,13 +717,16 @@ public class D2DPlayerHost : IDisposable
 
             if (line.StartsWith("SIGNAL:PROBE:", StringComparison.Ordinal))
             {
+                // Any exception here would surface on the stderr event thread and crash the app.
                 try
                 {
                     var reply = JsonConvert.DeserializeObject<PlayerProbeReply>(line["SIGNAL:PROBE:".Length..]);
-                    if (reply != null && _pendingProbes.TryRemove(reply.ProbeId, out var waiter))
+                    if (reply == null || string.IsNullOrEmpty(reply.ProbeId))
+                        _logger.LogWarning("[Player] PROBE signal without a probe id ignored");
+                    else if (_pendingProbes.TryRemove(reply.ProbeId, out var waiter))
                         waiter.TrySetResult(reply);
                 }
-                catch (JsonException ex)
+                catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "[Player] Malformed PROBE signal");
                 }
@@ -776,6 +792,8 @@ public class D2DPlayerHost : IDisposable
             // Send exit command
             if (_playerStdin != null && _playerProcess != null && !_playerProcess.HasExited)
             {
+                // Take the stdin lock briefly so EXIT does not interleave with an in-flight command.
+                bool locked = _stdinLock.Wait(500);
                 try
                 {
                     _playerStdin.WriteLine("EXIT");
@@ -787,6 +805,10 @@ public class D2DPlayerHost : IDisposable
                 catch
                 {
                     // Ignore errors during shutdown
+                }
+                finally
+                {
+                    if (locked) _stdinLock.Release();
                 }
             }
 

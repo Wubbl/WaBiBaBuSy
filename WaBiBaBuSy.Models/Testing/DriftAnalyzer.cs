@@ -22,6 +22,11 @@ public sealed class DriftResult
     public double SpreadMs { get; set; }
     /// <summary>Common latency of the whole wall behind wall time (same on all nodes → invisible).</summary>
     public double MeanErrorMs { get; set; }
+    /// <summary>
+    /// Spread of the render-time errors (present time ignored) across all valid nodes. <see cref="SpreadMs"/>
+    /// uses present times only when ≥ 2 nodes have one, so this keeps render-time-fallback nodes visible.
+    /// </summary>
+    public double RenderSpreadMs { get; set; }
     public Verdict Verdict { get; set; }
     public List<string> MissingNodes { get; set; } = new();
     public string Message { get; set; } = string.Empty;
@@ -59,18 +64,44 @@ public static class DriftAnalyzer
             UsedRenderTime = s.PresentLocalUtcMs == null,
         }).ToList();
 
-        double spread = errors.Max(e => e.ErrorMs) - errors.Min(e => e.ErrorMs);
-        double mean = errors.Average(e => e.ErrorMs);
+        // A render-time error lacks the present latency (6–17 ms) a present-time error carries, so mixing
+        // both inflates the spread by up to a frame: use present-time samples only when there are ≥ 2.
+        var presentErrors = errors.Where(e => !e.UsedRenderTime).ToList();
+        var fallbackNames = errors.Where(e => e.UsedRenderTime)
+            .Select(e => e.MonitorIndex > 0 ? $"{e.NodeName}#{e.MonitorIndex}" : e.NodeName).ToList();
+        bool presentOnly = presentErrors.Count >= 2;
+        var basis = presentOnly ? presentErrors : errors;
+
+        double spread = basis.Max(e => e.ErrorMs) - basis.Min(e => e.ErrorMs);
+        double mean = basis.Average(e => e.ErrorMs);
+        var renderErrors = valid.Select(s => RenderErrorMs(s, sharedStartServerUtcMs)).ToList();
+        double renderSpread = renderErrors.Max() - renderErrors.Min();
+
         var verdict = spread <= thresholds.DriftWarnMs ? Verdict.Pass
             : spread <= thresholds.DriftSpreadMs ? Verdict.Warn
             : Verdict.Fail;
         if (missing.Count > 0) verdict = Verdicts.Worst(verdict, Verdict.Warn);
 
         var message = $"spread {spread:F1} ms (warn > {thresholds.DriftWarnMs}, fail > {thresholds.DriftSpreadMs}), common latency {mean:F1} ms";
+        if (fallbackNames.Count > 0)
+        {
+            message += presentOnly
+                ? $", present-time samples only; render-time fallback: {string.Join(", ", fallbackNames)}"
+                : $", fewer than 2 present times: all samples mixed (render-time fallback: {string.Join(", ", fallbackNames)})";
+            message += $", render-time spread {renderSpread:F1} ms";
+        }
         if (missing.Count > 0) message += $", missing: {string.Join(", ", missing)}";
 
-        return new DriftResult { Errors = errors, SpreadMs = spread, MeanErrorMs = mean, Verdict = verdict, MissingNodes = missing, Message = message };
+        return new DriftResult
+        {
+            Errors = errors, SpreadMs = spread, MeanErrorMs = mean, RenderSpreadMs = renderSpread,
+            Verdict = verdict, MissingNodes = missing, Message = message,
+        };
     }
+
+    /// <summary><see cref="ErrorMs"/> with the render time, ignoring any present time.</summary>
+    private static double RenderErrorMs(NodeProbeSample sample, long sharedStartServerUtcMs) =>
+        sample.RenderedElapsedMs + sample.PhaseMs - (sample.RenderLocalUtcMs + sample.ClockOffsetMs - sharedStartServerUtcMs);
 
     private static string DisplayName(NodeProbeSample s) => s.MonitorIndex > 0 ? $"{s.NodeName}#{s.MonitorIndex}" : s.NodeName;
 }

@@ -70,6 +70,56 @@ public class DriftAnalyzerTests
     }
 
     [Fact]
+    public void MixedProbe_VerdictFromPresentSamplesOnly()
+    {
+        // Two nodes with present times (error -16), one render-time fallback (error 0).
+        // Mixed, the spread would be 16 ms; the present-only spread is 0.
+        var fallback = Node("c");
+        fallback.PresentLocalUtcMs = null;
+        var tight = new ScenarioThresholds { DriftWarnMs = 10, DriftSpreadMs = 15 };
+
+        var r = DriftAnalyzer.Analyze(new[] { Node("a"), Node("b"), fallback }, Start, tight);
+
+        Assert.Equal(0, r.SpreadMs, 3);
+        Assert.Equal(-16, r.MeanErrorMs, 3);
+        Assert.Equal(Verdict.Pass, r.Verdict);
+        Assert.Equal(3, r.Errors.Count);
+        Assert.Equal(0, r.RenderSpreadMs, 3);   // render-time errors: all 0
+        Assert.Contains("render-time fallback: c", r.Message);
+    }
+
+    [Fact]
+    public void MixedProbe_RenderSpreadCoversAllValidNodes()
+    {
+        var fallback = Node("c", contentLagMs: 40);
+        fallback.PresentLocalUtcMs = null;
+
+        var r = DriftAnalyzer.Analyze(new[] { Node("a"), Node("b"), fallback }, Start, T);
+
+        Assert.Equal(0, r.SpreadMs, 3);          // present-time nodes agree
+        Assert.Equal(40, r.RenderSpreadMs, 3);   // the lagging fallback node is still visible here
+    }
+
+    [Fact]
+    public void AllFallback_UsesAllSamples_AndSaysSo()
+    {
+        var a = Node("a");
+        var b = Node("b", contentLagMs: 30);
+        var c = Node("c");
+        a.PresentLocalUtcMs = null;
+        b.PresentLocalUtcMs = null;
+
+        var r = DriftAnalyzer.Analyze(new[] { a, b, c }, Start, T);
+
+        // Only one present sample → all samples, mixed errors: a 0, b -30, c -16.
+        Assert.Equal(30, r.SpreadMs, 3);
+        Assert.Equal(Verdict.Warn, r.Verdict);
+        Assert.Equal(-46 / 3.0, r.MeanErrorMs, 3);
+        Assert.Equal(30, r.RenderSpreadMs, 3);
+        Assert.Contains("fewer than 2 present times", r.Message);
+    }
+
+    [Fact]
     public void MissingNode_ExcludedFromSpread_AtLeastWarn()
     {
         var gone = NodeProbeSample.MissingFor("c", "pc-03", 0, isLocal: false, reason: "no reply within 2 s");

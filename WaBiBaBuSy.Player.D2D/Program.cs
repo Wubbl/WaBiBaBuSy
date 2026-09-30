@@ -1349,13 +1349,14 @@ class Program
                     if (_testTimecode) DrawTimecodeStrip(_lastFrameElapsedMs);
 
                     _d2dContext.EndDraw();
-                    // Test mode: a due probe reads this exact frame back before it is presented.
+                    // Test mode: a due probe copies this exact frame to a staging texture before it is
+                    // presented (GPU-ordered, non-blocking); the blocking Map happens after Present.
                     var probe = TakeDueLiveProbe();
-                    var capture = probe != null ? StartCapture(backBuffer, probe) : null;
+                    var staging = probe != null ? BeginCapture(backBuffer, probe) : null;
                     _d2dContext.Target = null;
                     _swapChain.Present(1, PresentFlags.None);
                     _frameTracker.Record(Stopwatch.GetTimestamp());
-                    if (probe != null) QueueForPresentStats(probe, capture!);
+                    if (probe != null) QueueForPresentStats(probe, FinishCapture(staging, probe));
                     PollPresentStats();
 
                     if (_frameCount % 60 == 0 && _frameCount > 0)
@@ -2108,16 +2109,53 @@ class Program
         };
     }
 
-    /// <summary>Copy the back buffer to CPU memory now (render thread, a few ms); encode the PNG on the thread pool.</summary>
-    private static Task<string?> StartCapture(IDXGISurface backBuffer, PlayerProbeReply reply)
+    /// <summary>
+    /// Before Present: create a staging texture and queue <c>CopyResource</c> from the back buffer. Non-blocking —
+    /// the copy is ordered on the immediate context after this frame's draw, so the present is not delayed.
+    /// Returns null when no capture was requested or the copy could not be queued (then <c>reply.Error</c> is set).
+    /// </summary>
+    private static ID3D11Texture2D? BeginCapture(IDXGISurface backBuffer, PlayerProbeReply reply)
     {
-        if (reply.CapturePath == null) return Task.FromResult<string?>(null);
+        if (reply.CapturePath == null) return null;
+        ID3D11Texture2D? staging = null;
         try
         {
-            var (pixels, stride) = ReadSurfaceBgra(backBuffer);
-            int w = _width, h = _height;
+            using var texture = backBuffer.QueryInterface<ID3D11Texture2D>();
+            var desc = texture.Description;
+            desc.Usage = ResourceUsage.Staging;
+            desc.BindFlags = BindFlags.None;
+            desc.CPUAccessFlags = CpuAccessFlags.Read;
+            desc.MiscFlags = ResourceOptionFlags.None;
+            staging = _d3dDevice!.CreateTexture2D(desc);
+            _immediateContext!.CopyResource(staging, texture);
+            return staging;
+        }
+        catch (Exception ex)
+        {
+            staging?.Dispose();
+            _logger?.LogError(ex, "[Probe] Back-buffer copy failed");
+            reply.Error = $"readback failed: {ex.Message}";
+            reply.CapturePath = null;
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// After Present: map the staging texture (waits for the copy), copy the rows out, release it, and
+    /// encode the PNG on the thread pool.
+    /// </summary>
+    private static Task<string?> FinishCapture(ID3D11Texture2D? staging, PlayerProbeReply reply)
+    {
+        if (staging == null || reply.CapturePath == null)
+        {
+            staging?.Dispose();
+            return Task.FromResult<string?>(null);
+        }
+        try
+        {
+            var (pixels, width, height, stride) = ReadStagingBgra(staging);
             string path = reply.CapturePath;
-            return Task.Run<string?>(() => { SavePng(pixels, w, h, stride, path); return path; });
+            return Task.Run<string?>(() => { SavePng(pixels, width, height, stride, path); return path; });
         }
         catch (Exception ex)
         {
@@ -2126,20 +2164,17 @@ class Program
             reply.CapturePath = null;
             return Task.FromResult<string?>(null);
         }
+        finally
+        {
+            staging.Dispose();
+        }
     }
 
-    /// <summary>Back buffer → staging texture → tightly packed BGRA bytes.</summary>
-    private static (byte[] Pixels, int Stride) ReadSurfaceBgra(IDXGISurface surface)
+    /// <summary>Mapped staging texture → tightly packed BGRA bytes, with the texture's own size.</summary>
+    private static (byte[] Pixels, int Width, int Height, int Stride) ReadStagingBgra(ID3D11Texture2D staging)
     {
-        var context = _d3dDevice!.ImmediateContext;
-        using var texture = surface.QueryInterface<ID3D11Texture2D>();
-        var desc = texture.Description;
-        desc.Usage = ResourceUsage.Staging;
-        desc.BindFlags = BindFlags.None;
-        desc.CPUAccessFlags = CpuAccessFlags.Read;
-        desc.MiscFlags = ResourceOptionFlags.None;
-        using var staging = _d3dDevice.CreateTexture2D(desc);
-        context.CopyResource(staging, texture);
+        var context = _immediateContext!;
+        var desc = staging.Description;
         var mapped = context.Map(staging, 0, MapMode.Read, Vortice.Direct3D11.MapFlags.None);
         try
         {
@@ -2147,7 +2182,7 @@ class Program
             var pixels = new byte[stride * height];
             for (int y = 0; y < height; y++)
                 Marshal.Copy(mapped.DataPointer + y * (int)mapped.RowPitch, pixels, y * stride, stride);
-            return (pixels, stride);
+            return (pixels, width, height, stride);
         }
         finally
         {
