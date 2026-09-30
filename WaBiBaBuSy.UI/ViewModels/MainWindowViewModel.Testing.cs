@@ -150,12 +150,25 @@ public partial class MainWindowViewModel
             Process.Start(new ProcessStartInfo { FileName = html, UseShellExecute = true });
     }
 
-    /// <summary>Set by the tray (Task 15). Null until then.</summary>
+    /// <summary>Set by the tray; null only when the window is built without one.</summary>
     public TestRunCoordinator? TestCoordinator { get; set; }
 
-    private Task StartTestRunAsync(string path)
+    private async Task StartTestRunAsync(string path)
     {
-        TestRunStatusText = "Test runner not wired yet";
-        return Task.CompletedTask;
+        if (TestCoordinator == null) return;
+        try
+        {
+            IsTestRunning = true;
+            var report = await TestCoordinator.StartAsync(path);
+            TestRunStatusText = $"Test: {report.Verdict.ToString().ToLowerInvariant()}{(report.Aborted ? " (aborted)" : "")} — Open last results";
+        }
+        catch (Exception ex) when (ex is ScenarioException or InvalidOperationException)
+        {
+            TestRunStatusText = $"Test not started: {ex.Message.Split('\n')[0]}";
+        }
+        finally
+        {
+            IsTestRunning = false;
+        }
     }
 }

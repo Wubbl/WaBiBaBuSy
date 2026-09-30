@@ -3,6 +3,7 @@ using WaBiBaBuSy.Core.Interfaces;
 using WaBiBaBuSy.Core.Services.Logging;
 using WaBiBaBuSy.Core.Services.Animation;
 using WaBiBaBuSy.Core.Services.Networking;
+using WaBiBaBuSy.Core.Services.Testing;
 using WaBiBaBuSy.Core.Services.Update;
 using WaBiBaBuSy.Grpc;
 using WaBiBaBuSy.Models.Animation;
@@ -47,6 +48,9 @@ public class WaBiBaBuSyService : IDisposable
 
     /// <summary>The running server's gRPC service (test runs); null when the server is stopped.</summary>
     public WaBiBaBuSy.Grpc.Services.WallpaperSyncService? ServerSyncService => _serverHost?.SyncService;
+
+    /// <summary>Set by the UI; exposed as the localhost control API when EnableTestMode is on.</summary>
+    public ITestRunControl? TestRunControl { get; set; }
 
     /// <summary>
     /// Get the playback service (only available in client mode)
@@ -139,6 +143,11 @@ public class WaBiBaBuSyService : IDisposable
             // Create and start server host
             _serverHost = new WallpaperSyncServerHost(AppLogger.CreateLogger<WallpaperSyncServerHost>(), _serverConfig, _mdnsServerService);
             _serverHost.ServerStatusChanged += OnServerStatusChanged;
+            if (_serverConfig.EnableTestMode)
+            {
+                _serverHost.TestControl = TestRunControl;
+                _serverHost.TestControlPort = _serverConfig.TestControlPort;
+            }
 
             await _serverHost.StartAsync();
 

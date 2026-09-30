@@ -12,8 +12,11 @@ using WaBiBaBuSy.Common.Version;
 using WaBiBaBuSy.Core.Services.Logging;
 using WaBiBaBuSy.Core.Interfaces;
 using WaBiBaBuSy.Core.Services;
+using WaBiBaBuSy.Core.Services.Testing;
 using WaBiBaBuSy.Models.Configuration;
+using WaBiBaBuSy.Models.Testing;
 using WaBiBaBuSy.Models.Wallpaper;
+using WaBiBaBuSy.UI.Services.Testing;
 using WaBiBaBuSy.UI.Views;
 using WaBiBaBuSy.WallpaperEngine.Composition;
 using WaBiBaBuSy.WallpaperEngine.Native;
@@ -29,6 +32,7 @@ public partial class TrayViewModel : ObservableObject
     private readonly IClassicDesktopStyleApplicationLifetime _desktop;
     private readonly WaBiBaBuSyService _service;
     private readonly DesktopWindowManager _desktopManager;
+    private readonly TestRunCoordinator _testCoordinator;
     private MainWindow? _mainWindow;
     // D2D services for remote-triggered rendering on this client
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, D2DCompositionService> _clientD2DServices = new();
@@ -64,6 +68,12 @@ public partial class TrayViewModel : ObservableObject
 
         // Subscribe to application exit event to restore desktop
         _desktop.Exit += OnApplicationExit;
+
+        _testCoordinator = new TestRunCoordinator(
+            () => _mainWindow?.DataContext is MainWindowViewModel vm ? new TestHostAdapter(vm) : null,
+            () => _service.ServerSyncService is { } sync ? new ServerTestChannel(sync) : null,
+            AppLogger.Factory);
+        _service.TestRunControl = _testCoordinator;
     }
 
     /// <summary>
@@ -101,7 +111,7 @@ public partial class TrayViewModel : ObservableObject
         {
             _mainWindow = new MainWindow
             {
-                DataContext = new MainWindowViewModel(_service)
+                DataContext = new MainWindowViewModel(_service) { TestCoordinator = _testCoordinator }
             };
             _mainWindow.Show();
             // Bring it to the front so the first click (e.g. on the splitter) is not spent activating the window
@@ -220,8 +230,12 @@ public partial class TrayViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task Exit()
+    private Task Exit() => ExitAsync(0);
+
+    private async Task ExitAsync(int exitCode)
     {
+        _testCoordinator.Cancel();
+
         // Cleanup wallpaper renderers (kill player processes)
         if (_mainWindow?.DataContext is MainWindowViewModel mainViewModel)
         {
@@ -236,7 +250,43 @@ public partial class TrayViewModel : ObservableObject
         _mainWindow?.Close();
 
         // Shutdown the application
-        _desktop.Shutdown();
+        _desktop.Shutdown(exitCode);
+    }
+
+    /// <summary>
+    /// --test-run: open the control panel, start the server, wait for the scenario's remote nodes
+    /// (120 s), run, print the verdict; with --exit quit with 0 (no failure), 1 (a step failed), 2 (aborted).
+    /// </summary>
+    public async Task RunTestFromCommandLineAsync(string scenarioPath, bool exitWhenDone)
+    {
+        int exitCode = 2;
+        try
+        {
+            var scenario = ScenarioLoader.Load(scenarioPath);
+            ShowWindow();
+            if (!_service.IsServerRunning) await _service.StartServerAsync();
+            var vm = (MainWindowViewModel)_mainWindow!.DataContext!;
+
+            var deadline = DateTime.UtcNow.AddSeconds(120);
+            while (true)
+            {
+                var nodes = await vm.TestNodesAsync();
+                int remotes = nodes.Count(n => !n.IsLocal && n.Connected);
+                if (remotes >= scenario.Requires.MinRemoteNodes && nodes.Any(n => n.IsLocal)) break;
+                if (DateTime.UtcNow > deadline)
+                    throw new InvalidOperationException($"only {remotes} of {scenario.Requires.MinRemoteNodes} remote node(s) connected after 120 s");
+                await Task.Delay(1000);
+            }
+
+            var report = await _testCoordinator.StartAsync(scenarioPath);
+            exitCode = report.Aborted ? 2 : report.Verdict == Verdict.Fail ? 1 : 0;
+            Console.WriteLine($"Test run {report.Verdict.ToString().ToLowerInvariant()}: {Path.Combine(report.ResultsDirectory, "report.html")}");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Test run could not run: {ex.Message}");
+        }
+        if (exitWhenDone) await ExitAsync(exitCode);
     }
 
     private void OnClientConnectionStatusChanged(object? sender, Core.Services.Networking.ConnectionStatusChangedEventArgs e)

@@ -1,3 +1,4 @@
+using System.Net;
 using Grpc.Core;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -5,6 +6,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using WaBiBaBuSy.Core.Services.Testing;
 using WaBiBaBuSy.Grpc.Services;
 using WaBiBaBuSy.Models.Configuration;
 
@@ -23,6 +25,10 @@ public class WallpaperSyncServerHost : IDisposable
 
     public bool IsRunning => _isRunning;
     public WallpaperSyncService? SyncService { get; private set; }
+
+    /// <summary>Test control API; mapped only when set and <see cref="TestControlPort"/> &gt; 0.</summary>
+    public ITestRunControl? TestControl { get; set; }
+    public int TestControlPort { get; set; }
 
     public event EventHandler<ServerStatusChangedEventArgs>? ServerStatusChanged;
 
@@ -60,6 +66,8 @@ public class WallpaperSyncServerHost : IDisposable
                 {
                     listenOptions.Protocols = HttpProtocols.Http2;
                 });
+                if (TestControl != null && TestControlPort > 0)
+                    options.Listen(IPAddress.Loopback, TestControlPort, lo => lo.Protocols = HttpProtocols.Http1);
             });
 
             // Add services
@@ -85,6 +93,12 @@ public class WallpaperSyncServerHost : IDisposable
 
             // Map gRPC service
             app.MapGrpcService<WallpaperSyncService>();
+
+            if (TestControl != null && TestControlPort > 0)
+            {
+                TestControlEndpoints.Map(app, TestControl, TestControlPort);
+                _logger.LogInformation("Test control API on http://127.0.0.1:{Port}", TestControlPort);
+            }
 
             // Add health check endpoint
             app.MapGet("/", () => "WaBiBaBuSy gRPC Server is running. Use a gRPC client to connect.");

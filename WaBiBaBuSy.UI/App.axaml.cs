@@ -28,7 +28,10 @@ public partial class App : Application
             desktop.ShutdownMode = Avalonia.Controls.ShutdownMode.OnExplicitShutdown;
 
             // Set DataContext for TrayIcon bindings
-            DataContext = new TrayViewModel(desktop);
+            var tray = new TrayViewModel(desktop);
+            DataContext = tray;
+            if (StartupOptions.Current.TestRunPath is { } testRun)
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => _ = tray.RunTestFromCommandLineAsync(testRun, StartupOptions.Current.ExitWhenDone));
         }
 
         base.OnFrameworkInitializationCompleted();
