@@ -39,12 +39,12 @@ public static class SceneFile
             throw new ScenarioException($"{full}: cannot read the scene — {ex.Message}");
         }
         if (config == null) throw new ScenarioException($"{full}: empty scene");
-        // JSON "null" overrides the defaults: report it instead of crashing later.
+        // JSON "null" overrides the (non-nullable) defaults: report it instead of crashing later.
         var nulls = new List<string>();
-        if (config.Animation == null) nulls.Add("Animation");
-        else if (config.Animation.AdditionalAnimationPaths == null) nulls.Add("Animation.AdditionalAnimationPaths");
-        if (config.Background == null) nulls.Add("Background");
-        if (config.Movement == null) nulls.Add("Movement");
+        if (IsNull(config.Animation)) nulls.Add("Animation");
+        else if (IsNull(config.Animation.AdditionalAnimationPaths)) nulls.Add("Animation.AdditionalAnimationPaths");
+        if (IsNull(config.Background)) nulls.Add("Background");
+        if (IsNull(config.Movement)) nulls.Add("Movement");
         if (nulls.Count > 0) throw new ScenarioException($"{full}: {string.Join(", ", nulls.Select(n => n + " is null"))}");
 
         var dir = Path.GetDirectoryName(full)!;
@@ -58,6 +58,8 @@ public static class SceneFile
                 throw new ScenarioException($"{full}: asset not found: {asset}");
         return config;
     }
+
+    private static bool IsNull(object? value) => value is null;
 
     private static string Absolute(string dir, string path) =>
         string.IsNullOrWhiteSpace(path) || Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(dir, path));

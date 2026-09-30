@@ -49,7 +49,9 @@ resync) and *Failure & recovery* (simulated disconnect, client restart, server r
 | UI | Developer tools → "Run test suite…", CLI `--test-run <file> [--exit]`, localhost HTTP API | Three entry points into the same `TestRunner`; toolbar progress text |
 
 **Invariants.**
-- The server's own monitors are probed exactly like remote nodes (same `TestProbeHandler` path, no shortcut).
+- The server's own monitors are probed with the same player command and reply (`cmd_probe` → `SIGNAL:PROBE`) as
+  remote nodes, but directly through `ProbeFanOut` over the local `D2DPlayerHost`s (no `TestProbeHandler` / gRPC
+  hop; the server's own clock is the reference, offset 0).
 - Player replies go over the **stderr signal channel** (like `SIGNAL:LAP_COMPLETE`). `D2DPlayerHost` pairs each
   stdout command with the next stdout line; asynchronous probe replies on stdout would break that pairing.
 - All DXGI work (readback, frame statistics) stays in `Player.D2D` — nothing DXGI in the main process.
@@ -66,13 +68,13 @@ resync) and *Failure & recovery* (simulated disconnect, client restart, server r
   in the toolbar ("Test: step 4/12 · parity-matrix"), Cancel button, "Open results" when done.
 - **CLI:** `WaBiBaBuSy.UI.exe --test-run <scenario.json> [--exit]` starts the server if needed, waits for
   `requires.minRemoteNodes` to connect (timeout 120 s), runs, and with `--exit` quits with exit code
-  0 (all pass) / 1 (any fail) / 2 (aborted).
+  0 (no step failed; warnings allowed) / 1 (a step failed) / 2 (aborted).
 - **Localhost HTTP API:** a second Kestrel listener on `127.0.0.1:<port>` (HTTP/1.1, default port 50052,
   configurable) inside `WallpaperSyncServerHost`, only when test mode is enabled. The app also serves the AnyIP
   gRPC listener, so the routes are gated on the real connection (local port + loopback peer), not on the
   client-supplied Host header. Only `application/json` bodies are accepted, and the scenario must be a local path
   (UNC paths are rejected):
-  - `POST /test/run` `{ "scenario": "<path>" }` → `{ "runId" }` (409 if a run is active)
+  - `POST /test/run` `{ "scenario": "<path>" }` → 202 `{ "started": true, "scenario": "<path>" }` (409 if a run is active)
   - `GET /test/status` → current step, progress, last result per step
   - `DELETE /test/run` → cancel (partial report is still written)
   - `GET /test/runs` → list of result folders
@@ -139,14 +141,19 @@ The player, on the **first frame rendered at or after** `atLocalUtcMs`, records:
   unavailable, `presentUtcMs = null` and the report falls back to `renderUtcMs` with a note
 - frame-interval stats over the last 120 frames: mean fps, p50 / p99 / max frame time, dropped-frame count
   (interval > 1.5 × refresh interval)
-- optional capture: back buffer → staging texture → PNG in `%TEMP%\WaBiBaBuSy\probes\`, path in the reply
+- optional capture: back buffer → staging texture → PNG in `%TEMP%\WaBiBaBuSy\probes\`, path in the reply. Only
+  the non-blocking `CopyResource` is issued before `Present`; the blocking `Map` + row copy run after `Present`, so a
+  capture probe does not delay its own frame (and measure extra latency)
 
 and replies `SIGNAL:PROBE:{json}` on stderr. The client adds `clockOffsetMs`, `rttMs`, a perf sample, and
 uploads everything via `SubmitProbeResult` (client-streaming: header message, then PNG chunks of 256 KB).
 
 **Metric.** Per node-monitor *i*, converted to server time with that node's offset:
 `error_i = renderedElapsedMs_i + phaseMs_i − (presentServerUtcMs_i − sharedStartServerUtcMs)`,
-where `phaseMs_i` is the configured wave / node delay (added back: `renderedElapsedMs` is already phase-shifted). `driftSpread = max(error_i) − min(error_i)`.
+where `phaseMs_i` is the configured wave / node delay (added back: `renderedElapsedMs` is already phase-shifted). `driftSpread = max(error_i) − min(error_i)`. A render-time fallback sample lacks the present latency (6–17 ms)
+of a present-time sample, so when a probe has ≥ 2 present-time samples, spread, verdict and mean use only those; the
+fallback nodes are named in the message and `renderSpreadMs` (render time, all valid nodes) is reported next to it.
+With fewer than 2 present times all samples are mixed as before, and the message says so.
 Pass ≤ `driftWarnMs`, warn ≤ `driftSpreadMs`, fail above. Probe series are scheduled on time (each probe at
 `start + n × everyMs`, in parallel); they run sequentially only when `everyMs < MinLeadMs + 100`. A fault in one probe is
 recorded in `ProbeReport.Error` and does not end the series. `mean(error)` is reported separately as the
@@ -233,7 +240,7 @@ GPU < 10 %, memory < 200 MB per client.
 | Situation | Behaviour |
 |---|---|
 | Node does not answer a probe within 2 s after the instant | Marked `missing` for that probe; run continues |
-| Node disconnects mid-run | Failure entry with timestamp; remaining steps run on the remaining nodes |
+| Node disconnects mid-run | Failure entry with timestamp (`report.nodeFailures`: nodeId, name, atUtcMs, reason; once per node, listed under "Node failures" in report.html); remaining steps run on the remaining nodes; run verdict at least warn |
 | Player cannot capture / read back | `SIGNAL:PROBE:{error}`; timing still reported without PNG |
 | Frame statistics unavailable | `presentUtcMs = null`, fall back to render time, noted in the report |
 | Step timeout | Step = fail, run continues with the next step |
@@ -254,7 +261,7 @@ GPU < 10 %, memory < 200 MB per client.
   (phase subtraction, spread, thresholds, missing nodes); `MarkerDetector` on generated PNGs (clean, partially
   off-screen, absent); `ExpectedPosition` for Sequential, Simultaneous, Ring seam, facing rows, physical units;
   timecode encode/decode round-trip.
-- **Manual single machine:** `--test-run TestScenarios/sync-basic.json --exit` on the server alone → exit code 0,
+- **Manual single machine:** `--test-run TestScenarios/sync-basic.json --exit` on the server alone → exit code 0 (no failed step),
   green report with the server's monitors as nodes.
 - **Manual multi-machine:** first real run with 1–2 remotes replaces checklist §3 and the timing parts of §4.
 
