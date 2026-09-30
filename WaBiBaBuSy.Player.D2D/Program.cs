@@ -2205,11 +2205,23 @@ class Program
             {
                 long syncQpc = stats.SyncQPCTime;
                 uint behind = stats.PresentCount - p.PresentCount;
-                if (behind > 0 && _refreshHz > 0)
-                    syncQpc -= (long)(behind * (double)Stopwatch.Frequency / _refreshHz);   // earlier frame: step back whole refreshes
-                double ageMs = (Stopwatch.GetTimestamp() - syncQpc) * 1000.0 / Stopwatch.Frequency;
-                p.Reply.PresentLocalUtcMs = NowUtcMs - (long)Math.Round(ageMs);
-                p.Reply.PresentEstimated = behind > 0;
+                bool canResolve = true;
+                if (behind > 0)
+                {
+                    // Earlier frame: step back by the measured frame interval. The nominal refresh rate is
+                    // wrong when DWM composes faster than the panel (165 fps on a 75 Hz monitor).
+                    double intervalMs = _frameTracker.Snapshot(_refreshHz) is { MeanFps: > 0 } fs ? 1000.0 / fs.MeanFps
+                        : _refreshHz > 0 ? 1000.0 / _refreshHz : 0;
+                    if (intervalMs > 0) syncQpc -= (long)(behind * intervalMs * Stopwatch.Frequency / 1000.0);
+                    else canResolve = false;   // no usable interval: leave PresentLocalUtcMs null (report uses render time)
+                }
+                if (canResolve)
+                {
+                    double ageMs = (Stopwatch.GetTimestamp() - syncQpc) * 1000.0 / Stopwatch.Frequency;
+                    long presentMs = NowUtcMs - (long)Math.Round(ageMs);
+                    p.Reply.PresentLocalUtcMs = Math.Max(presentMs, p.Reply.RenderLocalUtcMs);   // a frame cannot reach the screen before it was rendered
+                    p.Reply.PresentEstimated = behind > 0;
+                }
             }
             _awaitingPresent.RemoveAt(i);
             _ = EmitProbeReplyAsync(p.Reply, p.Capture);

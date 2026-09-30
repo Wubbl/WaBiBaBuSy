@@ -83,6 +83,21 @@ public class TestRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task MemoryThreshold_AppliesToRemoteNodes_NotToTheServer()
+    {
+        // A 1 MB threshold: the real local sample (this test process) is far above it, so only the server exemption keeps it out.
+        var scenario = ScenarioLoader.Parse($$"""
+            { "name": "unit", "requires": { "minRemoteNodes": 1 }, "thresholds": { "maxMemoryMb": 1 },
+              "steps": [ {{PlayMarker}}, { "type": "probeSeries", "label": "perf", "everyMs": 40, "forMs": 40, "capture": false, "perf": true } ] }
+            """, _dir);
+        _transport.RemoteMemoryMb = 500;
+        var report = await Runner().RunAsync(scenario, "unit.json", CancellationToken.None);
+        var violations = report.Steps[1].Probes.SelectMany(p => p.PerfViolations).ToList();
+        Assert.Contains(violations, v => v.StartsWith("pc-02 memory 500 MB > 1 MB"));
+        Assert.DoesNotContain(violations, v => v.StartsWith("server memory"));   // the server also hosts the UI and every local player
+    }
+
+    [Fact]
     public async Task RemoteNeverReplies_ProbeMarkedMissing()
     {
         _transport.Silent = true;
@@ -342,6 +357,8 @@ public class TestRunnerTests : IDisposable
         /// <summary>The transport call itself throws for this probe id (an error that really faults the runner's probe).</summary>
         public string? ThrowOnProbeId { get; set; }
         public string? Error { get; set; }
+        /// <summary>When set, remote probe results carry a perf sample with this much player memory.</summary>
+        public double? RemoteMemoryMb { get; set; }
 
         public Task<bool> SendTestModeAsync(string clientId, bool timecode, int clockSkewMs)
         {
@@ -360,6 +377,7 @@ public class TestRunnerTests : IDisposable
             return Task.FromResult<RemoteProbeResult?>(new RemoteProbeResult
             {
                 ClientId = clientId, ProbeId = request.ProbeId, ClockOffsetMs = 1000, RttMs = 2,
+                Perf = RemoteMemoryMb is { } mb ? new PerfSample { PlayerMemoryMb = mb } : null,
                 Replies =
                 {
                     new PlayerProbeReply

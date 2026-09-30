@@ -558,8 +558,9 @@ public sealed class TestRunner
             if (p.AppCpuPercent > t.MaxCpuPercent) pr.PerfViolations.Add($"{who} app CPU {p.AppCpuPercent:F1} % > {t.MaxCpuPercent} %");
             if (p.PlayerCpuPercent > t.MaxCpuPercent) pr.PerfViolations.Add($"{who} player CPU {p.PlayerCpuPercent:F1} % > {t.MaxCpuPercent} %");
             if (p.GpuPercent > t.MaxGpuPercent) pr.PerfViolations.Add($"{who} GPU {p.GpuPercent:F1} % > {t.MaxGpuPercent} %");
+            // The memory target is per client; the server also hosts the UI and every local player, so it is reported only.
             double memory = p.AppMemoryMb + p.PlayerMemoryMb;
-            if (memory > t.MaxMemoryMb) pr.PerfViolations.Add($"{who} memory {memory:F0} MB > {t.MaxMemoryMb} MB");
+            if (!s.IsLocal && memory > t.MaxMemoryMb) pr.PerfViolations.Add($"{who} memory {memory:F0} MB > {t.MaxMemoryMb} MB");
         }
         if (pr.PerfViolations.Count > 0) pr.Verdict = Verdicts.Worst(pr.Verdict, Verdict.Warn);
     }
