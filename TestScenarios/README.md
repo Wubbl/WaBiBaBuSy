@@ -11,9 +11,9 @@ The bundled files are copied next to the exe (`TestScenarios\` in the build/inst
    - CLI: `WaBiBaBuSy.UI.exe --test-run TestScenarios\sync-basic.json --exit`
      (`--exit` quits when the run is done; exit code 0 = no failed step, 1 = a step failed, 2 = aborted or could not run; the CLI waits up to 120 s for the required remote clients).
    - Local control API (127.0.0.1:50052, application/json, local paths only):
-     `curl -X POST -H "Content-Type: application/json" -d "{\"scenario\":\"C:\path\sync-basic.json\"}" http://127.0.0.1:50052/test/run`,
+     `curl -X POST -H "Content-Type: application/json" -d "{\"scenario\":\"C:/path/TestScenarios/sync-basic.json\"}" http://127.0.0.1:50052/test/run`,
      then `curl http://127.0.0.1:50052/test/status`, `curl http://127.0.0.1:50052/test/runs`, `curl -X DELETE http://127.0.0.1:50052/test/run`.
-3. Every client must have its window open and be **Connected**, with Settings > Client > "Allow test runs" on (default on).
+3. Every client must have its window open and be **Connected**, with the Client setting "Answer automated test runs from the server (screenshots show only the wallpaper)" on (default on; bottom of the Client section in Settings).
 
 ## Scenarios
 
@@ -35,4 +35,4 @@ In `clock-skew.json` replace `REMOTE-HOSTNAME-1` / `-2` with the client names sh
 `%LOCALAPPDATA%\WaBiBaBuSy\TestRuns\<yyyy-MM-dd_HHmm>_<scenario>\` holds `report.json`, `report.html`,
 `nodes\<node>\*.png` (captures) and `logs\<node>.log`. `report.html` is self-contained: overall verdict, a per-step
 table, a drift chart per node, the annotated captures (timecode strip, detected marker boxes, expected vs found positions)
-and CPU/GPU/memory against the thresholds.
+and CPU/GPU/memory against the thresholds. The 200 MB memory threshold applies to remote clients only; on a single machine the server's memory is reported but not thresholded.

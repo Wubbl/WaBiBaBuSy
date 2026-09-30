@@ -1,6 +1,6 @@
 # Automated Multi-Machine Test Mode — Design
 
-**Created:** 2026-09-30 · **Status:** implemented 2026-09-30 (spec 1) · **Scope:** spec 1 of 2 (harness + Sync & timing + Visual parity)
+**Created:** 2026-09-30 · **Status:** implemented 2026-09-30 (spec 1); multi-machine validation pending · **Scope:** spec 1 of 2 (harness + Sync & timing + Visual parity)
 **Motivation:** [`2026-09-28-gui-and-e2e-test-checklist.md`](2026-09-28-gui-and-e2e-test-checklist.md) §3–§4 are slow,
 subjective and not repeatable by hand ("no visible drift", "same frame on all nodes"). This design turns them
 into a run that measures, captures and reports, so results can be analysed and optimised afterwards.
@@ -68,7 +68,10 @@ resync) and *Failure & recovery* (simulated disconnect, client restart, server r
   `requires.minRemoteNodes` to connect (timeout 120 s), runs, and with `--exit` quits with exit code
   0 (all pass) / 1 (any fail) / 2 (aborted).
 - **Localhost HTTP API:** a second Kestrel listener on `127.0.0.1:<port>` (HTTP/1.1, default port 50052,
-  configurable) inside `WallpaperSyncServerHost`, only when test mode is enabled:
+  configurable) inside `WallpaperSyncServerHost`, only when test mode is enabled. The app also serves the AnyIP
+  gRPC listener, so the routes are gated on the real connection (local port + loopback peer), not on the
+  client-supplied Host header. Only `application/json` bodies are accepted, and the scenario must be a local path
+  (UNC paths are rejected):
   - `POST /test/run` `{ "scenario": "<path>" }` → `{ "runId" }` (409 if a run is active)
   - `GET /test/status` → current step, progress, last result per step
   - `DELETE /test/run` → cancel (partial report is still written)
@@ -130,8 +133,10 @@ The player, on the **first frame rendered at or after** `atLocalUtcMs`, records:
 - `renderedElapsedMs` — the effective elapsed value the frame was rendered with (incl. node phase)
 - `renderUtcMs` — local UTC when rendering started, `frameIndex`
 - present time — from `IDXGISwapChain::GetFrameStatistics` (`SyncQPCTime` for the matching `PresentCount`,
-  converted QPC → UTC); if statistics are unavailable, `presentUtcMs = null` and the report falls back to
-  `renderUtcMs` with a note
+  converted QPC → UTC). When the statistics are already ahead of the probe's frame, the time is extrapolated
+  back by the measured mean frame interval (not the nominal refresh rate: DWM composes at ~165 fps on a 75 Hz
+  panel), flagged `presentEstimated`, and clamped to ≥ `renderUtcMs`. If statistics or an interval are
+  unavailable, `presentUtcMs = null` and the report falls back to `renderUtcMs` with a note
 - frame-interval stats over the last 120 frames: mean fps, p50 / p99 / max frame time, dropped-frame count
   (interval > 1.5 × refresh interval)
 - optional capture: back buffer → staging texture → PNG in `%TEMP%\WaBiBaBuSy\probes\`, path in the reply
@@ -142,7 +147,9 @@ uploads everything via `SubmitProbeResult` (client-streaming: header message, th
 **Metric.** Per node-monitor *i*, converted to server time with that node's offset:
 `error_i = renderedElapsedMs_i + phaseMs_i − (presentServerUtcMs_i − sharedStartServerUtcMs)`,
 where `phaseMs_i` is the configured wave / node delay (added back: `renderedElapsedMs` is already phase-shifted). `driftSpread = max(error_i) − min(error_i)`.
-Pass ≤ `driftWarnMs`, warn ≤ `driftSpreadMs`, fail above. `mean(error)` is reported separately as the
+Pass ≤ `driftWarnMs`, warn ≤ `driftSpreadMs`, fail above. Probe series are scheduled on time (each probe at
+`start + n × everyMs`, in parallel); they run sequentially only when `everyMs < MinLeadMs + 100`. A fault in one probe is
+recorded in `ProbeReport.Error` and does not end the series. `mean(error)` is reported separately as the
 common latency (same on all nodes → invisible, but tells how far behind wall time the whole wall runs).
 
 **Limit (stated in every report).** Local→server conversion uses the same clock-offset estimate the sync uses.
@@ -184,7 +191,8 @@ decoded from a phone photo later.
 
 `TEST_MODE { simulatedClockSkewMs }` adds a constant to the client's clock source (the one feeding
 `ClockOffsetEstimator` and the player start-time conversion) — introduced as a small `IClock` seam in the
-client. This covers the checklist "skew ±2 s" test without changing Windows time; expected result: the
+client. The same skew also drives the client's command-scheduling clock (`WallpaperSyncClient.NowUtcMs`), so the
+scene start and probe instants are converted with the skewed clock as well. This covers the checklist "skew ±2 s" test without changing Windows time; expected result: the
 estimated offset shows ≈ the skew, drift spread stays within threshold.
 
 ### 5.6 Perf samples
