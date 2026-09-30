@@ -1,7 +1,9 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Drawing;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using WaBiBaBuSy.Models.Testing;
 using WaBiBaBuSy.Models.Wallpaper;
 using WaBiBaBuSy.Player.Common.Messages;
 using WaBiBaBuSy.WallpaperEngine.Composition;
@@ -619,6 +621,45 @@ public class D2DPlayerHost : IDisposable
         }
     }
 
+    // Automated test mode: probes waiting for their SIGNAL:PROBE line on stderr, by probe id.
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<PlayerProbeReply>> _pendingProbes = new();
+
+    /// <summary>Test mode on/off (timecode strip, simulated clock skew). Fire-and-forget: the player sends no stdout reply.</summary>
+    public async Task SendTestModeAsync(bool timecode, int clockSkewMs)
+    {
+        if (!IsRunning) return;
+        await SendCommandAsync(JsonConvert.SerializeObject(new PlayerCommandTestMode { Timecode = timecode, ClockSkewMs = clockSkewMs }));
+    }
+
+    /// <summary>Probe the player; completes when its SIGNAL:PROBE arrives on stderr, null on timeout.</summary>
+    public async Task<PlayerProbeReply?> ProbeAsync(PlayerProbeRequest request, TimeSpan timeout, CancellationToken ct)
+    {
+        if (!IsRunning) return null;
+        var waiter = new TaskCompletionSource<PlayerProbeReply>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingProbes[request.ProbeId] = waiter;
+        try
+        {
+            await SendCommandAsync(JsonConvert.SerializeObject(new PlayerCommandProbe
+            {
+                ProbeId = request.ProbeId,
+                AtLocalUtcMs = request.AtLocalUtcMs,
+                Capture = request.Capture,
+                ExactElapsedMs = request.ExactElapsedMs,
+                CaptureDirectory = request.CaptureDirectory,
+            }));
+            var finished = await Task.WhenAny(waiter.Task, Task.Delay(timeout, ct));
+            return finished == waiter.Task ? await waiter.Task : null;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return null;
+        }
+        finally
+        {
+            _pendingProbes.TryRemove(request.ProbeId, out _);
+        }
+    }
+
     /// <summary>
     /// Sends a command to the player process.
     /// </summary>
@@ -658,6 +699,21 @@ public class D2DPlayerHost : IDisposable
                     try { await ReissuePlayerParentingAsync(); }
                     catch (Exception ex) { _logger.LogError(ex, "Failed to re-issue PARENT after player signal"); }
                 });
+                return;
+            }
+
+            if (line.StartsWith("SIGNAL:PROBE:", StringComparison.Ordinal))
+            {
+                try
+                {
+                    var reply = JsonConvert.DeserializeObject<PlayerProbeReply>(line["SIGNAL:PROBE:".Length..]);
+                    if (reply != null && _pendingProbes.TryRemove(reply.ProbeId, out var waiter))
+                        waiter.TrySetResult(reply);
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogWarning(ex, "[Player] Malformed PROBE signal");
+                }
                 return;
             }
 

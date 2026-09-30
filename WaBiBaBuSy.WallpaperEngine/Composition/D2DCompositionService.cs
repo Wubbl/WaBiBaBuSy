@@ -1,5 +1,7 @@
 using System.Drawing;
 using Microsoft.Extensions.Logging;
+using WaBiBaBuSy.Core.Services.Testing;
+using WaBiBaBuSy.Models.Testing;
 using WaBiBaBuSy.Models.Wallpaper;
 using WaBiBaBuSy.Player.Common.Messages;
 using WaBiBaBuSy.WallpaperEngine.Direct2D;
@@ -15,7 +17,7 @@ namespace WaBiBaBuSy.WallpaperEngine.Composition;
 /// this service sends animation metadata to D2DPlayer processes which handle composition locally.
 /// Result: Main process CPU from 10% → ~0%, no JPEG encoding overhead, animations play at correct speed.
 /// </summary>
-public class D2DCompositionService : IDisposable
+public class D2DCompositionService : IDisposable, ITestProbeTarget
 {
     private readonly ILogger<D2DCompositionService> _logger;
     private readonly ILoggerFactory _loggerFactory;
@@ -46,6 +48,27 @@ public class D2DCompositionService : IDisposable
     /// Gets whether the service is currently running.
     /// </summary>
     public bool IsRunning => _isRunning;
+
+    /// <inheritdoc />
+    public int MonitorIndex => _monitorIndex;
+
+    /// <inheritdoc />
+    public async Task SetTestModeAsync(bool timecode, int clockSkewMs)
+    {
+        foreach (var host in _playerHosts.Values)
+        {
+            if (!host.IsRunning) continue;
+            try { await host.SendTestModeAsync(timecode, clockSkewMs); }
+            catch (Exception ex) { _logger.LogError(ex, "Failed to send test mode to a player host"); }
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<PlayerProbeReply?> ProbeAsync(PlayerProbeRequest request, TimeSpan timeout, CancellationToken ct)
+    {
+        var host = _playerHosts.Values.FirstOrDefault(h => h.IsRunning);
+        return host == null ? null : await host.ProbeAsync(request, timeout, ct);
+    }
 
     /// <summary>
     /// Raised once per lap, deduplicated across all player hosts.

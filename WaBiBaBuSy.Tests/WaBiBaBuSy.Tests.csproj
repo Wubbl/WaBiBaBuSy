@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net9.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\WaBiBaBuSy.Common\WaBiBaBuSy.Common.csproj" />
+    <ProjectReference Include="..\WaBiBaBuSy.Core\WaBiBaBuSy.Core.csproj" />
     <ProjectReference Include="..\WaBiBaBuSy.Models\WaBiBaBuSy.Models.csproj" />
   </ItemGroup>
 
