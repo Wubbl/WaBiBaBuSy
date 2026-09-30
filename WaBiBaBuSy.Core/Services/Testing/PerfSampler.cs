@@ -14,8 +14,15 @@ public sealed class PerfSampler
 
     private readonly Dictionary<int, (TimeSpan Cpu, long Tick)> _lastCpu = new();
     private readonly Dictionary<string, PerformanceCounter> _gpuCounters = new();
+    private readonly object _lock = new();
 
     public PerfSample Sample()
+    {
+        lock (_lock)
+            return SampleLocked();
+    }
+
+    private PerfSample SampleLocked()
     {
         using var app = Process.GetCurrentProcess();
         var players = Process.GetProcessesByName(PlayerProcessName);

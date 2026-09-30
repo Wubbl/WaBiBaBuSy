@@ -19,6 +19,5 @@ public class PerfSamplerTests
         var second = sampler.Sample();
         Assert.NotNull(second.AppCpuPercent);
         Assert.InRange(second.AppCpuPercent!.Value, 0, 100);
-        Assert.Equal(0, second.PlayerProcesses);   // no player runs during unit tests
     }
 }

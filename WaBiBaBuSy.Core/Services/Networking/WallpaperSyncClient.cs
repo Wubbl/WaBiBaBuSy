@@ -52,6 +52,9 @@ public class WallpaperSyncClient : IDisposable
 
     /// <summary>This machine's clock as the sync sees it: real UTC plus the simulated test skew (0 outside tests).</summary>
     private long NowMs() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + _clockSkewMs;
+
+    /// <summary>This machine's clock as the sync sees it (real UTC + simulated test skew).</summary>
+    public long NowUtcMs => NowMs();
     private readonly ReconnectBackoff _backoff = new();
     private string? _serverAddress;
     private int _serverPort;

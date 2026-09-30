@@ -184,7 +184,9 @@ public class WallpaperPlaybackService : IDisposable
     {
         // Calculate delay until execution time
         var targetTimestamp = command.TimestampUtc;
-        var currentTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        // command.TimestampUtc was converted into this machine's clock terms (incl. any simulated test skew),
+        // so compare it against the same clock.
+        var currentTimestamp = _syncClient.NowUtcMs;
         var delayMs = targetTimestamp - currentTimestamp;
 
         if (delayMs > 0)
