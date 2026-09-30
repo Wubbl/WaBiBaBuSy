@@ -44,6 +44,15 @@ public class ServerConfiguration
     public int UploadLimitMBps { get; set; } = 20;
 
     /// <summary>
+    /// Developer: enables automated test runs (Developer tools → Run test suite, --test-run and the
+    /// local control API on <see cref="TestControlPort"/>, bound to 127.0.0.1 only).
+    /// </summary>
+    public bool EnableTestMode { get; set; } = false;
+
+    /// <summary>Port of the local test control API (HTTP/1.1, 127.0.0.1 only).</summary>
+    public int TestControlPort { get; set; } = 50052;
+
+    /// <summary>
     /// Update management configuration
     /// </summary>
     public UpdateManagementConfiguration UpdateManagement { get; set; } = new();

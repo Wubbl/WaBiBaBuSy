@@ -78,6 +78,18 @@
                                        Text="Total for all content and update downloads to clients. 0 = unlimited. Takes effect when the server starts."/>
                         </Grid>
                     </Expander>
+                    <Expander Header="Developer">
+                        <StackPanel Spacing="8">
+                            <CheckBox Content="Enable test mode (Developer tools → Run test suite, --test-run, local control API)"
+                                      IsChecked="{Binding EnableTestMode}" Foreground="White"/>
+                            <StackPanel Orientation="Horizontal" Spacing="8" IsEnabled="{Binding EnableTestMode}">
+                                <TextBlock Classes="label" Text="Control API port (127.0.0.1 only):" VerticalAlignment="Center"/>
+                                <NumericUpDown Value="{Binding TestControlPort}" Minimum="1024" Maximum="65535" Width="140"/>
+                            </StackPanel>
+                            <TextBlock Foreground="#888888" FontSize="11" TextWrapping="Wrap"
+                                       Text="Takes effect when the server starts. Results go to %LOCALAPPDATA%\WaBiBaBuSy\TestRuns."/>
+                        </StackPanel>
+                    </Expander>
                 </StackPanel>
 
                 <!-- Client -->
@@ -110,6 +122,8 @@
                             <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding MaxCacheSizeMB}" Minimum="100" Maximum="102400" Increment="512"/>
                         </Grid>
                     </Expander>
+                    <CheckBox Content="Answer automated test runs from the server (screenshots show only the wallpaper)"
+                              IsChecked="{Binding AllowTestRuns}" Foreground="White" Margin="0,8,0,0"/>
                 </StackPanel>
 
                 <!-- Wallpaper -->

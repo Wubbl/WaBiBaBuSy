@@ -34,6 +34,12 @@ public partial class SettingsViewModel : ViewModelBase
     private int _uploadLimitMBps;
 
     [ObservableProperty]
+    private bool _enableTestMode;
+
+    [ObservableProperty]
+    private int _testControlPort;
+
+    [ObservableProperty]
     private string _serverAddress = string.Empty;
 
     [ObservableProperty]
@@ -56,6 +62,9 @@ public partial class SettingsViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool _pauseOnFullscreen;
+
+    [ObservableProperty]
+    private bool _allowTestRuns;
 
     // ── Logging Settings ─────────────────────────────────────────────────────
 
@@ -120,6 +129,8 @@ public partial class SettingsViewModel : ViewModelBase
         EnableAutoDiscovery = serverConfig.EnableAutoDiscovery;
         ServiceName = serverConfig.ServiceName;
         UploadLimitMBps = Math.Max(0, serverConfig.UploadLimitMBps);
+        EnableTestMode = serverConfig.EnableTestMode;
+        TestControlPort = serverConfig.TestControlPort;
 
         // Client settings
         ServerAddress = clientConfig.ServerAddress;
@@ -130,6 +141,7 @@ public partial class SettingsViewModel : ViewModelBase
         MaxCacheSizeMB = clientConfig.MaxCacheSizeMB;
         HeartbeatIntervalSeconds = clientConfig.HeartbeatIntervalSeconds;
         PauseOnFullscreen = clientConfig.PauseOnFullscreen;
+        AllowTestRuns = clientConfig.AllowTestRuns;
 
         // Logging settings
         LogLevelInfo    = loggingConfig.Level == "Information";
@@ -167,6 +179,8 @@ public partial class SettingsViewModel : ViewModelBase
                 s.EnableAutoDiscovery = EnableAutoDiscovery;
                 s.ServiceName = ServiceName;
                 s.UploadLimitMBps = Math.Max(0, UploadLimitMBps);
+                s.EnableTestMode = EnableTestMode;
+                s.TestControlPort = Math.Clamp(TestControlPort, 1024, 65535);
             });
 
             ConfigurationManager.UpdateClientConfiguration(c =>
@@ -179,6 +193,7 @@ public partial class SettingsViewModel : ViewModelBase
                 c.MaxCacheSizeMB = MaxCacheSizeMB;
                 c.HeartbeatIntervalSeconds = HeartbeatIntervalSeconds;
                 c.PauseOnFullscreen = PauseOnFullscreen;
+                c.AllowTestRuns = AllowTestRuns;
             });
 
             var loggingConfig = ConfigurationManager.UpdateLoggingConfiguration(l =>

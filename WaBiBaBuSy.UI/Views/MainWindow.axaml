@@ -90,6 +90,8 @@
                             ToolTip.Tip="Skip to the next item"/>
                     <TextBlock Text="{Binding PlaylistNextLabel}" Foreground="#FFC800" FontSize="11"
                                VerticalAlignment="Center" IsVisible="{Binding HasPlaylistNext}"/>
+                    <TextBlock Text="{Binding TestRunStatusText}" IsVisible="{Binding TestRunStatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                               VerticalAlignment="Center" FontSize="11" Foreground="#E0A13A" Margin="8,0" TextTrimming="CharacterEllipsis" MaxWidth="360"/>
                     <Button Content="Clear all" Command="{Binding ClearAllWallpapersCommand}"
                             IsVisible="{Binding HasActiveRenderer}" Height="28" Padding="10,4" FontSize="11"
                             ToolTip.Tip="Stop every animation and clear all wallpapers"/>
@@ -136,6 +138,12 @@
                                             <CheckBox Content="Icon-zone palette" IsChecked="{Binding SceneEditor.IconZonePaletteEnabled}"
                                                       FontSize="11" Margin="8,0,0,0"
                                                       ToolTip.Tip="Debug: color the icon-zone bands of the draft scene (IconZone background only)"/>
+                                        </WrapPanel>
+                                        <WrapPanel Orientation="Horizontal" IsVisible="{Binding IsTestModeEnabled}">
+                                            <TextBlock Text="Test mode" VerticalAlignment="Center" FontSize="11" Foreground="#AAAAAA" Margin="0,0,8,0"/>
+                                            <Button Content="Run test suite…" Command="{Binding RunTestSuiteCommand}" FontSize="11" Margin="0,0,6,0"/>
+                                            <Button Content="Cancel" Command="{Binding CancelTestRunCommand}" IsVisible="{Binding IsTestRunning}" FontSize="11" Margin="0,0,6,0"/>
+                                            <Button Content="Open last results" Command="{Binding OpenTestResultsCommand}" FontSize="11"/>
                                         </WrapPanel>
                                     </StackPanel>
                                 </Expander>

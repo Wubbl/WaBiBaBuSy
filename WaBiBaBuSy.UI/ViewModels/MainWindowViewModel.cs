@@ -308,6 +308,9 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     [ObservableProperty] private SeatMapLayoutResult? _activeLayout;
     [ObservableProperty] private CrossScreenConfig? _activeScene;
     [ObservableProperty] private long _activeSharedStartMs;
+    [ObservableProperty] private int _activeStartLeadMs;
+    /// <summary>Movement the players received (after cm→px); test runs compute expected positions from it.</summary>
+    [ObservableProperty] private MovementConfig? _activeEffectiveMovement;
     [ObservableProperty] private string? _activeSpriteImagePath;
 
     // ── Tier 1.3 show reliability ────────────────────────────────────────────
@@ -884,6 +887,8 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     {
         ActiveScene = null;
         ActiveSharedStartMs = 0;
+        ActiveStartLeadMs = 0;
+        ActiveEffectiveMovement = null;
         ActiveSpriteImagePath = null;
         ActiveLayout = null;
     }
@@ -3700,6 +3705,8 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         // Feed the live preview: same layout, same config, same shared epoch as the players.
         // Epoch and layout first so the room never paints the new scene on a stale clock/layout.
         ActiveSharedStartMs = sharedStartTimestamp;
+        ActiveStartLeadMs = startLeadMs;
+        ActiveEffectiveMovement = effMovement;
         ActiveLayout = layout;
         ActiveSpriteImagePath = ResolveSpriteImagePath(effAnimation.AnimationPath);
         ActiveScene = config;

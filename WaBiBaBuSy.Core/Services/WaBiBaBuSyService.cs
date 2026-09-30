@@ -45,6 +45,9 @@ public class WaBiBaBuSyService : IDisposable
     /// </summary>
     public WallpaperSyncCoordinator? SyncCoordinator => _syncCoordinator;
 
+    /// <summary>The running server's gRPC service (test runs); null when the server is stopped.</summary>
+    public WaBiBaBuSy.Grpc.Services.WallpaperSyncService? ServerSyncService => _serverHost?.SyncService;
+
     /// <summary>
     /// Get the playback service (only available in client mode)
     /// </summary>
