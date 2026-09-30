@@ -1,0 +1,154 @@
+using WaBiBaBuSy.Models.Testing;
+using WaBiBaBuSy.Models.Wallpaper;
+using Xunit;
+
+namespace WaBiBaBuSy.Tests;
+
+public class ScenarioLoaderTests : IDisposable
+{
+    private readonly string _dir = Path.Combine(Path.GetTempPath(), $"wbbs-scenario-{Guid.NewGuid():N}");
+
+    public ScenarioLoaderTests()
+    {
+        Directory.CreateDirectory(Path.Combine(_dir, "scenes"));
+        File.WriteAllBytes(Path.Combine(_dir, "scenes", "marker.png"), new byte[] { 1, 2, 3 });
+        File.WriteAllText(Path.Combine(_dir, "scenes", "linear.json"),
+            """{ "Animation": { "AnimationPath": "marker.png", "TargetHeight": 64 }, "Movement": { "Type": "Linear", "SpeedPixelsPerSecond": 400 }, "DistributionMode": "Sequential" }""");
+    }
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_dir, recursive: true); } catch { /* best effort */ }
+    }
+
+    private const string Valid = """
+    {
+      "name": "sync-basic",
+      "requires": { "minRemoteNodes": 1 },
+      "thresholds": { "driftSpreadMs": 40 },
+      "steps": [
+        { "type": "testMode", "timecode": true, "simulatedClockSkewMs": { "pc-02": 2000 } },
+        { "type": "playScene", "scene": "scenes/linear.json", "targets": "all", "marker": true },
+        { "label": "clean-start", "type": "probe", "at": "start+150ms", "capture": true },
+        { "type": "probeSeries", "label": "long-run", "everyMs": 1000, "forMs": 5000 },
+        { "type": "exactFrame", "label": "px", "elapsedMs": 12345 },
+        { "type": "wait", "ms": 10 },
+        { "type": "stop" }
+      ]
+    }
+    """;
+
+    [Fact]
+    public void Parse_FullExample_ReadsEveryStepType()
+    {
+        var s = ScenarioLoader.Parse(Valid, _dir);
+
+        Assert.Equal("sync-basic", s.Name);
+        Assert.Equal(1, s.Requires.MinRemoteNodes);
+        Assert.Equal(40, s.Thresholds.DriftSpreadMs);
+        Assert.Equal(25, s.Thresholds.DriftWarnMs);   // default kept
+        Assert.Collection(s.Steps,
+            st => Assert.Equal(2000, Assert.IsType<TestModeStep>(st).SimulatedClockSkewMs["pc-02"]),
+            st => Assert.True(Assert.IsType<PlaySceneStep>(st).Marker),
+            st => Assert.Equal("start+150ms", Assert.IsType<ProbeStep>(st).At),   // "type" after "label" still works
+            st => Assert.Equal(5000, Assert.IsType<ProbeSeriesStep>(st).ForMs),
+            st => Assert.Equal(12345, Assert.IsType<ExactFrameStep>(st).ElapsedMs),
+            st => Assert.Equal(10, Assert.IsType<WaitStep>(st).Ms),
+            st => Assert.IsType<StopStep>(st));
+    }
+
+    [Theory]
+    [InlineData("\"type\": \"teleport\"")]
+    [InlineData("\"type\": \"playscene\", \"scene\": \"scenes/linear.json\"")]   // discriminators are case-sensitive
+    [InlineData("\"scene\": \"scenes/linear.json\"")]                           // no type at all
+    public void Parse_InvalidStepType_Throws(string stepBody)
+    {
+        var json = $$"""{ "name": "x", "steps": [ { {{stepBody}} } ] }""";
+        var ex = Assert.Throws<ScenarioException>(() => ScenarioLoader.Parse(json, _dir));
+        Assert.Contains("invalid scenario JSON", ex.Message);
+    }
+
+    [Fact]
+    public void Parse_Invalid_MissingSceneFile_NamesThePath()
+    {
+        var json = """{ "name": "x", "steps": [ { "type": "playScene", "scene": "scenes/nope.json" } ] }""";
+        var ex = Assert.Throws<ScenarioException>(() => ScenarioLoader.Parse(json, _dir));
+        Assert.Contains("scene file not found", ex.Message);
+        Assert.Contains("nope.json", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("""{ "type": "probe", "label": "p", "at": "later" }""", "is not start+Nms or now+Nms")]
+    [InlineData("""{ "type": "probe", "at": "now+10ms" }""", "label is required")]
+    [InlineData("""{ "type": "probeSeries", "label": "s", "everyMs": 1000, "forMs": 500 }""", "forMs must be >= everyMs")]
+    [InlineData("""{ "type": "probeSeries", "label": "s", "everyMs": 0, "forMs": 500 }""", "everyMs must be > 0")]
+    [InlineData("""{ "type": "exactFrame", "label": "e", "elapsedMs": -1 }""", "elapsedMs must be >= 0")]
+    [InlineData("""{ "type": "wait", "ms": 10, "timeoutMs": 0 }""", "timeoutMs must be > 0")]
+    public void Parse_Invalid_StepParameters(string step, string expected)
+    {
+        var json = $$"""{ "name": "x", "steps": [ { "type": "playScene", "scene": "scenes/linear.json" }, {{step}} ] }""";
+        var ex = Assert.Throws<ScenarioException>(() => ScenarioLoader.Parse(json, _dir));
+        Assert.Contains(expected, ex.Message);
+    }
+
+    [Fact]
+    public void Parse_Invalid_ProbeBeforeAnyScene()
+    {
+        var json = """{ "name": "x", "steps": [ { "type": "probe", "label": "p", "at": "now+10ms" } ] }""";
+        Assert.Contains("needs a playScene step before it",
+            Assert.Throws<ScenarioException>(() => ScenarioLoader.Parse(json, _dir)).Message);
+    }
+
+    [Fact]
+    public void Parse_Invalid_EmptyNameAndSteps()
+    {
+        var ex = Assert.Throws<ScenarioException>(() => ScenarioLoader.Parse("""{ "name": "", "steps": [] }""", _dir));
+        Assert.Contains("name is empty", ex.Message);
+        Assert.Contains("steps is empty", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("start+150ms", ProbeAnchor.Start, 150)]
+    [InlineData("now+2000ms", ProbeAnchor.Now, 2000)]
+    [InlineData("START+5", ProbeAnchor.Start, 5)]
+    [InlineData("now", ProbeAnchor.Now, 0)]
+    public void ProbeAt_TryParse_Accepts(string text, ProbeAnchor anchor, long offset)
+    {
+        Assert.True(ProbeAt.TryParse(text, out var a, out var o));
+        Assert.Equal(anchor, a);
+        Assert.Equal(offset, o);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("start-100ms")]
+    [InlineData("soon+1ms")]
+    [InlineData("now+abc")]
+    public void ProbeAt_TryParse_Rejects(string? text) => Assert.False(ProbeAt.TryParse(text, out _, out _));
+
+    [Fact]
+    public void ProbeAt_Resolve_NeverEarlierThanMinLead()
+    {
+        // start+150 lies in the past (start was 10 s ago) → pushed to now + lead
+        Assert.Equal(100_500, ProbeAt.Resolve(ProbeAnchor.Start, 150, sharedStartUtcMs: 90_000, nowUtcMs: 100_000, minLeadMs: 500));
+        Assert.Equal(103_000, ProbeAt.Resolve(ProbeAnchor.Now, 3000, sharedStartUtcMs: 0, nowUtcMs: 100_000, minLeadMs: 500));
+    }
+
+    [Fact]
+    public void SceneFile_Load_MakesAssetPathsAbsolute_AndReadsEnumNames()
+    {
+        var scene = SceneFile.Load(Path.Combine(_dir, "scenes", "linear.json"));
+        Assert.Equal(Path.Combine(_dir, "scenes", "marker.png"), scene.Animation.AnimationPath);
+        Assert.Equal(MovementType.Linear, scene.Movement.Type);
+        Assert.Equal(AnimationDistributionMode.Sequential, scene.DistributionMode);
+    }
+
+    [Fact]
+    public void SceneFile_Load_MissingAsset_Throws()
+    {
+        var path = Path.Combine(_dir, "scenes", "broken.json");
+        File.WriteAllText(path, """{ "Animation": { "AnimationPath": "gone.gif" } }""");
+        Assert.Contains("asset not found", Assert.Throws<ScenarioException>(() => SceneFile.Load(path)).Message);
+    }
+}
