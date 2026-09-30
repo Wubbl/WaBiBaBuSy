@@ -60,6 +60,9 @@ service WallpaperSync {
 
   // Client sends logs to server (triggered by FETCH_LOGS command)
   rpc SendClientLogs(ClientLogData) returns (LogReceiveResponse);
+
+  // Automated test run: client uploads one probe result (header, then PNG chunks per monitor)
+  rpc SubmitProbeResult(stream ProbeResultChunk) returns (ProbeResultAck);
 }
 
 // Client information message
@@ -154,6 +157,8 @@ enum CommandType {
   SYNC_FRAME = 5;
   FETCH_LOGS = 8;         // Request client to upload its log file
   PREFETCH = 9;           // Cache params.assets in the background (playlist prefetch); no rendering
+  TEST_MODE = 10;         // Automated test run: timecode strip on/off, simulated clock skew (params.test_*)
+  TEST_PROBE = 11;        // Automated test run: report the frame shown at timestamp_utc (params.test_*)
 }
 
 // Sync parameters
@@ -187,6 +192,12 @@ message SyncParameters {
   repeated ContentRef assets = 26;     // Every file the scene references (primary, additional images, background image); LOAD downloads all before applying, PREFETCH caches them
   int64 log_from_utc_ms = 27;          // FETCH_LOGS: only lines from this UTC instant (0 = last 500 lines)
   int64 log_to_utc_ms = 28;            // FETCH_LOGS: only lines up to this UTC instant
+  bool test_timecode = 29;             // TEST_MODE: draw the timecode strip
+  int32 test_clock_skew_ms = 30;       // TEST_MODE: simulated skew added to this client's clock (0 = off)
+  string test_probe_id = 31;           // TEST_PROBE
+  bool test_capture = 32;              // TEST_PROBE: read the frame back as PNG
+  bool test_has_exact_elapsed = 33;    // TEST_PROBE: exact-frame probe (offscreen render)
+  int64 test_exact_elapsed_ms = 34;    // TEST_PROBE: the exact effective elapsed to render
 }
 
 // One transferable file of a scene (Tier 1.3 show reliability)
@@ -508,6 +519,33 @@ message ClientLogData {
 
 // Server response to log upload
 message LogReceiveResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// ============================================================================
+// Automated test mode (2026-09-30)
+// ============================================================================
+
+message ProbeResultChunk {
+  oneof part {
+    ProbeResultHeader header = 1;
+    ProbeCaptureChunk capture = 2;
+  }
+}
+
+message ProbeResultHeader {
+  string client_id = 1;
+  string probe_id = 2;
+  string result_json = 3;   // RemoteProbeResult (System.Text.Json); captures travel as chunks
+}
+
+message ProbeCaptureChunk {
+  int32 monitor_index = 1;
+  bytes data = 2;           // up to 256 KB of PNG bytes, in order
+}
+
+message ProbeResultAck {
   bool success = 1;
   string message = 2;
 }

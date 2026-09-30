@@ -55,6 +55,12 @@ public class ClientConfiguration
     public bool PauseOnFullscreen { get; set; } = true;
 
     /// <summary>
+    /// Answer automated test runs from the server (timecode strip, probes with wallpaper screenshots).
+    /// Captures contain only the wallpaper back buffer, never other windows.
+    /// </summary>
+    public bool AllowTestRuns { get; set; } = true;
+
+    /// <summary>
     /// Update settings configuration
     /// </summary>
     public UpdateSettingsConfiguration UpdateSettings { get; set; } = new();

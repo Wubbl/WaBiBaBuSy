@@ -2359,6 +2359,8 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             {
                 _service.SetD2DCrossScreenApplyDelegate(ApplyCrossScreenD2DFromRemoteAsync);
                 _service.SetD2DCrossScreenStopDelegate(StopRemoteCrossScreenD2DAsync);
+                if (_service.Client != null)
+                    _service.Client.TestProbeTargets = () => _remoteD2DServices.Values.Cast<WaBiBaBuSy.Core.Services.Testing.ITestProbeTarget>().ToList();
             }
 
             if (connected)
@@ -2541,6 +2543,12 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             layout: req.PerMonitorMode ? null : remoteNodeLayout);
 
         await Task.Delay(100);
+
+        // Test mode (timecode / simulated skew) must reach a new player before its start command:
+        // the skew shifts the player's clock, and the start is converted with the skewed offset.
+        var testMode = _service.Client?.TestModeState ?? default;
+        if (testMode.Timecode || testMode.ClockSkewMs != 0)
+            await d2dService.SetTestModeAsync(testMode.Timecode, testMode.ClockSkewMs);
 
         // Same speed convention as the local start path: Static → 0.
         var pixelsPerSecond = movementConfig == null || movementConfig.Type == MovementType.Static

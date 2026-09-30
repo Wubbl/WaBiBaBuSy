@@ -8,6 +8,9 @@ using WaBiBaBuSy.Models.Networking;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using Google.Protobuf;
+using System.Text.Json;
+using WaBiBaBuSy.Core.Services.Testing;
+using WaBiBaBuSy.Models.Testing;
 using AppVersionInfo = WaBiBaBuSy.Common.Version.VersionInfo;
 
 namespace WaBiBaBuSy.Core.Services.Networking;
@@ -36,6 +39,19 @@ public class WallpaperSyncClient : IDisposable
     private byte[]? _lastSentThumbnail;
     private long _thumbnailDueTick;
     private readonly ClockOffsetEstimator _clockOffset = new();
+
+    // Automated test mode (2026-09-30): simulated skew of this machine's clock and the players to probe.
+    private volatile int _clockSkewMs;
+    private readonly PerfSampler _perfSampler = new();
+
+    /// <summary>Set by the UI: this client's running D2D players (one per monitor that plays).</summary>
+    public Func<IReadOnlyList<ITestProbeTarget>>? TestProbeTargets { get; set; }
+
+    /// <summary>Last TEST_MODE from the server; applied to players created later (before their start).</summary>
+    public (bool Timecode, int ClockSkewMs) TestModeState { get; private set; }
+
+    /// <summary>This machine's clock as the sync sees it: real UTC plus the simulated test skew (0 outside tests).</summary>
+    private long NowMs() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + _clockSkewMs;
     private readonly ReconnectBackoff _backoff = new();
     private string? _serverAddress;
     private int _serverPort;
@@ -414,7 +430,7 @@ public class WallpaperSyncClient : IDisposable
             return;
         }
 
-        var sendMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var sendMs = NowMs();
         var request = new HeartbeatRequest
         {
             ClientId = _clientId,
@@ -440,7 +456,7 @@ public class WallpaperSyncClient : IDisposable
         }
 
         var response = await _client.HeartbeatAsync(request);
-        var receiveMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var receiveMs = NowMs();
 
         // NTP-style clock sync: every heartbeat is a free offset/RTT sample.
         if (response.Acknowledged && response.ServerTimestamp != 0)
@@ -796,6 +812,109 @@ public class WallpaperSyncClient : IDisposable
         }
     }
 
+    /// <summary>
+    /// TEST_MODE: remember the state (for players created later), switch the simulated skew and
+    /// re-measure the clock offset right away, then forward to the running players.
+    /// </summary>
+    private void ApplyTestMode(SyncParameters p)
+    {
+        if (!_configuration.AllowTestRuns)
+        {
+            _logger.LogWarning("Ignoring TEST_MODE: test runs are disabled on this client");
+            return;
+        }
+
+        TestModeState = (p.TestTimecode, p.TestClockSkewMs);
+        if (_clockSkewMs != p.TestClockSkewMs)
+        {
+            _clockSkewMs = p.TestClockSkewMs;
+            _clockOffset.Reset();   // old samples were taken with the old clock
+            _ = Task.Run(async () =>
+            {
+                for (int i = 0; i < 3; i++)
+                {
+                    try { await SendHeartbeatAsync(); } catch (Exception ex) { _logger.LogDebug(ex, "Re-sync heartbeat failed"); }
+                    await Task.Delay(300);
+                }
+            });
+        }
+        _logger.LogInformation("[Test] Timecode={Timecode} SimulatedSkew={Skew}ms", p.TestTimecode, p.TestClockSkewMs);
+
+        var targets = TestProbeTargets?.Invoke() ?? Array.Empty<ITestProbeTarget>();
+        _ = ProbeFanOut.SetTestModeAllAsync(targets, p.TestTimecode, p.TestClockSkewMs);
+    }
+
+    /// <summary>TEST_PROBE: probe every local player at the (already local) instant and upload the result.</summary>
+    private async Task HandleTestProbeAsync(SyncCommand command)
+    {
+        var p = command.Params ?? new SyncParameters();
+        var result = new RemoteProbeResult
+        {
+            ClientId = _clientId ?? string.Empty,
+            ProbeId = p.TestProbeId,
+            ClockOffsetMs = _clockOffset.OffsetMs,
+            RttMs = _clockOffset.RttMs,
+        };
+        try
+        {
+            var targets = TestProbeTargets?.Invoke() ?? Array.Empty<ITestProbeTarget>();
+            if (!_configuration.AllowTestRuns) result.Error = TestModeErrors.Disabled;
+            else if (targets.Count == 0) result.Error = TestModeErrors.NoPlayer;
+            else
+            {
+                var request = new PlayerProbeRequest
+                {
+                    ProbeId = p.TestProbeId,
+                    AtLocalUtcMs = command.TimestampUtc,   // converted to this machine's clock on receipt
+                    Capture = p.TestCapture,
+                    ExactElapsedMs = p.TestHasExactElapsed ? p.TestExactElapsedMs : null,
+                    CaptureDirectory = Path.Combine(Path.GetTempPath(), "WaBiBaBuSy", "probes"),
+                };
+                var wait = TimeSpan.FromMilliseconds(Math.Max(0, command.TimestampUtc - NowMs()) + 2000);
+                result.Replies = (await ProbeFanOut.ProbeAllAsync(targets, request, wait, CancellationToken.None)).ToList();
+                foreach (var reply in result.Replies)
+                {
+                    if (reply.CapturePath == null || !File.Exists(reply.CapturePath)) continue;
+                    result.Captures[reply.MonitorIndex] = await File.ReadAllBytesAsync(reply.CapturePath);
+                    try { File.Delete(reply.CapturePath); } catch { /* temp file */ }
+                }
+            }
+            result.Perf = _perfSampler.Sample();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Test probe {ProbeId} failed", p.TestProbeId);
+            result.Error ??= ex.Message;
+        }
+        await SubmitProbeResultAsync(result);
+    }
+
+    private async Task SubmitProbeResultAsync(RemoteProbeResult result)
+    {
+        if (_client == null) return;
+        const int chunkSize = 256 * 1024;
+        try
+        {
+            using var call = _client.SubmitProbeResult();
+            await call.RequestStream.WriteAsync(new ProbeResultChunk
+            {
+                Header = new ProbeResultHeader { ClientId = result.ClientId, ProbeId = result.ProbeId, ResultJson = JsonSerializer.Serialize(result) }
+            });
+            foreach (var (monitor, png) in result.Captures)
+                for (int offset = 0; offset < png.Length; offset += chunkSize)
+                    await call.RequestStream.WriteAsync(new ProbeResultChunk
+                    {
+                        Capture = new ProbeCaptureChunk { MonitorIndex = monitor, Data = ByteString.CopyFrom(png, offset, Math.Min(chunkSize, png.Length - offset)) }
+                    });
+            await call.RequestStream.CompleteAsync();
+            await call.ResponseAsync;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not upload probe result {ProbeId}", result.ProbeId);
+        }
+    }
+
     private static TimeSpan ToLocalTimeOfDay(long utcMs) =>
         DateTimeOffset.FromUnixTimeMilliseconds(utcMs).ToLocalTime().TimeOfDay;
 
@@ -896,6 +1015,19 @@ public class WallpaperSyncClient : IDisposable
                         var logDir = ConfigurationManager.LoadLoggingConfiguration().LogDirectory;
                         long from = command.Params?.LogFromUtcMs ?? 0, to = command.Params?.LogToUtcMs ?? 0;
                         _ = Task.Run(() => SendLogsToServerAsync(logDir, from, to));
+                        continue;
+                    }
+
+                    // Automated test mode: handled here, never passed to the playback service (no scheduling wait).
+                    if (command.Type == CommandType.TestMode)
+                    {
+                        ApplyTestMode(command.Params ?? new SyncParameters());
+                        continue;
+                    }
+                    if (command.Type == CommandType.TestProbe)
+                    {
+                        var probeCommand = command;
+                        _ = Task.Run(() => HandleTestProbeAsync(probeCommand));
                         continue;
                     }
 
