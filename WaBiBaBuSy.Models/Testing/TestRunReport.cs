@@ -16,10 +16,21 @@ public sealed class TestRunReport
     public ScenarioThresholds Thresholds { get; set; } = new();
     public List<StepReport> Steps { get; set; } = new();
     public List<string> Warnings { get; set; } = new();
+    /// <summary>Remotes connected at preflight that went missing mid-run (spec §8), once per node; the run verdict is then at least Warn.</summary>
+    public List<NodeFailure> NodeFailures { get; set; } = new();
     /// <summary>Collected logs, relative to the results folder.</summary>
     public List<string> LogFiles { get; set; } = new();
     public string ClockNote { get; set; } =
         "Probe times are converted with each client's clock-offset estimate, so an error in that estimate itself is invisible here; it is bounded by RTT/2 per node (clockBoundMs).";
+}
+
+/// <summary>A remote node lost during the run: when and why. Later steps run without it.</summary>
+public sealed class NodeFailure
+{
+    public string NodeId { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public long AtUtcMs { get; set; }
+    public string Reason { get; set; } = string.Empty;
 }
 
 public sealed class RunEnvironment
@@ -71,6 +82,8 @@ public sealed class ProbeReport
     public List<PositionCheckResult> Positions { get; set; } = new();
     public List<PixelParityResult> Parity { get; set; } = new();
     public List<string> PerfViolations { get; set; } = new();
+    /// <summary>Further findings of this probe (e.g. a simulated clock skew that never showed up in the clock offset).</summary>
+    public List<string> Messages { get; set; } = new();
     /// <summary>Set when the probe itself broke (IO error, unreadable frame, ...); the verdict is then Fail.</summary>
     public string? Error { get; set; }
 }

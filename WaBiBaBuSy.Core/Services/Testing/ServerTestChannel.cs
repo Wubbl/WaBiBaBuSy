@@ -46,7 +46,7 @@ public sealed class ServerTestChannel : ITestTransport, IDisposable
                 },
             });
             if (!sent)
-                return new RemoteProbeResult { ClientId = clientId, ProbeId = request.ProbeId, Error = "client has no command stream" };
+                return new RemoteProbeResult { ClientId = clientId, ProbeId = request.ProbeId, Error = TestModeErrors.NoCommandStream };
 
             var finished = await Task.WhenAny(waiter.Task, Task.Delay(timeout, ct));
             return finished == waiter.Task ? await waiter.Task : null;

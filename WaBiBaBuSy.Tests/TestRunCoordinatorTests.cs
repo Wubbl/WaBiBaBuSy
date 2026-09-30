@@ -60,6 +60,29 @@ public class TestRunCoordinatorTests : IDisposable
     }
 
     [Fact]
+    public async Task WaitForIdle_AfterCancel_ReturnsOnceThePartialReportIsWritten()
+    {
+        var c = Coordinator();
+        Assert.True(await c.WaitForIdleAsync(TimeSpan.FromSeconds(1)));   // nothing running
+
+        _ = c.StartAsync(Path.Combine(_dir, "wait.json"));
+        c.Cancel();
+        Assert.True(await c.WaitForIdleAsync(TimeSpan.FromSeconds(10)));
+        Assert.False(c.IsRunning);
+        Assert.True(File.Exists(Path.Combine(Assert.Single(c.ListRuns()), "report.json")));
+    }
+
+    [Fact]
+    public async Task WaitForIdle_TimesOut_WhileTheRunContinues()
+    {
+        var c = Coordinator();
+        _ = c.StartAsync(Path.Combine(_dir, "wait.json"));
+        Assert.False(await c.WaitForIdleAsync(TimeSpan.FromMilliseconds(50)));
+        c.Cancel();
+        Assert.True(await c.WaitForIdleAsync(TimeSpan.FromSeconds(10)));
+    }
+
+    [Fact]
     public void BadScenario_ThrowsBeforeStarting() =>
         Assert.Throws<ScenarioException>(() => { _ = Coordinator().StartAsync(Path.Combine(_dir, "missing.json")); });
 

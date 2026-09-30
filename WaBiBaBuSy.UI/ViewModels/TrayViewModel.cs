@@ -240,7 +240,10 @@ public partial class TrayViewModel : ObservableObject
 
     private async Task ExitAsync(int exitCode)
     {
-        _testCoordinator.Cancel();
+        // An active test run: let it write the partial report and switch test mode off on every node
+        // before the players and the server go away.
+        if (_testCoordinator.Cancel() && !await _testCoordinator.WaitForIdleAsync(TimeSpan.FromSeconds(10)))
+            Console.WriteLine("[Test] The test run did not finish within 10 s of cancelling; exiting anyway");
 
         // Cleanup wallpaper renderers (kill player processes)
         if (_mainWindow?.DataContext is MainWindowViewModel mainViewModel)

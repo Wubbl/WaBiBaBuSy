@@ -200,6 +200,7 @@ public class WallpaperSyncClient : IDisposable
         StopHeartbeat();
         StopSyncStream();
         StopThumbnailSending();
+        ClearTestMode("disconnected");
 
         IsConnected = false;
         ConnectionStatusChanged?.Invoke(this,
@@ -229,6 +230,7 @@ public class WallpaperSyncClient : IDisposable
         if (Interlocked.Exchange(ref _reconnecting, 1) == 1) return;
 
         _logger.LogWarning("Connection lost ({Reason}) — starting auto-reconnect with exponential backoff", reason);
+        ClearTestMode(reason);
         IsConnected = false;
         ConnectionStatusChanged?.Invoke(this,
             new ConnectionStatusChangedEventArgs(false, _serverAddress ?? string.Empty, _serverPort));
@@ -847,6 +849,31 @@ public class WallpaperSyncClient : IDisposable
         _ = ProbeFanOut.SetTestModeAllAsync(targets, p.TestTimecode, p.TestClockSkewMs);
     }
 
+    /// <summary>
+    /// Leave test mode when the server can no longer switch it off (stream lost, disconnect): drop the simulated
+    /// skew (re-measuring the clock offset if it was set) and turn the timecode strip off on the running players.
+    /// </summary>
+    private void ClearTestMode(string reason)
+    {
+        if (TestModeState == (false, 0) && _clockSkewMs == 0) return;
+        TestModeState = (false, 0);
+        if (_clockSkewMs != 0)
+        {
+            _clockSkewMs = 0;
+            _clockOffset.Reset();   // samples were taken with the skewed clock
+        }
+        _logger.LogInformation("[Test] Test mode cleared ({Reason})", reason);
+        try
+        {
+            var targets = TestProbeTargets?.Invoke() ?? Array.Empty<ITestProbeTarget>();
+            _ = ProbeFanOut.SetTestModeAllAsync(targets, false, 0);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Test] Could not switch test mode off on the players");
+        }
+    }
+
     /// <summary>TEST_PROBE: probe every local player at the (already local) instant and upload the result.</summary>
     private async Task HandleTestProbeAsync(SyncCommand command)
     {
@@ -1043,6 +1070,7 @@ public class WallpaperSyncClient : IDisposable
                     _logger.LogInformation("[SyncStream] Sending acknowledgment for sequence {Seq}", command.SequenceNumber);
                     await SendSyncResponseAsync(command.SequenceNumber, WallpaperStateEnum.WallpaperBuffering);
                 }
+                ClearTestMode("sync stream ended");   // the server closed the stream
             }
             catch (OperationCanceledException)
             {

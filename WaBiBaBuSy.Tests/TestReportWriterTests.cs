@@ -62,4 +62,20 @@ public class TestReportWriterTests : IDisposable
         Assert.Contains("pc-02 runs 2.6.2", html);
         Assert.Contains("prefers-color-scheme: dark", html);
     }
+
+    [Fact]
+    public void Html_ChartUsesTheScenarioThresholds_AndListsNodeFailures()
+    {
+        var report = Report();
+        report.Thresholds = new ScenarioThresholds { DriftWarnMs = 10, DriftSpreadMs = 20.5 };
+        report.NodeFailures.Add(new NodeFailure { NodeId = "b", Name = "pc-02", AtUtcMs = 1000, Reason = "probe 02-002: client has no command stream" });
+
+        var html = TestReportWriter.RenderHtml(report);
+
+        Assert.Contains(">10</text>", html);
+        Assert.Contains(">20.5</text>", html);
+        Assert.DoesNotContain(">25</text>", html);
+        Assert.Contains("Node failures", html);
+        Assert.Contains("pc-02: probe 02-002: client has no command stream", html);
+    }
 }

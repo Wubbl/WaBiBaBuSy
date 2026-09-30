@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Reflection;
 using Microsoft.Extensions.Logging;
@@ -51,6 +52,13 @@ public sealed class TestRunner
         public bool ScenePlayed { get; set; }
         public int ProbeSeq { get; set; }
         public bool IsTarget(string nodeId) => ActiveTargets == null || ActiveTargets.Contains(nodeId);
+        /// <summary>Clock offset per remote at preflight (before any simulated skew).</summary>
+        public Dictionary<string, double> PreflightOffsetMs { get; } = new();
+        /// <summary>Nonzero skews sent by the last testMode step, checked by the next probe that reaches the node.</summary>
+        public ConcurrentDictionary<string, (int SkewMs, double BaselineOffsetMs)> PendingSkewChecks { get; } = new();
+        /// <summary>Remotes lost mid-run (see <see cref="TestRunReport.NodeFailures"/>); later steps skip them.</summary>
+        public ConcurrentDictionary<string, bool> Lost { get; } = new();
+        public IEnumerable<TestNodeInfo> LiveRemotes => Remotes.Where(n => !Lost.ContainsKey(n.NodeId));
     }
 
     /// <summary>Run the scenario; always returns a report (partial on cancel / abort) and writes it to disk.</summary>
@@ -138,7 +146,7 @@ public sealed class TestRunner
             {
                 report.FinishedUtc = DateTimeOffset.FromUnixTimeMilliseconds(_o.NowUtcMs());
                 report.Verdict = report.Steps.Aggregate(Verdict.Skipped, (v, s) => Verdicts.Worst(v, s.Verdict));
-                if (report.Aborted) report.Verdict = Verdicts.Worst(report.Verdict, Verdict.Warn);
+                if (report.Aborted || report.NodeFailures.Count > 0) report.Verdict = Verdicts.Worst(report.Verdict, Verdict.Warn);
                 try { TestReportWriter.Write(report); }
                 catch (Exception ex) { _logger.LogError(ex, "Could not write the test report to {Dir}", report.ResultsDirectory); }
                 try { Directory.Delete(Path.Combine(report.ResultsDirectory, "tmp"), recursive: true); } catch { /* may not exist */ }
@@ -190,8 +198,11 @@ public sealed class TestRunner
             return false;
         }
         for (int i = 0; i < ctx.Remotes.Count; i++)
+        {
             if (results[i] == null)
                 report.Warnings.Add($"{ctx.Remotes[i].Name} did not answer the preflight probe (older build or no command stream?)");
+            ctx.PreflightOffsetMs[ctx.Remotes[i].NodeId] = results[i] is { Error: not TestModeErrors.NoCommandStream } r ? r.ClockOffsetMs : ctx.Remotes[i].ClockOffsetMs;
+        }
         return true;
     }
 
@@ -222,16 +233,31 @@ public sealed class TestRunner
             case TestModeStep mode:
                 ctx.Mode = mode;
                 ctx.Timecode = mode.Timecode;
+                var live = ctx.LiveRemotes.ToList();
+                // A key that matches no node would silently test nothing (e.g. an unedited placeholder hostname).
+                var unmatched = mode.SimulatedClockSkewMs.Keys.Where(k => !live.Any(n => SkewKeyMatches(k, n))).ToList();
                 var failed = new List<string>();
-                foreach (var n in ctx.Remotes)
-                    if (!await _transport.SendTestModeAsync(n.NodeId, mode.Timecode, SkewFor(mode, n)))
+                ctx.PendingSkewChecks.Clear();
+                foreach (var n in live)
+                {
+                    int skew = SkewFor(mode, n);
+                    if (!await _transport.SendTestModeAsync(n.NodeId, mode.Timecode, skew))
+                    {
                         failed.Add(n.Name);
+                        RecordNodeFailure(ctx, n, $"test mode not delivered: {TestModeErrors.NoCommandStream}");
+                    }
+                    else if (skew != 0)
+                    {
+                        ctx.PendingSkewChecks[n.NodeId] = (skew, ctx.PreflightOffsetMs.TryGetValue(n.NodeId, out var baseline) ? baseline : n.ClockOffsetMs);
+                    }
+                }
                 await ProbeFanOut.SetTestModeAllAsync(_host.LocalProbeTargets(), mode.Timecode, 0);
-                var skews = ctx.Remotes.Where(n => SkewFor(mode, n) != 0).Select(n => $"{n.Name} {SkewFor(mode, n):+#;-#} ms");
-                sr.Verdict = failed.Count == 0 ? Verdict.Pass : Verdict.Warn;
+                var skews = live.Where(n => SkewFor(mode, n) != 0).Select(n => $"{n.Name} {SkewFor(mode, n):+#;-#} ms");
+                sr.Verdict = unmatched.Count > 0 ? Verdict.Fail : failed.Count == 0 ? Verdict.Pass : Verdict.Warn;
                 sr.Message = $"timecode {(mode.Timecode ? "on" : "off")}"
                     + (skews.Any() ? $", simulated skew: {string.Join(", ", skews)}" : "")
-                    + (failed.Count > 0 ? $"; not reached: {string.Join(", ", failed)}" : "");
+                    + (failed.Count > 0 ? $"; not reached: {string.Join(", ", failed)}" : "")
+                    + string.Concat(unmatched.Select(k => $"; simulated skew key '{k}' matches no connected node"));
                 break;
 
             case PlaySceneStep play:
@@ -269,7 +295,7 @@ public sealed class TestRunner
                 var single = await ProbeOnceAsync(ctx, sr, at, probe.Capture, exactElapsedMs: null, perf: false, ct);
                 sr.Probes.Add(single);
                 sr.Verdict = single.Verdict;
-                sr.Message = single.Drift?.Message ?? string.Empty;
+                sr.Message = string.Join("; ", new[] { single.Drift?.Message ?? string.Empty }.Concat(single.Messages).Where(m => m.Length > 0));
                 break;
 
             case ProbeSeriesStep series:
@@ -289,6 +315,8 @@ public sealed class TestRunner
                     if (perfIssues.Count > 0) sr.Message += $"; perf: {string.Join("; ", perfIssues)}";
                     var faults = sr.Probes.Where(p => p.Error != null).Select(p => $"{p.ProbeId}: {p.Error}").ToList();
                     if (faults.Count > 0) sr.Message += $"; {faults.Count} probe(s) failed: {string.Join("; ", faults.Take(3))}";
+                    var notes = sr.Probes.SelectMany(p => p.Messages).Distinct().ToList();
+                    if (notes.Count > 0) sr.Message += $"; {string.Join("; ", notes)}";
                 }
                 break;
 
@@ -396,7 +424,7 @@ public sealed class TestRunner
             CaptureDirectory = Path.Combine(ctx.Dir, "tmp"),
         }, timeout, ct);
 
-        var remotes = ctx.Remotes.Where(n => ctx.IsTarget(n.NodeId)).ToList();
+        var remotes = ctx.LiveRemotes.Where(n => ctx.IsTarget(n.NodeId)).ToList();
         var request = new ProbeRequest { ProbeId = probeId, AtServerUtcMs = atServerUtcMs, Capture = capture, ExactElapsedMs = exactElapsedMs };
         var remoteTasks = remotes.Select(n => _transport.ProbeAsync(n.NodeId, request, timeout + TimeSpan.FromMilliseconds(_o.UploadGraceMs), ct)).ToList();
 
@@ -417,6 +445,7 @@ public sealed class TestRunner
             pr.Samples.Add(sample);
         }
 
+        var skewIssues = new List<string>();
         for (int i = 0; i < remotes.Count; i++)
         {
             var node = remotes[i];
@@ -425,6 +454,16 @@ public sealed class TestRunner
             {
                 pr.Samples.Add(NodeProbeSample.MissingFor(node.NodeId, node.Name, 0, false, $"no reply within {timeout.TotalSeconds:F1} s"));
                 continue;
+            }
+            if (result.Error == TestModeErrors.NoCommandStream)
+                RecordNodeFailure(ctx, node, $"probe {probeId}: {result.Error}");
+            else if (ctx.PendingSkewChecks.TryRemove(node.NodeId, out var check))
+            {
+                // The skew shifts the client clock by +skew, so its offset (server - client) must move by -skew.
+                double moved = result.ClockOffsetMs - check.BaselineOffsetMs;
+                double tolerance = Math.Max(50, result.RttMs);
+                if (Math.Abs(moved + check.SkewMs) > tolerance)
+                    skewIssues.Add($"simulated skew on {node.Name} not seen: clock offset moved {moved:+0;-0;0} ms since preflight, expected ≈ {-check.SkewMs:+0;-0} ms (±{tolerance:F0})");
             }
             if (result.Replies.Count == 0)
             {
@@ -451,6 +490,20 @@ public sealed class TestRunner
         }
         if (exactElapsedMs != null) EvaluateParity(ctx, sr, pr);
         if (perf) EvaluatePerf(pr, t);
+        if (skewIssues.Count > 0)
+        {
+            pr.Messages.AddRange(skewIssues);
+            pr.Verdict = Verdicts.Worst(pr.Verdict, Verdict.Fail);
+        }
+    }
+
+    /// <summary>Spec §8: a remote connected at preflight went missing. Recorded once per node; later steps skip it.</summary>
+    private void RecordNodeFailure(RunContext ctx, TestNodeInfo node, string reason)
+    {
+        if (!ctx.Lost.TryAdd(node.NodeId, true)) return;
+        _logger.LogWarning("Test run lost node {Node}: {Reason}", node.Name, reason);
+        lock (ctx.Report.NodeFailures)
+            ctx.Report.NodeFailures.Add(new NodeFailure { NodeId = node.NodeId, Name = node.Name, AtUtcMs = _o.NowUtcMs(), Reason = reason });
     }
 
     private void EvaluatePositions(RunContext ctx, ProbeReport pr)
@@ -651,10 +704,17 @@ public sealed class TestRunner
         _ => _o.DefaultStepTimeoutMs,
     };
 
-    private static int SkewFor(TestModeStep mode, TestNodeInfo node) =>
-        mode.SimulatedClockSkewMs.TryGetValue(node.Name, out var byName) ? byName
-        : mode.SimulatedClockSkewMs.TryGetValue(node.NodeId, out var byId) ? byId
-        : 0;
+    /// <summary>Skew for a node: key = its NodeId (exact) or its name (case-insensitive, hostnames); NodeId wins.</summary>
+    private static int SkewFor(TestModeStep mode, TestNodeInfo node)
+    {
+        if (mode.SimulatedClockSkewMs.TryGetValue(node.NodeId, out var byId)) return byId;
+        foreach (var (key, ms) in mode.SimulatedClockSkewMs)
+            if (key.Equals(node.Name, StringComparison.OrdinalIgnoreCase)) return ms;
+        return 0;
+    }
+
+    private static bool SkewKeyMatches(string key, TestNodeInfo node) =>
+        key == node.NodeId || key.Equals(node.Name, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>null = all nodes; otherwise the matching node ids (possibly empty = no match).</summary>
     private static List<string>? ResolveTargets(string targets, IReadOnlyList<TestNodeInfo> nodes)

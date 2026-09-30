@@ -53,9 +53,17 @@ public static class TestReportWriter
             foreach (var w in r.Warnings) sb.Append("<li>").Append(E(w)).Append("</li>");
             sb.Append("</ul>");
         }
+        if (r.NodeFailures.Count > 0)
+        {
+            sb.Append("<h3>Node failures</h3><ul class=\"missing\">");
+            foreach (var f in r.NodeFailures)
+                sb.Append("<li>").Append(E(DateTimeOffset.FromUnixTimeMilliseconds(f.AtUtcMs).ToLocalTime().ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture)))
+                  .Append(" · ").Append(E(f.Name)).Append(": ").Append(E(f.Reason)).Append("</li>");
+            sb.Append("</ul>");
+        }
         sb.Append("<p class=\"note\">").Append(E(r.ClockNote)).Append("</p></section>");
 
-        foreach (var step in r.Steps) RenderStep(sb, step);
+        foreach (var step in r.Steps) RenderStep(sb, step, r.Thresholds);
 
         if (r.LogFiles.Count > 0)
         {
@@ -67,24 +75,25 @@ public static class TestReportWriter
         return sb.ToString();
     }
 
-    private static void RenderStep(StringBuilder sb, StepReport s)
+    private static void RenderStep(StringBuilder sb, StepReport s, ScenarioThresholds thresholds)
     {
         sb.Append("<section class=\"step\"><h2>").Append(s.Index).Append(". ").Append(E(s.Label ?? s.Kind))
           .Append(" <small>").Append(E(s.Kind)).Append("</small> ").Append(Badge(s.Verdict)).Append("</h2>");
         if (s.Message.Length > 0) sb.Append("<p>").Append(E(s.Message)).Append("</p>");
 
         var timed = s.Probes.Where(p => p.Drift is { Verdict: not Verdict.Skipped }).ToList();
-        if (timed.Count >= 2) sb.Append(DriftChart(timed));
+        if (timed.Count >= 2) sb.Append(DriftChart(timed, thresholds));
 
         foreach (var p in s.Probes)
         {
             bool hasImages = p.Samples.Any(x => x.CapturePath != null);
-            bool interesting = hasImages || p.Parity.Count > 0 || p.PerfViolations.Count > 0 || s.Probes.Count == 1 || p.Verdict is Verdict.Fail or Verdict.Warn || p.Error != null;
+            bool interesting = hasImages || p.Parity.Count > 0 || p.PerfViolations.Count > 0 || p.Messages.Count > 0 || s.Probes.Count == 1 || p.Verdict is Verdict.Fail or Verdict.Warn || p.Error != null;
             if (!interesting) continue;
 
             sb.Append("<div class=\"probe\"><h3>Probe ").Append(E(p.ProbeId)).Append(' ').Append(Badge(p.Verdict)).Append("</h3>");
             if (p.Error != null) sb.Append("<p class=\"missing\">").Append(E(p.Error)).Append("</p>");
             if (p.Drift != null) sb.Append("<p>").Append(E(p.Drift.Message)).Append("</p>");
+            foreach (var m in p.Messages) sb.Append("<p class=\"missing\">").Append(E(m)).Append("</p>");
 
             if (p.Drift != null && p.Drift.Errors.Count > 0)
             {
@@ -141,18 +150,18 @@ public static class TestReportWriter
         return sb.ToString();
     }
 
-    private static string DriftChart(IReadOnlyList<ProbeReport> probes)
+    private static string DriftChart(IReadOnlyList<ProbeReport> probes, ScenarioThresholds thresholds)
     {
         const int w = 600, h = 160, pad = 28;
-        double max = Math.Max(60, probes.Max(p => p.Drift!.SpreadMs) * 1.1);
+        double max = Math.Max(Math.Max(60, thresholds.DriftSpreadMs * 1.2), probes.Max(p => p.Drift!.SpreadMs) * 1.1);
         string X(int i) => F(pad + i * (double)(w - 2 * pad) / Math.Max(1, probes.Count - 1));
         string Y(double v) => F(h - pad - v / max * (h - 2 * pad));
         var points = string.Join(' ', probes.Select((p, i) => $"{X(i)},{Y(p.Drift!.SpreadMs)}"));
         var sb = new StringBuilder("<figure class=\"chart\"><svg viewBox=\"0 0 ").Append(w).Append(' ').Append(h).Append("\" role=\"img\" aria-label=\"drift spread per probe\">");
         sb.Append("<line class=\"axis\" x1=\"").Append(pad).Append("\" y1=\"").Append(h - pad).Append("\" x2=\"").Append(w - pad).Append("\" y2=\"").Append(h - pad).Append("\"/>");
-        foreach (var (v, cls) in new[] { (25.0, "warn"), (50.0, "fail") })
+        foreach (var (v, cls) in new[] { (thresholds.DriftWarnMs, "warn"), (thresholds.DriftSpreadMs, "fail") })
             sb.Append("<line class=\"limit ").Append(cls).Append("\" x1=\"").Append(pad).Append("\" y1=\"").Append(Y(v)).Append("\" x2=\"").Append(w - pad)
-              .Append("\" y2=\"").Append(Y(v)).Append("\"/><text x=\"").Append(w - pad + 2).Append("\" y=\"").Append(Y(v)).Append("\">").Append(v).Append("</text>");
+              .Append("\" y2=\"").Append(Y(v)).Append("\"/><text x=\"").Append(w - pad + 2).Append("\" y=\"").Append(Y(v)).Append("\">").Append(F(v)).Append("</text>");
         sb.Append("<polyline points=\"").Append(points).Append("\"/>");
         sb.Append("</svg><figcaption>Drift spread (ms) per probe</figcaption></figure>");
         return sb.ToString();

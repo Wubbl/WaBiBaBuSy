@@ -247,6 +247,59 @@ public class TestRunnerTests : IDisposable
         Assert.Contains("1 probe(s) failed", step.Message);
     }
 
+    [Fact]
+    public async Task UnmatchedSkewKey_FailsTheTestModeStep()
+    {
+        var report = await Runner().RunAsync(Scenario("""{ "type": "testMode", "timecode": true, "simulatedClockSkewMs": { "REMOTE-HOSTNAME-1": 2000 } }"""),
+            "unit.json", CancellationToken.None);
+        Assert.Equal(Verdict.Fail, report.Steps[0].Verdict);
+        Assert.Contains("simulated skew key 'REMOTE-HOSTNAME-1' matches no connected node", report.Steps[0].Message);
+        Assert.Equal((true, 0), _transport.Modes[0]);   // nothing applied to pc-02
+    }
+
+    [Fact]
+    public async Task SkewKey_MatchesNodeNameCaseInsensitively()
+    {
+        var report = await Runner().RunAsync(Scenario("""{ "type": "testMode", "timecode": false, "simulatedClockSkewMs": { "PC-02": -1500 } }"""),
+            "unit.json", CancellationToken.None);
+        Assert.Equal(Verdict.Pass, report.Steps[0].Verdict);
+        Assert.Equal((false, -1500), _transport.Modes[0]);
+    }
+
+    [Fact]
+    public async Task SkewNotSeenInTheClockOffset_FailsTheFirstProbe()
+    {
+        _transport.IgnoreSkew = true;   // the client acknowledges TEST_MODE but its clock offset never moves
+        var report = await Runner().RunAsync(Scenario($$"""
+            { "type": "testMode", "timecode": false, "simulatedClockSkewMs": { "pc-02": 2000 } },
+            {{PlayMarker}},
+            { "type": "probe", "label": "p", "at": "now+30ms", "capture": false }
+            """), "unit.json", CancellationToken.None);
+        var probe = report.Steps[2].Probes[0];
+        Assert.Equal(Verdict.Fail, probe.Verdict);
+        Assert.Contains(probe.Messages, m => m.Contains("simulated skew on pc-02 not seen"));
+        Assert.Contains("simulated skew on pc-02 not seen", report.Steps[2].Message);
+    }
+
+    [Fact]
+    public async Task RemoteLosesItsCommandStream_RecordsOneNodeFailure_RunContinues()
+    {
+        _transport.NoStreamFromProbeId = "02-002";
+        var report = await Runner().RunAsync(Scenario($$"""{{PlayMarker}}, { "type": "probeSeries", "label": "s", "everyMs": 150, "forMs": 600, "perf": false, "capture": false }, { "type": "stop" }"""),
+            "unit.json", CancellationToken.None);
+
+        Assert.False(report.Aborted, report.AbortReason);
+        var failure = Assert.Single(report.NodeFailures);
+        Assert.Equal("client-1", failure.NodeId);
+        Assert.Equal("pc-02", failure.Name);
+        Assert.True(failure.AtUtcMs > 0);
+        Assert.Contains(TestModeErrors.NoCommandStream, failure.Reason);
+        Assert.Equal(4, report.Steps[1].Probes.Count);                                        // the series kept going
+        Assert.Equal(Verdict.Pass, report.Steps[2].Verdict);                                  // and so did the run
+        Assert.Equal(Verdict.Warn, report.Verdict);
+        Assert.Contains("Node failures", File.ReadAllText(Path.Combine(report.ResultsDirectory, "report.html")));
+    }
+
     // ── fakes ──────────────────────────────────────────────────────────────
 
     private static long Now() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -359,10 +412,16 @@ public class TestRunnerTests : IDisposable
         public string? Error { get; set; }
         /// <summary>When set, remote probe results carry a perf sample with this much player memory.</summary>
         public double? RemoteMemoryMb { get; set; }
+        /// <summary>The simulated skew is acknowledged but never reaches the reported clock offset.</summary>
+        public bool IgnoreSkew { get; set; }
+        /// <summary>From this probe id on (ordinal), the client has no command stream (disconnected).</summary>
+        public string? NoStreamFromProbeId { get; set; }
+        private int _skewMs;
 
         public Task<bool> SendTestModeAsync(string clientId, bool timecode, int clockSkewMs)
         {
             Modes.Add((timecode, clockSkewMs));
+            if (!IgnoreSkew) _skewMs = clockSkewMs;
             return Task.FromResult(true);
         }
 
@@ -372,11 +431,14 @@ public class TestRunnerTests : IDisposable
             if (request.ProbeId == ThrowOnProbeId) throw new InvalidOperationException("probe exploded");
             if (Silent) return Task.FromResult<RemoteProbeResult?>(null);
             if (Error != null) return Task.FromResult<RemoteProbeResult?>(new RemoteProbeResult { ClientId = clientId, ProbeId = request.ProbeId, Error = Error });
-            // Client clock 1000 ms behind the server; the offset (server − client) is +1000.
-            long renderLocal = request.AtServerUtcMs - 1000;
+            if (NoStreamFromProbeId != null && request.ProbeId != "preflight" && string.CompareOrdinal(request.ProbeId, NoStreamFromProbeId) >= 0)
+                return Task.FromResult<RemoteProbeResult?>(new RemoteProbeResult { ClientId = clientId, ProbeId = request.ProbeId, Error = TestModeErrors.NoCommandStream });
+            // Client clock 1000 ms behind the server (plus any simulated skew); the offset (server − client) is 1000 − skew.
+            long offset = 1000 - _skewMs;
+            long renderLocal = request.AtServerUtcMs - offset;
             return Task.FromResult<RemoteProbeResult?>(new RemoteProbeResult
             {
-                ClientId = clientId, ProbeId = request.ProbeId, ClockOffsetMs = 1000, RttMs = 2,
+                ClientId = clientId, ProbeId = request.ProbeId, ClockOffsetMs = offset, RttMs = 2,
                 Perf = RemoteMemoryMb is { } mb ? new PerfSample { PlayerMemoryMb = mb } : null,
                 Replies =
                 {

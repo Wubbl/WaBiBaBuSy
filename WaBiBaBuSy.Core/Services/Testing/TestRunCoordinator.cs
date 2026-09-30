@@ -86,6 +86,19 @@ public sealed class TestRunCoordinator : ITestRunControl
         }
     }
 
+    /// <summary>
+    /// Wait until no run is active (e.g. after <see cref="Cancel"/>, so the partial report is written and
+    /// test mode is switched off). True when idle, false when the run is still going after <paramref name="timeout"/>.
+    /// </summary>
+    public async Task<bool> WaitForIdleAsync(TimeSpan timeout)
+    {
+        Task? run;
+        lock (_lock) run = _run;
+        if (run == null || run.IsCompleted) return true;
+        var finished = await Task.WhenAny(run, Task.Delay(timeout));
+        return finished == run;   // a faulted run is idle too; RunAsync already logged it
+    }
+
     public IReadOnlyList<string> ListRuns() =>
         Directory.Exists(_options.ResultsRoot)
             ? new DirectoryInfo(_options.ResultsRoot).GetDirectories().OrderByDescending(d => d.CreationTimeUtc).Select(d => d.FullName).ToList()
