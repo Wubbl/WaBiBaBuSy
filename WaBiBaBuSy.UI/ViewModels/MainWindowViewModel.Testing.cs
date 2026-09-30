@@ -48,38 +48,66 @@ public partial class MainWindowViewModel
         }).ToList();
     }).GetTask();
 
-    /// <summary>Same teardown + start as ▶ Play (PlayDraftAsync), without touching the editor draft.</summary>
+    /// <summary>
+    /// Same teardown + start as ▶ Play (PlayDraftAsync), without touching the editor draft. Holds the
+    /// <see cref="IsStartingScene"/> guard so a Play / show click cannot interleave across the awaits.
+    /// </summary>
     internal Task<SceneStartInfo> PlaySceneForTestAsync(CrossScreenConfig config, IReadOnlyList<string> targetNodeIds) =>
         Dispatcher.UIThread.InvokeAsync(async () =>
         {
-            config.SelectedMonitorIds = targetNodeIds.ToList();
-            if (_playlistOrchestrator?.IsRunning == true)
+            if (IsStartingScene)
+                throw new InvalidOperationException("a scene is already starting — try again when the current start has finished");
+            IsStartingScene = true;
+            try
             {
-                await StopPlaylistAsync();
-                await ClearNodesAsync(Clients.Select(c => c.ClientId).Distinct().ToList());
+                config.SelectedMonitorIds = targetNodeIds.ToList();
+                var previousStart = ActiveSharedStartMs;
+                if (_playlistOrchestrator?.IsRunning == true)
+                {
+                    await StopPlaylistAsync();
+                    await ClearNodesAsync(Clients.Select(c => c.ClientId).Distinct().ToList());
+                }
+                if (IsCrossScreenRunning) await StopCrossScreen();
+
+                _crossScreenConfig = config;
+                HasAnimationConfig = true;
+                await StartCrossScreen();
+                // A fresh start always moves the shared epoch; the reference check alone would pass when
+                // the very same config object was left running after a failed stop.
+                if (!ReferenceEquals(ActiveScene, config) || ActiveSharedStartMs == previousStart)
+                    throw new InvalidOperationException("the scene did not start (see the server log)");
+
+                return new SceneStartInfo
+                {
+                    SharedStartServerUtcMs = ActiveSharedStartMs,
+                    StartLeadMs = ActiveStartLeadMs,
+                    Layout = ActiveLayout,
+                    PerMonitor = config.DistributionMode == AnimationDistributionMode.Simultaneous,
+                    EffectiveMovement = ActiveEffectiveMovement ?? config.Movement,
+                };
             }
-            if (IsCrossScreenRunning) await StopCrossScreen();
-
-            _crossScreenConfig = config;
-            HasAnimationConfig = true;
-            await StartCrossScreen();
-            if (!ReferenceEquals(ActiveScene, config))
-                throw new InvalidOperationException("the scene did not start (see the server log)");
-
-            return new SceneStartInfo
+            finally
             {
-                SharedStartServerUtcMs = ActiveSharedStartMs,
-                StartLeadMs = ActiveStartLeadMs,
-                Layout = ActiveLayout,
-                PerMonitor = config.DistributionMode == AnimationDistributionMode.Simultaneous,
-                EffectiveMovement = ActiveEffectiveMovement ?? config.Movement,
-            };
+                IsStartingScene = false;
+            }
         });
 
     internal Task StopAllForTestAsync() => Dispatcher.UIThread.InvokeAsync(async () =>
     {
-        if (IsCrossScreenRunning) await StopCrossScreen();
-        await ClearNodesAsync(Clients.Select(c => c.ClientId).Distinct().ToList());
+        if (IsStartingScene)
+            throw new InvalidOperationException("a scene is already starting — try again when the current start has finished");
+        IsStartingScene = true;
+        try
+        {
+            // Unconditional: it stops a running show first (which never sets IsCrossScreenRunning) and
+            // returns early when no scene runs.
+            await StopCrossScreen();
+            await ClearNodesAsync(Clients.Select(c => c.ClientId).Distinct().ToList());
+        }
+        finally
+        {
+            IsStartingScene = false;
+        }
     });
 
     /// <summary>What to restore after a run: the running scene, or null when nothing plays.</summary>
