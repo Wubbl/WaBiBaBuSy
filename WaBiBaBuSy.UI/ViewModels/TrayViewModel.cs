@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WaBiBaBuSy.Common;
@@ -33,6 +34,8 @@ public partial class TrayViewModel : ObservableObject
     private readonly WaBiBaBuSyService _service;
     private readonly DesktopWindowManager _desktopManager;
     private readonly TestRunCoordinator _testCoordinator;
+    // What the menu, the CLI and the control API start runs through, so the control panel shows each run.
+    private readonly ObservedTestRunControl _testControl;
     private MainWindow? _mainWindow;
     // Read from Kestrel threads (control API): must not touch Avalonia objects such as _mainWindow.DataContext.
     private volatile MainWindowViewModel? _mainViewModel;
@@ -75,7 +78,13 @@ public partial class TrayViewModel : ObservableObject
             () => _mainViewModel is { } vm ? new TestHostAdapter(vm) : null,
             () => _service.ServerSyncService is { } sync ? new ServerTestChannel(sync) : null,
             AppLogger.Factory);
-        _service.TestRunControl = _testCoordinator;
+        // StartAsync may come from a Kestrel thread (control API): hop to the UI thread to show the run.
+        _testControl = new ObservedTestRunControl(_testCoordinator,
+            run => Dispatcher.UIThread.Post(() => _ = _mainViewModel?.TrackTestRunAsync(run)));
+        _service.TestRunControl = _testControl;
+
+        // The test-mode menu reads the setting once; refresh it when Settings saves.
+        SettingsViewModel.AnySettingsSaved += (_, _) => _mainViewModel?.RefreshTestModeEnabled();
     }
 
     /// <summary>
@@ -111,7 +120,9 @@ public partial class TrayViewModel : ObservableObject
     {
         if (_mainWindow == null || !_mainWindow.IsVisible)
         {
-            var viewModel = new MainWindowViewModel(_service) { TestCoordinator = _testCoordinator };
+            var viewModel = new MainWindowViewModel(_service) { TestCoordinator = _testControl };
+            // A run started while the window was closed (control API) still shows its Cancel button.
+            if (_testControl.ActiveRun is { } activeRun) _ = viewModel.TrackTestRunAsync(activeRun);
             var window = new MainWindow { DataContext = viewModel };
             window.Closed += (_, _) =>
             {
@@ -287,13 +298,13 @@ public partial class TrayViewModel : ObservableObject
                 await Task.Delay(1000);
             }
 
-            var report = await _testCoordinator.StartAsync(scenarioPath);
+            var report = await _testControl.StartAsync(scenarioPath);
             exitCode = report.Aborted ? 2 : report.Verdict == Verdict.Fail ? 1 : 0;
-            Console.WriteLine($"Test run {report.Verdict.ToString().ToLowerInvariant()}: {Path.Combine(report.ResultsDirectory, "report.html")}");
+            CliConsole.WriteLine($"Test run {report.Verdict.ToString().ToLowerInvariant()}: {Path.Combine(report.ResultsDirectory, "report.html")}");
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Test run could not run: {ex.Message}");
+            CliConsole.WriteLine($"Test run could not run: {ex.Message}", error: true);
         }
         if (exitWhenDone) await ExitAsync(exitCode);
     }

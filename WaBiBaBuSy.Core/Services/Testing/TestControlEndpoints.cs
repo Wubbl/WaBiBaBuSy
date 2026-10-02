@@ -45,6 +45,9 @@ public static class TestControlEndpoints
         group.MapPost("/run", (RunRequest body) =>
         {
             if (string.IsNullOrWhiteSpace(body.Scenario)) return Results.BadRequest(new { error = "scenario is required" });
+            // Device paths (\\?\, \\.\, \??\) reach any device or volume namespace — never a plain local file.
+            if (IsDevicePath(body.Scenario))
+                return Results.BadRequest(new { error = "scenario must be a local file" });
             try
             {
                 var full = Path.GetFullPath(body.Scenario);
@@ -70,6 +73,14 @@ public static class TestControlEndpoints
             ? Results.Json(new { cancelled = true }, json)
             : Results.NotFound(new { error = "no active run" }));
         group.MapGet("/runs", () => Results.Json(control.ListRuns(), json));
+    }
+
+    private static bool IsDevicePath(string path)
+    {
+        var p = path.TrimStart().Replace('/', '\\');
+        return p.StartsWith(@"\\?\", StringComparison.Ordinal)
+            || p.StartsWith(@"\\.\", StringComparison.Ordinal)
+            || p.StartsWith(@"\??\", StringComparison.Ordinal);
     }
 
     private static bool IsLocalTestConnection(ConnectionInfo connection, int port) =>
