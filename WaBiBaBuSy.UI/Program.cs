@@ -12,7 +12,10 @@ sealed class Program
     [STAThread]
     public static void Main(string[] args)
     {
-        StartupOptions.Parse(args);
+        CliConsole.Initialize();
+        var options = StartupOptions.Parse(args);
+        foreach (var warning in options.Warnings)
+            CliConsole.WriteLine($"WaBiBaBuSy: {warning} ({StartupOptions.Usage})", error: true);
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }
 

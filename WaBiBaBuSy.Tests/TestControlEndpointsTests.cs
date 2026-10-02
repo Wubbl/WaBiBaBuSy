@@ -27,31 +27,48 @@ public class TestControlEndpointsTests : IAsyncLifetime
         public IReadOnlyList<string> ListRuns() => Array.Empty<string>();
     }
 
-    private static int FreePort()
+    /// <summary>Two distinct free ports: both probes are held open together, so they cannot return the same port.</summary>
+    private static (int, int) FreePorts()
     {
-        var l = new TcpListener(IPAddress.Loopback, 0);
-        l.Start();
-        try { return ((IPEndPoint)l.LocalEndpoint).Port; }
-        finally { l.Stop(); }
+        var a = new TcpListener(IPAddress.Loopback, 0);
+        var b = new TcpListener(IPAddress.Loopback, 0);
+        a.Start();
+        b.Start();
+        try { return (((IPEndPoint)a.LocalEndpoint).Port, ((IPEndPoint)b.LocalEndpoint).Port); }
+        finally { a.Stop(); b.Stop(); }
     }
 
     private readonly FakeControl _control = new();
-    private readonly int _grpcLikePort = FreePort();
-    private readonly int _testPort = FreePort();
+    private int _grpcLikePort;
+    private int _testPort;
     private WebApplication? _app;
 
     public async Task InitializeAsync()
     {
-        var builder = WebApplication.CreateBuilder();
-        builder.Logging.ClearProviders();
-        builder.WebHost.ConfigureKestrel(o =>
+        // Another process may grab a probed port before Kestrel binds it: retry with fresh ports.
+        for (int attempt = 1; ; attempt++)
         {
-            o.Listen(IPAddress.Loopback, _grpcLikePort, lo => lo.Protocols = HttpProtocols.Http2);   // stand-in for the gRPC listener
-            o.Listen(IPAddress.Loopback, _testPort, lo => lo.Protocols = HttpProtocols.Http1);
-        });
-        _app = builder.Build();
-        TestControlEndpoints.Map(_app, _control, _testPort);
-        await _app.StartAsync();
+            (_grpcLikePort, _testPort) = FreePorts();
+            var builder = WebApplication.CreateBuilder();
+            builder.Logging.ClearProviders();
+            builder.WebHost.ConfigureKestrel(o =>
+            {
+                o.Listen(IPAddress.Loopback, _grpcLikePort, lo => lo.Protocols = HttpProtocols.Http2);   // stand-in for the gRPC listener
+                o.Listen(IPAddress.Loopback, _testPort, lo => lo.Protocols = HttpProtocols.Http1);
+            });
+            var app = builder.Build();
+            TestControlEndpoints.Map(app, _control, _testPort);
+            try
+            {
+                await app.StartAsync();
+                _app = app;
+                return;
+            }
+            catch (IOException) when (attempt < 5)
+            {
+                await app.DisposeAsync();
+            }
+        }
     }
 
     public async Task DisposeAsync()
@@ -126,6 +143,22 @@ public class TestControlEndpointsTests : IAsyncLifetime
         using var http = new HttpClient();
         var response = await http.PostAsJsonAsync($"http://127.0.0.1:{_testPort}/test/run", new { scenario = new string('\\', 2) + "attacker" + '\\' + "share" + '\\' + "x.json" });
         Assert.True(response.StatusCode == HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
+        Assert.Equal(0, _control.Starts);
+    }
+
+    [Theory]
+    [InlineData(@"\??\C:\scenarios\x.json")]
+    [InlineData(@"\\?\C:\scenarios\x.json")]
+    [InlineData(@"\\.\C:\scenarios\x.json")]
+    [InlineData("//?/C:/scenarios/x.json")]
+    [InlineData("//./C:/scenarios/x.json")]
+    public async Task Run_WithDevicePath_Returns400_AsNotALocalFile(string path)
+    {
+        using var http = new HttpClient();
+        var response = await http.PostAsJsonAsync($"http://127.0.0.1:{_testPort}/test/run", new { scenario = path });
+        var text = await response.Content.ReadAsStringAsync();
+        Assert.True(response.StatusCode == HttpStatusCode.BadRequest, text);
+        Assert.Contains("must be a local file", text);
         Assert.Equal(0, _control.Starts);
     }
 

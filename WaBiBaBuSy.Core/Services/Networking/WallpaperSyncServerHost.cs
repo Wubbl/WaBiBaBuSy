@@ -26,9 +26,18 @@ public class WallpaperSyncServerHost : IDisposable
     public bool IsRunning => _isRunning;
     public WallpaperSyncService? SyncService { get; private set; }
 
-    /// <summary>Test control API; mapped only when set and <see cref="TestControlPort"/> &gt; 0.</summary>
+    /// <summary>
+    /// Test control API; mapped only when set and <see cref="TestControlPort"/> is a valid port. Optional:
+    /// when its port cannot be bound the gRPC server starts without it (see <see cref="IsTestControlListening"/>).
+    /// </summary>
     public ITestRunControl? TestControl { get; set; }
     public int TestControlPort { get; set; }
+
+    /// <summary>True while the server runs with the test control API bound.</summary>
+    public bool IsTestControlListening { get; private set; }
+
+    /// <summary>Bind the gRPC listener to 127.0.0.1 instead of every interface (tests; default false).</summary>
+    public bool LoopbackOnly { get; init; }
 
     public event EventHandler<ServerStatusChangedEventArgs>? ServerStatusChanged;
 
@@ -57,56 +66,37 @@ public class WallpaperSyncServerHost : IDisposable
         {
             _logger.LogInformation("Starting WaBiBaBuSy gRPC server on port {Port}", _configuration.Port);
 
-            var builder = WebApplication.CreateBuilder();
-
-            // Configure Kestrel to use HTTP/2 (required for gRPC)
-            builder.WebHost.ConfigureKestrel(options =>
+            bool withTestControl = TestControl != null && TestControlPort != 0;
+            if (withTestControl && TestControlPort is < 1 or > IPEndPoint.MaxPort)
             {
-                options.ListenAnyIP(_configuration.Port, listenOptions =>
-                {
-                    listenOptions.Protocols = HttpProtocols.Http2;
-                });
-                if (TestControl != null && TestControlPort > 0)
-                    options.Listen(IPAddress.Loopback, TestControlPort, lo => lo.Protocols = HttpProtocols.Http1);
-            });
-
-            // Add services
-            builder.Services.AddGrpc();
-
-            // Register server configuration as singleton
-            builder.Services.AddSingleton(_configuration);
-
-            // Register our gRPC service as singleton so we can access it
-            builder.Services.AddSingleton<WallpaperSyncService>();
-
-            // Add logging
-            builder.Services.AddLogging(logging =>
-            {
-                logging.AddConsole();
-                logging.SetMinimumLevel(LogLevel.Information);
-            });
-
-            var app = builder.Build();
-
-            // Get the service instance
-            SyncService = app.Services.GetRequiredService<WallpaperSyncService>();
-
-            // Map gRPC service
-            app.MapGrpcService<WallpaperSyncService>();
-
-            if (TestControl != null && TestControlPort > 0)
-            {
-                TestControlEndpoints.Map(app, TestControl, TestControlPort);
-                _logger.LogInformation("Test control API on http://127.0.0.1:{Port}", TestControlPort);
+                _logger.LogWarning("Test control port {Port} is out of range; starting without the test control API", TestControlPort);
+                withTestControl = false;
             }
-
-            // Add health check endpoint
-            app.MapGet("/", () => "WaBiBaBuSy gRPC Server is running. Use a gRPC client to connect.");
 
             // Start the host and await the bind — a port-in-use or firewall failure
             // must surface here instead of vanishing into an unobserved task.
+            var app = BuildApp(withTestControl);
             _host = app;
-            await app.StartAsync();
+            try
+            {
+                await app.StartAsync();
+            }
+            catch (IOException ex) when (withTestControl)
+            {
+                // The test control listener is optional (usually its port is taken). Retry without it:
+                // if the gRPC port was the problem, this start throws and the server start fails as before.
+                _host = null;
+                await app.DisposeAsync();
+                app = BuildApp(withTestControl: false);
+                _host = app;
+                await app.StartAsync();
+                withTestControl = false;
+                _logger.LogWarning("Test control API could not bind 127.0.0.1:{Port} ({Error}); the server runs without it",
+                    TestControlPort, ex.Message);
+            }
+            IsTestControlListening = withTestControl;
+            if (withTestControl)
+                _logger.LogInformation("Test control API on http://127.0.0.1:{Port}", TestControlPort);
 
             _isRunning = true;
 
@@ -124,9 +114,63 @@ public class WallpaperSyncServerHost : IDisposable
         {
             _logger.LogError(ex, "Failed to start gRPC server");
             _isRunning = false;
+            IsTestControlListening = false;
             ServerStatusChanged?.Invoke(this, new ServerStatusChangedEventArgs(false, _configuration.Port));
             throw;
         }
+    }
+
+    private WebApplication BuildApp(bool withTestControl)
+    {
+        var builder = WebApplication.CreateBuilder();
+
+        // Configure Kestrel to use HTTP/2 (required for gRPC)
+        builder.WebHost.ConfigureKestrel(options =>
+        {
+            if (LoopbackOnly)
+                options.Listen(IPAddress.Loopback, _configuration.Port, lo => lo.Protocols = HttpProtocols.Http2);
+            else
+                options.ListenAnyIP(_configuration.Port, listenOptions =>
+                {
+                    listenOptions.Protocols = HttpProtocols.Http2;
+                });
+            if (withTestControl)
+                options.Listen(IPAddress.Loopback, TestControlPort, lo => lo.Protocols = HttpProtocols.Http1);
+        });
+
+        // Add services
+        builder.Services.AddGrpc();
+
+        // Register server configuration as singleton
+        builder.Services.AddSingleton(_configuration);
+
+        // Register our gRPC service as singleton so we can access it
+        builder.Services.AddSingleton<WallpaperSyncService>();
+
+        // Add logging
+        builder.Services.AddLogging(logging =>
+        {
+            logging.AddConsole();
+            logging.SetMinimumLevel(LogLevel.Information);
+        });
+
+        var app = builder.Build();
+
+        // Get the service instance
+        SyncService = app.Services.GetRequiredService<WallpaperSyncService>();
+
+        // Map gRPC service
+        app.MapGrpcService<WallpaperSyncService>();
+
+        if (withTestControl)
+            TestControlEndpoints.Map(app, TestControl!, TestControlPort);
+
+        // Add health check endpoint
+        app.MapGet("/", () => "WaBiBaBuSy gRPC Server is running. Use a gRPC client to connect.");
+
+        // The caller awaits StartAsync so a port-in-use or firewall failure surfaces there
+        // instead of vanishing into an unobserved task.
+        return app;
     }
 
     /// <summary>
@@ -159,6 +203,7 @@ public class WallpaperSyncServerHost : IDisposable
             }
 
             _isRunning = false;
+            IsTestControlListening = false;
             SyncService = null;
 
             _logger.LogInformation("WaBiBaBuSy gRPC server stopped");

@@ -111,6 +111,9 @@ public partial class SettingsViewModel : ViewModelBase
     public event EventHandler? SettingsSaved;
     public event EventHandler? SettingsCancelled;
 
+    /// <summary>Raised after any Settings window saved (UI thread), e.g. to refresh the test-mode menu.</summary>
+    public static event EventHandler? AnySettingsSaved;
+
     public SettingsViewModel()
     {
         LoadSettings();
@@ -130,7 +133,7 @@ public partial class SettingsViewModel : ViewModelBase
         ServiceName = serverConfig.ServiceName;
         UploadLimitMBps = Math.Max(0, serverConfig.UploadLimitMBps);
         EnableTestMode = serverConfig.EnableTestMode;
-        TestControlPort = serverConfig.TestControlPort;
+        TestControlPort = Math.Clamp(serverConfig.TestControlPort, 1024, 65535);   // a hand-edited file may hold anything
 
         // Client settings
         ServerAddress = clientConfig.ServerAddress;
@@ -217,6 +220,7 @@ public partial class SettingsViewModel : ViewModelBase
 
             Console.WriteLine("Settings saved successfully");
             SettingsSaved?.Invoke(this, EventArgs.Empty);
+            AnySettingsSaved?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception ex)
         {
