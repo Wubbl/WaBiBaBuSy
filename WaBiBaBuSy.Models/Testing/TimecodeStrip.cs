@@ -7,8 +7,11 @@ namespace WaBiBaBuSy.Models.Testing;
 /// </summary>
 public static class TimecodeStrip
 {
+    /// <summary>Edge of one square cell, device px.</summary>
     public const int CellPx = 8;
+    /// <summary>Cells in the strip: 4 start guard + 32 data + 4 stop guard.</summary>
     public const int Cells = 40;
+    /// <summary>Distance of the strip from the left and bottom surface edges, device px.</summary>
     public const int MarginPx = 8;
 
     private static readonly bool[] StartGuard = { true, false, true, false };
@@ -17,6 +20,7 @@ public static class TimecodeStrip
     /// <summary>Elapsed ms as the 32-bit code (wraps every ~49.7 days; negative values wrap too).</summary>
     public static uint ToCode(long elapsedMs) => unchecked((uint)elapsedMs);
 
+    /// <summary>The <see cref="Cells"/> cells left to right; true = white.</summary>
     public static bool[] Encode(uint value)
     {
         var cells = new bool[Cells];
@@ -30,9 +34,13 @@ public static class TimecodeStrip
     /// <summary>Top-left of the strip on a surface of <paramref name="surfaceHeight"/> device px.</summary>
     public static (int X, int Y) Origin(int surfaceHeight) => (MarginPx, surfaceHeight - MarginPx - CellPx);
 
-    /// <summary>The code in a BGRA buffer, or null when there is no valid strip.</summary>
+    /// <summary>
+    /// The code in a 32-bit BGRA buffer (top-down, <paramref name="stride"/> bytes per row), or null when there
+    /// is no valid strip. Throws <see cref="ArgumentException"/> when the buffer is too small for its size.
+    /// </summary>
     public static uint? Decode(ReadOnlySpan<byte> bgra, int width, int height, int stride)
     {
+        BgraBuffer.Require(bgra, width, height, stride, nameof(bgra));
         var (ox, oy) = Origin(height);
         if (oy < 0 || ox + Cells * CellPx > width) return null;
 

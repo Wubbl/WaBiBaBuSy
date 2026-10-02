@@ -153,6 +153,9 @@ public class DriftAnalyzerTests
     [Theory]
     [InlineData(Verdict.Pass, Verdict.Fail, Verdict.Fail)]
     [InlineData(Verdict.Warn, Verdict.Pass, Verdict.Warn)]
+    [InlineData(Verdict.Warn, Verdict.Fail, Verdict.Fail)]
+    [InlineData(Verdict.Fail, Verdict.Warn, Verdict.Fail)]
+    [InlineData(Verdict.Skipped, Verdict.Warn, Verdict.Warn)]
     [InlineData(Verdict.Skipped, Verdict.Pass, Verdict.Pass)]
     [InlineData(Verdict.Skipped, Verdict.Skipped, Verdict.Skipped)]
     public void Verdicts_Worst(Verdict a, Verdict b, Verdict expected) => Assert.Equal(expected, Verdicts.Worst(a, b));

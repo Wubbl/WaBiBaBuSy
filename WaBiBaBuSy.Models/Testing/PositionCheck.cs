@@ -1,16 +1,25 @@
 namespace WaBiBaBuSy.Models.Testing;
 
+/// <summary>One node-monitor's marker position check (report.json <c>positions[]</c>).</summary>
 public sealed class PositionCheckResult
 {
+    /// <summary>Node the capture came from.</summary>
     public string NodeId { get; set; } = string.Empty;
+    /// <summary>Display name of the node.</summary>
     public string NodeName { get; set; } = string.Empty;
+    /// <summary>Monitor index on that node.</summary>
     public int MonitorIndex { get; set; }
+    /// <summary>Pass / Fail, or Skipped when nothing could be checked (no capture, marker on the edge, not started).</summary>
     public Verdict Verdict { get; set; }
+    /// <summary>Human-readable reason for the verdict.</summary>
     public string Message { get; set; } = string.Empty;
+    /// <summary>Where the server-side math puts the marker (device px).</summary>
     public MarkerExpectation Expected { get; set; } = new();
+    /// <summary>What the capture showed; null when there was no capture.</summary>
     public MarkerDetection? Detected { get; set; }
     /// <summary>Where the player itself believed the marker was (device px).</summary>
     public float PlayerCenterX { get; set; }
+    /// <summary>Vertical counterpart of <see cref="PlayerCenterX"/> (device px).</summary>
     public float PlayerCenterY { get; set; }
     /// <summary>Detected vs expected center: what people see.</summary>
     public double ErrorPx { get; set; }
@@ -21,6 +30,11 @@ public sealed class PositionCheckResult
 /// <summary>Turns expected / player-believed / detected marker positions into a verdict (design §5.2).</summary>
 public static class PositionCheck
 {
+    /// <summary>
+    /// Verdict for one sample. <paramref name="detected"/> null = no capture: nothing is checked (Skipped),
+    /// whatever the expectation. <paramref name="scale"/> converts the player's canvas-unit rectangle to device
+    /// px; <paramref name="tolerancePx"/> is the allowed center error.
+    /// </summary>
     public static PositionCheckResult Evaluate(NodeProbeSample sample, MarkerExpectation expected, MarkerDetection? detected, float scale, double tolerancePx)
     {
         float s = scale > 0 ? scale : 1f;
@@ -41,6 +55,8 @@ public static class PositionCheck
             case MarkerVisibility.NotStarted:
                 return Set(r, found ? Verdict.Fail : Verdict.Skipped, found ? "marker visible before the start" : "marker not shown yet");
             case MarkerVisibility.OffScreen:
+                // Without a capture "not found" proves nothing — same as Visible without a capture.
+                if (detected == null) return Set(r, Verdict.Skipped, "no capture (marker expected off-screen)");
                 return Set(r, found ? Verdict.Fail : Verdict.Pass, found ? "marker on screen, expected on another node" : "off-screen as expected");
             case MarkerVisibility.Partial:
                 return Set(r, Verdict.Skipped, "marker straddles the edge");

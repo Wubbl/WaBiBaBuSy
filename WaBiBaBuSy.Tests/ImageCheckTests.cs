@@ -166,6 +166,76 @@ public class ImageCheckTests
         Assert.Equal(Verdict.Skipped, PositionCheck.Evaluate(Sample(), Expect(MarkerVisibility.NotStarted), new MarkerDetection(), 1f, 3).Verdict);
 
     [Fact]
+    public void Detect_NoDot_OrientationUnknown()
+    {
+        var px = Surface();
+        Fill(px, 100, 50, 56, 56, 255, 0, 255);   // magenta square without the white dot
+        var d = MarkerDetector.Detect(px, W, H, Stride);
+        Assert.True(d.Found);
+        Assert.Equal(MarkerOrientation.Unknown, d.Orientation);
+    }
+
+    [Fact]
+    public void Detect_BelowMinPixels_NotFound_ButCounted()
+    {
+        var px = Surface();
+        Fill(px, 100, 50, 7, 9, 255, 0, 255);     // 63 magenta pixels
+        var below = MarkerDetector.Detect(px, W, H, Stride);
+        Assert.False(below.Found);
+        Assert.Equal(MarkerDetector.MinPixels - 1, below.PixelCount);
+
+        Fill(px, 107, 50, 1, 1, 255, 0, 255);     // the 64th
+        Assert.True(MarkerDetector.Detect(px, W, H, Stride).Found);
+    }
+
+    [Fact]
+    public void Detect_BufferTooSmall_ThrowsArgumentException()
+    {
+        Assert.Throws<ArgumentException>(() => MarkerDetector.Detect(new byte[Stride * H - 1], W, H, Stride));
+        Assert.Throws<ArgumentException>(() => MarkerDetector.Detect(new byte[Stride * H], W, H, W * 4 - 1));   // stride shorter than a row
+    }
+
+    [Fact]
+    public void Detect_LastRowWithoutPadding_IsEnough()
+    {
+        // A padded stride only needs width × 4 bytes in the last row.
+        const int padded = Stride + 16;
+        var d = MarkerDetector.Detect(new byte[padded * (H - 1) + W * 4], W, H, padded);
+        Assert.False(d.Found);
+    }
+
+    [Fact]
+    public void PixelDiff_BufferTooSmall_ThrowsArgumentException()
+    {
+        Assert.Throws<ArgumentException>(() => PixelDiff.Compare(Surface(), W, H, Stride, new byte[16], W, H, Stride));
+        Assert.Throws<ArgumentException>(() => PixelDiff.Compare(new byte[16], W, H, Stride, Surface(), W, H, Stride));
+    }
+
+    [Fact]
+    public void Timecode_BufferTooSmall_ThrowsArgumentException() =>
+        Assert.Throws<ArgumentException>(() => TimecodeStrip.Decode(new byte[16], W, H, Stride));
+
+    [Fact]
+    public void OffScreen_NoCapture_Skipped_LikeVisibleWithoutCapture()
+    {
+        var off = PositionCheck.Evaluate(Sample(), Expect(MarkerVisibility.OffScreen), null, 1f, 3);
+        var visible = PositionCheck.Evaluate(Sample(), Expect(), null, 1f, 3);
+        Assert.Equal(Verdict.Skipped, off.Verdict);
+        Assert.Equal(Verdict.Skipped, visible.Verdict);
+    }
+
+    [Fact]
+    public void OffScreen_CaptureWithoutMarker_Pass() =>
+        Assert.Equal(Verdict.Pass, PositionCheck.Evaluate(Sample(), Expect(MarkerVisibility.OffScreen), new MarkerDetection { Found = false }, 1f, 3).Verdict);
+
+    [Fact]
+    public void UnknownOrientation_IsNotAFailure()
+    {
+        var r = PositionCheck.Evaluate(Sample(flipped: true), Expect(), Detected(960, 540, MarkerOrientation.Unknown), 1f, 3);
+        Assert.Equal(Verdict.Pass, r.Verdict);
+    }
+
+    [Fact]
     public void WrongOrientation_Fail()
     {
         var r = PositionCheck.Evaluate(Sample(flipped: false), Expect(), Detected(960, 540, MarkerOrientation.Mirrored), 1f, 3);
