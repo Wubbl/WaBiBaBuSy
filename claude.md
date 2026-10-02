@@ -2,7 +2,7 @@
 
 **Project Name:** WallpaperBiBaBuSync (BiBaBu = our club name)
 **Version:** 2.6.3 | **Framework:** .NET 9.0 | **Status:** MVP complete + post-MVP visual features + LAN-party Tier 0 / 1.1 / 2.1
-**Last Updated:** 2026-09-25 | **Next:** E2E Multi-Client Testing (incl. ring, physical canvas, prefetch + Tier 0 checks), then roadmap Tier 2.2 / 2.4 / 2.3
+**Last Updated:** 2026-10-02 | **Next:** test-mode follow-ups, then E2E Multi-Client Testing (test-mode scenarios + checklist), then roadmap Tier 2.2 / 2.4 / 2.3
 
 WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5% server CPU, ±50ms drift tolerance, and distributed client-side rendering. Supports images (JPG/PNG/BMP), videos (MP4/AVI/MKV), and GIFs across multi-monitor setups.
 
@@ -38,7 +38,7 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 - **[Animation Movement System](.docs/ANIMATION_MOVEMENT_SYSTEM.md)** — Deterministic position calculation
 
 ### Project Tracking
-- **[Open Items / Session Handoff](.docs/2026.07_OPEN_ITEMS.md)** — Consolidated open issues, decisions, and Tier 2/3 ideas (start here, 2026-07-07)
+- **[Open Items / Session Handoff](.docs/2026.07_OPEN_ITEMS.md)** — Consolidated validation list, code follow-ups, limitations, roadmap pointer (start here, refreshed 2026-10-02)
 - **[Feature Overview & Roadmap](.docs/2026.07_FEATURE_OVERVIEW.md)** — Verified inventory of all animation features + feature-completeness roadmap (2026-07 audit)
 - **[Open Issues](.docs/2025.12_OpenIssues.md)** — Active bugs and items needing validation
 - **[Missing Features](.docs/2025.12_MissingFeatures.md)** — Feature roadmap and TODO tracking
@@ -136,11 +136,12 @@ dotnet run --project WaBiBaBuSy.UI
 
 ## Current Work (Priority Order)
 
-1. **E2E Multi-Client Testing** — Test with 1-3 real clients over network; validates the 2026-07-07 Tier 1 work (remote parameter parity, clock-offset sync, reconnection + session resume)
-2. **VALIDATE: File logging** — Enable LogToFile, verify files at `%LOCALAPPDATA%\WaBiBaBuSy\Logs\`
-3. **Installer Testing** — Validate on clean Windows 10/11 systems
-4. **Tier 2 party features** — Playlist/party mode done 2026-07-18 (E2E validation pending); next: bezel-crossing transitions, 2D topology, live position preview (see `.docs/2026.07_FEATURE_OVERVIEW.md`; server-browser UI done 2026-07-07)
-5. **Drift telemetry E2E check** — implemented 2026-07-18 (heartbeat-reported clock offset + topology drift labels); verify labels during multi-client testing
+1. **Test-mode follow-ups** — fix the deferred review findings in `.docs/plans/2026-09-30-automated-test-mode-followups.md` before the first multi-machine run (control-API loopback gating, present-time sample mixing, mid-run disconnect entries first)
+2. **E2E Multi-Client Testing** — run `TestScenarios/sync-basic`, `parity-matrix`, `clock-skew` on 2+ machines, then the hands-on checklist `.docs/plans/2026-09-28-gui-and-e2e-test-checklist.md` (Tier 1 July work, Tier 0, ring, physical canvas, show reliability, UI redesign GUI checks, reconnection <5s)
+3. **VALIDATE: File logging + Installer** — LogToFile at `%LOCALAPPDATA%\WaBiBaBuSy\Logs\`; clean Windows 10/11 install
+4. **Roadmap Tier 2** — 2.2 authoring UX → 2.4 crossing effects + events → 2.3 scene layers (see `.docs/plans/2026-09-17-lan-party-roadmap.md`)
+
+Full list: `.docs/2026.07_OPEN_ITEMS.md` (refreshed 2026-10-02).
 
 ## MVP Success Criteria (6/6 Implemented, E2E validation pending)
 
