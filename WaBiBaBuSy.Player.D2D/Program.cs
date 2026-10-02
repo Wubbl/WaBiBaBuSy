@@ -3616,7 +3616,24 @@ class Program
             try
             {
                 _colorMatrixEffect!.SetInput(0, bmp, true);
-                _d2dContext.DrawImage(_colorMatrixEffect.Output, new Vector2(x, y), null, InterpolationMode.Linear, CompositeMode.SourceOver);
+                // DrawImage has no destination rect: it draws the effect output at the bitmap's native
+                // size. Scale it to the cell (w×h) like the DrawBitmap path does, or graded cells
+                // ignore TargetHeight and overlap their neighbours.
+                var src = bmp.Size;
+                var beforeGrading = _d2dContext.Transform;
+                if (src.Width > 0 && src.Height > 0)
+                    _d2dContext.Transform = Matrix3x2.CreateScale(w / src.Width, h / src.Height)
+                                            * Matrix3x2.CreateTranslation(x, y) * beforeGrading;
+                else
+                    _d2dContext.Transform = Matrix3x2.CreateTranslation(x, y) * beforeGrading;
+                try
+                {
+                    _d2dContext.DrawImage(_colorMatrixEffect.Output, Vector2.Zero, null, InterpolationMode.Linear, CompositeMode.SourceOver);
+                }
+                finally
+                {
+                    _d2dContext.Transform = beforeGrading;
+                }
             }
             catch (Exception ex)
             {
