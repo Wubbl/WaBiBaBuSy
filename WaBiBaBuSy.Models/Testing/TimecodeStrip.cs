@@ -24,11 +24,21 @@ public static class TimecodeStrip
     public static bool[] Encode(uint value)
     {
         var cells = new bool[Cells];
-        StartGuard.CopyTo(cells, 0);
+        Encode(value, cells);
+        return cells;
+    }
+
+    /// <summary>
+    /// <see cref="Encode(uint)"/> into the first <see cref="Cells"/> entries of <paramref name="cells"/> — allocation-free
+    /// for the player's render thread (pass a <c>stackalloc</c> span).
+    /// </summary>
+    public static void Encode(uint value, Span<bool> cells)
+    {
+        if (cells.Length < Cells) throw new ArgumentException($"needs {Cells} cells, got {cells.Length}", nameof(cells));
+        StartGuard.CopyTo(cells);
         for (int bit = 0; bit < 32; bit++)
             cells[4 + bit] = ((value >> (31 - bit)) & 1) != 0;
-        StopGuard.CopyTo(cells, 36);
-        return cells;
+        StopGuard.CopyTo(cells[36..]);
     }
 
     /// <summary>Top-left of the strip on a surface of <paramref name="surfaceHeight"/> device px.</summary>

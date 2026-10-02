@@ -1945,7 +1945,8 @@ class Program
         _timecodeWhite ??= _d2dContext.CreateSolidColorBrush(new Color4(1f, 1f, 1f, 1f));
         _timecodeBlack ??= _d2dContext.CreateSolidColorBrush(new Color4(0f, 0f, 0f, 1f));
 
-        var cells = TimecodeStrip.Encode(TimecodeStrip.ToCode(elapsedMs));
+        Span<bool> cells = stackalloc bool[TimecodeStrip.Cells];
+        TimecodeStrip.Encode(TimecodeStrip.ToCode(elapsedMs), cells);
         var (ox, oy) = TimecodeStrip.Origin(_height);
         var savedTransform = _d2dContext.Transform;
         _d2dContext.Transform = Matrix3x2.Identity;
@@ -2322,7 +2323,7 @@ class Program
                 {
                     // Earlier frame: step back by the measured frame interval. The nominal refresh rate is
                     // wrong when DWM composes faster than the panel (165 fps on a 75 Hz monitor).
-                    double intervalMs = _frameTracker.Snapshot(_refreshHz) is { MeanFps: > 0 } fs ? 1000.0 / fs.MeanFps
+                    double intervalMs = _frameTracker.MeanIntervalMs is > 0 and var meanMs ? meanMs
                         : _refreshHz > 0 ? 1000.0 / _refreshHz : 0;
                     if (intervalMs > 0) syncQpc -= (long)(behind * intervalMs * Stopwatch.Frequency / 1000.0);
                     else canResolve = false;   // no usable interval: leave PresentLocalUtcMs null (report uses render time)

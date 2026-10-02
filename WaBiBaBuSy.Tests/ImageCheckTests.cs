@@ -112,6 +112,21 @@ public class ImageCheckTests
         Assert.Equal(value, TimecodeStrip.Decode(px, W, H, Stride));
     }
 
+    [Theory]
+    [InlineData(0u)]
+    [InlineData(0xA5C3_0F01u)]
+    [InlineData(uint.MaxValue)]
+    public void Timecode_SpanEncode_MatchesArrayEncode(uint value)
+    {
+        Span<bool> cells = stackalloc bool[TimecodeStrip.Cells];
+        TimecodeStrip.Encode(value, cells);
+        Assert.Equal(TimecodeStrip.Encode(value), cells.ToArray());
+    }
+
+    [Fact]
+    public void Timecode_SpanEncode_TooShort_Throws() =>
+        Assert.Throws<ArgumentException>(() => TimecodeStrip.Encode(1u, new bool[TimecodeStrip.Cells - 1]));
+
     [Fact]
     public void Timecode_NoStrip_DecodesToNull() => Assert.Null(TimecodeStrip.Decode(Surface(), W, H, Stride));
 
