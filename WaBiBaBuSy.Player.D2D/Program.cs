@@ -1006,6 +1006,11 @@ class Program
 
             try
             {
+                // Test mode: probes no frame below will answer (TEST MODE, failing frames, no swap chain) get an error reply.
+                // Isolated so a probe problem can never keep a frame from rendering.
+                try { AnswerStrandedProbes(stopping: false); }
+                catch (Exception ex) { _logger?.LogWarning(ex, "[Probe] Stranded-probe check failed"); }
+
                 // Process Windows messages (CRITICAL for window stability!)
                 int msgCount = 0;
                 while (PeekMessage(out MSG msg, IntPtr.Zero, 0, 0, PM_REMOVE) && msgCount < 100)
@@ -1353,10 +1358,17 @@ class Program
                     // presented (GPU-ordered, non-blocking); the blocking Map happens after Present.
                     var probe = TakeDueLiveProbe();
                     var staging = probe != null ? BeginCapture(backBuffer, probe) : null;
-                    _d2dContext.Target = null;
-                    _swapChain.Present(1, PresentFlags.None);
-                    _frameTracker.Record(Stopwatch.GetTimestamp());
-                    if (probe != null) QueueForPresentStats(probe, FinishCapture(staging, probe));
+                    try
+                    {
+                        _d2dContext.Target = null;
+                        _swapChain.Present(1, PresentFlags.None);
+                        _frameTracker.Record(Stopwatch.GetTimestamp());
+                    }
+                    finally
+                    {
+                        // Also when Present throws (device lost): the staging texture is released and the probe still answered.
+                        if (probe != null) QueueForPresentStats(probe, FinishCapture(staging, probe));
+                    }
                     PollPresentStats();
 
                     if (_frameCount % 60 == 0 && _frameCount > 0)
@@ -1380,6 +1392,8 @@ class Program
             _frameCount++;
         }
 
+        try { AnswerStrandedProbes(stopping: true); }
+        catch (Exception ex) { _logger?.LogWarning(ex, "[Probe] Could not answer pending probes on stop"); }
         _logger?.LogInformation("Render loop stopped");
     }
 
@@ -1994,8 +2008,11 @@ class Program
             FrameIndex = _frameCount, Width = _width, Height = _height,
         };
 
-        bool gifPlaying;
-        lock (_compositionLock) gifPlaying = _useNativeD2DComposition && _isPlaying && _d2dGifFrames != null;
+        // Exactly the live loop's GIF-branch condition (shouldComposeNative && _d2dGifFrames != null), so an
+        // exact frame is offered precisely when the live frame would be drawn by DrawNativeGifScene too.
+        bool shouldComposeNative;
+        lock (_compositionLock) shouldComposeNative = (_useNativeD2DComposition || _useNativeD2DVideo) && _isPlaying;
+        bool gifPlaying = shouldComposeNative && _d2dGifFrames != null;
         if (!gifPlaying || _backgroundMode == BackgroundMode.IconZone || _d2dContext == null)
         {
             reply.Error = _backgroundMode == BackgroundMode.IconZone
@@ -2059,7 +2076,15 @@ class Program
             if (drawing)
             {
                 // Close the open draw so the next live BeginDraw does not nest; drop any transform the failed draw left behind.
-                try { _d2dContext.Transform = Matrix3x2.Identity; _d2dContext.EndDraw(); } catch { /* already broken */ }
+                // A layer the throw left pushed makes this EndDraw fail (unbalanced push/pop) but EndDraw still ends the
+                // draw and clears that error state — log the result instead of dropping it.
+                try
+                {
+                    _d2dContext.Transform = Matrix3x2.Identity;
+                    var endHr = _d2dContext.EndDraw();
+                    if (endHr.Failure) _logger?.LogWarning("[Probe] EndDraw after the failed exact frame returned 0x{Hr:X8}", endHr.Code);
+                }
+                catch { /* already broken */ }
             }
             try { _d2dContext.Target = null; } catch { /* already reset */ }
             reply.Error = $"exact frame failed: {ex.Message}";
@@ -2071,6 +2096,50 @@ class Program
             try { _d2dContext.Transform = Matrix3x2.Identity; } catch { /* context lost */ }   // live frames start from identity
             readback?.Dispose();
             target?.Dispose();
+        }
+    }
+
+    /// <summary>A due probe still not taken this long after its instant is answered with an error (no frame took it).</summary>
+    private const long StrandedProbeGraceMs = 1000;
+
+    /// <summary>
+    /// Test mode: answer probes the normal end-of-frame path never reaches — swap-chain TEST MODE frames, every
+    /// frame failing, no swap chain yet, or the render loop stopping. A pending probe still waiting
+    /// <see cref="StrandedProbeGraceMs"/> after its instant gets an error reply; queued replies past their
+    /// present-stats deadline (plus the same grace) go out with render time only. Render thread only; once per loop iteration
+    /// (one uncontended lock and a count check when nothing is pending).
+    /// </summary>
+    private static void AnswerStrandedProbes(bool stopping)
+    {
+        PlayerProbeRequest? req = null;
+        lock (_probeLock)
+        {
+            if (_pendingProbe != null && (stopping || NowUtcMs - _pendingProbe.AtLocalUtcMs > StrandedProbeGraceMs))
+            {
+                req = _pendingProbe;
+                _pendingProbe = null;
+            }
+        }
+        if (req != null)
+        {
+            string why = stopping ? "player render loop stopped"
+                : _testModeEnabled ? "player is in swap-chain TEST MODE"
+                : "no frame was rendered since the probe was due";
+            _logger?.LogWarning("[Probe] {Id} answered without a frame: {Why}", req.ProbeId, why);
+            _ = EmitProbeReplyAsync(new PlayerProbeReply
+            {
+                ProbeId = req.ProbeId, Exact = req.ExactElapsedMs != null, Error = why,
+                RenderLocalUtcMs = NowUtcMs, FrameIndex = _frameCount, Width = _width, Height = _height,
+            }, Task.FromResult<string?>(null));
+        }
+
+        for (int i = _awaitingPresent.Count - 1; i >= 0; i--)
+        {
+            var p = _awaitingPresent[i];
+            // Normal frames flush at DeadlineTick (PollPresentStats); only entries no frame has polled since are stranded.
+            if (!stopping && Environment.TickCount64 < p.DeadlineTick + StrandedProbeGraceMs) continue;
+            _awaitingPresent.RemoveAt(i);
+            _ = EmitProbeReplyAsync(p.Reply, p.Capture);
         }
     }
 
@@ -2910,6 +2979,7 @@ class Program
 
     private static void HandleJsonCommand(string json)
     {
+        string? messageType = null;
         try
         {
             var wrapper = JsonConvert.DeserializeObject<MessageTypeWrapper>(json);
@@ -2919,6 +2989,7 @@ class Program
                 Console.Out.Flush();
                 return;
             }
+            messageType = wrapper.MessageType;
 
             _logger?.LogDebug("JSON message type: {MessageType}", wrapper.MessageType);
 
@@ -3016,8 +3087,29 @@ class Program
         catch (Exception ex)
         {
             _logger?.LogError(ex, "JSON command error");
+            // cmd_test_mode / cmd_probe get no stdout reply: the host does not read one, so an ERROR line here
+            // would be taken as the reply to its next command. A broken probe is answered on stderr instead.
+            if (messageType == "cmd_probe") RejectMalformedProbe(json, ex);
+            if (messageType is "cmd_test_mode" or "cmd_probe") return;
             Console.WriteLine($"ERROR:JSON parsing failed: {ex.Message}");
             Console.Out.Flush();
+        }
+    }
+
+    /// <summary>Answer a cmd_probe that could not be read with an error reply, when its probe id is recoverable.</summary>
+    private static void RejectMalformedProbe(string json, Exception error)
+    {
+        try
+        {
+            var idToken = Newtonsoft.Json.Linq.JObject.Parse(json)["ProbeId"];
+            var probeId = idToken?.Type == Newtonsoft.Json.Linq.JTokenType.String ? (string?)idToken : null;
+            if (string.IsNullOrEmpty(probeId)) return;   // nothing the host could match: it times out
+            _ = EmitProbeReplyAsync(new PlayerProbeReply { ProbeId = probeId, Error = $"malformed probe command: {error.Message}", RenderLocalUtcMs = NowUtcMs },
+                Task.FromResult<string?>(null));
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "[Probe] Could not reject malformed probe command");
         }
     }
 
@@ -3875,8 +3967,8 @@ class Program
                 // otherwise fall back to local time for single-monitor mode
                 if (cmd.StartTimestampMs > 0)
                 {
-                    // Convert UTC ms timestamp to DateTime for consistent elapsed calculation
-                    // The shared start as an instant; elapsed = NowUtc − start (same result as before when no test skew is set).
+                    // The shared start as an exact instant; elapsed = NowUtc − start. (The former "now minus the whole-ms
+                    // offset" form differed from this by under 1 ms; this is the exact start, and honours the test skew.)
                     _renderLoopStart = DateTimeOffset.FromUnixTimeMilliseconds(cmd.StartTimestampMs).UtcDateTime;
                     _logger?.LogInformation("[START-CMD] Using shared timestamp: {Ts}ms, offset from now: {Offset}ms",
                         cmd.StartTimestampMs, NowUtcMs - cmd.StartTimestampMs);

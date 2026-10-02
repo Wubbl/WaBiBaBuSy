@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Drawing;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using WaBiBaBuSy.Core.Services.Testing;
 using WaBiBaBuSy.Models.Testing;
 using WaBiBaBuSy.Models.Wallpaper;
 using WaBiBaBuSy.Player.Common.Messages;
@@ -631,7 +632,10 @@ public class D2DPlayerHost : IDisposable
         await SendCommandAsync(JsonConvert.SerializeObject(new PlayerCommandTestMode { Timecode = timecode, ClockSkewMs = clockSkewMs }));
     }
 
-    /// <summary>Probe the player; completes when its SIGNAL:PROBE arrives on stderr, null on timeout.</summary>
+    /// <summary>
+    /// Probe the player; completes when its SIGNAL:PROBE arrives on stderr, null on timeout.
+    /// A cancelled <paramref name="ct"/> throws <see cref="OperationCanceledException"/>.
+    /// </summary>
     public async Task<PlayerProbeReply?> ProbeAsync(PlayerProbeRequest request, TimeSpan timeout, CancellationToken ct)
     {
         if (!IsRunning) return null;
@@ -647,12 +651,7 @@ public class D2DPlayerHost : IDisposable
                 ExactElapsedMs = request.ExactElapsedMs,
                 CaptureDirectory = request.CaptureDirectory,
             }));
-            var finished = await Task.WhenAny(waiter.Task, Task.Delay(timeout, ct));
-            return finished == waiter.Task ? await waiter.Task : null;
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            return null;
+            return await ProbeFanOut.WaitForReplyAsync(waiter.Task, timeout, ct);
         }
         finally
         {
@@ -715,21 +714,14 @@ public class D2DPlayerHost : IDisposable
                 return;
             }
 
-            if (line.StartsWith("SIGNAL:PROBE:", StringComparison.Ordinal))
+            if (line.StartsWith(ProbeFanOut.ProbeSignalPrefix, StringComparison.Ordinal))
             {
-                // Any exception here would surface on the stderr event thread and crash the app.
-                try
-                {
-                    var reply = JsonConvert.DeserializeObject<PlayerProbeReply>(line["SIGNAL:PROBE:".Length..]);
-                    if (reply == null || string.IsNullOrEmpty(reply.ProbeId))
-                        _logger.LogWarning("[Player] PROBE signal without a probe id ignored");
-                    else if (_pendingProbes.TryRemove(reply.ProbeId, out var waiter))
-                        waiter.TrySetResult(reply);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "[Player] Malformed PROBE signal");
-                }
+                // ParseProbeSignal never throws: an exception here would surface on the stderr event thread and crash the app.
+                var reply = ProbeFanOut.ParseProbeSignal(line, JsonConvert.DeserializeObject<PlayerProbeReply>, out var problem);
+                if (reply == null)
+                    _logger.LogWarning("[Player] PROBE signal ignored: {Problem}", problem);
+                else if (_pendingProbes.TryRemove(reply.ProbeId, out var waiter))
+                    waiter.TrySetResult(reply);
                 return;
             }
 
