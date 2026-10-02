@@ -300,6 +300,23 @@ public class TestRunnerTests : IDisposable
         Assert.Contains("Node failures", File.ReadAllText(Path.Combine(report.ResultsDirectory, "report.html")));
     }
 
+    [Fact]
+    public async Task RemoteDisconnectsDuringAStep_RecordsNodeFailureAtTheStepBoundary_AndIsSkippedAfterwards()
+    {
+        _host.DisconnectOnPlay = "client-1";   // gone right after the scene starts, before any probe
+        _transport.SilentUntilTimeout = true;   // and it would never answer one
+        var report = await Runner().RunAsync(Scenario($$"""{{PlayMarker}}, { "type": "probe", "label": "p", "at": "now+30ms", "capture": false }, { "type": "stop" }"""),
+            "unit.json", CancellationToken.None);
+
+        Assert.False(report.Aborted, report.AbortReason);
+        var failure = Assert.Single(report.NodeFailures);
+        Assert.Equal("client-1", failure.NodeId);
+        Assert.Contains("disconnected", failure.Reason);
+        Assert.True(failure.AtUtcMs <= report.Steps[1].StartedUtcMs);                         // noticed when the play step ended
+        Assert.DoesNotContain(report.Steps[1].Probes[0].Samples, s => s.NodeId == "client-1"); // not probed (and not "missing") afterwards
+        Assert.Equal(Verdict.Warn, report.Verdict);
+    }
+
     // ── fakes ──────────────────────────────────────────────────────────────
 
     private static long Now() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -363,6 +380,8 @@ public class TestRunnerTests : IDisposable
         };
         public bool ThrowOnPlay { get; set; }
         public bool ThrowOnGetNodes { get; set; }
+        /// <summary>This remote reports Connected = false from the first scene start on (lost mid-run).</summary>
+        public string? DisconnectOnPlay { get; set; }
         public int PlayCount { get; private set; }
         public bool Restored { get; private set; }
         public FakeTarget Target(int monitor) => _targets.Single(t => t.MonitorIndex == monitor);
@@ -380,6 +399,7 @@ public class TestRunnerTests : IDisposable
         {
             PlayCount++;
             if (ThrowOnPlay) throw new InvalidOperationException("play failed");
+            if (DisconnectOnPlay != null) _nodes.Single(n => n.NodeId == DisconnectOnPlay).Connected = false;
             long start = Now() + 10;
             foreach (var t in _targets) t.Start = start;
             FakeTransport.SharedStart = start;

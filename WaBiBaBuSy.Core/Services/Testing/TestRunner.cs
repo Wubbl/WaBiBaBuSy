@@ -111,6 +111,7 @@ public sealed class TestRunner
                         sr.Message = ex.Message;
                     }
                     sr.DurationMs = _o.NowUtcMs() - sr.StartedUtcMs;
+                    if (!ct.IsCancellationRequested) await CheckConnectionsAsync(ctx);
                 }
             }
         }
@@ -445,6 +446,9 @@ public sealed class TestRunner
             pr.Samples.Add(sample);
         }
 
+        // A remote that did not answer may have dropped: record that now, not after a long series.
+        if (remoteResults.Any(r => r == null)) await CheckConnectionsAsync(ctx);
+
         var skewIssues = new List<string>();
         for (int i = 0; i < remotes.Count; i++)
         {
@@ -504,6 +508,27 @@ public sealed class TestRunner
         _logger.LogWarning("Test run lost node {Node}: {Reason}", node.Name, reason);
         lock (ctx.Report.NodeFailures)
             ctx.Report.NodeFailures.Add(new NodeFailure { NodeId = node.NodeId, Name = node.Name, AtUtcMs = _o.NowUtcMs(), Reason = reason });
+    }
+
+    /// <summary>
+    /// Spec §8: record remotes the server no longer lists as connected (stream ended, or the dead-client
+    /// sweep dropped them). Runs after every step and when a remote misses a probe, so the timestamp is
+    /// at most one step or one probe after the loss.
+    /// </summary>
+    private async Task CheckConnectionsAsync(RunContext ctx)
+    {
+        if (!ctx.LiveRemotes.Any()) return;
+        IReadOnlyList<TestNodeInfo> nodes;
+        try { nodes = await _host.GetNodesAsync(); }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Test run: node list unavailable for the connection check");
+            return;
+        }
+        var connected = nodes.Where(n => n.Connected).Select(n => n.NodeId).ToHashSet();
+        foreach (var node in ctx.LiveRemotes.ToList())
+            if (!connected.Contains(node.NodeId))
+                RecordNodeFailure(ctx, node, "disconnected from the server");
     }
 
     private void EvaluatePositions(RunContext ctx, ProbeReport pr)
