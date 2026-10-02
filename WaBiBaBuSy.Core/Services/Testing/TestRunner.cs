@@ -59,6 +59,28 @@ public sealed class TestRunner
         /// <summary>Remotes lost mid-run (see <see cref="TestRunReport.NodeFailures"/>); later steps skip them.</summary>
         public ConcurrentDictionary<string, bool> Lost { get; } = new();
         public IEnumerable<TestNodeInfo> LiveRemotes => Remotes.Where(n => !Lost.ContainsKey(n.NodeId));
+
+        private readonly Dictionary<string, string> _fileNames = new();
+        // Case-insensitive like the file system; "server" is the server's own logs/server.log.
+        private readonly HashSet<string> _usedFileNames = new(StringComparer.OrdinalIgnoreCase) { "server" };
+
+        /// <summary>
+        /// The node's capture folder / log file name: sanitized, and unique within the run (two clients can
+        /// share a hostname, two names can sanitize alike); later claimants get "-2", "-3", ...
+        /// </summary>
+        public string FileNameFor(string nodeId, string name)
+        {
+            lock (_fileNames)
+            {
+                if (_fileNames.TryGetValue(nodeId, out var known)) return known;
+                var baseName = Sanitize(name);
+                var unique = baseName;
+                for (int n = 2; _usedFileNames.Contains(unique); n++) unique = $"{baseName}-{n}";
+                _usedFileNames.Add(unique);
+                _fileNames[nodeId] = unique;
+                return unique;
+            }
+        }
     }
 
     /// <summary>Run the scenario; always returns a report (partial on cancel / abort) and writes it to disk.</summary>
@@ -81,7 +103,6 @@ public sealed class TestRunner
         {
             if (await PreflightAsync(ctx, ct))
             {
-                LoadScenes(ctx);
                 await PrefetchAsync(ctx, ct);
                 for (int i = 0; i < scenario.Steps.Count; i++)
                 {
@@ -92,30 +113,41 @@ public sealed class TestRunner
                     SetStatus(scenario, i + 1, step.Label ?? step.Kind, report);
                     _host.ReportProgress($"Test: step {i + 1}/{scenario.Steps.Count} · {step.Label ?? step.Kind}");
 
-                    int timeoutMs = StepTimeoutMs(step);
+                    int timeoutMs = StepTimeoutMs(ctx, step);
                     using var stepCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                     stepCts.CancelAfter(timeoutMs);
                     try
                     {
                         await RunStepAsync(ctx, i, step, sr, stepCts.Token);
                     }
-                    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                    {
+                        // The run is cancelled mid-step: keep what the step measured, mark it incomplete.
+                        if (sr.Verdict != Verdict.Fail) sr.Verdict = Verdict.Warn;
+                        sr.Message = sr.Message.Length > 0 ? $"{sr.Message}; cancelled" : "cancelled";
+                        throw;
+                    }
+                    catch (OperationCanceledException) when (stepCts.IsCancellationRequested)
                     {
                         sr.Verdict = Verdict.Fail;
                         sr.Message = $"timed out after {timeoutMs} ms";
                     }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    catch (Exception ex)
                     {
+                        // Includes an OperationCanceledException nobody asked for (e.g. an internal timeout).
                         _logger.LogError(ex, "Test step {Index} ({Kind}) failed", i + 1, step.Kind);
                         sr.Verdict = Verdict.Fail;
                         sr.Message = ex.Message;
                     }
-                    sr.DurationMs = _o.NowUtcMs() - sr.StartedUtcMs;
+                    finally
+                    {
+                        sr.DurationMs = _o.NowUtcMs() - sr.StartedUtcMs;
+                    }
                     if (!ct.IsCancellationRequested) await CheckConnectionsAsync(ctx);
                 }
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             report.Aborted = true;
             report.AbortReason = "cancelled";
@@ -178,6 +210,10 @@ public sealed class TestRunner
             report.Warnings.Add($"{n.Name} is not connected and is left out");
         foreach (var n in ctx.Remotes.Where(n => n.AppVersion.Length > 0 && n.AppVersion != AppVersionInfo.AppVersion))
             report.Warnings.Add($"{n.Name} runs {n.AppVersion}, the server runs {AppVersionInfo.AppVersion}");
+        foreach (var n in ctx.Nodes) ctx.FileNameFor(n.NodeId, n.Name);   // seat order decides who gets "-2"
+
+        // A bad scene file aborts here (ScenarioException), before anything reaches the remotes.
+        LoadScenes(ctx);
 
         int required = ctx.Scenario.Requires.MinRemoteNodes;
         if (ctx.Remotes.Count < required)
@@ -190,7 +226,8 @@ public sealed class TestRunner
         // A probe with no scene playing: proves the round trip and reveals "Allow test runs" = off.
         var probe = new ProbeRequest { ProbeId = "preflight", AtServerUtcMs = _o.NowUtcMs() + _o.MinLeadMs };
         var timeout = TimeSpan.FromMilliseconds(_o.MinLeadMs + _o.ProbeGraceMs);
-        var results = await Task.WhenAll(ctx.Remotes.Select(n => _transport.ProbeAsync(n.NodeId, probe, timeout, ct)));
+        var results = await Task.WhenAll(ctx.Remotes.Select(n => RemoteProbeAsync(n.NodeId, probe, timeout, ct)));
+        ct.ThrowIfCancellationRequested();   // a cancelled probe answers null: that is not "did not answer"
         var disabled = ctx.Remotes.Where((n, i) => results[i]?.Error == TestModeErrors.Disabled).Select(n => n.Name).ToList();
         if (disabled.Count > 0)
         {
@@ -221,6 +258,7 @@ public sealed class TestRunner
         var sw = Stopwatch.StartNew();
         bool ok = await _host.PrefetchAsync(ctx.Scenes.Values.ToList(), _o.PrefetchTimeout, ct);
         ctx.Report.PrefetchMs = sw.ElapsedMilliseconds;
+        ct.ThrowIfCancellationRequested();
         if (!ok) ctx.Report.Warnings.Add($"prefetch did not complete within {_o.PrefetchTimeout.TotalSeconds:F0} s; first scenes may start late on some nodes");
     }
 
@@ -296,7 +334,7 @@ public sealed class TestRunner
                 var single = await ProbeOnceAsync(ctx, sr, at, probe.Capture, exactElapsedMs: null, perf: false, ct);
                 sr.Probes.Add(single);
                 sr.Verdict = single.Verdict;
-                sr.Message = string.Join("; ", new[] { single.Drift?.Message ?? string.Empty }.Concat(single.Messages).Where(m => m.Length > 0));
+                sr.Message = string.Join("; ", new[] { single.Error ?? string.Empty, single.Drift?.Message ?? string.Empty }.Concat(single.Messages).Where(m => m.Length > 0));
                 break;
 
             case ProbeSeriesStep series:
@@ -337,9 +375,9 @@ public sealed class TestRunner
                 var frame = await ProbeOnceAsync(ctx, sr, _o.NowUtcMs() + _o.MinLeadMs, exact.Capture, exact.ElapsedMs, perf: false, ct);
                 sr.Probes.Add(frame);
                 sr.Verdict = frame.Verdict;
-                sr.Message = ctx.Active!.PerMonitor
+                sr.Message = (frame.Error != null ? $"{frame.Error}; " : string.Empty) + (ctx.Active!.PerMonitor
                     ? $"{frame.Parity.Count} comparison(s)"
-                    : "Sequential: every node shows a different slice; frames saved for review";
+                    : "Sequential: every node shows a different slice; frames saved for review");
                 break;
 
             case WaitStep wait:
@@ -427,10 +465,12 @@ public sealed class TestRunner
 
         var remotes = ctx.LiveRemotes.Where(n => ctx.IsTarget(n.NodeId)).ToList();
         var request = new ProbeRequest { ProbeId = probeId, AtServerUtcMs = atServerUtcMs, Capture = capture, ExactElapsedMs = exactElapsedMs };
-        var remoteTasks = remotes.Select(n => _transport.ProbeAsync(n.NodeId, request, timeout + TimeSpan.FromMilliseconds(_o.UploadGraceMs), ct)).ToList();
+        var remoteAll = Task.WhenAll(remotes.Select(n => RemoteProbeAsync(n.NodeId, request, timeout + TimeSpan.FromMilliseconds(_o.UploadGraceMs), ct)));
 
+        // Wait for both sides before reading either: a fault on one side must not leave the other unobserved.
+        await Task.WhenAll(localTask, remoteAll);
         var localReplies = await localTask;
-        var remoteResults = await Task.WhenAll(remoteTasks);
+        var remoteResults = await remoteAll;
         var localPerf = perf ? _perf.Sample() : null;
 
         foreach (var reply in localReplies)
@@ -459,9 +499,12 @@ public sealed class TestRunner
                 pr.Samples.Add(NodeProbeSample.MissingFor(node.NodeId, node.Name, 0, false, $"no reply within {timeout.TotalSeconds:F1} s"));
                 continue;
             }
+            // Offset and RTT both 0 = the client reset its estimate for the new skew and no heartbeat has
+            // answered yet: there is nothing to check, so the next probe that reaches the node checks instead.
+            bool hasClockEstimate = result.RttMs != 0 || result.ClockOffsetMs != 0;
             if (result.Error == TestModeErrors.NoCommandStream)
                 RecordNodeFailure(ctx, node, $"probe {probeId}: {result.Error}");
-            else if (ctx.PendingSkewChecks.TryRemove(node.NodeId, out var check))
+            else if (hasClockEstimate && ctx.PendingSkewChecks.TryRemove(node.NodeId, out var check))
             {
                 // The skew shifts the client clock by +skew, so its offset (server - client) must move by -skew.
                 double moved = result.ClockOffsetMs - check.BaselineOffsetMs;
@@ -500,6 +543,10 @@ public sealed class TestRunner
             pr.Verdict = Verdicts.Worst(pr.Verdict, Verdict.Fail);
         }
     }
+
+    /// <summary>The transport call as a task: a synchronous throw becomes a faulted task, observed with its siblings.</summary>
+    private async Task<RemoteProbeResult?> RemoteProbeAsync(string nodeId, ProbeRequest request, TimeSpan timeout, CancellationToken ct) =>
+        await _transport.ProbeAsync(nodeId, request, timeout, ct);
 
     /// <summary>Spec §8: a remote connected at preflight went missing. Recorded once per node; later steps skip it.</summary>
     private void RecordNodeFailure(RunContext ctx, TestNodeInfo node, string reason)
@@ -575,23 +622,29 @@ public sealed class TestRunner
             var members = group.ToList();
             if (members.Count < 2) continue;
             // The first frame that decodes is the reference; every unreadable frame fails on its own.
-            var decoded = new List<(NodeProbeSample Node, PngPixels.Image? Image, string? Error)>();
-            foreach (var m in members)
+            // Only the reference and one other frame are decoded at a time (a 1080p frame is ~8 MB).
+            NodeProbeSample? reference = null;
+            PngPixels.Image? refImg = null;
+            var unreadableBeforeReference = new List<(NodeProbeSample Node, string Error)>();
+            foreach (var other in members)
             {
-                try { decoded.Add((m, PngPixels.Decode(Path.Combine(ctx.Dir, m.CapturePath!)), null)); }
-                catch (Exception ex) { decoded.Add((m, null, ex.Message)); }
-            }
-            var first = decoded.FirstOrDefault(d => d.Image != null);
-            foreach (var bad in decoded.Where(d => d.Image == null))
-                AddParityFailure(pr, bad.Node, first.Node?.NodeName ?? string.Empty, $"frame unreadable: {bad.Error}");
-            if (first.Node == null) continue;
-            var reference = first.Node;
-            var refImg = first.Image!;
-            foreach (var entry in decoded.Where(d => d.Image != null && d.Node != reference))
-            {
-                var other = entry.Node;
-                var img = entry.Image!;
-                var diff = PixelDiff.Compare(refImg.Pixels, refImg.Width, refImg.Height, refImg.Stride, img.Pixels, img.Width, img.Height, img.Stride);
+                PngPixels.Image img;
+                try { img = PngPixels.Decode(Path.Combine(ctx.Dir, other.CapturePath!)); }
+                catch (Exception ex)
+                {
+                    if (reference == null) unreadableBeforeReference.Add((other, ex.Message));
+                    else AddParityFailure(pr, other, reference.NodeName, $"frame unreadable: {ex.Message}");
+                    continue;
+                }
+                if (reference == null)
+                {
+                    reference = other;
+                    refImg = img;
+                    foreach (var bad in unreadableBeforeReference)
+                        AddParityFailure(pr, bad.Node, reference.NodeName, $"frame unreadable: {bad.Error}");
+                    continue;
+                }
+                var diff = PixelDiff.Compare(refImg!.Pixels, refImg.Width, refImg.Height, refImg.Stride, img.Pixels, img.Width, img.Height, img.Stride);
                 var result = new PixelParityResult
                 {
                     NodeId = other.NodeId,
@@ -603,13 +656,16 @@ public sealed class TestRunner
                 result.Message = diff.SizeMismatch ? "different frame size" : $"{diff.DiffPct:F3} % of pixels differ";
                 if (diff.DiffPixels > 0 && diff.DiffImage != null)
                 {
-                    var rel = RelativeCapturePath(sr, pr.ProbeId, other, "diff-mon" + other.MonitorIndex);
+                    var rel = RelativeCapturePath(ctx, sr, pr.ProbeId, other, "diff-mon" + other.MonitorIndex);
                     PngPixels.Encode(diff.DiffImage, img.Width, img.Height, img.Width * 4, Path.Combine(ctx.Dir, rel));
                     result.DiffImagePath = rel.Replace('\\', '/');
                 }
                 pr.Parity.Add(result);
                 pr.Verdict = Verdicts.Worst(pr.Verdict, result.Verdict);
             }
+            if (reference == null)
+                foreach (var bad in unreadableBeforeReference)
+                    AddParityFailure(pr, bad.Node, string.Empty, $"frame unreadable: {bad.Error}");
         }
     }
 
@@ -688,7 +744,7 @@ public sealed class TestRunner
             string text;
             try { text = await _transport.FetchLogsAsync(n.NodeId, startedMs - 5000, toMs, _o.LogFetchTimeout) ?? "[no reply within the timeout]"; }
             catch (Exception ex) { text = $"[log fetch failed: {ex.Message}]"; }
-            var file = $"{Sanitize(n.Name)}.log";
+            var file = $"{ctx.FileNameFor(n.NodeId, n.Name)}.log";
             try
             {
                 await File.WriteAllTextAsync(Path.Combine(logDir, file), text);
@@ -721,13 +777,23 @@ public sealed class TestRunner
 
     // ── helpers ─────────────────────────────────────────────────────────────
 
-    private int StepTimeoutMs(TestStep step) => step.TimeoutMs ?? step switch
+    private int StepTimeoutMs(RunContext ctx, TestStep step) => step.TimeoutMs ?? step switch
     {
         ProbeSeriesStep s => s.ForMs + 30000,
         WaitStep w => w.Ms + 30000,
         PlaySceneStep => 120000,   // includes downloads on remotes
+        ProbeStep p => ProbeLeadMs(ctx, p) + _o.DefaultStepTimeoutMs,   // the default budget starts at the probe instant
         _ => _o.DefaultStepTimeoutMs,
     };
+
+    /// <summary>How far ahead a probe step's instant lies ("start+60000ms" can be a minute away); 0 when unknown.</summary>
+    private int ProbeLeadMs(RunContext ctx, ProbeStep probe)
+    {
+        if (ctx.Active == null || !ProbeAt.TryParse(probe.At, out var anchor, out var offset)) return 0;
+        long now = _o.NowUtcMs();
+        long lead = ProbeAt.Resolve(anchor, offset, ctx.Active.SharedStartServerUtcMs, now, _o.MinLeadMs) - now;
+        return (int)Math.Clamp(lead, 0, int.MaxValue - _o.DefaultStepTimeoutMs);
+    }
 
     /// <summary>Skew for a node: key = its NodeId (exact) or its name (case-insensitive, hostnames); NodeId wins.</summary>
     private static int SkewFor(TestModeStep mode, TestNodeInfo node)
@@ -764,15 +830,15 @@ public sealed class TestRunner
 
     private static string SaveCapture(RunContext ctx, StepReport sr, string probeId, NodeProbeSample sample, byte[] png)
     {
-        var rel = RelativeCapturePath(sr, probeId, sample, "mon" + sample.MonitorIndex);
+        var rel = RelativeCapturePath(ctx, sr, probeId, sample, "mon" + sample.MonitorIndex);
         var full = Path.Combine(ctx.Dir, rel);
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         File.WriteAllBytes(full, png);
         return rel.Replace('\\', '/');
     }
 
-    private static string RelativeCapturePath(StepReport sr, string probeId, NodeProbeSample sample, string suffix) =>
-        Path.Combine("nodes", Sanitize(sample.NodeName), $"{sr.Index:D2}-{Sanitize(sr.Label ?? sr.Kind)}-{probeId}-{suffix}.png");
+    private static string RelativeCapturePath(RunContext ctx, StepReport sr, string probeId, NodeProbeSample sample, string suffix) =>
+        Path.Combine("nodes", ctx.FileNameFor(sample.NodeId, sample.NodeName), $"{sr.Index:D2}-{Sanitize(sr.Label ?? sr.Kind)}-{probeId}-{suffix}.png");
 
     private static string Sanitize(string name)
     {

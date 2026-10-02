@@ -1,3 +1,4 @@
+using System.Globalization;
 using WaBiBaBuSy.Core.Services.Testing;
 using WaBiBaBuSy.Models.Testing;
 using Xunit;
@@ -77,5 +78,81 @@ public class TestReportWriterTests : IDisposable
         Assert.DoesNotContain(">25</text>", html);
         Assert.Contains("Node failures", html);
         Assert.Contains("pc-02: probe 02-002: client has no command stream", html);
+    }
+
+    [Fact]
+    public void Html_ShowsAProbeError()
+    {
+        var report = Report();
+        report.Steps[0].Probes[1].Error = "probe <exploded> & gone";
+        var html = TestReportWriter.RenderHtml(report);
+        Assert.Contains("probe &lt;exploded&gt; &amp; gone", html);
+    }
+
+    [Fact]
+    public void Html_NumbersStayInvariant_UnderAGermanCulture()
+    {
+        var report = Report();
+        report.Thresholds = new ScenarioThresholds { DriftWarnMs = 12.5, DriftSpreadMs = 20.5 };
+        report.Environment.Nodes[0].ClockOffsetMs = 1234.5;
+        report.Environment.Nodes[0].RttMs = 1.5;
+        report.Steps[0].Probes[1].Drift!.Errors.Add(new NodeTimingError { NodeName = "pc-01", ErrorMs = 3.5, ClockBoundMs = 0.5 });
+        report.Steps[0].Probes[1].Drift!.SpreadMs = 30.25;
+
+        var previous = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
+        string html;
+        try { html = TestReportWriter.RenderHtml(report); }
+        finally { CultureInfo.CurrentCulture = previous; }
+
+        Assert.Contains(">12.5</text>", html);
+        Assert.Contains(">20.5</text>", html);
+        Assert.Contains("1.5 ms", html);
+        Assert.Contains("3.5 ms", html);
+        Assert.DoesNotContain("12,5", html);
+        Assert.DoesNotContain("20,5", html);
+        Assert.DoesNotContain("1,5", html);
+        Assert.DoesNotContain("3,5", html);
+    }
+
+    [Fact]
+    public void Html_EscapesHostileNodeNames_Everywhere()
+    {
+        const string hostile = "<img src=x onerror=alert(1)>";
+        var report = Report();
+        report.Environment.Nodes[0].Name = hostile;
+        report.NodeFailures.Add(new NodeFailure { NodeId = "b", Name = hostile, AtUtcMs = 1000, Reason = "gone" });
+        var probe = report.Steps[0].Probes[0];
+        probe.Samples[0].NodeName = hostile;
+        probe.Samples.Add(new NodeProbeSample { NodeId = "b", NodeName = hostile, Missing = true, Error = "no reply" });
+        probe.Positions[0].NodeName = hostile;
+        probe.Parity.Add(new PixelParityResult { NodeId = "b", NodeName = hostile, ReferenceNodeName = hostile, Verdict = Verdict.Fail, Message = "differs" });
+        report.Steps[0].Probes[1].Drift!.Errors.Add(new NodeTimingError { NodeName = hostile, ErrorMs = 3, ClockBoundMs = 1 });
+
+        var html = TestReportWriter.RenderHtml(report);
+
+        Assert.DoesNotContain("<img", html);
+        Assert.Contains("&lt;img src=x onerror=alert(1)&gt;", html);
+    }
+
+    [Fact]
+    public void Html_NoEmptyParagraph_ForAnEmptyDriftMessage()
+    {
+        var html = TestReportWriter.RenderHtml(Report());   // its probes' drift messages are empty
+        Assert.DoesNotContain("<p></p>", html);
+    }
+
+    [Fact]
+    public void Write_WhenTheHtmlCannotBeRendered_StillLeavesAPageThatPointsToTheJson()
+    {
+        var report = Report();
+        report.Environment = null!;   // RenderHtml cannot cope; report.json can
+
+        Assert.ThrowsAny<Exception>(() => TestReportWriter.Write(report));
+
+        Assert.True(File.Exists(Path.Combine(_dir, "report.json")));
+        var html = File.ReadAllText(Path.Combine(_dir, "report.html"));
+        Assert.Contains("report.json", html);
+        Assert.Contains("sync &lt;basic&gt;", html);
     }
 }

@@ -15,6 +15,22 @@ public sealed class PerfSampler
     private readonly Dictionary<int, (TimeSpan Cpu, long Tick)> _lastCpu = new();
     private readonly Dictionary<string, PerformanceCounter> _gpuCounters = new();
     private readonly object _lock = new();
+    private readonly Func<Process[]> _listPlayers;
+
+    /// <summary>Samples this app and every running <see cref="PlayerProcessName"/> process.</summary>
+    public PerfSampler() : this(() => Process.GetProcessesByName(PlayerProcessName)) { }
+
+    /// <summary>Samples this app and the processes <paramref name="listPlayers"/> returns (disposed after each sample).</summary>
+    public PerfSampler(Func<Process[]> listPlayers)
+    {
+        _listPlayers = listPlayers;
+    }
+
+    /// <summary>Processes with a CPU baseline (this app + the players of the last sample).</summary>
+    public int TrackedProcessCount
+    {
+        get { lock (_lock) return _lastCpu.Count; }
+    }
 
     public PerfSample Sample()
     {
@@ -25,7 +41,7 @@ public sealed class PerfSampler
     private PerfSample SampleLocked()
     {
         using var app = Process.GetCurrentProcess();
-        var players = Process.GetProcessesByName(PlayerProcessName);
+        var players = _listPlayers();
         try
         {
             double? playerCpu = null;
@@ -36,6 +52,10 @@ public sealed class PerfSampler
                 if (cpu.HasValue) playerCpu = (playerCpu ?? 0) + cpu.Value;
                 playerMemory += p.WorkingSet64 / (1024.0 * 1024.0);
             }
+            // Every scene change starts new players: forget the baselines of the ones that are gone.
+            var live = players.Select(p => p.Id).Append(app.Id).ToHashSet();
+            foreach (var pid in _lastCpu.Keys.Where(pid => !live.Contains(pid)).ToList())
+                _lastCpu.Remove(pid);
             return new PerfSample
             {
                 AppCpuPercent = CpuPercent(app),
@@ -73,13 +93,18 @@ public sealed class PerfSampler
 
     private double? GpuPercent(IReadOnlyList<int> playerPids)
     {
-        if (playerPids.Count == 0) return null;
+        if (playerPids.Count == 0)
+        {
+            DisposeGpuCountersExcept(Array.Empty<string>());
+            return null;
+        }
         try
         {
             var prefixes = playerPids.Select(pid => $"pid_{pid}_").ToList();
             var names = new PerformanceCounterCategory("GPU Engine").GetInstanceNames()
                 .Where(n => n.Contains("engtype_3D", StringComparison.Ordinal) && prefixes.Any(p => n.StartsWith(p, StringComparison.Ordinal)))
                 .ToList();
+            DisposeGpuCountersExcept(names);
 
             double total = 0;
             bool anyWarm = false;
@@ -100,6 +125,16 @@ public sealed class PerfSampler
         catch (Exception)
         {
             return null;   // counters unavailable (no WDDM 2.x driver, locked-down machine)
+        }
+    }
+
+    /// <summary>Release the counter handles of engine instances that no longer exist (exited players).</summary>
+    private void DisposeGpuCountersExcept(IReadOnlyCollection<string> liveNames)
+    {
+        foreach (var name in _gpuCounters.Keys.Where(n => !liveNames.Contains(n)).ToList())
+        {
+            _gpuCounters[name].Dispose();
+            _gpuCounters.Remove(name);
         }
     }
 }

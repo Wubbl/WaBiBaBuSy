@@ -27,11 +27,16 @@ public class TestRunnerTests : IDisposable
         try { Directory.Delete(_dir, recursive: true); } catch { /* best effort */ }
     }
 
-    private TestRunner Runner() => new(_host, _transport, NullLogger<TestRunner>.Instance, new TestRunnerOptions
+    private TestRunner Runner(Action<TestRunnerOptions>? configure = null)
     {
-        MinLeadMs = 20, ProbeGraceMs = 500, UploadGraceMs = 200,
-        ResultsRoot = Path.Combine(_dir, "results"), LocalLogDirectory = Path.Combine(_dir, "no-logs"),
-    });
+        var options = new TestRunnerOptions
+        {
+            MinLeadMs = 20, ProbeGraceMs = 500, UploadGraceMs = 200,
+            ResultsRoot = Path.Combine(_dir, "results"), LocalLogDirectory = Path.Combine(_dir, "no-logs"),
+        };
+        configure?.Invoke(options);
+        return new(_host, _transport, NullLogger<TestRunner>.Instance, options);
+    }
 
     private TestScenario Scenario(string steps, int minRemotes = 1) => ScenarioLoader.Parse(
         $$"""{ "name": "unit", "requires": { "minRemoteNodes": {{minRemotes}} }, "steps": [ {{steps}} ] }""", _dir);
@@ -177,6 +182,24 @@ public class TestRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task ExactFrame_UnreadableFrame_FailsOnItsOwn_NextFrameIsTheReference()
+    {
+        _host.AddLocalMonitor(1);
+        _host.AddLocalMonitor(2);
+        _host.Target(0).CorruptCapture = true;
+        var report = await Runner().RunAsync(Scenario($$"""{{PlayMarker}}, { "type": "exactFrame", "label": "px", "elapsedMs": 5000 }"""),
+            "unit.json", CancellationToken.None);
+        var parity = report.Steps[1].Probes[0].Parity;
+        var bad = parity.Single(p => p.NodeName == "server #0");
+        Assert.Equal(Verdict.Fail, bad.Verdict);
+        Assert.StartsWith("frame unreadable", bad.Message);
+        Assert.Equal("server #1", bad.ReferenceNodeName);
+        var good = parity.Single(p => p.NodeName == "server #2");
+        Assert.Equal(Verdict.Pass, good.Verdict);
+        Assert.Equal("server #1", good.ReferenceNodeName);
+    }
+
+    [Fact]
     public async Task SilentRemote_SeriesStaysOnSchedule()
     {
         _transport.SilentUntilTimeout = true;
@@ -317,6 +340,213 @@ public class TestRunnerTests : IDisposable
         Assert.Equal(Verdict.Warn, report.Verdict);
     }
 
+    [Fact]
+    public async Task DuplicateNodeNames_GetSeparateLogsAndCaptures()
+    {
+        _host.AddRemote("client-2", "pc-02");    // same hostname as client-1
+        _host.AddRemote("client-3", "Server");   // would collide with the server's own logs/server.log
+        _transport.RemoteCaptures = true;
+        var report = await Runner().RunAsync(Scenario($$"""{{PlayMarker}}, { "type": "probe", "label": "p", "at": "now+30ms", "capture": true }"""),
+            "unit.json", CancellationToken.None);
+
+        var captures = report.Steps[1].Probes[0].Samples.Where(s => !s.IsLocal).Select(s => s.CapturePath).ToList();
+        Assert.Equal(3, captures.Count);
+        Assert.All(captures, c => Assert.True(File.Exists(Path.Combine(report.ResultsDirectory, c!)), c));
+        Assert.Equal(3, captures.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+
+        Assert.Equal(3, report.LogFiles.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.DoesNotContain("logs/server.log", report.LogFiles, StringComparer.OrdinalIgnoreCase);
+        Assert.All(report.LogFiles, f => Assert.True(File.Exists(Path.Combine(report.ResultsDirectory, f)), f));
+    }
+
+    [Fact]
+    public async Task StepTimeout_FailsTheStep_RunContinues()
+    {
+        var report = await Runner().RunAsync(Scenario("""{ "type": "wait", "ms": 5000, "timeoutMs": 100 }, { "type": "stop" }"""),
+            "unit.json", CancellationToken.None);
+        Assert.False(report.Aborted, report.AbortReason);
+        Assert.Equal(Verdict.Fail, report.Steps[0].Verdict);
+        Assert.Equal("timed out after 100 ms", report.Steps[0].Message);
+        Assert.InRange(report.Steps[0].DurationMs, 50, 3000);
+        Assert.Equal(Verdict.Pass, report.Steps[1].Verdict);
+    }
+
+    [Fact]
+    public async Task CancellationNobodyAskedFor_InAStep_IsAFailure_NotATimeout()
+    {
+        _host.PlayException = new OperationCanceledException("player host gave up");
+        var report = await Runner().RunAsync(Scenario($$"""{{PlayMarker}}, { "type": "stop" }"""), "unit.json", CancellationToken.None);
+        Assert.False(report.Aborted, report.AbortReason);
+        Assert.Equal(Verdict.Fail, report.Steps[0].Verdict);
+        Assert.Equal("player host gave up", report.Steps[0].Message);
+        Assert.Equal(Verdict.Pass, report.Steps[1].Verdict);
+    }
+
+    [Fact]
+    public async Task CancellationNobodyAskedFor_AtRunLevel_IsNotReportedAsCancelled()
+    {
+        _transport.ThrowOnProbeId = "preflight";
+        _transport.ProbeException = new TaskCanceledException("transport gave up");
+        var report = await Runner().RunAsync(Scenario(PlayMarker), "unit.json", CancellationToken.None);
+        Assert.True(report.Aborted);
+        Assert.Equal("transport gave up", report.AbortReason);
+    }
+
+    [Fact]
+    public async Task ProbeAtALongOffset_ExtendsTheStepTimeout()
+    {
+        var report = await Runner(o => o.DefaultStepTimeoutMs = 200).RunAsync(
+            Scenario($$"""{{PlayMarker}}, { "type": "probe", "label": "p", "at": "now+400ms", "capture": false }"""),
+            "unit.json", CancellationToken.None);
+        Assert.Equal(Verdict.Pass, report.Steps[1].Verdict);
+        Assert.DoesNotContain("timed out", report.Steps[1].Message);
+    }
+
+    [Fact]
+    public async Task CancelDuringPreflight_AbortsWithoutSpuriousWarnings()
+    {
+        _transport.HoldPreflightUntilCancelled = true;
+        using var cts = new CancellationTokenSource(200);
+        var report = await Runner().RunAsync(Scenario(PlayMarker), "unit.json", cts.Token);
+        Assert.True(report.Aborted);
+        Assert.Equal("cancelled", report.AbortReason);
+        Assert.Empty(report.Warnings);
+        Assert.Equal(0, _host.PlayCount);
+    }
+
+    [Fact]
+    public async Task BadSceneFile_IsRejectedBeforePreflightProbesTheRemotes()
+    {
+        File.WriteAllText(Path.Combine(_dir, "scenes", "bad.json"), """{ "Animation": { "AnimationPath": "missing.png" } }""");
+        var report = await Runner().RunAsync(Scenario("""{ "type": "playScene", "scene": "scenes/bad.json" }"""), "unit.json", CancellationToken.None);
+        Assert.True(report.Aborted);
+        Assert.Contains("asset not found", report.AbortReason);
+        Assert.Equal(0, _transport.ProbeCount);
+        Assert.Equal(0, _host.PlayCount);
+    }
+
+    [Fact]
+    public async Task CancelledMidStep_StepGetsDurationAndVerdict()
+    {
+        using var cts = new CancellationTokenSource();
+        var run = Runner().RunAsync(Scenario($$"""{{PlayMarker}}, { "type": "wait", "ms": 10000 }"""), "unit.json", cts.Token);
+        await Task.Delay(300);
+        cts.Cancel();
+        var report = await run;
+
+        Assert.True(report.Aborted);
+        var step = report.Steps[1];
+        Assert.Equal(Verdict.Warn, step.Verdict);
+        Assert.Contains("cancelled", step.Message);
+        Assert.InRange(step.DurationMs, 100, 5000);
+    }
+
+    [Fact]
+    public async Task CancelledConcurrentSeries_KeepsCompletedProbes_InOrder()
+    {
+        // everyMs >= MinLeadMs + 100: probes overlap (each waits out grace + upload for the silent remote).
+        _transport.SilentUntilTimeout = true;
+        using var cts = new CancellationTokenSource();
+        var run = Runner().RunAsync(Scenario($$"""{{PlayMarker}}, { "type": "probeSeries", "label": "s", "everyMs": 150, "forMs": 10000, "perf": false, "capture": false }"""),
+            "unit.json", cts.Token);
+        // Preflight waits out the silent remote too (~0.5 s); the first probe answers ~1.3 s in.
+        await Task.Delay(2500);
+        cts.Cancel();
+        var report = await run;
+
+        Assert.True(report.Aborted);
+        Assert.Equal("cancelled", report.AbortReason);
+        var step = report.Steps[1];
+        Assert.InRange(step.Probes.Count, 1, 20);   // ~13 started, ~5 still in flight at the cancel: only answered ones are kept
+        Assert.Equal(step.Probes.Select(p => p.ProbeId).OrderBy(id => id, StringComparer.Ordinal), step.Probes.Select(p => p.ProbeId));
+        Assert.All(step.Probes, p => Assert.Null(p.Error));
+        Assert.True(step.DurationMs > 0);
+        Assert.True(File.Exists(Path.Combine(report.ResultsDirectory, "report.json")));
+    }
+
+    [Theory]
+    [InlineData("""{ "type": "probe", "label": "p", "at": "now+30ms", "capture": false }""")]
+    [InlineData("""{ "type": "exactFrame", "label": "px", "elapsedMs": 5000 }""")]
+    public async Task FaultingSingleProbe_ErrorShowsInTheStepMessage(string step)
+    {
+        _transport.ThrowOnProbeId = "02-001";
+        var report = await Runner().RunAsync(Scenario($$"""{{PlayMarker}}, {{step}}"""), "unit.json", CancellationToken.None);
+        Assert.Equal(Verdict.Fail, report.Steps[1].Verdict);
+        Assert.Contains("probe exploded", report.Steps[1].Message);
+    }
+
+    [Fact]
+    public async Task PartiallyFaultingProbe_LeavesNoUnobservedTask()
+    {
+        string marker = $"late remote fault {Guid.NewGuid():N}";
+        var unobserved = new List<string>();
+        void OnUnobserved(object? sender, UnobservedTaskExceptionEventArgs e)
+        {
+            lock (unobserved)
+                unobserved.AddRange(e.Exception.Flatten().InnerExceptions.Select(x => x.Message));
+        }
+
+        _host.AddRemote("client-2", "pc-03");
+        _transport.ProbeOverride = (clientId, request, ct) =>
+        {
+            if (request.ProbeId == "preflight") return Task.FromResult<RemoteProbeResult?>(new RemoteProbeResult { ClientId = clientId, ProbeId = request.ProbeId });
+            if (clientId == "client-2") throw new InvalidOperationException("synchronous fault");
+            return FaultLater(marker);
+        };
+        TaskScheduler.UnobservedTaskException += OnUnobserved;
+        try
+        {
+            var report = await Runner().RunAsync(Scenario($$"""{{PlayMarker}}, { "type": "probe", "label": "p", "at": "now+30ms", "capture": false }"""),
+                "unit.json", CancellationToken.None);
+            Assert.Equal(Verdict.Fail, report.Steps[1].Verdict);
+            await Task.Delay(300);   // let the late fault happen
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+        }
+        finally
+        {
+            TaskScheduler.UnobservedTaskException -= OnUnobserved;
+        }
+        lock (unobserved) Assert.DoesNotContain(marker, unobserved);
+
+        static async Task<RemoteProbeResult?> FaultLater(string message)
+        {
+            await Task.Delay(100);
+            throw new InvalidOperationException(message);
+        }
+    }
+
+    [Fact]
+    public async Task ProbeBeforeTheFirstPostResetHeartbeat_DefersTheSkewCheck()
+    {
+        _transport.NoEstimateProbeIds.Add("03-001");   // the client reset its estimate for the skew; no heartbeat yet
+        var report = await Runner().RunAsync(Scenario($$"""
+            { "type": "testMode", "timecode": false, "simulatedClockSkewMs": { "pc-02": 2000 } },
+            {{PlayMarker}},
+            { "type": "probe", "label": "early", "at": "now+30ms", "capture": false },
+            { "type": "probe", "label": "later", "at": "now+30ms", "capture": false }
+            """), "unit.json", CancellationToken.None);
+        Assert.All(report.Steps.Skip(2), s => Assert.DoesNotContain("not seen", s.Message));
+        Assert.Equal(Verdict.Pass, report.Steps[2].Verdict);
+        Assert.Equal(Verdict.Pass, report.Steps[3].Verdict);
+    }
+
+    [Fact]
+    public async Task SkewCheck_StillRunsOnTheFirstProbeWithAnEstimate()
+    {
+        _transport.IgnoreSkew = true;
+        _transport.NoEstimateProbeIds.Add("03-001");
+        var report = await Runner().RunAsync(Scenario($$"""
+            { "type": "testMode", "timecode": false, "simulatedClockSkewMs": { "pc-02": 2000 } },
+            {{PlayMarker}},
+            { "type": "probe", "label": "early", "at": "now+30ms", "capture": false },
+            { "type": "probe", "label": "later", "at": "now+30ms", "capture": false }
+            """), "unit.json", CancellationToken.None);
+        Assert.DoesNotContain("not seen", report.Steps[2].Message);
+        Assert.Contains("simulated skew on pc-02 not seen", report.Steps[3].Message);
+    }
+
     // ── fakes ──────────────────────────────────────────────────────────────
 
     private static long Now() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -326,6 +556,8 @@ public class TestRunnerTests : IDisposable
         public int MonitorIndex { get; init; }
         public long Start { get; set; }
         public int MarkerOffsetX { get; set; }
+        /// <summary>Writes a capture file that is not a PNG.</summary>
+        public bool CorruptCapture { get; set; }
         public (bool, int)? LastMode { get; private set; }
 
         public Task SetTestModeAsync(bool timecode, int clockSkewMs) { LastMode = (timecode, clockSkewMs); return Task.CompletedTask; }
@@ -340,7 +572,12 @@ public class TestRunnerTests : IDisposable
             if (request.Capture)
             {
                 path = Path.Combine(request.CaptureDirectory, $"{request.ProbeId}-{MonitorIndex}.png");
-                PngPixels.Encode(DrawMarker(168 + MarkerOffsetX, 118), W, H, W * 4, path);   // static marker, centered
+                if (CorruptCapture)
+                {
+                    Directory.CreateDirectory(request.CaptureDirectory);
+                    File.WriteAllBytes(path, new byte[] { 1, 2, 3 });
+                }
+                else PngPixels.Encode(DrawMarker(168 + MarkerOffsetX, 118), W, H, W * 4, path);   // static marker, centered
             }
             return new PlayerProbeReply
             {
@@ -379,6 +616,8 @@ public class TestRunnerTests : IDisposable
             new() { NodeId = "client-1", Name = "pc-02", IsLocal = false, Width = W, Height = H, SeatOrder = 1 },
         };
         public bool ThrowOnPlay { get; set; }
+        /// <summary>PlaySceneAsync throws this (e.g. an OperationCanceledException nobody asked for).</summary>
+        public Exception? PlayException { get; set; }
         public bool ThrowOnGetNodes { get; set; }
         /// <summary>This remote reports Connected = false from the first scene start on (lost mid-run).</summary>
         public string? DisconnectOnPlay { get; set; }
@@ -392,6 +631,9 @@ public class TestRunnerTests : IDisposable
             _nodes.Insert(index, new TestNodeInfo { NodeId = $"SERVER_LOCALHOST_MONITOR_{index}", Name = $"server #{index}", IsLocal = true, MonitorIndex = index, Width = W, Height = H });
         }
 
+        public void AddRemote(string nodeId, string name) =>
+            _nodes.Add(new TestNodeInfo { NodeId = nodeId, Name = name, IsLocal = false, Width = W, Height = H, SeatOrder = _nodes.Count });
+
         public Task<IReadOnlyList<TestNodeInfo>> GetNodesAsync() =>
             ThrowOnGetNodes ? throw new InvalidOperationException("node list unavailable") : Task.FromResult<IReadOnlyList<TestNodeInfo>>(_nodes);
 
@@ -399,6 +641,7 @@ public class TestRunnerTests : IDisposable
         {
             PlayCount++;
             if (ThrowOnPlay) throw new InvalidOperationException("play failed");
+            if (PlayException != null) throw PlayException;
             if (DisconnectOnPlay != null) _nodes.Single(n => n.NodeId == DisconnectOnPlay).Connected = false;
             long start = Now() + 10;
             foreach (var t in _targets) t.Start = start;
@@ -436,6 +679,17 @@ public class TestRunnerTests : IDisposable
         public bool IgnoreSkew { get; set; }
         /// <summary>From this probe id on (ordinal), the client has no command stream (disconnected).</summary>
         public string? NoStreamFromProbeId { get; set; }
+        /// <summary>What <see cref="ThrowOnProbeId"/> throws (default: InvalidOperationException "probe exploded").</summary>
+        public Exception? ProbeException { get; set; }
+        /// <summary>The preflight probe hangs until the run is cancelled, then answers null (like ServerTestChannel).</summary>
+        public bool HoldPreflightUntilCancelled { get; set; }
+        /// <summary>Probes answered before the client's first post-reset heartbeat: no clock estimate yet (offset 0, RTT 0).</summary>
+        public HashSet<string> NoEstimateProbeIds { get; } = new();
+        /// <summary>Each remote reply carries a capture PNG for monitor 0.</summary>
+        public bool RemoteCaptures { get; set; }
+        /// <summary>Replaces the whole probe behaviour for a client (null result = fall through to the default).</summary>
+        public Func<string, ProbeRequest, CancellationToken, Task<RemoteProbeResult?>>? ProbeOverride { get; set; }
+        public int ProbeCount;
         private int _skewMs;
 
         public Task<bool> SendTestModeAsync(string clientId, bool timecode, int clockSkewMs)
@@ -447,18 +701,22 @@ public class TestRunnerTests : IDisposable
 
         public Task<RemoteProbeResult?> ProbeAsync(string clientId, ProbeRequest request, TimeSpan timeout, CancellationToken ct)
         {
+            Interlocked.Increment(ref ProbeCount);
+            if (ProbeOverride != null) return ProbeOverride(clientId, request, ct);
+            if (HoldPreflightUntilCancelled && request.ProbeId == "preflight") return HeldUntilCancelled(ct);
             if (SilentUntilTimeout) return NeverAnswers(timeout, ct);
-            if (request.ProbeId == ThrowOnProbeId) throw new InvalidOperationException("probe exploded");
+            if (request.ProbeId == ThrowOnProbeId) throw ProbeException ?? new InvalidOperationException("probe exploded");
             if (Silent) return Task.FromResult<RemoteProbeResult?>(null);
             if (Error != null) return Task.FromResult<RemoteProbeResult?>(new RemoteProbeResult { ClientId = clientId, ProbeId = request.ProbeId, Error = Error });
             if (NoStreamFromProbeId != null && request.ProbeId != "preflight" && string.CompareOrdinal(request.ProbeId, NoStreamFromProbeId) >= 0)
                 return Task.FromResult<RemoteProbeResult?>(new RemoteProbeResult { ClientId = clientId, ProbeId = request.ProbeId, Error = TestModeErrors.NoCommandStream });
             // Client clock 1000 ms behind the server (plus any simulated skew); the offset (server − client) is 1000 − skew.
-            long offset = 1000 - _skewMs;
+            bool noEstimate = NoEstimateProbeIds.Contains(request.ProbeId);
+            long offset = noEstimate ? 0 : 1000 - _skewMs;
             long renderLocal = request.AtServerUtcMs - offset;
-            return Task.FromResult<RemoteProbeResult?>(new RemoteProbeResult
+            var result = new RemoteProbeResult
             {
-                ClientId = clientId, ProbeId = request.ProbeId, ClockOffsetMs = offset, RttMs = 2,
+                ClientId = clientId, ProbeId = request.ProbeId, ClockOffsetMs = offset, RttMs = noEstimate ? 0 : 2,
                 Perf = RemoteMemoryMb is { } mb ? new PerfSample { PlayerMemoryMb = mb } : null,
                 Replies =
                 {
@@ -470,12 +728,27 @@ public class TestRunnerTests : IDisposable
                         AnimX = 168, AnimY = 118, AnimWidth = 64, AnimHeight = 64, Width = W, Height = H,
                     },
                 },
-            });
+            };
+            if (RemoteCaptures && request.Capture)
+            {
+                var png = Path.Combine(Path.GetTempPath(), $"wbbs-remote-{Guid.NewGuid():N}.png");
+                PngPixels.Encode(DrawMarker(168, 118), W, H, W * 4, png);
+                result.Captures[0] = File.ReadAllBytes(png);
+                File.Delete(png);
+            }
+            return Task.FromResult<RemoteProbeResult?>(result);
         }
 
         private static async Task<RemoteProbeResult?> NeverAnswers(TimeSpan timeout, CancellationToken ct)
         {
             await Task.Delay(timeout, ct);
+            return null;
+        }
+
+        private static async Task<RemoteProbeResult?> HeldUntilCancelled(CancellationToken ct)
+        {
+            try { await Task.Delay(Timeout.Infinite, ct); }
+            catch (OperationCanceledException) { /* the real channel answers null on cancel */ }
             return null;
         }
 

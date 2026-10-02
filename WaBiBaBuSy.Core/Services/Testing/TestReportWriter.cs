@@ -18,12 +18,32 @@ public static class TestReportWriter
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
     };
 
+    /// <summary>
+    /// Write report.json, then report.html. When the HTML cannot be rendered, report.html becomes a short page
+    /// pointing to report.json and the rendering exception is rethrown.
+    /// </summary>
     public static void Write(TestRunReport report)
     {
         Directory.CreateDirectory(report.ResultsDirectory);
         File.WriteAllText(Path.Combine(report.ResultsDirectory, "report.json"), JsonSerializer.Serialize(report, JsonOptions));
-        File.WriteAllText(Path.Combine(report.ResultsDirectory, "report.html"), RenderHtml(report));
+        var htmlPath = Path.Combine(report.ResultsDirectory, "report.html");
+        string html;
+        try
+        {
+            html = RenderHtml(report);
+        }
+        catch (Exception ex)
+        {
+            File.WriteAllText(htmlPath, FallbackHtml(report, ex));
+            throw;
+        }
+        File.WriteAllText(htmlPath, html);
     }
+
+    private static string FallbackHtml(TestRunReport r, Exception ex) =>
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>" + E(r.Scenario) + " · test run</title></head><body>"
+        + "<h1>" + E(r.Scenario) + "</h1><p>The HTML report could not be rendered (" + E(ex.Message)
+        + "). Every result is in <a href=\"report.json\">report.json</a>.</p></body></html>";
 
     public static string RenderHtml(TestRunReport r)
     {
@@ -92,7 +112,7 @@ public static class TestReportWriter
 
             sb.Append("<div class=\"probe\"><h3>Probe ").Append(E(p.ProbeId)).Append(' ').Append(Badge(p.Verdict)).Append("</h3>");
             if (p.Error != null) sb.Append("<p class=\"missing\">").Append(E(p.Error)).Append("</p>");
-            if (p.Drift != null) sb.Append("<p>").Append(E(p.Drift.Message)).Append("</p>");
+            if (p.Drift is { Message.Length: > 0 }) sb.Append("<p>").Append(E(p.Drift.Message)).Append("</p>");
             foreach (var m in p.Messages) sb.Append("<p class=\"missing\">").Append(E(m)).Append("</p>");
 
             if (p.Drift != null && p.Drift.Errors.Count > 0)
