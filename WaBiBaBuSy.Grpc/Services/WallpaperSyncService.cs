@@ -22,8 +22,10 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     private readonly ConcurrentDictionary<string, ThumbnailData> _clientThumbnails;
     private readonly ConcurrentDictionary<string, string> _contentRegistry; // contentId -> server file path
     private readonly ConcurrentDictionary<string, ClientLogData> _clientLogs; // clientId -> latest logs
-    // FetchClientLogsAsync waiters, completed by SendClientLogs (one pending fetch per client).
+    // FetchClientLogsAsync waiters, completed by SendClientLogs. A reply carries no request id, so
+    // fetches for one client are serialized (_logFetchGates): one pending fetch per client at a time.
     private readonly ConcurrentDictionary<string, TaskCompletionSource<ClientLogData>> _logWaiters = new();
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _logFetchGates = new();
     private readonly ConcurrentDictionary<string, int> _serverLocalMonitorOrders = new(); // SERVER_LOCALHOST_MONITOR_* order overrides
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _writeLocks = new(); // per-client gRPC stream write serialization
     private readonly DriftMonitor _driftMonitor = new(); // per-client drift telemetry from heartbeats
@@ -1281,20 +1283,29 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         return sent;
     }
 
-    /// <summary>Request a client's log and wait for the reply; null on send failure or timeout.</summary>
+    /// <summary>
+    /// Request a client's log and wait for the reply; null on send failure or timeout. Concurrent
+    /// fetches for the same client (View logs during a test run) queue behind each other, each
+    /// with its own window and its own <paramref name="timeout"/>, so neither loses its reply.
+    /// </summary>
     public async Task<ClientLogData?> FetchClientLogsAsync(string clientId, long fromUtcMs, long toUtcMs, TimeSpan timeout)
     {
+        // Never disposed: a queued fetch may still wait on it (same reasoning as _writeLocks).
+        var gate = _logFetchGates.GetOrAdd(clientId, _ => new SemaphoreSlim(1, 1));
+        // The holder finishes within its own timeout; waiting longer than ours means something hangs.
+        if (!await gate.WaitAsync(timeout)) return null;
         var waiter = new TaskCompletionSource<ClientLogData>(TaskCreationOptions.RunContinuationsAsynchronously);
         _logWaiters[clientId] = waiter;
         try
         {
             if (!await RequestClientLogsAsync(clientId, fromUtcMs, toUtcMs)) return null;
-            var finished = await Task.WhenAny(waiter.Task, Task.Delay(timeout));
-            return finished == waiter.Task ? await waiter.Task : null;
+            try { return await waiter.Task.WaitAsync(timeout); }
+            catch (TimeoutException) { return null; }
         }
         finally
         {
             _logWaiters.TryRemove(new KeyValuePair<string, TaskCompletionSource<ClientLogData>>(clientId, waiter));
+            gate.Release();
         }
     }
 
@@ -1318,12 +1329,30 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     /// <summary>A client uploaded one probe result (header JSON + PNG bytes per monitor).</summary>
     public event EventHandler<ProbeResultReceivedEventArgs>? ProbeResultReceived;
 
+    /// <summary>
+    /// Upper bound for the PNG bytes of one probe upload (all monitors together). Above it the
+    /// server stops reading, drops the captures and still delivers the timing result.
+    /// Default 128 MB = four uncompressed 4K RGBA frames.
+    /// </summary>
+    public long MaxProbeCaptureBytes { get; set; } = 128L * 1024 * 1024;
+
+    // A machine with more monitors than this is not a test setup; bounds the per-upload dictionary.
+    private const int MaxProbeCaptureMonitors = 16;
+
+    /// <summary>
+    /// A client uploads one TEST_PROBE result: a header (client id, probe id, result JSON) followed
+    /// by the PNG captures in chunks, keyed by monitor index. Raises <see cref="ProbeResultReceived"/>.
+    /// The header's client id must belong to a client with an open command stream (the only way it
+    /// could have received the probe); the RPC layer has no further client authentication.
+    /// </summary>
     public override async Task<ProbeResultAck> SubmitProbeResult(
         IAsyncStreamReader<ProbeResultChunk> requestStream,
         ServerCallContext context)
     {
         ProbeResultHeader? header = null;
         var captures = new Dictionary<int, MemoryStream>();
+        long captureBytes = 0;
+        string? rejected = null;
         try
         {
             await foreach (var chunk in requestStream.ReadAllAsync(context.CancellationToken))
@@ -1334,22 +1363,59 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                         header = chunk.Header;
                         break;
                     case ProbeResultChunk.PartOneofCase.Capture:
+                        captureBytes += chunk.Capture.Data.Length;
+                        if (captureBytes > MaxProbeCaptureBytes)
+                        {
+                            rejected = $"captures exceed {MaxProbeCaptureBytes / (1024 * 1024)} MB";
+                            break;
+                        }
                         if (!captures.TryGetValue(chunk.Capture.MonitorIndex, out var buffer))
+                        {
+                            if (captures.Count >= MaxProbeCaptureMonitors)
+                            {
+                                rejected = $"captures for more than {MaxProbeCaptureMonitors} monitors";
+                                break;
+                            }
                             captures[chunk.Capture.MonitorIndex] = buffer = new MemoryStream();
+                        }
                         chunk.Capture.Data.WriteTo(buffer);
                         break;
                 }
+                if (rejected != null) break;   // stop reading: the rest is never buffered
             }
             if (header == null) return new ProbeResultAck { Success = false, Message = "missing header" };
+            if (!_clientCommandStreams.ContainsKey(header.ClientId))
+            {
+                _logger.LogWarning("Probe result {ProbeId} from {Peer} for client {ClientId} without a command stream — ignored",
+                    header.ProbeId, context.Peer, header.ClientId);
+                return new ProbeResultAck { Success = false, Message = "unknown client" };
+            }
+            if (rejected != null)
+            {
+                _logger.LogWarning("Probe result {ProbeId} from {ClientId}: {Reason} — captures dropped", header.ProbeId, header.ClientId, rejected);
+                foreach (var buffer in captures.Values) buffer.Dispose();
+                captures.Clear();
+            }
 
-            ProbeResultReceived?.Invoke(this, new ProbeResultReceivedEventArgs(
+            RaiseProbeResultReceived(new ProbeResultReceivedEventArgs(
                 header.ClientId, header.ProbeId, header.ResultJson,
                 captures.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray())));
-            return new ProbeResultAck { Success = true };
+            return rejected == null ? new ProbeResultAck { Success = true } : new ProbeResultAck { Success = false, Message = rejected };
         }
         finally
         {
             foreach (var buffer in captures.Values) buffer.Dispose();
+        }
+    }
+
+    /// <summary>Invoke every subscriber separately: one that throws must not fail the upload or starve the others.</summary>
+    private void RaiseProbeResultReceived(ProbeResultReceivedEventArgs e)
+    {
+        if (ProbeResultReceived is not { } handlers) return;
+        foreach (EventHandler<ProbeResultReceivedEventArgs> handler in handlers.GetInvocationList())
+        {
+            try { handler(this, e); }
+            catch (Exception ex) { _logger.LogError(ex, "ProbeResultReceived subscriber failed for probe {ProbeId}", e.ProbeId); }
         }
     }
 

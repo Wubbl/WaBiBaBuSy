@@ -777,28 +777,7 @@ public class WallpaperSyncClient : IDisposable
         }
 
         var logDate = DateTime.Today.ToString("yyyy-MM-dd");
-        var logPath = Path.Combine(logDirectory, $"wabibabusy-{logDate}.log");
-        string logContent;
-        try
-        {
-            if (File.Exists(logPath))
-            {
-                bool windowed = fromUtcMs > 0 && toUtcMs >= fromUtcMs;
-                var lines = await LogTail.ReadLastLinesAsync(logPath, windowed ? 20000 : 500);
-                if (windowed)
-                    lines = LogTail.FilterWindow(lines, ToLocalTimeOfDay(fromUtcMs), ToLocalTimeOfDay(toUtcMs));
-                logContent = string.Join(Environment.NewLine, lines);
-            }
-            else
-            {
-                logContent = $"[No log file at {logPath} — enable Settings → Logging → Log to file on this machine]";
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Could not read log file {Path}", logPath);
-            logContent = $"[Could not read {logPath}: {ex.Message}]";
-        }
+        string logContent = await ReadLogsForUploadAsync(logDirectory, fromUtcMs, toUtcMs, _logger);
 
         try
         {
@@ -814,6 +793,54 @@ public class WallpaperSyncClient : IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error sending logs to server");
+        }
+    }
+
+    /// <summary>
+    /// The text a FETCH_LOGS reply carries: the last 500 lines of today's file, or, for a nonzero
+    /// window, the lines between the two UTC instants from every daily file the window touches
+    /// (a run across midnight spans two files). Never throws: a missing file or a read failure
+    /// becomes a bracketed message, so the server always gets an answer.
+    /// </summary>
+    public static async Task<string> ReadLogsForUploadAsync(string logDirectory, long fromUtcMs = 0, long toUtcMs = 0, ILogger? logger = null)
+    {
+        static string PathFor(string dir, DateTime day) => Path.Combine(dir, $"wabibabusy-{day:yyyy-MM-dd}.log");
+
+        var logPath = PathFor(logDirectory, DateTime.Today);
+        try
+        {
+            bool windowed = fromUtcMs > 0 && toUtcMs >= fromUtcMs;
+            if (!windowed)
+            {
+                if (!File.Exists(logPath))
+                    return $"[No log file at {logPath} — enable Settings → Logging → Log to file on this machine]";
+                return string.Join(Environment.NewLine, await LogTail.ReadLastLinesAsync(logPath, 500));
+            }
+
+            var from = DateTimeOffset.FromUnixTimeMilliseconds(fromUtcMs).ToLocalTime().DateTime;
+            var to = DateTimeOffset.FromUnixTimeMilliseconds(toUtcMs).ToLocalTime().DateTime;
+            if ((to.Date - from.Date).Days > 7) from = to.Date.AddDays(-7);   // bogus window: last week at most
+            var result = new List<string>();
+            bool anyFile = false;
+            for (var day = from.Date; day <= to.Date; day = day.AddDays(1))
+            {
+                logPath = PathFor(logDirectory, day);
+                if (!File.Exists(logPath)) continue;
+                anyFile = true;
+                var lines = await LogTail.ReadLastLinesAsync(logPath, 20000);
+                // Each daily file only holds its own day's times, so its window never crosses midnight.
+                var start = day == from.Date ? from.TimeOfDay : TimeSpan.Zero;
+                var end = day == to.Date ? to.TimeOfDay : new TimeSpan(0, 23, 59, 59, 999);
+                result.AddRange(LogTail.FilterWindow(lines, start, end));
+            }
+            if (!anyFile)
+                return $"[No log file at {logPath} — enable Settings → Logging → Log to file on this machine]";
+            return string.Join(Environment.NewLine, result);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogError(ex, "Could not read log file {Path}", logPath);
+            return $"[Could not read {logPath}: {ex.Message}]";
         }
     }
 
@@ -944,9 +971,6 @@ public class WallpaperSyncClient : IDisposable
             _logger.LogError(ex, "Could not upload probe result {ProbeId}", result.ProbeId);
         }
     }
-
-    private static TimeSpan ToLocalTimeOfDay(long utcMs) =>
-        DateTimeOffset.FromUnixTimeMilliseconds(utcMs).ToLocalTime().TimeOfDay;
 
     /// <summary>
     /// Compute SHA-256 hash of a file
@@ -1356,7 +1380,8 @@ public class WallpaperSyncClient : IDisposable
             {
                 AnimationId = animationId,
                 ClientId = _clientId,
-                ReadyTimestampUtc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                // This machine's sync clock (simulated test skew included), like the heartbeat timestamps.
+                ReadyTimestampUtc = NowMs()
             };
 
             var response = await _client.ReportAnimationReadyAsync(ready);

@@ -26,11 +26,17 @@ public sealed class ServerTestChannel : ITestTransport, IDisposable
             Params = new SyncParameters { TestTimecode = timecode, TestClockSkewMs = clockSkewMs },
         });
 
+    /// <summary>
+    /// Send TEST_PROBE and wait for the client's upload. Null on timeout; a cancelled
+    /// <paramref name="ct"/> throws <see cref="OperationCanceledException"/> (not a timeout).
+    /// A second probe with the same (client, probe id) while one is pending is refused with an error result.
+    /// </summary>
     public async Task<RemoteProbeResult?> ProbeAsync(string clientId, ProbeRequest request, TimeSpan timeout, CancellationToken ct)
     {
         var key = Key(clientId, request.ProbeId);
         var waiter = new TaskCompletionSource<RemoteProbeResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _waiters[key] = waiter;
+        if (!_waiters.TryAdd(key, waiter))
+            return new RemoteProbeResult { ClientId = clientId, ProbeId = request.ProbeId, Error = $"probe {request.ProbeId} is already pending for this client" };
         try
         {
             bool sent = await _sync.SendCommandToClientAsync(clientId, new SyncCommand
@@ -48,12 +54,13 @@ public sealed class ServerTestChannel : ITestTransport, IDisposable
             if (!sent)
                 return new RemoteProbeResult { ClientId = clientId, ProbeId = request.ProbeId, Error = TestModeErrors.NoCommandStream };
 
-            var finished = await Task.WhenAny(waiter.Task, Task.Delay(timeout, ct));
-            return finished == waiter.Task ? await waiter.Task : null;
+            // Same pattern as ProbeFanOut.WaitForReplyAsync: the timer is released as soon as the reply arrives.
+            try { return await waiter.Task.WaitAsync(timeout, ct); }
+            catch (TimeoutException) { return null; }
         }
         finally
         {
-            _waiters.TryRemove(key, out _);
+            _waiters.TryRemove(new KeyValuePair<string, TaskCompletionSource<RemoteProbeResult>>(key, waiter));
         }
     }
 
