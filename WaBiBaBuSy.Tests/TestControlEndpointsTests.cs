@@ -81,6 +81,25 @@ public class TestControlEndpointsTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
+    [Theory]
+    [InlineData("POST", "text/plain", """{"scenario":"C:/x.json"}""")]   // routing's 415 endpoint
+    [InlineData("POST", "application/json", "{not json")]                 // 400 from body binding
+    [InlineData("PUT", "application/json", "{}")]                         // routing's 405 endpoint
+    public async Task Run_OnTheOtherListener_WithForgedHost_Returns404_BeforeBinding(string method, string contentType, string body)
+    {
+        using var http = new HttpClient();
+        var request = new HttpRequestMessage(new HttpMethod(method), $"http://127.0.0.1:{_grpcLikePort}/test/run")
+        {
+            Version = HttpVersion.Version20,
+            VersionPolicy = HttpVersionPolicy.RequestVersionExact,
+            Content = new StringContent(body, System.Text.Encoding.UTF8, contentType),
+        };
+        request.Headers.Host = $"127.0.0.1:{_testPort}";
+        var response = await http.SendAsync(request);
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(0, _control.Starts);
+    }
+
     [Fact]
     public async Task Status_WithForeignHost_Returns404()
     {

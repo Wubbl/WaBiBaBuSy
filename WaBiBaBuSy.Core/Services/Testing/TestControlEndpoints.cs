@@ -11,27 +11,36 @@ namespace WaBiBaBuSy.Core.Services.Testing;
 /// </summary>
 /// <remarks>
 /// The app also serves the AnyIP gRPC listener, so the routes are gated on the real connection
-/// (local port + loopback peer), not on the client-supplied Host header. <c>RequireHost</c> stays as a
-/// DNS-rebinding defence for browsers.
+/// (local port + loopback peer), not on the client-supplied Host header. The gate is middleware, not an
+/// endpoint filter, and keyed on the path prefix rather than endpoint metadata: filters run after parameter
+/// binding, and routing answers a wrong content type or method with its own 415/405 endpoint — either
+/// way a LAN peer would learn that test mode is enabled. <c>RequireHost</c> stays as a DNS-rebinding
+/// defence for browsers.
 /// </remarks>
 public static class TestControlEndpoints
 {
     /// <summary>Body of POST /test/run; binding it as a typed parameter makes ASP.NET require application/json (415 otherwise).</summary>
     internal sealed record RunRequest(string? Scenario);
 
+    private const string Prefix = "/test";
+
     public static void Map(WebApplication app, ITestRunControl control, int port)
     {
         var hosts = new[] { $"127.0.0.1:{port}", $"localhost:{port}" };
         var json = TestReportWriter.JsonOptions;
 
-        var group = app.MapGroup("/test").RequireHost(hosts);
-        group.AddEndpointFilter(async (ctx, next) =>
+        // Runs before any endpoint executes (binding included), whichever endpoint routing picked.
+        app.Use(async (http, next) =>
         {
-            var connection = ctx.HttpContext.Connection;
-            if (connection.LocalPort != port || connection.RemoteIpAddress is not { } ip || !IPAddress.IsLoopback(ip))
-                return Results.NotFound();
-            return await next(ctx);
+            if (http.Request.Path.StartsWithSegments(Prefix, StringComparison.OrdinalIgnoreCase) && !IsLocalTestConnection(http.Connection, port))
+            {
+                http.Response.StatusCode = StatusCodes.Status404NotFound;
+                return;
+            }
+            await next(http);
         });
+
+        var group = app.MapGroup(Prefix).RequireHost(hosts);
 
         group.MapPost("/run", (RunRequest body) =>
         {
@@ -62,4 +71,7 @@ public static class TestControlEndpoints
             : Results.NotFound(new { error = "no active run" }));
         group.MapGet("/runs", () => Results.Json(control.ListRuns(), json));
     }
+
+    private static bool IsLocalTestConnection(ConnectionInfo connection, int port) =>
+        connection.LocalPort == port && connection.RemoteIpAddress is { } ip && IPAddress.IsLoopback(ip);
 }
