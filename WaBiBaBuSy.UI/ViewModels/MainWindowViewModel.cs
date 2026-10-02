@@ -51,6 +51,8 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, ThumbnailCaptureService> _thumbnailCaptureServices = new();
     // D2D services for remote-triggered rendering when in client mode
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, D2DCompositionService> _remoteD2DServices = new();
+    // Thumbnail source for client mode: one per app, handed to every sync client (survives reconnects)
+    private readonly ThumbnailCaptureService _remoteThumbnailCapture = new(AppLogger.CreateLogger<ThumbnailCaptureService>());
     // Fullscreen detection service for pausing wallpaper when a fullscreen app is active
     private FullscreenDetectionService? _fullscreenDetection;
     private bool _wallpaperPausedByFullscreen;
@@ -483,6 +485,10 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         _service.ClientLogsReceived += OnClientLogsReceived;
         _service.UpdateAvailable += OnUpdateAvailableFromServer;
         _service.UpdateStatusChanged += OnUpdateStatusChanged;
+
+        // Client mode: every sync client (any connect path, reconnects too) probes and thumbnails these players.
+        _service.ClientTestProbeTargets = () => _remoteD2DServices.Values.Cast<WaBiBaBuSy.Core.Services.Testing.ITestProbeTarget>().ToList();
+        _service.ClientThumbnailCapture = _remoteThumbnailCapture;
 
         // Setup refresh timer for topology updates (but don't start it yet - window will start it)
         _refreshTimer = new System.Timers.Timer(2000); // Refresh every 2 seconds
@@ -1983,7 +1989,8 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             // The reply also arrives through OnClientLogsReceived; this only covers "no answer".
             var logs = await _service.FetchClientLogsAsync(selectedRemote.ClientId, 0, 0, TimeSpan.FromSeconds(10));
             if (logs == null)
-                RemoteClientLogs = $"No reply from {selectedRemote.Hostname} within 10 s. Is it connected? Its logs are in %LOCALAPPDATA%\\WaBiBaBuSy\\Logs on that machine.";
+                // The remote's LogDirectory is its own setting; the server only knows the default.
+                RemoteClientLogs = $"No reply from {selectedRemote.Hostname} within 10 s. Is it connected? Its logs are in its configured log folder on that machine (default %LOCALAPPDATA%\\WaBiBaBuSy\\Logs).";
         }
         catch (Exception ex)
         {
@@ -2364,8 +2371,6 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             {
                 _service.SetD2DCrossScreenApplyDelegate(ApplyCrossScreenD2DFromRemoteAsync);
                 _service.SetD2DCrossScreenStopDelegate(StopRemoteCrossScreenD2DAsync);
-                if (_service.Client != null)
-                    _service.Client.TestProbeTargets = () => _remoteD2DServices.Values.Cast<WaBiBaBuSy.Core.Services.Testing.ITestProbeTarget>().ToList();
             }
 
             if (connected)
@@ -2564,17 +2569,31 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         await d2dService.StartAsync(startTimestampMs: req.SharedStartTimestampMs, pixelsPerSecond: pixelsPerSecond);
 
         _remoteD2DServices[monitorIndex] = d2dService;
-
-        // Remote thumbnails: the client uploads this player's window (the primary one when
-        // several monitors play). Without this the upload loop returns early on every remote.
-        var syncClient = _service.Client;
-        if (syncClient != null && (monitorIndex == 0 || syncClient.ThumbnailCaptureService == null))
-        {
-            syncClient.ThumbnailCaptureService ??= new ThumbnailCaptureService(AppLogger.CreateLogger<ThumbnailCaptureService>());
-            syncClient.ThumbnailCaptureService.SetWallpaperHwnd(d2dService.PlayerHwnd, Path.GetFileName(req.FilePath));
-        }
+        await CatchUpTestModeAsync(d2dService, testMode);
+        AdoptRemoteThumbnail(monitorIndex, d2dService, req.FilePath);
 
         Debug.WriteLine($"[D2D-CrossScreen] SUCCESS: Cross-screen D2D started on monitor {monitorIndex}");
+    }
+
+    /// <summary>
+    /// Remote thumbnails: the client uploads this player's window — the primary monitor's when
+    /// several play, otherwise whichever player starts while no live window is assigned.
+    /// </summary>
+    private void AdoptRemoteThumbnail(int monitorIndex, D2DCompositionService d2dService, string filePath)
+    {
+        if (_remoteThumbnailCapture.ShouldAdopt(monitorIndex))
+            _remoteThumbnailCapture.SetWallpaperHwnd(d2dService.PlayerHwnd, Path.GetFileName(filePath));
+    }
+
+    /// <summary>
+    /// A TEST_MODE that arrived while this player was being created fanned out without it (it was
+    /// not registered yet): send the current state now if it differs from what the player got.
+    /// </summary>
+    private async Task CatchUpTestModeAsync(D2DCompositionService d2dService, (bool Timecode, int ClockSkewMs) applied)
+    {
+        var current = _service.Client?.TestModeState ?? default;
+        if (current != applied)
+            await d2dService.SetTestModeAsync(current.Timecode, current.ClockSkewMs);
     }
 
     /// <summary>Deserialize a JSON config received from the server; null on empty or malformed input.</summary>
@@ -2605,7 +2624,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             try { kvp.Value.Dispose(); } catch { }
         }
         _remoteD2DServices.Clear();
-        _service.Client?.ThumbnailCaptureService?.ClearWallpaperHwnd();
+        _remoteThumbnailCapture.ClearWallpaperHwnd();
         Debug.WriteLine("[D2D-CrossScreen] All remote D2D services stopped");
     }
 
@@ -2680,10 +2699,17 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         await d2dService.InitializeAsync(canvasManager, backgroundConfig, animationConfig, actualBounds, monitorIndex);
         await Task.Delay(100);
 
+        // Same test-mode handling as the cross-screen path: state before the start, catch-up after registering.
+        var testMode = _service.Client?.TestModeState ?? default;
+        if (testMode.Timecode || testMode.ClockSkewMs != 0)
+            await d2dService.SetTestModeAsync(testMode.Timecode, testMode.ClockSkewMs);
+
         Debug.WriteLine($"[D2D-Remote] Starting D2D playback");
         await d2dService.StartAsync(startTimestampMs: 0, pixelsPerSecond: 0);
 
         _remoteD2DServices[monitorIndex] = d2dService;
+        await CatchUpTestModeAsync(d2dService, testMode);
+        AdoptRemoteThumbnail(monitorIndex, d2dService, filePath);
         Debug.WriteLine($"[D2D-Remote] SUCCESS: Applied D2D wallpaper '{Path.GetFileName(filePath)}' on monitor {monitorIndex}");
     }
 
