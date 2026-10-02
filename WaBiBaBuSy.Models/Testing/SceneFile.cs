@@ -19,11 +19,19 @@ public static class SceneFile
 
     /// <summary>
     /// Load a scene; the animation, additional image and background image paths become absolute
-    /// against the scene file's folder. Throws <see cref="ScenarioException"/> for bad JSON or a missing asset.
+    /// against the scene file's folder. Throws <see cref="ScenarioException"/> for bad JSON, a missing asset,
+    /// or a UNC / device scene or asset path (rejected before any file system access).
     /// </summary>
     public static CrossScreenConfig Load(string path)
     {
-        var full = Path.GetFullPath(path);
+        if (ScenarioLoader.IsRemoteOrDevicePath(path)) throw new ScenarioException($"{path}: scene {ScenarioLoader.LocalOnly}");
+        string full;
+        try { full = Path.GetFullPath(path); }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            throw new ScenarioException($"{path}: invalid scene path — {ex.Message}");
+        }
+        if (ScenarioLoader.IsRemoteOrDevicePath(full)) throw new ScenarioException($"{full}: scene {ScenarioLoader.LocalOnly}");
         if (!File.Exists(full)) throw new ScenarioException($"{full}: scene file not found");
         CrossScreenConfig? config;
         try
@@ -48,12 +56,24 @@ public static class SceneFile
         if (nulls.Count > 0) throw new ScenarioException($"{full}: {string.Join(", ", nulls.Select(n => n + " is null"))}");
 
         var dir = Path.GetDirectoryName(full)!;
-        config.Animation.AnimationPath = Absolute(dir, config.Animation.AnimationPath);
-        config.Animation.AdditionalAnimationPaths = config.Animation.AdditionalAnimationPaths.Select(p => Absolute(dir, p)).ToList();
-        if (!string.IsNullOrEmpty(config.Background.ImagePath))
-            config.Background.ImagePath = Absolute(dir, config.Background.ImagePath);
+        try
+        {
+            config.Animation.AnimationPath = Absolute(dir, config.Animation.AnimationPath);
+            config.Animation.AdditionalAnimationPaths = config.Animation.AdditionalAnimationPaths.Select(p => Absolute(dir, p)).ToList();
+            if (!string.IsNullOrEmpty(config.Background.ImagePath))
+                config.Background.ImagePath = Absolute(dir, config.Background.ImagePath);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            throw new ScenarioException($"{full}: invalid asset path — {ex.Message}");
+        }
 
-        foreach (var (asset, _) in SceneAssets.CollectPaths(config))
+        var assets = SceneAssets.CollectPaths(config);
+        // All remote checks before the first File.Exists: probing a UNC path would authenticate to the share.
+        foreach (var (asset, _) in assets)
+            if (ScenarioLoader.IsRemoteOrDevicePath(asset))
+                throw new ScenarioException($"{full}: asset {ScenarioLoader.LocalOnly}: {asset}");
+        foreach (var (asset, _) in assets)
             if (!string.IsNullOrWhiteSpace(asset) && !File.Exists(asset))
                 throw new ScenarioException($"{full}: asset not found: {asset}");
         return config;

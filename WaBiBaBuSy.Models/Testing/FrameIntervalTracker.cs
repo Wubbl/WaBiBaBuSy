@@ -9,6 +9,7 @@ namespace WaBiBaBuSy.Models.Testing;
 public sealed class FrameIntervalTracker
 {
     private readonly double[] _intervalsMs;
+    private readonly double[] _sorted;
     private readonly double _ticksPerMs;
     private int _count;
     private int _next;
@@ -20,6 +21,7 @@ public sealed class FrameIntervalTracker
     public FrameIntervalTracker(int capacity = 120, long? ticksPerSecond = null)
     {
         _intervalsMs = new double[Math.Max(1, capacity)];
+        _sorted = new double[_intervalsMs.Length];
         _ticksPerMs = (ticksPerSecond ?? Stopwatch.Frequency) / 1000.0;
     }
 
@@ -40,23 +42,46 @@ public sealed class FrameIntervalTracker
     public FrameIntervalStats? Snapshot(int refreshHz)
     {
         if (_count == 0) return null;
-        var sorted = new double[_count];
-        Array.Copy(_intervalsMs, sorted, _count);   // order does not matter for the stats
-        Array.Sort(sorted);
+        // Sorted in a reused buffer: this runs on the render thread for every probe.
+        Array.Copy(_intervalsMs, _sorted, _count);   // order does not matter for the stats
+        Array.Sort(_sorted, 0, _count);
 
-        double mean = sorted.Average();
         double dropLimit = refreshHz > 0 ? 1.5 * 1000.0 / refreshHz : double.MaxValue;
+        double sum = 0;
+        int dropped = 0;
+        for (int i = 0; i < _count; i++)
+        {
+            sum += _sorted[i];
+            if (_sorted[i] > dropLimit) dropped++;
+        }
+        double mean = sum / _count;
         return new FrameIntervalStats
         {
             Count = _count,
             MeanFps = mean > 0 ? 1000.0 / mean : 0,
-            P50Ms = NearestRank(sorted, 0.50),
-            P99Ms = NearestRank(sorted, 0.99),
-            MaxMs = sorted[^1],
-            Dropped = sorted.Count(ms => ms > dropLimit),
+            P50Ms = NearestRank(_sorted, _count, 0.50),
+            P99Ms = NearestRank(_sorted, _count, 0.99),
+            MaxMs = _sorted[_count - 1],
+            Dropped = dropped,
         };
     }
 
+    /// <summary>
+    /// Mean of the kept intervals in ms, 0 before the second frame. Allocation-free — use it instead of
+    /// <see cref="Snapshot"/> when only the frame interval is needed (e.g. present-time extrapolation).
+    /// </summary>
+    public double MeanIntervalMs
+    {
+        get
+        {
+            if (_count == 0) return 0;
+            double sum = 0;
+            for (int i = 0; i < _count; i++) sum += _intervalsMs[i];
+            return sum / _count;
+        }
+    }
+
+    /// <summary>Forget every interval and the last timestamp (new scene / test mode switched on).</summary>
     public void Reset()
     {
         _count = 0;
@@ -64,6 +89,6 @@ public sealed class FrameIntervalTracker
         _hasLast = false;
     }
 
-    private static double NearestRank(double[] sorted, double p) =>
-        sorted[Math.Clamp((int)Math.Ceiling(p * sorted.Length) - 1, 0, sorted.Length - 1)];
+    private static double NearestRank(double[] sorted, int count, double p) =>
+        sorted[Math.Clamp((int)Math.Ceiling(p * count) - 1, 0, count - 1)];
 }

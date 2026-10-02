@@ -6,6 +6,7 @@ namespace WaBiBaBuSy.Models.Testing;
 /// <summary>Parses and validates scenario JSON. Nothing is played when this throws.</summary>
 public static class ScenarioLoader
 {
+    /// <summary>camelCase, case-insensitive, comments and trailing commas allowed; <c>type</c> may come anywhere in a step.</summary>
     public static JsonSerializerOptions JsonOptions { get; } = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -16,15 +17,17 @@ public static class ScenarioLoader
         WriteIndented = true,
     };
 
-    /// <summary>Load and validate a scenario file.</summary>
+    /// <summary>Load and validate a scenario file. UNC / device paths are rejected before the file is touched.</summary>
     public static TestScenario Load(string path)
     {
+        if (IsRemoteOrDevicePath(path)) throw new ScenarioException($"{path}: scenario {LocalOnly}");
         string full;
         try { full = Path.GetFullPath(path); }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             throw new ScenarioException($"{path}: invalid scenario path — {ex.Message}");
         }
+        if (IsRemoteOrDevicePath(full)) throw new ScenarioException($"{full}: scenario {LocalOnly}");
         if (!File.Exists(full)) throw new ScenarioException($"Scenario file not found: {full}");
         string json;
         try { json = File.ReadAllText(full); }
@@ -89,8 +92,7 @@ public static class ScenarioLoader
                 case PlaySceneStep play:
                     if (play.Targets == null) errors.Add($"{at}: targets is null");
                     if (string.IsNullOrWhiteSpace(play.Scene)) errors.Add($"{at}: scene is empty");
-                    else if (!File.Exists(ResolvePath(scenario, play.Scene)))
-                        errors.Add($"{at}: scene file not found: {ResolvePath(scenario, play.Scene)}");
+                    else ValidateScenePath(scenario, play.Scene, at, errors);
                     scenePlaying = true;
                     break;
                 case ProbeStep probe:
@@ -124,6 +126,40 @@ public static class ScenarioLoader
     public static string ResolvePath(TestScenario scenario, string path) =>
         Path.GetFullPath(Path.IsPathRooted(path) ? path : Path.Combine(scenario.BaseDirectory, path));
 
+    /// <summary>
+    /// True for a path that would make this machine open (and authenticate to) a remote SMB share, or a
+    /// device: <c>\\server\share</c>, <c>//server/share</c>, <c>\\?\UNC\…</c>, <c>\\?\…</c>, <c>\\.\…</c> and
+    /// <c>\??\…</c>. Pure string check, no file system access; mapped network drives are not detected.
+    /// </summary>
+    public static bool IsRemoteOrDevicePath(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return false;
+        var p = path.Replace('/', '\\');
+        return p.StartsWith(@"\\", StringComparison.Ordinal) || p.StartsWith(@"\??\", StringComparison.Ordinal);
+    }
+
+    /// <summary>Error text for a path rejected by <see cref="IsRemoteOrDevicePath"/>.</summary>
+    internal const string LocalOnly = @"must be a local path (UNC and device paths like \\server\share, \\?\ or \??\ are rejected)";
+
+    // Checked before File.Exists: probing a UNC path would authenticate to the share.
+    private static void ValidateScenePath(TestScenario scenario, string scene, string at, List<string> errors)
+    {
+        if (IsRemoteOrDevicePath(scene))
+        {
+            errors.Add($"{at}: scene {LocalOnly}: {scene}");
+            return;
+        }
+        string resolved;
+        try { resolved = ResolvePath(scenario, scene); }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            errors.Add($"{at}: invalid scene path \"{scene}\" — {ex.Message}");
+            return;
+        }
+        if (IsRemoteOrDevicePath(resolved)) errors.Add($"{at}: scene {LocalOnly}: {resolved}");
+        else if (!File.Exists(resolved)) errors.Add($"{at}: scene file not found: {resolved}");
+    }
+
     private static void RequireLabel(TestStep step, string at, List<string> errors)
     {
         if (string.IsNullOrWhiteSpace(step.Label)) errors.Add($"{at}: label is required");
@@ -138,6 +174,7 @@ public static class ScenarioLoader
 /// <summary>A scenario or scene file that cannot run; the message names the file and every problem.</summary>
 public sealed class ScenarioException : Exception
 {
+    /// <summary>Create the exception; <paramref name="message"/> names the file and every problem.</summary>
     public ScenarioException(string message) : base(message) { }
 }
 

@@ -84,6 +84,9 @@ public class ScenarioLoaderTests : IDisposable
     [InlineData("""{ "type": "probeSeries", "label": "s", "everyMs": 0, "forMs": 500 }""", "everyMs must be > 0")]
     [InlineData("""{ "type": "exactFrame", "label": "e", "elapsedMs": -1 }""", "elapsedMs must be >= 0")]
     [InlineData("""{ "type": "wait", "ms": 10, "timeoutMs": 0 }""", "timeoutMs must be > 0")]
+    [InlineData("""{ "type": "wait", "ms": -1 }""", "ms must be >= 0")]
+    [InlineData("""{ "type": "playScene", "scene": "" }""", "scene is empty")]
+    [InlineData("""{ "type": "playScene", "scene": "a\u0000b.json" }""", "invalid scene path")]
     public void Parse_Invalid_StepParameters(string step, string expected)
     {
         var json = $$"""{ "name": "x", "steps": [ { "type": "playScene", "scene": "scenes/linear.json" }, {{step}} ] }""";
@@ -142,6 +145,135 @@ public class ScenarioLoaderTests : IDisposable
         var ex = Assert.Throws<ScenarioException>(() => SceneFile.Load(path));
         Assert.Contains(path, ex.Message);
     }
+
+    [Fact]
+    public void Load_MissingScenarioFile_IsAScenarioError()
+    {
+        var path = Path.Combine(_dir, "nope.json");
+        var ex = Assert.Throws<ScenarioException>(() => ScenarioLoader.Load(path));
+        Assert.Contains("Scenario file not found", ex.Message);
+        Assert.Contains(path, ex.Message);
+    }
+
+    [Fact]
+    public void Load_FromFile_ResolvesScenesAgainstTheScenarioFolder()
+    {
+        var path = Path.Combine(_dir, "unit.json");
+        File.WriteAllText(path, Valid);
+        var s = ScenarioLoader.Load(path);
+        Assert.Equal(_dir, s.BaseDirectory);
+        Assert.Equal(Path.Combine(_dir, "scenes", "linear.json"), ScenarioLoader.ResolvePath(s, "scenes/linear.json"));
+    }
+
+    [Fact]
+    public void ResolvePath_AbsoluteStaysAbsolute_RelativeIsNormalized()
+    {
+        var s = ScenarioLoader.Parse(Valid, _dir);
+        var elsewhere = Path.Combine(Path.GetTempPath(), "elsewhere", "scene.json");
+        Assert.Equal(elsewhere, ScenarioLoader.ResolvePath(s, elsewhere));
+        Assert.Equal(Path.Combine(_dir, "scene.json"), ScenarioLoader.ResolvePath(s, "scenes/../scene.json"));
+    }
+
+    [Fact]
+    public void SceneFile_Load_JsonNullDocument_IsEmptyScene()
+    {
+        var path = Path.Combine(_dir, "scenes", "null.json");
+        File.WriteAllText(path, "null");
+        Assert.Contains("empty scene", Assert.Throws<ScenarioException>(() => SceneFile.Load(path)).Message);
+    }
+
+    [Fact]
+    public void SceneFile_Load_MakesAdditionalAndBackgroundPathsAbsolute()
+    {
+        Directory.CreateDirectory(Path.Combine(_dir, "scenes", "sub"));
+        File.WriteAllBytes(Path.Combine(_dir, "scenes", "sub", "b.png"), new byte[] { 1 });
+        File.WriteAllBytes(Path.Combine(_dir, "bg.png"), new byte[] { 1 });
+        var path = Path.Combine(_dir, "scenes", "multi.json");
+        File.WriteAllText(path, """
+            { "Animation": { "AnimationPath": "marker.png", "AdditionalAnimationPaths": [ "sub/b.png" ] },
+              "Background": { "Mode": "StretchedImage", "ImagePath": "../bg.png" } }
+            """);
+
+        var scene = SceneFile.Load(path);
+
+        Assert.Equal(new[] { Path.Combine(_dir, "scenes", "sub", "b.png") }, scene.Animation.AdditionalAnimationPaths);
+        Assert.Equal(Path.Combine(_dir, "bg.png"), scene.Background.ImagePath);
+    }
+
+    // ── Remote / device paths: rejected before any File.Exists (no SMB authentication) ─────────
+
+    public static TheoryData<string> RemotePaths => new()
+    {
+        @"\\wbbs-test.invalid\share\scene.json",
+        "//wbbs-test.invalid/share/scene.json",
+        @"\\?\UNC\wbbs-test.invalid\share\scene.json",
+        @"\??\UNC\wbbs-test.invalid\share\scene.json",
+        @"\\.\pipe\wbbs-test",
+    };
+
+    [Theory]
+    [MemberData(nameof(RemotePaths))]
+    public void IsRemoteOrDevicePath_DetectsUncAndDevicePaths(string path) =>
+        Assert.True(ScenarioLoader.IsRemoteOrDevicePath(path));
+
+    [Theory]
+    [InlineData(@"C:\scenes\a.json")]
+    [InlineData("scenes/a.json")]
+    [InlineData(@"\scenes\a.json")]
+    [InlineData("")]
+    public void IsRemoteOrDevicePath_LocalPathsAreFine(string path) =>
+        Assert.False(ScenarioLoader.IsRemoteOrDevicePath(path));
+
+    [Theory]
+    [MemberData(nameof(RemotePaths))]
+    public void Parse_RemoteScenePath_IsRejected(string scene)
+    {
+        var json = $$"""{ "name": "x", "steps": [ { "type": "playScene", "scene": {{System.Text.Json.JsonSerializer.Serialize(scene)}} } ] }""";
+        var ex = Assert.Throws<ScenarioException>(() => ScenarioLoader.Parse(json, _dir));
+        Assert.Contains("must be a local path", ex.Message);
+        Assert.DoesNotContain("not found", ex.Message);
+    }
+
+    [Fact]
+    public void Parse_RelativeSceneUnderUncScenarioFolder_IsRejected()
+    {
+        var json = """{ "name": "x", "steps": [ { "type": "playScene", "scene": "scenes/linear.json" } ] }""";
+        var ex = Assert.Throws<ScenarioException>(() => ScenarioLoader.Parse(json, @"\\wbbs-test.invalid\share"));
+        Assert.Contains("must be a local path", ex.Message);
+    }
+
+    [Theory]
+    [MemberData(nameof(RemotePaths))]
+    public void Load_RemoteScenarioPath_IsRejected(string path)
+    {
+        var ex = Assert.Throws<ScenarioException>(() => ScenarioLoader.Load(path));
+        Assert.Contains("must be a local path", ex.Message);
+    }
+
+    [Theory]
+    [MemberData(nameof(RemotePaths))]
+    public void SceneFile_Load_RemoteScenePath_IsRejected(string path)
+    {
+        var ex = Assert.Throws<ScenarioException>(() => SceneFile.Load(path));
+        Assert.Contains("must be a local path", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("""{ "Animation": { "AnimationPath": "\\\\wbbs-test.invalid\\share\\m.png" } }""")]
+    [InlineData("""{ "Animation": { "AnimationPath": "marker.png", "AdditionalAnimationPaths": [ "//wbbs-test.invalid/share/b.png" ] } }""")]
+    [InlineData("""{ "Animation": { "AnimationPath": "marker.png" }, "Background": { "Mode": "TiledImage", "ImagePath": "\\\\?\\UNC\\wbbs-test.invalid\\s\\bg.png" } }""")]
+    public void SceneFile_Load_RemoteAssetPath_IsRejected(string json)
+    {
+        var path = Path.Combine(_dir, "scenes", "remote-asset.json");
+        File.WriteAllText(path, json);
+        var ex = Assert.Throws<ScenarioException>(() => SceneFile.Load(path));
+        Assert.Contains("must be a local path", ex.Message);
+        Assert.DoesNotContain("asset not found", ex.Message);
+    }
+
+    [Fact]
+    public void SceneFile_Load_InvalidPath_IsAScenarioError() =>
+        Assert.Throws<ScenarioException>(() => SceneFile.Load("a\0b.json"));
 
     [Theory]
     [InlineData("start+150ms", ProbeAnchor.Start, 150)]

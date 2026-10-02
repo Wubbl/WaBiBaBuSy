@@ -57,4 +57,57 @@ public class FrameIntervalTrackerTests
         Assert.Equal(10, s.MaxMs);
         Assert.Equal(0, s.Dropped);          // refreshHz 0 = unknown → no drop counting
     }
+    [Fact]
+    public void Reset_ForgetsIntervals_AndTheLastTimestamp()
+    {
+        var t = Tracker();
+        t.Record(0);
+        t.Record(16);
+        t.Record(32);
+        t.Reset();
+        Assert.Null(t.Snapshot(60));
+        Assert.Equal(0, t.MeanIntervalMs);
+
+        t.Record(10_000);                    // no interval across the reset gap
+        Assert.Null(t.Snapshot(60));
+        t.Record(10_020);
+        var s = t.Snapshot(60)!;
+        Assert.Equal(1, s.Count);
+        Assert.Equal(20, s.MaxMs);
+    }
+
+    [Fact]
+    public void MeanIntervalMs_MatchesSnapshotMeanFps()
+    {
+        var t = Tracker(capacity: 4);
+        Assert.Equal(0, t.MeanIntervalMs);   // no interval yet
+        long ts = 0;
+        t.Record(ts);
+        foreach (var d in new[] { 100, 10, 20, 30, 40 }) t.Record(ts += d);   // 100 drops out of the ring
+        Assert.Equal(25, t.MeanIntervalMs, 9);
+        Assert.Equal(1000.0 / 25, t.Snapshot(0)!.MeanFps, 9);
+    }
+
+    [Fact]
+    public void Snapshot_AllocatesOnlyTheResult_MeanIntervalMsNothing()
+    {
+        // Called from the player's render thread for every estimated probe.
+        var t = Tracker();
+        long ts = 0;
+        for (int i = 0; i < 200; i++) t.Record(ts += 16 + i % 3);
+        t.Snapshot(60);
+        _ = t.MeanIntervalMs;                // warm up (JIT)
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        _ = t.MeanIntervalMs;
+        long meanBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        before = GC.GetAllocatedBytesForCurrentThread();
+        var s = t.Snapshot(60);
+        long snapshotBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.NotNull(s);
+        Assert.Equal(0, meanBytes);
+        Assert.InRange(snapshotBytes, 1, 128);   // the FrameIntervalStats object, no copy of the 120 intervals
+    }
 }
