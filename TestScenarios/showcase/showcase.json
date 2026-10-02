@@ -1,0 +1,301 @@
+{
+  "name": "showcase",
+  "requires": {
+    "minRemoteNodes": 0
+  },
+  "steps": [
+    {
+      "type": "testMode",
+      "timecode": false
+    },
+    {
+      "type": "playScene",
+      "label": "01-rainbow-conveyor",
+      "scene": "scenes/01-rainbow-conveyor.json"
+    },
+    {
+      "type": "exactFrame",
+      "label": "01-rainbow-conveyor t=1s",
+      "elapsedMs": 1000
+    },
+    {
+      "type": "exactFrame",
+      "label": "01-rainbow-conveyor t=4s",
+      "elapsedMs": 4000
+    },
+    {
+      "type": "exactFrame",
+      "label": "01-rainbow-conveyor t=9s",
+      "elapsedMs": 9000
+    },
+    {
+      "type": "exactFrame",
+      "label": "01-rainbow-conveyor t=20s",
+      "elapsedMs": 20000
+    },
+    {
+      "type": "playScene",
+      "label": "02-dvd-bounce",
+      "scene": "scenes/02-dvd-bounce.json"
+    },
+    {
+      "type": "exactFrame",
+      "label": "02-dvd-bounce t=1s",
+      "elapsedMs": 1000
+    },
+    {
+      "type": "exactFrame",
+      "label": "02-dvd-bounce t=4s",
+      "elapsedMs": 4000
+    },
+    {
+      "type": "exactFrame",
+      "label": "02-dvd-bounce t=9s",
+      "elapsedMs": 9000
+    },
+    {
+      "type": "exactFrame",
+      "label": "02-dvd-bounce t=20s",
+      "elapsedMs": 20000
+    },
+    {
+      "type": "playScene",
+      "label": "03-sine-serpent",
+      "scene": "scenes/03-sine-serpent.json"
+    },
+    {
+      "type": "exactFrame",
+      "label": "03-sine-serpent t=1s",
+      "elapsedMs": 1000
+    },
+    {
+      "type": "exactFrame",
+      "label": "03-sine-serpent t=4s",
+      "elapsedMs": 4000
+    },
+    {
+      "type": "exactFrame",
+      "label": "03-sine-serpent t=9s",
+      "elapsedMs": 9000
+    },
+    {
+      "type": "exactFrame",
+      "label": "03-sine-serpent t=20s",
+      "elapsedMs": 20000
+    },
+    {
+      "type": "playScene",
+      "label": "04-la-ola",
+      "scene": "scenes/04-la-ola.json"
+    },
+    {
+      "type": "exactFrame",
+      "label": "04-la-ola t=1s",
+      "elapsedMs": 1000
+    },
+    {
+      "type": "exactFrame",
+      "label": "04-la-ola t=4s",
+      "elapsedMs": 4000
+    },
+    {
+      "type": "exactFrame",
+      "label": "04-la-ola t=9s",
+      "elapsedMs": 9000
+    },
+    {
+      "type": "exactFrame",
+      "label": "04-la-ola t=20s",
+      "elapsedMs": 20000
+    },
+    {
+      "type": "playScene",
+      "label": "05-cat-parade",
+      "scene": "scenes/05-cat-parade.json"
+    },
+    {
+      "type": "exactFrame",
+      "label": "05-cat-parade t=1s",
+      "elapsedMs": 1000
+    },
+    {
+      "type": "exactFrame",
+      "label": "05-cat-parade t=4s",
+      "elapsedMs": 4000
+    },
+    {
+      "type": "exactFrame",
+      "label": "05-cat-parade t=9s",
+      "elapsedMs": 9000
+    },
+    {
+      "type": "exactFrame",
+      "label": "05-cat-parade t=20s",
+      "elapsedMs": 20000
+    },
+    {
+      "type": "playScene",
+      "label": "06-cat-orbit-wave",
+      "scene": "scenes/06-cat-orbit-wave.json"
+    },
+    {
+      "type": "exactFrame",
+      "label": "06-cat-orbit-wave t=1s",
+      "elapsedMs": 1000
+    },
+    {
+      "type": "exactFrame",
+      "label": "06-cat-orbit-wave t=4s",
+      "elapsedMs": 4000
+    },
+    {
+      "type": "exactFrame",
+      "label": "06-cat-orbit-wave t=9s",
+      "elapsedMs": 9000
+    },
+    {
+      "type": "exactFrame",
+      "label": "06-cat-orbit-wave t=20s",
+      "elapsedMs": 20000
+    },
+    {
+      "type": "playScene",
+      "label": "07-fireflies",
+      "scene": "scenes/07-fireflies.json"
+    },
+    {
+      "type": "exactFrame",
+      "label": "07-fireflies t=1s",
+      "elapsedMs": 1000
+    },
+    {
+      "type": "exactFrame",
+      "label": "07-fireflies t=4s",
+      "elapsedMs": 4000
+    },
+    {
+      "type": "exactFrame",
+      "label": "07-fireflies t=9s",
+      "elapsedMs": 9000
+    },
+    {
+      "type": "exactFrame",
+      "label": "07-fireflies t=20s",
+      "elapsedMs": 20000
+    },
+    {
+      "type": "playScene",
+      "label": "08-confetti-drift",
+      "scene": "scenes/08-confetti-drift.json"
+    },
+    {
+      "type": "exactFrame",
+      "label": "08-confetti-drift t=1s",
+      "elapsedMs": 1000
+    },
+    {
+      "type": "exactFrame",
+      "label": "08-confetti-drift t=4s",
+      "elapsedMs": 4000
+    },
+    {
+      "type": "exactFrame",
+      "label": "08-confetti-drift t=9s",
+      "elapsedMs": 9000
+    },
+    {
+      "type": "exactFrame",
+      "label": "08-confetti-drift t=20s",
+      "elapsedMs": 20000
+    },
+    {
+      "type": "playScene",
+      "label": "09-neon-corridor",
+      "scene": "scenes/09-neon-corridor.json"
+    },
+    {
+      "type": "exactFrame",
+      "label": "09-neon-corridor t=1s",
+      "elapsedMs": 1000
+    },
+    {
+      "type": "exactFrame",
+      "label": "09-neon-corridor t=4s",
+      "elapsedMs": 4000
+    },
+    {
+      "type": "exactFrame",
+      "label": "09-neon-corridor t=9s",
+      "elapsedMs": 9000
+    },
+    {
+      "type": "exactFrame",
+      "label": "09-neon-corridor t=20s",
+      "elapsedMs": 20000
+    },
+    {
+      "type": "playScene",
+      "label": "10-pulse-grid",
+      "scene": "scenes/10-pulse-grid.json"
+    },
+    {
+      "type": "exactFrame",
+      "label": "10-pulse-grid t=1s",
+      "elapsedMs": 1000
+    },
+    {
+      "type": "exactFrame",
+      "label": "10-pulse-grid t=4s",
+      "elapsedMs": 4000
+    },
+    {
+      "type": "exactFrame",
+      "label": "10-pulse-grid t=9s",
+      "elapsedMs": 9000
+    },
+    {
+      "type": "exactFrame",
+      "label": "10-pulse-grid t=20s",
+      "elapsedMs": 20000
+    },
+    {
+      "type": "playScene",
+      "label": "11-stripes-endless",
+      "scene": "scenes/11-stripes-endless.json"
+    },
+    {
+      "type": "exactFrame",
+      "label": "11-stripes-endless t=1s",
+      "elapsedMs": 1000
+    },
+    {
+      "type": "exactFrame",
+      "label": "11-stripes-endless t=4s",
+      "elapsedMs": 4000
+    },
+    {
+      "type": "exactFrame",
+      "label": "11-stripes-endless t=9s",
+      "elapsedMs": 9000
+    },
+    {
+      "type": "exactFrame",
+      "label": "11-stripes-endless t=20s",
+      "elapsedMs": 20000
+    },
+    {
+      "type": "playScene",
+      "label": "12-lunar-tears",
+      "scene": "scenes/12-lunar-tears.json"
+    },
+    {
+      "type": "probe",
+      "label": "12-lunar-tears t=3s",
+      "at": "start+3000ms",
+      "capture": true
+    },
+    {
+      "type": "stop"
+    }
+  ]
+}

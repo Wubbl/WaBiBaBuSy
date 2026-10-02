@@ -1,0 +1,12 @@
+{
+  // Scattered, rotated small logos drifting slowly; only a third of them colored.
+  "Background": { "Mode": "SolidColor", "ColorHex": "#121212" },
+  "Animation": {
+    "AnimationPath": "../assets/bibabu-logo.png", "FitMode": "TargetHeight", "TargetHeight": 120,
+    "Pattern": { "Sizing": "Fill", "SpacingX": 170, "SpacingY": 170, "RandomOffsetMaxPx": 70, "RandomRotationMaxDeg": 180, "Seed": 9 },
+    "ColorGrading": { "Mode": "TravelingRandom", "Seed": 4, "ColoredCellPercentage": 0.35,
+                      "ColorList": ["#FF006E", "#FB5607", "#FFBE0B", "#3A86FF", "#8338EC"] }
+  },
+  "Movement": { "Type": "Linear", "SpeedPixelsPerSecond": 40 },
+  "DistributionMode": "Sequential"
+}

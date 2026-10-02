@@ -1,0 +1,12 @@
+{
+  // Dense logo wall scrolling forever with diagonal color stripes (TravelingList).
+  "Background": { "Mode": "SolidColor", "ColorHex": "#000000" },
+  "Animation": {
+    "AnimationPath": "../assets/bibabu-logo.png", "FitMode": "TargetHeight", "TargetHeight": 100,
+    "Pattern": { "Sizing": "Fill", "SpacingX": 40, "SpacingY": 40, "Seed": 1 },
+    "ColorGrading": { "Mode": "TravelingList", "Seed": 1,
+                      "ColorList": ["#FF006E", "#FFBE0B", "#3A86FF", "#8338EC", "#06D6A0"] }
+  },
+  "Movement": { "Type": "Linear", "SpeedPixelsPerSecond": 120, "Reversed": true, "Endless": true },
+  "DistributionMode": "Sequential"
+}

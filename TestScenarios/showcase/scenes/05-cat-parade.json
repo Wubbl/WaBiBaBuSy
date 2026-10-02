@@ -1,0 +1,10 @@
+{
+  // Rows of walking cats crossing a meadow-green wall, machine to machine.
+  "Background": { "Mode": "SolidColor", "ColorHex": "#CDE8C5" },
+  "Animation": {
+    "AnimationPath": "../assets/cat.gif", "FitMode": "TargetHeight", "TargetHeight": 200, "SpeedMultiplier": 1.0,
+    "Pattern": { "Sizing": "Fill", "SpacingX": 140, "SpacingY": 560, "RandomOffsetMaxPx": 30, "Seed": 2 }
+  },
+  "Movement": { "Type": "Linear", "SpeedPixelsPerSecond": 260, "Reversed": true },
+  "DistributionMode": "Sequential"
+}

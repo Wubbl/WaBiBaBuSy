@@ -1,0 +1,11 @@
+{
+  // Endless logo conveyor that flows across every machine; each logo keeps its own color forever.
+  "Background": { "Mode": "SolidColor", "ColorHex": "#0B0B14" },
+  "Animation": {
+    "AnimationPath": "../assets/bibabu-logo.png", "FitMode": "TargetHeight", "TargetHeight": 140,
+    "Pattern": { "Sizing": "Fill", "SpacingX": 80, "SpacingY": 80, "Seed": 1 },
+    "ColorGrading": { "Mode": "TravelingRainbow", "Seed": 5 }
+  },
+  "Movement": { "Type": "Linear", "SpeedPixelsPerSecond": 180, "Endless": true },
+  "DistributionMode": "Sequential"
+}

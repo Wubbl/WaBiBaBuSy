@@ -1,0 +1,11 @@
+{
+  // Calm idle scene: a still logo wallpaper whose hue slowly breathes.
+  "Background": { "Mode": "SolidColor", "ColorHex": "#0E0E10" },
+  "Animation": {
+    "AnimationPath": "../assets/bibabu-logo.png", "FitMode": "TargetHeight", "TargetHeight": 110,
+    "Pattern": { "Sizing": "Fill", "SpacingX": 60, "SpacingY": 60, "Seed": 1 },
+    "ColorGrading": { "Mode": "Rainbow", "CyclesPerSecond": 0.08 }
+  },
+  "Movement": { "Type": "Static" },
+  "DistributionMode": "Simultaneous"
+}

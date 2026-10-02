@@ -1,0 +1,10 @@
+{
+  // Plain full-screen video on every monitor: the chill baseline between busy scenes.
+  // Absolute path: the video lives outside the repo (70 MB).
+  "Background": { "Mode": "SolidColor", "ColorHex": "#000000" },
+  "Animation": {
+    "AnimationPath": "C:/Users/Patrick/Downloads/Final Work Lunar Tears ffff.mp4", "FitMode": "Fill", "SpeedMultiplier": 1.0
+  },
+  "Movement": { "Type": "Static" },
+  "DistributionMode": "Simultaneous"
+}

@@ -1,0 +1,11 @@
+{
+  // ThreeZone corridor: the logo rides a sine wave inside the dark middle band.
+  "Background": { "Mode": "ThreeZone", "TopZoneColorHex": "#1A0B2E", "CorridorColorHex": "#0A0A12", "BottomZoneColorHex": "#0B1E2E",
+                  "CorridorTopPx": 420, "CorridorHeightPx": 600 },
+  "Animation": {
+    "AnimationPath": "../assets/bibabu-logo.png", "FitMode": "TargetHeight", "TargetHeight": 160,
+    "ColorGrading": { "Mode": "Rainbow", "CyclesPerSecond": 0.3 }
+  },
+  "Movement": { "Type": "SineWave", "SpeedPixelsPerSecond": 350, "WaveAmplitudePixels": 140, "WaveFrequencyHz": 0.5 },
+  "DistributionMode": "Sequential"
+}

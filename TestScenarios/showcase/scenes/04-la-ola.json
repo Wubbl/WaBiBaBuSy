@@ -1,0 +1,10 @@
+{
+  // Stadium wave: every machine bounces the logo vertically, each one 300 ms behind its neighbour.
+  "Background": { "Mode": "SolidColor", "ColorHex": "#0A0A0A" },
+  "Animation": {
+    "AnimationPath": "../assets/bibabu-logo.png", "FitMode": "TargetHeight", "TargetHeight": 240,
+    "ColorGrading": { "Mode": "Gradient", "CyclesPerSecond": 0.2, "GradientA": "#00E5FF", "GradientB": "#FF2D95" }
+  },
+  "Movement": { "Type": "Bounce", "SpeedPixelsPerSecond": 700, "DirectionAngleDegrees": 90, "NodePhaseDelayMs": 300 },
+  "DistributionMode": "Simultaneous"
+}

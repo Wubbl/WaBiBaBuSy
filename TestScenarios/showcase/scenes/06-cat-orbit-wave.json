@@ -1,0 +1,10 @@
+{
+  // One cat per monitor circling, phase-shifted per node so the orbit ripples down the row.
+  "Background": { "Mode": "SolidColor", "ColorHex": "#E9E3D5" },
+  "Animation": {
+    "AnimationPath": "../assets/cat.gif", "FitMode": "TargetHeight", "TargetHeight": 220, "SpeedMultiplier": 1.0,
+    "FaceTravelDirection": true
+  },
+  "Movement": { "Type": "Circular", "SpeedPixelsPerSecond": 350, "OrbitRadiusPixels": 420, "NodePhaseDelayMs": 500 },
+  "DistributionMode": "Simultaneous"
+}

@@ -23,6 +23,7 @@ The bundled files are copied next to the exe (`TestScenarios\` in the build/inst
 | `sync-basic.json` | 1+ client | Clean start, bezel crossing, 10 minute drift/CPU/GPU/memory series |
 | `parity-matrix.json` | 1+ client | Linear, SineWave, Static, Bounce wave, pattern + traveling colors, face direction, IconZone: marker positions and exact-frame pixel parity |
 | `clock-skew.json` | 1+ client | Simulated client clock skew: start and drift stay within tolerance |
+| `showcase/showcase.json` | server only | Not a pass/fail check: plays 12 showcase scenes and renders exact frames at 1/4/9/20 s as a contact sheet for tuning animation settings |
 
 Room settings (Ring / Snake, facing rows, Physical units) come from the room, not from the scene. Set them before
 `parity-matrix.json`, and run it twice to cover both pixel mode and Physical units.
@@ -36,3 +37,10 @@ In `clock-skew.json` replace `REMOTE-HOSTNAME-1` / `-2` with the client names sh
 `nodes\<node>\*.png` (captures) and `logs\<node>.log`. `report.html` is self-contained: overall verdict, a per-step
 table, a drift chart per node, the annotated captures (timecode strip, detected marker boxes, expected vs found positions)
 and CPU/GPU/memory against the thresholds. The 200 MB memory threshold applies to remote clients only; on a single machine the server's memory is reported but not thresholded.
+
+## Showcase and playlist presets
+
+`showcase/scenes/` holds curated party scenes (BiBaBu logo, cat GIF; `12-lunar-tears` points at a video outside the repo).
+`showcase/playlist-presets.json` groups them into playlists; `dotnet run tools/build-playlist-presets.cs` writes them to
+`%APPDATA%\WaBiBaBuSy\playlists\` (Playlist tab). Sequential stills only cover the parts of the canvas your monitors show:
+with a multi-row room the turn gap is empty canvas, so single sprites are often between monitors.

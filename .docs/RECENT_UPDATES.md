@@ -1,8 +1,15 @@
 # WaBiBaBuSy - Recent Updates & Changelog
 
-**Last Updated:** 2026-09-30
+**Last Updated:** 2026-10-02
 
 ---
+
+## 2026-10-02 — Showcase scenes + playlist presets · fix: color-graded sprites ignored their size
+
+- **Fix: color grading drew sprites at native size** (`Player.D2D` `DrawCellWithOptionalGrading`): the graded branch drew the ColorMatrix output with `DrawImage(output, offset)`, which has no destination rect, so every tinted cell / sprite rendered at the source bitmap's size and ignored `TargetHeight`. Visible in pattern scenes as huge, overlapping colored logos next to correctly sized uncolored ones (`ColoredCellPercentage` < 1). Fix: scale the effect output to the cell (w×h) with a transform, like the `DrawBitmap` path. Not caught by `parity-matrix` because `marker.png` is natively 64 px with `TargetHeight` 64. Found and verified with the showcase run below (exact frames before/after).
+- **Showcase** (`TestScenarios/showcase/`): 12 curated scenes (BiBaBu logo, cat GIF, video) and `showcase.json`, which plays each one and renders `exactFrame` stills at 1 / 4 / 9 / 20 s — a contact sheet in `report.html` for judging scenes without watching them live (~2 min, server only).
+- **Playlist presets**: `TestScenarios/showcase/playlist-presets.json` (BiBaBu Party, Chill Lounge, Hype, Showcase Tour) → `dotnet run tools/build-playlist-presets.cs` loads the scenes with `SceneFile`, validates the folder's scenarios, and writes `Playlist` JSON (numeric enums, like `PlaylistStore`) to `%APPDATA%\WaBiBaBuSy\playlists\`.
+- **Notes**: `FaceTravelDirection` is derived from the previous live frame's position, so `exactFrame` stills cannot show it (check facing with live `probe` captures). On a single server, `NodePhaseDelayMs` scenes look identical on both monitors (phase is per node/machine).
 
 ## 2026-09-30 — Automated test mode (spec 1) · fix: View logs hang · fix: remote thumbnails
 

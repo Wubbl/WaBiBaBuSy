@@ -1,0 +1,10 @@
+{
+  // A single logo surfing a slow, tall wave down the row of machines with a hue sweep.
+  "Background": { "Mode": "SolidColor", "ColorHex": "#05060A" },
+  "Animation": {
+    "AnimationPath": "../assets/bibabu-logo.png", "FitMode": "TargetHeight", "TargetHeight": 220,
+    "ColorGrading": { "Mode": "Rainbow", "CyclesPerSecond": 0.15 }
+  },
+  "Movement": { "Type": "SineWave", "SpeedPixelsPerSecond": 300, "WaveAmplitudePixels": 380, "WaveFrequencyHz": 0.2 },
+  "DistributionMode": "Sequential"
+}

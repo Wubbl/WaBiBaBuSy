@@ -1,0 +1,11 @@
+{
+  // The classic: one big logo bouncing over the whole wall, cycling party colors.
+  "Background": { "Mode": "SolidColor", "ColorHex": "#000000" },
+  "Animation": {
+    "AnimationPath": "../assets/bibabu-logo.png", "FitMode": "TargetHeight", "TargetHeight": 260,
+    "ColorGrading": { "Mode": "CycleColorList", "CyclesPerSecond": 0.25,
+                      "ColorList": ["#FF3B30", "#FFCC00", "#34C759", "#0A84FF", "#BF5AF2"] }
+  },
+  "Movement": { "Type": "Bounce", "SpeedPixelsPerSecond": 420, "DirectionAngleDegrees": 33 },
+  "DistributionMode": "Sequential"
+}

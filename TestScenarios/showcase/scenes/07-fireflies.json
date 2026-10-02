@@ -1,0 +1,13 @@
+{
+  // Five small logos wandering the whole wall like fireflies, warm colors drifting.
+  "Background": { "Mode": "SolidColor", "ColorHex": "#03050A" },
+  "Animation": {
+    "AnimationPath": "../assets/bibabu-logo.png", "FitMode": "TargetHeight", "TargetHeight": 90,
+    "AdditionalAnimationPaths": ["../assets/bibabu-logo.png", "../assets/bibabu-logo.png", "../assets/bibabu-logo.png", "../assets/bibabu-logo.png"],
+    "MultiImageSpread": 1600, "MultiImagePhaseJitterMs": 2500,
+    "ColorGrading": { "Mode": "RandomColors", "CyclesPerSecond": 0.3, "Seed": 11,
+                      "ColorList": ["#FFE066", "#FFB703", "#FB8500", "#C6FF6B", "#FFF3B0"] }
+  },
+  "Movement": { "Type": "RandomWalk", "SpeedPixelsPerSecond": 200, "RandomSeed": 1337, "RandomStepIntervalMs": 1800, "IterationStepCount": 0 },
+  "DistributionMode": "Sequential"
+}

@@ -1,0 +1,60 @@
+{
+  // Playlist presets built from the showcase scenes by tools/build-playlist-presets.cs.
+  // durationMs omitted = the playlist's defaultItemDurationMs.
+  "playlists": [
+    {
+      "name": "BiBaBu Party",
+      "loop": true, "shuffle": false, "defaultItemDurationMs": 45000,
+      "items": [
+        { "name": "Rainbow conveyor", "scene": "scenes/01-rainbow-conveyor.json" },
+        { "name": "DVD bounce", "scene": "scenes/02-dvd-bounce.json" },
+        { "name": "La Ola", "scene": "scenes/04-la-ola.json", "durationMs": 30000 },
+        { "name": "Cat parade", "scene": "scenes/05-cat-parade.json" },
+        { "name": "Sine serpent", "scene": "scenes/03-sine-serpent.json" },
+        { "name": "Confetti drift", "scene": "scenes/08-confetti-drift.json" },
+        { "name": "Fireflies", "scene": "scenes/07-fireflies.json" },
+        { "name": "Endless stripes", "scene": "scenes/11-stripes-endless.json" }
+      ]
+    },
+    {
+      "name": "BiBaBu Chill Lounge",
+      "loop": true, "shuffle": true, "defaultItemDurationMs": 120000,
+      "items": [
+        { "name": "Pulse grid", "scene": "scenes/10-pulse-grid.json" },
+        { "name": "Confetti drift", "scene": "scenes/08-confetti-drift.json" },
+        { "name": "Fireflies", "scene": "scenes/07-fireflies.json" },
+        { "name": "Lunar Tears", "scene": "scenes/12-lunar-tears.json", "durationMs": 140000 },
+        { "name": "Cat orbit wave", "scene": "scenes/06-cat-orbit-wave.json", "durationMs": 60000 }
+      ]
+    },
+    {
+      "name": "BiBaBu Hype",
+      "loop": true, "shuffle": false, "defaultItemDurationMs": 20000,
+      "items": [
+        { "name": "La Ola", "scene": "scenes/04-la-ola.json" },
+        { "name": "DVD bounce", "scene": "scenes/02-dvd-bounce.json" },
+        { "name": "Neon corridor", "scene": "scenes/09-neon-corridor.json" },
+        { "name": "Rainbow conveyor", "scene": "scenes/01-rainbow-conveyor.json" },
+        { "name": "Cat orbit wave", "scene": "scenes/06-cat-orbit-wave.json" }
+      ]
+    },
+    {
+      "name": "Showcase Tour (all scenes)",
+      "loop": true, "shuffle": false, "defaultItemDurationMs": 15000,
+      "items": [
+        { "name": "01 Rainbow conveyor", "scene": "scenes/01-rainbow-conveyor.json" },
+        { "name": "02 DVD bounce", "scene": "scenes/02-dvd-bounce.json" },
+        { "name": "03 Sine serpent", "scene": "scenes/03-sine-serpent.json" },
+        { "name": "04 La Ola", "scene": "scenes/04-la-ola.json" },
+        { "name": "05 Cat parade", "scene": "scenes/05-cat-parade.json" },
+        { "name": "06 Cat orbit wave", "scene": "scenes/06-cat-orbit-wave.json" },
+        { "name": "07 Fireflies", "scene": "scenes/07-fireflies.json" },
+        { "name": "08 Confetti drift", "scene": "scenes/08-confetti-drift.json" },
+        { "name": "09 Neon corridor", "scene": "scenes/09-neon-corridor.json" },
+        { "name": "10 Pulse grid", "scene": "scenes/10-pulse-grid.json" },
+        { "name": "11 Endless stripes", "scene": "scenes/11-stripes-endless.json" },
+        { "name": "12 Lunar Tears", "scene": "scenes/12-lunar-tears.json" }
+      ]
+    }
+  ]
+}
