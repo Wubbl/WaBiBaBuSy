@@ -95,6 +95,39 @@ public class WaBiBaBuSyService : IDisposable
     /// </summary>
     public WallpaperSyncClient? Client => _client;
 
+    private Func<IReadOnlyList<ITestProbeTarget>>? _clientTestProbeTargets;
+    private ThumbnailCaptureService? _clientThumbnailCapture;
+
+    /// <summary>
+    /// Set by the UI: this machine's remote-driven players for test probes. Handed to every
+    /// <see cref="WallpaperSyncClient"/> before it connects (any connect path, reconnects included),
+    /// so a TEST_MODE / TEST_PROBE right after connecting already reaches them.
+    /// </summary>
+    public Func<IReadOnlyList<ITestProbeTarget>>? ClientTestProbeTargets
+    {
+        get => _clientTestProbeTargets;
+        set
+        {
+            _clientTestProbeTargets = value;
+            if (_client != null) _client.TestProbeTargets = value;
+        }
+    }
+
+    /// <summary>
+    /// Set by the UI: the capture service for this machine's thumbnail uploads. Handed to every
+    /// <see cref="WallpaperSyncClient"/> before it connects, so a reconnect keeps uploading the
+    /// player that is still running instead of nothing until the next scene.
+    /// </summary>
+    public ThumbnailCaptureService? ClientThumbnailCapture
+    {
+        get => _clientThumbnailCapture;
+        set
+        {
+            _clientThumbnailCapture = value;
+            if (_client != null) _client.ThumbnailCaptureService = value;
+        }
+    }
+
     /// <summary>
     /// Get the animation orchestrator (only available in server mode)
     /// </summary>
@@ -283,7 +316,11 @@ public class WaBiBaBuSyService : IDisposable
             _logger.LogInformation("Connecting to server at {Address}:{Port}", serverAddress, serverPort);
 
             // Create client
-            _client = new WallpaperSyncClient(AppLogger.CreateLogger<WallpaperSyncClient>(), _clientConfig);
+            _client = new WallpaperSyncClient(AppLogger.CreateLogger<WallpaperSyncClient>(), _clientConfig)
+            {
+                TestProbeTargets = _clientTestProbeTargets,
+                ThumbnailCaptureService = _clientThumbnailCapture,
+            };
             _client.ConnectionStatusChanged += OnClientConnectionStatusChanged;
             _client.UpdateAvailable += OnUpdateAvailable;
 

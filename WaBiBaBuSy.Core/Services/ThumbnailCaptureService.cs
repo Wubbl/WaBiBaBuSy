@@ -77,6 +77,16 @@ public class ThumbnailCaptureService
     }
 
     /// <summary>
+    /// Whether a player on <paramref name="monitorIndex"/> should become the capture source: the
+    /// primary monitor always does; another one only while no live window is assigned (none yet,
+    /// cleared by a Stop, or the assigned player's window is gone).
+    /// </summary>
+    public bool ShouldAdopt(int monitorIndex) => monitorIndex == 0 || !HasLiveWindow;
+
+    /// <summary>A window handle is assigned and still exists.</summary>
+    public bool HasLiveWindow => _wallpaperHwnd != IntPtr.Zero && IsWindow(_wallpaperHwnd);
+
+    /// <summary>
     /// Gets the current wallpaper name.
     /// </summary>
     public string? CurrentWallpaperName => _currentWallpaperName;
