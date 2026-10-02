@@ -2227,14 +2227,22 @@ class Program
         if (_awaitingPresent.Count == 0 || _swapChain == null) return;
         FrameStatistics stats = default;
         bool haveStats;
-        try { haveStats = _swapChain.GetFrameStatistics(out stats).Success && stats.PresentCount != 0; }
-        catch { haveStats = false; }
+        int statsHr = 0;
+        try { var hr = _swapChain.GetFrameStatistics(out stats); statsHr = hr.Code; haveStats = hr.Success && stats.PresentCount != 0; }
+        catch (Exception ex) { statsHr = ex.HResult; haveStats = false; }
 
         for (int i = _awaitingPresent.Count - 1; i >= 0; i--)
         {
             var p = _awaitingPresent[i];
             bool resolved = haveStats && p.PresentCount != 0 && stats.PresentCount >= p.PresentCount;
             if (!resolved && Environment.TickCount64 < p.DeadlineTick) continue;
+            if (!resolved)
+            {
+                uint lastNow = 0;
+                try { lastNow = _swapChain.LastPresentCount; } catch { }
+                _logger?.LogWarning("[Probe] {Id}: no present statistics after 500 ms (hr 0x{Hr:X8}, stats.PresentCount {Stats}, probe PresentCount {Probe}, LastPresentCount now {Last}, stats.SyncRefreshCount {Refresh})",
+                    p.Reply.ProbeId, statsHr, stats.PresentCount, p.PresentCount, lastNow, stats.SyncRefreshCount);
+            }
 
             if (resolved)
             {
