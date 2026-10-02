@@ -482,7 +482,6 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         // Subscribe to service events
         _service.ServerStatusChanged += OnServerStatusChanged;
         _service.ClientConnectionStatusChanged += OnClientConnectionStatusChanged;
-        _service.ClientLogsReceived += OnClientLogsReceived;
         _service.UpdateAvailable += OnUpdateAvailableFromServer;
         _service.UpdateStatusChanged += OnUpdateStatusChanged;
 
@@ -1986,9 +1985,12 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             RemoteClientLogs = $"Requesting logs from {selectedRemote.Hostname}...";
             IsClientLogsVisible = true;
 
-            // The reply also arrives through OnClientLogsReceived; this only covers "no answer".
+            // Shown from this call's own reply, not the ClientLogsReceived event: test runs fetch logs too
+            // and must not pop this panel open.
             var logs = await _service.FetchClientLogsAsync(selectedRemote.ClientId, 0, 0, TimeSpan.FromSeconds(10));
-            if (logs == null)
+            if (logs != null)
+                RemoteClientLogs = $"=== Logs from {selectedRemote.Hostname} ===\n{logs.LogContent}";
+            else
                 // The remote's LogDirectory is its own setting; the server only knows the default.
                 RemoteClientLogs = $"No reply from {selectedRemote.Hostname} within 10 s. Is it connected? Its logs are in its configured log folder on that machine (default %LOCALAPPDATA%\\WaBiBaBuSy\\Logs).";
         }
@@ -2121,15 +2123,6 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                 WaBiBaBuSy.Models.Update.UpdateStatusType.Failed => $"Update failed: {e.ErrorMessage}",
                 _ => UpdateStatusText
             };
-        });
-    }
-
-    private void OnClientLogsReceived(object? sender, WaBiBaBuSy.Grpc.Services.ClientLogsReceivedEventArgs e)
-    {
-        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-        {
-            RemoteClientLogs = $"=== Logs from {e.ClientId} ===\n{e.LogContent}";
-            IsClientLogsVisible = true;
         });
     }
 
