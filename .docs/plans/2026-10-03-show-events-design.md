@@ -82,11 +82,20 @@ Seeded closed-form ballistic burst over the whole canvas. Particle count
 `N = clamp(ceil(CanvasW / 1000 × 250), 50, 6000)`. Particle *i*:
 - `x0 = (i + u0) / N × CanvasW` (`uk = Hash3(seed, i, k)` mapped to [0,1)), so particles are sorted by
   x0 and a node only evaluates the index range covering its slice ± the maximum horizontal drift;
-- launched from below the bottom edge with `vy0 = −(0.9 + 0.5 u1) × CanvasH / 1.1 s`, gravity
-  `g = 1.6 × CanvasH / s²`, drift `vx = (u2 − 0.5) × 300 units/s`, launch delay `u3 × 600 ms`;
-- color from `{ColorHex + 5 party colors}` by `u4`, size `8 + 10 u5` units, spin from `u6`;
-- `x(t) = x0 + vx t`, `y(t) = y0 + vy0 t + ½ g t²`; wraps modulo `CanvasW` on a Ring; opacity ×
-  envelope. Mapped to the node with `NodeMapping.ToLocalX/ToLocalY`.
+- launched from 20 units below the bottom edge (`y0 = H + 20`, `H = CanvasH`) after a launch delay
+  `u3 × 800 ms` (launch spread); apex height `(0.4 + 0.55 u1) × H` above `y0`, gravity `g = 2 × H / s²`,
+  so `vy0 = √(2 g apex)` and the rise lasts `tUp = vy0 / g` (≤ 0.975 s);
+- **rise** (`t ≤ tUp`): `x = x0 + vx t`, `y = y0 − vy0 t + ½ g t²`, drift `vx = (u2 − 0.5) × 2 × 150`
+  (±150 units/s);
+- **fall** (`t > tUp`, `tf = t − tUp`): slow fall `y = y0 − apex + 0.15 × H × tf`; `x` keeps the drift
+  reached at the apex and sways `30 × (sin(2π · 0.8 Hz · tf + φ) − sin φ)` units (phase `φ` from `u7`,
+  continuous at the apex);
+- color from `{ColorHex + 5 party colors}` by `u4`, size `8 + 10 u5` units (0.6 aspect), rotation =
+  initial angle `u6 × 360°` + spin `(u8 − 0.5) × 720 °/s` — angle and spin use separate hash slots
+  (6 and 8), so they are uncorrelated;
+- wraps modulo `CanvasW` on a Ring; opacity × envelope. Mapped to the node with
+  `NodeMapping.ToLocalX/ToLocalY`; the per-node index range is widened by the maximum horizontal
+  excursion (drift × 1 s + 2 × sway + size).
 The particle math takes a caller-provided `Span` (no per-frame allocation in the player).
 
 ### 3.4 Traversal
@@ -137,9 +146,12 @@ message SyncCommand { …  string event_json = 6; }  // EVENT: JSON ShowEvent; i
 
 ### 4.2 Server
 `ServerPlaybackHost.FireEventAsync(type, targetSeatId?)`: factory → own log → local players →
-`WallpaperSyncCoordinator.BroadcastShowEventAsync` (all connected clients) → `EventFired` (preview).
-Refused (status text) when nothing plays. The Traversal image is prefetched (`BroadcastPrefetchAsync`)
-when it is picked and on every scene start.
+`WallpaperSyncCoordinator.BroadcastShowEventAsync` → `EventFired` (preview).
+Refused (status text) when nothing plays. Events go only to the running scene's remote seats — the
+same nodes Stop reaches (the scene's selected node ids, empty = all, without this machine's monitors) —
+so an idle client never draws one. The Traversal image is prefetched (`BroadcastPrefetchAsync`) when
+it is picked, and it is part of a show's prefetch (one PREFETCH — a second one would reset the
+clients' prefetch counters).
 
 ### 4.3 Client
 `WallpaperPlaybackService.OnSyncCommandReceived` handles `EVENT` **before** the timestamp wait:
@@ -151,6 +163,10 @@ late, the player starts drawing mid-lap at the correct position (the pose is a p
 ### 4.4 Replay
 Both hosts send `log.Active(now)` to every newly started player (after its start command). Covers
 playlist item changes during an event (players are respawned per apply) and late joiners.
+Network side: after a session resume and on Resync (all / one node), `WallpaperSyncCoordinator`
+re-sends the scene command and then every running event (`ActiveShowEventsProvider`, set by
+`ServerPlaybackHost`) to that client, so a seat that reconnected, restarted or missed the broadcast
+draws the event at its current position (the client dedupes by `EventId`).
 
 ### 4.5 Player IPC
 `PlayerCommandShowEvent { ShowEvent Event }` (`cmd_show_event`, Newtonsoft like the other player
@@ -190,8 +206,13 @@ loaded as an Avalonia bitmap and cached by path.
   needed), Ctrl+Alt+1 Spotlight (picked seat), 2 Celebration,
   3 Traversal, 4 Blackout, 5 Announce. Active in server mode only. A key taken by another app is
   logged and shown as a status line — no crash.
-- **Scheduled interrupts** (optional): `Playlist.Interrupts: List<{ EveryMs, Event template }>` driven
-  by `PlaylistOrchestrator`; fires at `T0 = now + lead`, does not advance the item.
+- **Scheduled interrupts** (implemented): `Playlist.Interrupts: List<PlaylistInterrupt { Enabled,
+  EveryMs, Type }>` — the event **type** only (its parameters come from the Events-strip defaults,
+  Spotlight targets the last picked seat), fired every N minutes by `PlaylistOrchestrator` through
+  the same path as the strip (`T0 = now + lead`); the running item is unchanged. Interrupts end with
+  the show (Stop, or a non-looping show finishing on its own).
+- **Hotkeys toggle**: a "Hotkeys (Ctrl+Alt+1..5)" check box in the strip (`ShowEventSettings.HotkeysEnabled`)
+  — on German / Austrian keyboards Ctrl+Alt+digit is AltGr+digit.
 
 ## 8. Visual check
 

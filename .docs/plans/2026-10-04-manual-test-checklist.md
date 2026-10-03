@@ -9,7 +9,7 @@ re-checks the four `[n]` findings from 09-29, and adds what the 2026-10-02/03 wo
 `.docs/2025.12_OpenIssues.md` (what you did, what you saw, which machine, log excerpt). Order matters: the
 automated runs (§4) are quick and cover timing + pixel parity, so §5 only needs eyes for what software cannot judge.
 
-**Time budget:** §0–§2 ≈ 1 h (server alone) · §3–§4 ≈ 1 h · §5–§6 ≈ 1.5 h · §7 ≈ 30 min.
+**Time budget:** §0–§2 ≈ 1 h (server alone) · §3–§4 ≈ 1 h · §5–§6 ≈ 1.5 h · §7 ≈ 30 min · §8 ≈ 45 min · §9 ≈ 1 h (optional).
 
 ---
 
@@ -193,7 +193,7 @@ Connect the clients first (§5.1). Attach each `report.html` path to the results
 
 ## 8. Show events (roadmap 2.4 slice 2, build-verified only)
 
-- [ ] **Showcase exact frames:** Developer tools → Run test suite… → `TestScenarios/showcase/events.json` → report shows confetti rising/falling, the spotlight border on seat 1 (others dimmed with a chevron), the cat mid-lap, blackout half / full, the announce text.
+- [ ] **Showcase exact frames:** Developer tools → Run test suite… → `TestScenarios/showcase/events.json` → report shows confetti rising/falling, the spotlight border on seat 1 (others dimmed with a chevron), the cat mid-lap, whiteout half / full (the Blackout fires in white so it shows on the dark scene), the announce text.
 - [ ] **Celebration on 2+ machines:** confetti crosses the bezel continuously (a piece leaving one screen appears on the next at the same height).
 - [ ] **Spotlight:** pick a seat in the strip (or select its tile) → its border pulses gold for 8 s; every other seat dims and its chevron points toward it (mirrored row: still toward it; Ring: the shorter way).
 - [ ] **Traversal:** default (scene sprite) and a picked image (club logo) each lap the room exactly once and vanish; on a client that never had the image it still appears (download), at most late — never at the wrong place. With a video scene and no picked image the strip refuses with a status message.
@@ -201,7 +201,10 @@ Connect the clients first (§5.1). Attach each `report.html` path to the results
 - [ ] **Playlist item switch during an event:** fire a Celebration 1 s before an item switch → the burst continues across the switch without restarting.
 - [ ] **Stop clears events:** fire a 10 s Spotlight, press Play / Quick start (or Clear nodes) → no stale event on any seat afterwards.
 - [ ] **Late join:** fire a 10 s Spotlight, then connect a client 3 s later and start a scene → no stale event after it ended; during it, Resync shows it at the right position.
+- [ ] **Reconnect / Resync during an event:** fire a 20 s Traversal (or 10 s Spotlight); pull a seat's network cable for ~3 s (or restart the client app) → after it resumes, that seat draws the event at the same position as its neighbours. Also: Resync all and node Resync mid-event → the event stays at its position on every seat (no restart, no duplicate).
+- [ ] **Scene seats only:** play a scene on a subset of nodes, fire a Celebration → idle clients (not in the scene) draw nothing; Stop reaches the same seats.
 - [ ] **Hotkeys:** with the server running, Ctrl+Alt+1..5 fire the events with the main window closed (tray only); on a client machine the keys do nothing (not registered); a key held by another app shows "Hotkey(s) taken by another app" in the strip.
+- [ ] **Hotkeys toggle:** untick "Hotkeys (Ctrl+Alt+1..5)" in the Events strip → the keys are free at once (on a German keyboard AltGr+2 types ² again, no event fires); tick it → events fire again; the setting survives an app restart.
 - [ ] **Old client:** a client on the previous build stays on its scene when an event is fired (its log shows "Unknown command type: 12").
 - [ ] **Room preview (Live):** the tiles show the same events at the same moments.
 - [ ] **Performance:** Celebration on a 4K seat stays at the monitor's refresh rate; player CPU stays under 15 %.
