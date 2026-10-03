@@ -17,6 +17,7 @@ using WaBiBaBuSy.Core.Services;
 using WaBiBaBuSy.Core.Services.Animation;
 using WaBiBaBuSy.Core.Services.Testing;
 using WaBiBaBuSy.Models.Configuration;
+using WaBiBaBuSy.Models.Show;
 using WaBiBaBuSy.Models.Testing;
 using WaBiBaBuSy.Models.Wallpaper;
 using WaBiBaBuSy.UI.Services;
@@ -35,6 +36,7 @@ public partial class TrayViewModel : ObservableObject
 {
     private readonly IClassicDesktopStyleApplicationLifetime _desktop;
     private readonly WaBiBaBuSyService _service;
+    private readonly GlobalHotkeyService _hotkeys = new();
     private readonly DesktopWindowManager _desktopManager;
     private readonly TestRunCoordinator _testCoordinator;
     // What the menu, the CLI and the control API start runs through, so the control panel shows each run.
@@ -90,6 +92,11 @@ public partial class TrayViewModel : ObservableObject
         _remotePlayback = new RemotePlaybackHost(_service, _desktopManager);
         _remotePlayback.Register();
         _serverPlayback = new ServerPlaybackHost(_service, _desktopManager, _remotePlayback);
+
+        // Ctrl+Alt+1..5 fire show events — registered only while this machine runs the server.
+        _hotkeys.Pressed += slot => Dispatcher.UIThread.Post(() => _ = OnEventHotkeyAsync(slot));
+        _service.ServerStatusChanged += (_, e) => Dispatcher.UIThread.Post(() => UpdateHotkeys(e.IsRunning));
+        UpdateHotkeys(_service.IsServerRunning);
 
         // Subscribe to service events
         _service.ClientConnectionStatusChanged += OnClientConnectionStatusChanged;
@@ -210,8 +217,30 @@ public partial class TrayViewModel : ObservableObject
     [RelayCommand]
     private Task Exit() => ExitAsync(0);
 
+    private void UpdateHotkeys(bool serverRunning)
+    {
+        if (serverRunning && _serverPlayback.EventSettings.HotkeysEnabled)
+        {
+            _hotkeys.Start();
+            if (_hotkeys.FailedSlots.Count > 0)
+                _serverPlayback.EventStatusText = $"Hotkey(s) taken by another app: {string.Join(", ", _hotkeys.FailedSlots.Select(ShowEventHotkeys.Gesture))}";
+        }
+        else
+        {
+            _hotkeys.Stop();
+        }
+    }
+
+    private async Task OnEventHotkeyAsync(int slot)
+    {
+        if (ShowEventHotkeys.TypeForSlot(slot) is not { } type) return;
+        await _serverPlayback.FireEventAsync(type, _serverPlayback.EventSettings.LastTargetSeatId);
+    }
+
     private async Task ExitAsync(int exitCode)
     {
+        _hotkeys.Dispose();
+
         // An active test run: let it write the partial report and switch test mode off on every node
         // before the players and the server go away.
         if (_testCoordinator.Cancel() && !await _testCoordinator.WaitForIdleAsync(TimeSpan.FromSeconds(10)))
