@@ -51,7 +51,7 @@ public static class SpriteEffects
     public static bool Supported(AnimationLayerConfig animation, MovementConfig? movement, BackgroundMode backgroundMode) =>
         HasAny(animation.Effects)
         && animation.Pattern == null
-        && !animation.AdditionalAnimationPaths.Any(p => !string.IsNullOrWhiteSpace(p))
+        && animation.AdditionalAnimationPaths?.Any(p => !string.IsNullOrWhiteSpace(p)) != true
         && movement != null
         && !MovementCalculator.FollowsIconPath(backgroundMode, movement);
 
@@ -73,6 +73,30 @@ public static class SpriteEffects
         double deg = elapsedMs / 1000.0 * degPerSecond % 360.0;
         if (deg < 0) deg += 360.0;
         return deg >= 360.0 ? 0f : (float)deg;
+    }
+
+    /// <summary>True for "#RRGGBB" / "RRGGBB" (surrounding blanks ignored).</summary>
+    public static bool IsValidBezelColor(string? hex) => TryParseRgb(hex, out _);
+
+    /// <summary>
+    /// <see cref="SpriteEffectsConfig.BezelColorHex"/> as RGB; white (the default) when it is not "#RRGGBB". Never
+    /// throws — the players parse it on every frame of a crossing.
+    /// </summary>
+    public static (byte R, byte G, byte B) ParseBezelColor(string? hex) => TryParseRgb(hex, out var rgb) ? rgb : ((byte)255, (byte)255, (byte)255);
+
+    private static bool TryParseRgb(string? hex, out (byte R, byte G, byte B) rgb)
+    {
+        rgb = default;
+        var s = hex?.Trim() ?? string.Empty;
+        if (s.StartsWith('#')) s = s[1..];
+        if (s.Length != 6) return false;
+        var style = System.Globalization.NumberStyles.HexNumber;
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        if (!byte.TryParse(s.AsSpan(0, 2), style, inv, out byte r)
+            || !byte.TryParse(s.AsSpan(2, 2), style, inv, out byte g)
+            || !byte.TryParse(s.AsSpan(4, 2), style, inv, out byte b)) return false;
+        rgb = (r, g, b);
+        return true;
     }
 
     /// <summary>Number of ghosts to draw (0..<see cref="MaxTrailCount"/>).</summary>
@@ -144,7 +168,7 @@ public static class SpriteEffects
     /// The newest bezel crossing on this node within the effect duration, or null. Scans the sprite's visibility
     /// backwards on a 16 ms grid aligned to absolute elapsed time, so every frame and every node agree on the
     /// crossing time without any frame history. Samples before elapsed 0 end the scan: a sprite that is on a node
-    /// when the scene starts did not cross into it.
+    /// when the scene starts did not cross into it. Crossings whose kind has no effect are skipped.
     /// </summary>
     public static BezelEvent? FindBezelEvent(in SpritePoseInput p, SpriteEffectsConfig fx, long elapsedMs)
     {
@@ -159,11 +183,15 @@ public static class SpriteEffects
             {
                 var kind = newerVisible ? BezelEventKind.Entry : BezelEventKind.Exit;
                 var effect = kind == BezelEventKind.Entry ? fx.Entry : fx.Exit;
-                if (effect == BezelEffect.None) return null;
-                float x = newerVisible ? newerX : olderX;       // the copy that is (entry) / was (exit) on the node
-                float y = newerVisible ? newerY : olderY;
-                bool right = x + p.AnimW / 2f > p.Node.Width / 2f;
-                return new BezelEvent(kind, effect, newerT, (elapsedMs - newerT) / (float)duration, right, y + p.AnimH / 2f);
+                if (effect != BezelEffect.None)
+                {
+                    float x = newerVisible ? newerX : olderX;       // the copy that is (entry) / was (exit) on the node
+                    float y = newerVisible ? newerY : olderY;
+                    bool right = x + p.AnimW / 2f > p.Node.Width / 2f;
+                    return new BezelEvent(kind, effect, newerT, (elapsedMs - newerT) / (float)duration, right, y + p.AnimH / 2f);
+                }
+                // A crossing without an effect (e.g. exit while only Entry is set) must not cut an older,
+                // still-running effect short: keep scanning.
             }
             newerT = t; newerVisible = olderVisible; newerX = olderX; newerY = olderY;
         }

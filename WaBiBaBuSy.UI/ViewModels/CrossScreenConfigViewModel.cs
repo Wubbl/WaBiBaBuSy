@@ -173,20 +173,26 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         set { if (value) AnimationDistributionModeIndex = 1; }
     }
 
+    // The loaded scene's effects: fields the Effects tab does not show (trail opacity / falloff, an exact pulse
+    // amplitude) are carried through from here, so editing a scene never resets them.
+    private SpriteEffectsForm _loadedEffects = SpriteEffectsForm.From(null);
+
     /// <summary>The Effects tab as a config; null when nothing is enabled (keeps saved scenes unchanged).</summary>
     private SpriteEffectsConfig? BuildEffects()
     {
-        var fx = new SpriteEffectsConfig
+        bool pulseUnchanged = PulseAmplitudePercent == (int)MathF.Round(_loadedEffects.PulseAmplitude * 100f);
+        return (_loadedEffects with
         {
-            Trail = TrailEnabled ? new TrailConfig { Count = TrailCount, SpacingMs = TrailSpacingMs, UseGradingColor = TrailUseGradingColor } : null,
-            Pulse = PulseEnabled ? new PulseConfig { Amplitude = PulseAmplitudePercent / 100f, FrequencyHz = PulseFrequencyHz } : null,
+            TrailEnabled = TrailEnabled, TrailCount = TrailCount, TrailSpacingMs = TrailSpacingMs, TrailUseGradingColor = TrailUseGradingColor,
+            PulseEnabled = PulseEnabled,
+            PulseAmplitude = pulseUnchanged ? _loadedEffects.PulseAmplitude : PulseAmplitudePercent / 100f,
+            PulseFrequencyHz = PulseFrequencyHz,
             SpinDegPerSecond = SpinDegPerSecond,
             Entry = (BezelEffect)BezelEntryIndex,
             Exit = (BezelEffect)BezelExitIndex,
-            BezelColorHex = string.IsNullOrWhiteSpace(BezelColorHex) ? "#FFFFFF" : BezelColorHex.Trim(),
+            BezelColorHex = BezelColorHex,
             BezelDurationMs = BezelDurationMs,
-        };
-        return SpriteEffects.HasAny(fx) ? fx : null;
+        }).ToConfig();
     }
 
     partial void OnAnimationDistributionModeIndexChanged(int value)
@@ -490,19 +496,19 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         SpeedMultiplier = config.Animation.SpeedMultiplier;
         FaceTravelDirection = config.Animation.FaceTravelDirection;
 
-        var fx = config.Animation.Effects;
-        TrailEnabled = fx?.Trail != null;
-        TrailCount = fx?.Trail?.Count ?? 6;
-        TrailSpacingMs = fx?.Trail?.SpacingMs ?? 60;
-        TrailUseGradingColor = fx?.Trail?.UseGradingColor ?? true;
-        PulseEnabled = fx?.Pulse != null;
-        PulseAmplitudePercent = (int)MathF.Round((fx?.Pulse?.Amplitude ?? 0.08f) * 100f);
-        PulseFrequencyHz = fx?.Pulse?.FrequencyHz ?? 0.8f;
-        SpinDegPerSecond = fx?.SpinDegPerSecond ?? 0f;
-        BezelEntryIndex = (int)(fx?.Entry ?? BezelEffect.None);
-        BezelExitIndex = (int)(fx?.Exit ?? BezelEffect.None);
-        BezelColorHex = fx?.BezelColorHex ?? "#FFFFFF";
-        BezelDurationMs = fx?.BezelDurationMs ?? 350;
+        var fx = _loadedEffects = SpriteEffectsForm.From(config.Animation.Effects);
+        TrailEnabled = fx.TrailEnabled;
+        TrailCount = fx.TrailCount;
+        TrailSpacingMs = fx.TrailSpacingMs;
+        TrailUseGradingColor = fx.TrailUseGradingColor;
+        PulseEnabled = fx.PulseEnabled;
+        PulseAmplitudePercent = (int)MathF.Round(fx.PulseAmplitude * 100f);
+        PulseFrequencyHz = fx.PulseFrequencyHz;
+        SpinDegPerSecond = fx.SpinDegPerSecond;
+        BezelEntryIndex = (int)fx.Entry;
+        BezelExitIndex = (int)fx.Exit;
+        BezelColorHex = fx.BezelColorHex;
+        BezelDurationMs = fx.BezelDurationMs;
 
         // Color grading
         var grading = config.Animation.ColorGrading ?? new ColorGradingConfig();

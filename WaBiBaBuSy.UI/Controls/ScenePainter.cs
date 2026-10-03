@@ -227,7 +227,10 @@ public sealed class ScenePainter
         }
 
         if (fx != null && SpriteEffects.FindBezelEvent(input, fx, e) is { } ev)
-            PaintBezel(ctx, rect, s, SpriteEffects.Visual(ev, eff), ParseHex(fx.BezelColorHex));
+        {
+            var (cr, cg, cb) = SpriteEffects.ParseBezelColor(fx.BezelColorHex);   // same fallback as the players
+            PaintBezel(ctx, rect, s, SpriteEffects.Visual(ev, eff), Color.FromRgb(cr, cg, cb));
+        }
         return hit;
     }
 

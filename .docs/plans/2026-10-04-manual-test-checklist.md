@@ -72,7 +72,7 @@ automated runs (§4) are quick and cover timing + pixel parity, so §5 only need
 ### 2.5 Sprite effects (new 10-03; exact frames verified on the server, editor and preview build-verified only)
 - [ ] Scene editor → **Effects** tab: Trail on → the room preview shows the fading trail; Pulse / Spin visible in the preview
 - [ ] Bezel crossing: Entry Ripple + Exit Glow → on the wall the leaving monitor glows at its edge and the entering one shows the ripple at the same moment
-- [ ] Flash on a 2-row Ring: one flash per crossing, none at the seam while the sprite straddles it, none at scene start
+- [ ] Flash on a 2-row Ring: one flash per crossing, none at the seam while the sprite straddles it, none on the screen where the sprite starts
 - [ ] Effects tab with a pattern / an extra image / an IconZone background → amber hint, nothing drawn
 - [ ] Playlist row for a scene with effects lists them ("trail 8 · pulse · entry ripple · exit glow")
 - [ ] Showcase preset "BiBaBu Party" → the "Comet" item plays with its trail on all nodes

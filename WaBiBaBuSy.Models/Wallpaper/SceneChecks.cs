@@ -74,10 +74,13 @@ public static class SceneChecks
         {
             if (anim.Pattern != null)
                 warnings.Add("Effects are not drawn with a pattern");
-            else if (anim.AdditionalAnimationPaths.Any(p => !string.IsNullOrWhiteSpace(p)))
+            else if (anim.AdditionalAnimationPaths?.Any(p => !string.IsNullOrWhiteSpace(p)) == true)
                 warnings.Add("Effects need a single image (no extra images)");
             else if (MovementCalculator.FollowsIconPath(scene.Background.Mode, scene.Movement))
                 warnings.Add("Effects are not drawn on an IconZone path");
+            if ((anim.Effects!.Entry != BezelEffect.None || anim.Effects.Exit != BezelEffect.None)
+                && !SpriteEffects.IsValidBezelColor(anim.Effects.BezelColorHex))
+                warnings.Add("Bezel color must be #RRGGBB");
         }
 
         double crossing = CrossingSeconds(scene, layout);

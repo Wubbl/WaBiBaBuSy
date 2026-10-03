@@ -67,7 +67,8 @@ partial class Program
     {
         if (_bezelSolidBrush != null && _bezelBrushColor == colorHex) return;
         DisposeEffectBrushes();
-        var color = ParseHexColor(colorHex);
+        var (r, g, b) = SpriteEffects.ParseBezelColor(colorHex);   // never throws (white when invalid)
+        var color = new Color4(r / 255f, g / 255f, b / 255f, 1f);
         var clear = new Color4(color.R, color.G, color.B, 0f);
         _bezelSolidBrush = _d2dContext!.CreateSolidColorBrush(color);
         var stops = new GradientStop[2];
