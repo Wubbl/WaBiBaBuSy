@@ -36,28 +36,10 @@ public partial class MainWindowViewModel
         OnPropertyChanged(nameof(IsTestModeEnabled));
     }
 
-    internal Task<IReadOnlyList<TestNodeInfo>> TestNodesAsync() => Dispatcher.UIThread.InvokeAsync<IReadOnlyList<TestNodeInfo>>(() =>
+    internal Task<IReadOnlyList<TestNodeInfo>> TestNodesAsync() => Dispatcher.UIThread.InvokeAsync(() =>
     {
         var versions = _service.GetConnectedClients().GroupBy(c => c.ClientId).ToDictionary(g => g.Key, g => g.First().AppVersion);
-        return Clients.GroupBy(c => c.ClientId).Select(g => g.First()).OrderBy(c => c.Order).Select((c, seat) =>
-        {
-            bool local = IsLocalMonitor(c.ClientId);
-            return new TestNodeInfo
-            {
-                NodeId = c.ClientId,
-                Name = local ? $"server #{Math.Max(0, c.MonitorIndex)}" : c.Hostname,
-                IsLocal = local,
-                Connected = local || c.IsConnected,
-                MonitorIndex = Math.Max(0, c.MonitorIndex),
-                SeatOrder = seat,
-                Width = c.MonitorWidth,
-                Height = c.MonitorHeight,
-                RefreshHz = c.MonitorRefreshHz,
-                ClockOffsetMs = c.DriftMs,
-                RttMs = c.RttMs,
-                AppVersion = local ? AppVersionInfo.AppVersion : versions.GetValueOrDefault(c.ClientId, string.Empty),
-            };
-        }).ToList();
+        return TestNodeList.Build(RoomNodes(), versions, AppVersionInfo.AppVersion);
     }).GetTask();
 
     /// <summary>

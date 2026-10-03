@@ -27,6 +27,7 @@ using WaBiBaBuSy.WallpaperEngine.Native;
 using WaBiBaBuSy.WallpaperEngine.Renderers;
 using WaBiBaBuSy.WallpaperEngine.Services;
 using WaBiBaBuSy.Core.Services.Desktop;
+using WaBiBaBuSy.Core.Services.Animation;
 using WaBiBaBuSy.UI.Services;
 
 using WaBiBaBuSy.Models.Topology;
@@ -394,13 +395,8 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             PlaylistNextLabel = "";
             return;
         }
-        var remaining = TimeSpan.FromMilliseconds(Math.Max(0, o.NextSwitchUtcMs - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
-        var next = o.NextItem?.Name;
-        var now = o.CurrentItem?.Name;
-        var nowPart = string.IsNullOrWhiteSpace(now) ? "" : $"Now: {now} · ";
-        PlaylistNextLabel = next == null
-            ? $"{nowPart}last item · ends in {remaining.Minutes}:{remaining.Seconds:00}"
-            : $"{nowPart}next: {next} in {remaining.Minutes}:{remaining.Seconds:00}";
+        PlaylistNextLabel = ShowStatus.Format(o.CurrentItem?.Name, o.NextItem?.Name,
+            o.NextSwitchUtcMs - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
     }
 
     [RelayCommand]
@@ -1131,14 +1127,29 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     /// <summary>
     /// Check if a client ID represents a local monitor (either local-only or server mode)
     /// </summary>
-    private static bool IsLocalMonitor(string clientId) =>
-        clientId.StartsWith("LOCAL_MACHINE_MONITOR_") || clientId.StartsWith("SERVER_LOCALHOST_MONITOR_");
+    private static bool IsLocalMonitor(string clientId) => NodeIds.IsLocalMonitor(clientId);
 
     /// <summary>
     /// Extract monitor index from a local monitor client ID
     /// </summary>
-    private static int GetMonitorIndex(string clientId) =>
-        int.Parse(clientId.Replace("LOCAL_MACHINE_MONITOR_", "").Replace("SERVER_LOCALHOST_MONITOR_", ""));
+    private static int GetMonitorIndex(string clientId) => NodeIds.MonitorIndex(clientId);
+
+    /// <summary>The room's nodes as plain records (scene planning, test node list).</summary>
+    private List<RoomNode> RoomNodes() => Clients.Select(c => new RoomNode
+    {
+        Id = c.ClientId,
+        Hostname = c.Hostname,
+        Order = c.Order,
+        MonitorIndex = c.MonitorIndex,
+        WidthPx = c.MonitorWidth,
+        HeightPx = c.MonitorHeight,
+        RefreshHz = c.MonitorRefreshHz,
+        GapBeforeCm = c.PhysicalDistanceCm,
+        PixelsPerCm = c.PixelsPerCm,
+        IsConnected = c.IsConnected,
+        RttMs = c.RttMs,
+        ClockOffsetMs = c.DriftMs
+    }).ToList();
 
     /// <summary>
     /// Computes the effective rendered animation height in pixels for a given FitMode,
@@ -3075,92 +3086,23 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     /// </summary>
     public async Task<CrossScreenApplyResult> ApplyCrossScreenConfigAsync(CrossScreenConfig config)
     {
-        // Convert clients to screen configurations, filtering by selected monitors if configured
-        var selectedMonitorIds = new HashSet<string>(config.SelectedMonitorIds);
-        var clientsToUse = selectedMonitorIds.Count > 0
-            ? Clients.Where(c => selectedMonitorIds.Contains(c.ClientId))
-            : Clients;
-
-        // Split clients into local monitors and remote nodes.
-        // Use IsLocalMonitor() to cover both LOCAL_MACHINE_MONITOR_ (standalone) and
-        // SERVER_LOCALHOST_MONITOR_ (server mode) so local nodes are never sent gRPC commands.
-        var localClientsUnordered = clientsToUse
-            .Where(c => IsLocalMonitor(c.ClientId))
-            .ToList();
-        var remoteClients = clientsToUse
-            .Where(c => !IsLocalMonitor(c.ClientId))
-            .ToList();
-
-        List<ClientNodeViewModel> localClients;
-        if (selectedMonitorIds.Count > 0)
-        {
-            // Order by position in SelectedMonitorIds list (preserves user's custom order)
-            var orderMap = config.SelectedMonitorIds
-                .Select((id, idx) => (id, idx))
-                .ToDictionary(x => x.id, x => x.idx);
-            localClients = localClientsUnordered
-                .OrderBy(c => orderMap.GetValueOrDefault(c.ClientId, int.MaxValue))
-                .ToList();
-        }
-        else
-        {
-            localClients = localClientsUnordered
-                .OrderBy(c => c.Order)
-                .ToList();
-        }
-
-        if (localClients.Count == 0 && remoteClients.Count == 0)
+        // Targets, local start order, per-node size/DPI, seat-map layout and cm→px (pure, CrossScreenPlanner).
+        // Remote clients without a reported DPI are assumed to have the first local monitor's.
+        var nativeMonitors = WaBiBaBuSy.WallpaperEngine.Native.NativeMonitorInfo.GetAllMonitors();
+        var plan = CrossScreenPlanner.Plan(config, RoomNodes(), _seatMap, ReferencePixelsPerCm,
+            nativeMonitors.Select(m => m.PixelsPerCm).ToList());
+        if (plan.IsEmpty)
         {
             Debug.WriteLine("[CrossScreen] No monitors selected");
             return new CrossScreenApplyResult();
         }
 
+        var localClients = plan.Local;
+        var remoteClients = plan.Remote;
+        var layout = plan.Layout;
+        var effMovement = plan.EffectiveMovement;
+        var effAnimation = plan.EffectiveAnimation;
         Debug.WriteLine($"[CrossScreen] Starting D2D animation on {localClients.Count} local + {remoteClients.Count} remote node(s)");
-
-        // Query DPI for local monitors to derive physical pixels-per-cm for gap modeling.
-        // Remote clients are assumed to have the same monitor model as the first local monitor.
-        var nativeMonitors = WaBiBaBuSy.WallpaperEngine.Native.NativeMonitorInfo.GetAllMonitors();
-        float fallbackPixelsPerCm = nativeMonitors.Length > 0 ? nativeMonitors[0].PixelsPerCm : 0f;
-
-        // Build screen configurations for virtual canvas - ALL nodes (local + remote)
-        var allClients = localClients.Concat(remoteClients).ToList();
-        var screenConfigs = allClients.Select(c => new WallpaperEngine.Composition.ScreenConfiguration
-        {
-            ClientId = c.ClientId,
-            Width = c.MonitorWidth > 0 ? c.MonitorWidth : 1920,
-            Height = c.MonitorHeight > 0 ? c.MonitorHeight : 1080,
-            Order = c.Order,
-            PhysicalDistanceCm = c.PhysicalDistanceCm,
-            Hostname = c.Hostname,
-            MonitorIndex = c.MonitorIndex,
-            // Local: look up by monitor index; Remote: use the DPI the client
-            // reported at registration; first local monitor only as last resort.
-            PixelsPerCm = c.ClientId.StartsWith("LOCAL_MACHINE_MONITOR_")
-                ? (c.MonitorIndex < nativeMonitors.Length ? nativeMonitors[c.MonitorIndex].PixelsPerCm : fallbackPixelsPerCm)
-                : (c.PixelsPerCm > 0f ? c.PixelsPerCm : fallbackPixelsPerCm)
-        }).ToList();
-
-        // Lay the ordered chain out over the room's seat map (rows, turn gaps, ring wrap,
-        // mirroring). Bezel gaps come from each node's PixelsPerCm + PhysicalDistanceCm as before;
-        // a single-row seat map reproduces the classic left-to-right canvas exactly.
-        var layoutInputs = allClients.OrderBy(c => c.Order).Select(c =>
-        {
-            var sc = screenConfigs.First(x => x.ClientId == c.ClientId);
-            return new LayoutNodeInput
-            {
-                Id = c.ClientId,
-                WidthPx = sc.Width,
-                HeightPx = sc.Height,
-                GapBeforeCm = sc.PhysicalDistanceCm,
-                PixelsPerCm = sc.PixelsPerCm
-            };
-        }).ToList();
-        var layout = SeatMapLayoutBuilder.Build(_seatMap, layoutInputs, ReferencePixelsPerCm);
-
-        // Physical canvas: resolve cm sizes/speeds into canvas px once, here. Players and the
-        // deterministic math only ever see pixel values (identical on every node).
-        var (effMovement, effAnimation) = PhysicalUnits.ResolveForCanvas(config, layout.RefPixelsPerCm);
-
         Debug.WriteLine($"[CrossScreen] Virtual canvas: {layout.CanvasWidth}x{layout.CanvasHeight} ({_seatMap.Traversal}, {_seatMap.Rows.Count} row(s), wraps={layout.Wraps})");
 
         // Get actual monitor bounds from Windows
@@ -3168,7 +3110,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
 
         // Sequential + IconZone: compute one global A* path across the full virtual canvas
         // so all local monitors share the same coordinated corridor path.
-        var perMonitor = config.DistributionMode == AnimationDistributionMode.Simultaneous;
+        var perMonitor = plan.PerMonitor;
         var animationConfig = effAnimation;
         if (!perMonitor && config.Background.Mode == BackgroundMode.IconZone && localClients.Count > 0)
         {
@@ -3178,7 +3120,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                 var (cellW, cellH) = iconService.GetGridCellSize();
                 var allIcons = iconService.GetIconPositions(); // positions in virtual-desktop (absolute) coords
 
-                int firstMonitorIdx = GetMonitorIndex(localClients[0].ClientId);
+                int firstMonitorIdx = GetMonitorIndex(localClients[0].Node.Id);
                 var firstScreen = firstMonitorIdx < screens.Length ? screens[firstMonitorIdx] : screens[0];
                 int virtualH = firstScreen.Bounds.Height;
 
@@ -3240,9 +3182,9 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         var newServices = new List<(int monitorIndex, D2DCompositionService service)>();
         var phase1Timer = System.Diagnostics.Stopwatch.StartNew();
 
-        foreach (var client in localClients)
+        foreach (var planned in localClients)
         {
-            var monitorIndex = GetMonitorIndex(client.ClientId);
+            var monitorIndex = GetMonitorIndex(planned.Node.Id);
 
             // Clean up existing D2D service for this monitor if any
             if (_d2dCompositionServices.TryRemove(monitorIndex, out var existingService))
@@ -3264,13 +3206,23 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             // player per entry — passing the full multi-screen layout would cause it to
             // spawn N players per service (N² total), all positioned at the same actualBounds.
             // Each service must own exactly ONE player for its own monitor.
-            var thisCfg = screenConfigs.First(s => s.ClientId == client.ClientId);
+            var thisCfg = new WallpaperEngine.Composition.ScreenConfiguration
+            {
+                ClientId = planned.Node.Id,
+                Width = planned.WidthPx,
+                Height = planned.HeightPx,
+                Order = planned.Node.Order,
+                PhysicalDistanceCm = planned.Node.GapBeforeCm,
+                Hostname = planned.Node.Hostname,
+                MonitorIndex = planned.Node.MonitorIndex,
+                PixelsPerCm = planned.PixelsPerCm
+            };
             var singleCanvas = new VirtualCanvasManager(AppLogger.CreateLogger<VirtualCanvasManager>());
             singleCanvas.CalculateLayout(new[] { thisCfg });
 
             // In sequential mode the player needs the full virtual canvas width and this
             // monitor's X offset within it; derive both from the seat-map layout.
-            var nodeLayout = layout.Get(client.ClientId);
+            var nodeLayout = layout.Get(planned.Node.Id);
             int virtualOffsetX = nodeLayout?.OffsetX ?? 0;
             int virtualOffsetY = nodeLayout?.OffsetY ?? 0;
             int nodeOrder = nodeLayout?.Order ?? 0;
@@ -3319,7 +3271,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         // downloaded, spawned and decoded before the first frame — every node then starts on the
         // same frame instead of popping in mid-lap. Lead = 3×worst RTT + the local load time we
         // just measured, clamped to [800, 4000] ms.
-        double maxRttMs = remoteClients.Count > 0 ? remoteClients.Max(c => c.RttMs) : 0.0;
+        double maxRttMs = plan.MaxRemoteRttMs;
         int startLeadMs = SyncTiming.ComputeStartLeadMs(maxRttMs, (int)phase1Timer.ElapsedMilliseconds);
         var sharedStartTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + startLeadMs;
         var pixelsPerSecond = effMovement.Type == MovementType.Static
@@ -3346,15 +3298,16 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             var bgColor = config.Background.ColorHex ?? "#000000";
             var movementTypeInt = (int)effMovement.Type;
 
-            foreach (var remoteClient in remoteClients)
+            foreach (var remote in remoteClients)
             {
-                var remoteLayout = layout.Get(remoteClient.ClientId);
+                var remoteClient = remote.Node;
+                var remoteLayout = layout.Get(remoteClient.Id);
                 var remoteOffsetX = remoteLayout?.OffsetX ?? 0;
 
-                Debug.WriteLine($"[CrossScreen] Sending cross-screen D2D to remote {remoteClient.Hostname} ({remoteClient.ClientId}): offset={remoteOffsetX}px, canvas={layout.CanvasWidth}px");
+                Debug.WriteLine($"[CrossScreen] Sending cross-screen D2D to remote {remoteClient.Hostname} ({remoteClient.Id}): offset={remoteOffsetX}px, canvas={layout.CanvasWidth}px");
 
                 await _service.SyncCoordinator.StartCrossScreenD2DOnClientAsync(
-                    clientId: remoteClient.ClientId,
+                    clientId: remoteClient.Id,
                     contentId: contentId,
                     filePath: effAnimation.AnimationPath,
                     backgroundColor: bgColor,
