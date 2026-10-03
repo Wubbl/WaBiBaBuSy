@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Threading;
 using WaBiBaBuSy.Core.Services.Testing;
+using WaBiBaBuSy.Models.Show;
 using WaBiBaBuSy.Models.Testing;
 using WaBiBaBuSy.Models.Wallpaper;
 
@@ -37,6 +39,9 @@ public sealed class TestHostAdapter : ITestHost
         _host.PrefetchForTestAsync(scenes, timeout);
 
     public IReadOnlyList<ITestProbeTarget> LocalProbeTargets() => _host.LocalProbeTargets();
+
+    public Task FireShowEventAsync(ShowEvent evt, CancellationToken ct) =>
+        Dispatcher.UIThread.InvokeAsync(() => _host.FireEventForTestAsync(evt));
 
     public void ReportProgress(string text) => _host.ReportTestProgress(text);
 }

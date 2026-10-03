@@ -1,0 +1,31 @@
+{
+  // One-shot show events (roadmap 2.4): each event is fired at a fixed scene time; the exact frames fall inside
+  // its window, so they show the event exactly as live (the frames are pure functions of the elapsed time).
+  "name": "events",
+  "requires": { "minRemoteNodes": 0 },
+  "steps": [
+    { "type": "testMode", "timecode": false },
+    { "type": "playScene", "label": "02-dvd-bounce", "scene": "scenes/02-dvd-bounce.json" },
+
+    { "type": "showEvent", "label": "celebration", "atElapsedMs": 1000,
+      "event": { "type": "Celebration", "durationMs": 5000, "seed": 2026, "colorHex": "#FFD700" } },
+    { "type": "exactFrame", "label": "celebration t=+0.5s (rising)", "elapsedMs": 1500 },
+    { "type": "exactFrame", "label": "celebration t=+2.5s (falling)", "elapsedMs": 3500 },
+
+    { "type": "showEvent", "label": "spotlight seat 1", "atElapsedMs": 7000,
+      "event": { "type": "Spotlight", "durationMs": 4000, "targetOrder": 0, "colorHex": "#FFD700" } },
+    { "type": "exactFrame", "label": "spotlight t=+1s", "elapsedMs": 8000 },
+
+    { "type": "showEvent", "label": "traversal cat", "atElapsedMs": 12000,
+      "event": { "type": "Traversal", "durationMs": 6000, "imagePath": "assets/cat.gif", "spriteAspect": 1.0, "heightFraction": 0.4 } },
+    { "type": "exactFrame", "label": "traversal t=+1.5s", "elapsedMs": 13500 },
+    { "type": "exactFrame", "label": "traversal t=+4.5s", "elapsedMs": 16500 },
+
+    { "type": "showEvent", "label": "blackout", "atElapsedMs": 19000,
+      "event": { "type": "Blackout", "durationMs": 2000, "colorHex": "#000000" } },
+    { "type": "exactFrame", "label": "blackout t=+0.125s (fading in)", "elapsedMs": 19125 },
+    { "type": "exactFrame", "label": "blackout t=+1s (full)", "elapsedMs": 20000 },
+
+    { "type": "stop" }
+  ]
+}

@@ -262,6 +262,22 @@ public class TestRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task ShowEventStep_FiresAtSharedStartPlusOffset_WithAFreshId()
+    {
+        var report = await Runner().RunAsync(Scenario($$"""
+            {{PlayMarker}},
+            { "type": "showEvent", "atElapsedMs": 1500, "event": { "type": "Celebration", "durationMs": 99999999, "seed": 3, "eventId": "fixed" } }
+            """, minRemotes: 0), "unit.json", CancellationToken.None);
+
+        Assert.False(report.Aborted, report.AbortReason);
+        var fired = Assert.Single(_host.FiredEvents);
+        Assert.Equal(FakeTransport.SharedStart + 1500, fired.T0Utc);
+        Assert.NotEqual("fixed", fired.EventId);                                       // reruns must not be deduped by the players
+        Assert.Equal(WaBiBaBuSy.Models.Show.ShowEventMath.MaxDurationMs, fired.DurationMs);   // clamped
+        Assert.Equal(Verdict.Pass, report.Steps[1].Verdict);
+    }
+
+    [Fact]
     public async Task CancelledSeries_KeepsCompletedProbes()
     {
         using var cts = new CancellationTokenSource();
@@ -689,6 +705,8 @@ public class TestRunnerTests : IDisposable
         public Task RestoreAsync(TestRestorePoint restorePoint) { RestoredTo = restorePoint; return Task.CompletedTask; }
         public Task<bool> PrefetchAsync(IReadOnlyList<CrossScreenConfig> scenes, TimeSpan timeout, CancellationToken ct) => Task.FromResult(true);
         public IReadOnlyList<ITestProbeTarget> LocalProbeTargets() => _targets;
+        public List<WaBiBaBuSy.Models.Show.ShowEvent> FiredEvents { get; } = new();
+        public Task FireShowEventAsync(WaBiBaBuSy.Models.Show.ShowEvent evt, CancellationToken ct) { FiredEvents.Add(evt); return Task.CompletedTask; }
         public void ReportProgress(string text) { }
     }
 

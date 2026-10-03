@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Reflection;
 using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Common.IO;
+using WaBiBaBuSy.Models.Show;
 using WaBiBaBuSy.Models.Testing;
 using WaBiBaBuSy.Models.Wallpaper;
 using AppVersionInfo = WaBiBaBuSy.Common.Version.VersionInfo;
@@ -389,6 +390,25 @@ public sealed class TestRunner
                 sr.Message = (frame.Error != null ? $"{frame.Error}; " : string.Empty) + (ctx.Active!.PerMonitor
                     ? $"{frame.Parity.Count} comparison(s)"
                     : "Sequential: every node shows a different slice; frames saved for review");
+                break;
+
+            case ShowEventStep ev:
+                if (ctx.Active == null)
+                {
+                    sr.Verdict = Verdict.Fail;
+                    sr.Message = "no scene is playing";
+                    break;
+                }
+                var evt = ev.Event.Clone();
+                evt.EventId = $"test-{Guid.NewGuid():N}";   // players dedupe by id: a rerun must not be ignored
+                evt.T0Utc = ctx.Active.SharedStartServerUtcMs + ev.AtElapsedMs;
+                evt.DurationMs = ShowEventMath.ClampDuration(evt.DurationMs);
+                if (!string.IsNullOrEmpty(evt.ImagePath)) evt.ImagePath = ScenarioLoader.ResolvePath(ctx.Scenario, evt.ImagePath);
+                if (evt.Type == ShowEventType.Spotlight && ctx.Active.Layout?.Nodes.FirstOrDefault(n => n.Order == evt.TargetOrder) is { } target)
+                    evt.TargetCenterX = target.OffsetX + target.Width / 2f;
+                await _host.FireShowEventAsync(evt, ct);
+                sr.Verdict = Verdict.Pass;
+                sr.Message = $"{evt.Type} at elapsed {ev.AtElapsedMs} ms for {evt.DurationMs} ms";
                 break;
 
             case WaitStep wait:

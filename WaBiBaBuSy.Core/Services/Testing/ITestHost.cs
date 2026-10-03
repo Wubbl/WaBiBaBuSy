@@ -1,4 +1,5 @@
 using WaBiBaBuSy.Core.Services.Animation;
+using WaBiBaBuSy.Models.Show;
 using WaBiBaBuSy.Models.Testing;
 using WaBiBaBuSy.Models.Topology;
 using WaBiBaBuSy.Models.Wallpaper;
@@ -30,6 +31,9 @@ public interface ITestHost
 
     /// <summary>The server's own running players (one per local monitor that plays).</summary>
     IReadOnlyList<ITestProbeTarget> LocalProbeTargets();
+
+    /// <summary>Fire a prepared show event (T0 set) on every node, like the Events strip.</summary>
+    Task FireShowEventAsync(ShowEvent evt, CancellationToken ct);
 
     /// <summary>One-line progress for the toolbar.</summary>
     void ReportProgress(string text);

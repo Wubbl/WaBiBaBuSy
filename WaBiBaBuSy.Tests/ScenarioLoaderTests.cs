@@ -320,11 +320,44 @@ public class ScenarioLoaderTests : IDisposable
         Assert.Contains("asset not found", Assert.Throws<ScenarioException>(() => SceneFile.Load(path)).Message);
     }
 
+    [Fact]
+    public void Parse_ShowEventStep()
+    {
+        var json = """
+        { "name": "x", "steps": [
+          { "type": "playScene", "scene": "scenes/linear.json" },
+          { "type": "showEvent", "atElapsedMs": 2000, "event": { "type": "Celebration", "durationMs": 4000, "seed": 5 } } ] }
+        """;
+        var step = Assert.IsType<ShowEventStep>(ScenarioLoader.Parse(json, _dir).Steps[1]);
+        Assert.Equal(2000, step.AtElapsedMs);
+        Assert.Equal(WaBiBaBuSy.Models.Show.ShowEventType.Celebration, step.Event.Type);
+        Assert.Equal(5, step.Event.Seed);
+    }
+
+    [Theory]
+    [InlineData("""{ "type": "showEvent", "atElapsedMs": -1, "event": { "type": "Blackout", "durationMs": 1000 } }""", "atElapsedMs must be >= 0")]
+    [InlineData("""{ "type": "showEvent", "event": { "type": "Spotlight", "durationMs": 1000 } }""", "targetOrder")]
+    [InlineData("""{ "type": "showEvent", "event": { "type": "Traversal", "durationMs": 1000, "imagePath": "nope.png" } }""", "image not found")]
+    [InlineData("""{ "type": "showEvent", "event": { "type": "Announce", "durationMs": 1000 } }""", "text")]
+    public void Parse_Invalid_ShowEvent(string step, string expected)
+    {
+        var json = $$"""{ "name": "x", "steps": [ { "type": "playScene", "scene": "scenes/linear.json" }, {{step}} ] }""";
+        Assert.Contains(expected, Assert.Throws<ScenarioException>(() => ScenarioLoader.Parse(json, _dir)).Message);
+    }
+
+    [Fact]
+    public void Parse_Invalid_ShowEventBeforeAnyScene()
+    {
+        var json = """{ "name": "x", "steps": [ { "type": "showEvent", "event": { "type": "Blackout", "durationMs": 1000 } } ] }""";
+        Assert.Contains("needs a playScene step before it", Assert.Throws<ScenarioException>(() => ScenarioLoader.Parse(json, _dir)).Message);
+    }
+
     [Theory]
     [InlineData("smoke-local.json")]
     [InlineData("sync-basic.json")]
     [InlineData("parity-matrix.json")]
     [InlineData("clock-skew.json")]
+    [InlineData("showcase/events.json")]
     public void BundledScenario_IsValid(string file)
     {
         var root = AppContext.BaseDirectory;

@@ -30,6 +30,7 @@ public class TestRunCoordinatorTests : IDisposable
         public Task RestoreAsync(TestRestorePoint restorePoint) => Task.CompletedTask;
         public Task<bool> PrefetchAsync(IReadOnlyList<CrossScreenConfig> s, TimeSpan t, CancellationToken ct) => Task.FromResult(true);
         public IReadOnlyList<ITestProbeTarget> LocalProbeTargets() => Array.Empty<ITestProbeTarget>();
+        public Task FireShowEventAsync(WaBiBaBuSy.Models.Show.ShowEvent evt, CancellationToken ct) => Task.CompletedTask;
         public void ReportProgress(string text) { }
     }
 

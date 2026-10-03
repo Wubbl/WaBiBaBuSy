@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using WaBiBaBuSy.Models.Show;
 
 namespace WaBiBaBuSy.Models.Testing;
 
@@ -46,6 +47,7 @@ public sealed class ScenarioThresholds
 [JsonDerivedType(typeof(ProbeStep), "probe")]
 [JsonDerivedType(typeof(ProbeSeriesStep), "probeSeries")]
 [JsonDerivedType(typeof(ExactFrameStep), "exactFrame")]
+[JsonDerivedType(typeof(ShowEventStep), "showEvent")]
 [JsonDerivedType(typeof(WaitStep), "wait")]
 [JsonDerivedType(typeof(StopStep), "stop")]
 public abstract class TestStep
@@ -104,6 +106,15 @@ public sealed class ExactFrameStep : TestStep
     public long ElapsedMs { get; set; }
     public bool Capture { get; set; } = true;
     public override string Kind => "exactFrame";
+}
+
+/// <summary>Fire a one-shot show event at <see cref="AtElapsedMs"/> of the running scene (T0 = shared start + offset).</summary>
+public sealed class ShowEventStep : TestStep
+{
+    /// <summary>The event; <c>eventId</c> and <c>t0Utc</c> are replaced by the runner, <c>imagePath</c> is relative to the scenario.</summary>
+    public ShowEvent Event { get; set; } = new();
+    public long AtElapsedMs { get; set; }
+    public override string Kind => "showEvent";
 }
 
 /// <summary>Plain delay.</summary>

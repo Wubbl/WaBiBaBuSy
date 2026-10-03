@@ -111,6 +111,21 @@ public static class ScenarioLoader
                     if (exact.ElapsedMs < 0) errors.Add($"{at}: elapsedMs must be >= 0");
                     RequireScene(scenePlaying, at, errors);
                     break;
+                case ShowEventStep ev:
+                    if (ev.Event == null) { errors.Add($"{at}: event is missing"); break; }
+                    if (ev.AtElapsedMs < 0) errors.Add($"{at}: atElapsedMs must be >= 0");
+                    if (ev.Event.Type == Show.ShowEventType.Spotlight && ev.Event.TargetOrder < 0)
+                        errors.Add($"{at}: a Spotlight needs targetOrder (the seat's traversal index, 0 = first)");
+                    if (ev.Event.Type == Show.ShowEventType.Announce && string.IsNullOrWhiteSpace(ev.Event.Text))
+                        errors.Add($"{at}: an Announce needs text");
+                    if (ev.Event.Type == Show.ShowEventType.Traversal)
+                    {
+                        if (string.IsNullOrWhiteSpace(ev.Event.ImagePath)) errors.Add($"{at}: a Traversal needs imagePath");
+                        else if (IsRemoteOrDevicePath(ev.Event.ImagePath)) errors.Add($"{at}: imagePath {LocalOnly}");
+                        else if (!File.Exists(ResolvePath(scenario, ev.Event.ImagePath))) errors.Add($"{at}: image not found: {ResolvePath(scenario, ev.Event.ImagePath)}");
+                    }
+                    RequireScene(scenePlaying, at, errors);
+                    break;
                 case WaitStep wait:
                     if (wait.Ms < 0) errors.Add($"{at}: ms must be >= 0");
                     break;
