@@ -34,6 +34,15 @@ public class WallpaperSyncCoordinator
     /// </summary>
     public int DefaultAnimationSpeedCmPerSec { get; set; } = 100;
 
+    /// <summary>
+    /// The server's show events that have not ended, each with its Traversal image (or null). Set by the server's
+    /// playback host; read on whatever thread the coordinator runs (session resume, Resync), so it must be
+    /// thread-safe. Those events are re-sent to a client that resumes or is resynced, so a node that reconnects,
+    /// restarts or missed the broadcast draws a running event at its current position (dedupe by event id on the
+    /// client makes repeats harmless).
+    /// </summary>
+    public Func<IReadOnlyList<(ShowEvent Event, ContentAssetRef? Asset)>>? ActiveShowEventsProvider { get; set; }
+
     public WallpaperSyncCoordinator(
         ILogger<WallpaperSyncCoordinator> logger,
         WallpaperSyncService? syncService = null)
@@ -62,6 +71,7 @@ public class WallpaperSyncCoordinator
                 if (_syncService != null && await _syncService.SendCommandToClientAsync(clientId, command))
                 {
                     _logger.LogInformation("Resumed active cross-screen animation on reconnected client {ClientId}", clientId);
+                    await ReplayShowEventsAsync(clientId);
                     return;
                 }
             }
@@ -544,18 +554,21 @@ public class WallpaperSyncCoordinator
     }
 
     /// <summary>
-    /// One-shot show event to every connected client (roadmap 2.4). The image of a Traversal is registered for
-    /// download like scene assets. Returns how many clients the command reached.
+    /// One-shot show event to the connected clients in <paramref name="clientIds"/> (null = every connected client;
+    /// the host passes the running scene's remote seats, the same ones Stop reaches) — roadmap 2.4. The image of a
+    /// Traversal is registered for download like scene assets. Returns how many clients the command reached.
     /// </summary>
-    public async Task<int> BroadcastShowEventAsync(ShowEvent evt, ContentAssetRef? asset)
+    public async Task<int> BroadcastShowEventAsync(ShowEvent evt, ContentAssetRef? asset, IReadOnlyCollection<string>? clientIds = null)
     {
         if (_syncService == null) return 0;
         if (asset != null) _syncService.RegisterContent(asset.ContentId, asset.OriginalPath);
 
         var command = ShowEventCodec.ToCommand(evt, System.Threading.Interlocked.Increment(ref _sequenceNumber), asset);
+        var targets = clientIds == null ? null : new HashSet<string>(clientIds);
         int sent = 0;
         foreach (var client in _syncService.GetConnectedClients().ToList())
         {
+            if (targets != null && !targets.Contains(client.ClientId)) continue;
             try { if (await _syncService.SendCommandToClientAsync(client.ClientId, command)) sent++; }
             catch (Exception ex) { _logger.LogError(ex, "Show event send failed for {ClientId}", client.ClientId); }
         }
@@ -575,7 +588,11 @@ public class WallpaperSyncCoordinator
         {
             try
             {
-                if (await _syncService.SendCommandToClientAsync(kvp.Key, kvp.Value)) sent++;
+                if (await _syncService.SendCommandToClientAsync(kvp.Key, kvp.Value))
+                {
+                    sent++;
+                    await ReplayShowEventsAsync(kvp.Key);
+                }
             }
             catch (Exception ex) { _logger.LogError(ex, "Resync failed for {ClientId}", kvp.Key); }
         }
@@ -593,7 +610,9 @@ public class WallpaperSyncCoordinator
             return false;
         try
         {
-            return await _syncService.SendCommandToClientAsync(clientId, command);
+            if (!await _syncService.SendCommandToClientAsync(clientId, command)) return false;
+            await ReplayShowEventsAsync(clientId);
+            return true;
         }
         catch (Exception ex)
         {
@@ -601,6 +620,42 @@ public class WallpaperSyncCoordinator
             return false;
         }
     }
+
+    /// <summary>
+    /// Send the server's running show events (<see cref="ActiveShowEventsProvider"/>) to one client that just got
+    /// the active cross-screen command again (session resume, Resync) — only clients of the running scene have
+    /// one. Per-event failures are logged and skipped.
+    /// </summary>
+    private async Task ReplayShowEventsAsync(string clientId)
+    {
+        if (_syncService == null || ActiveShowEventsProvider == null) return;
+        IReadOnlyList<(ShowEvent Event, ContentAssetRef? Asset)> events;
+        try { events = ActiveShowEventsProvider(); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Reading the active show events failed");
+            return;
+        }
+        if (events.Count == 0) return;
+
+        foreach (var (_, asset) in events)
+            if (asset != null) _syncService.RegisterContent(asset.ContentId, asset.OriginalPath);
+
+        var commands = BuildReplayCommands(events, () => System.Threading.Interlocked.Increment(ref _sequenceNumber));
+        for (int i = 0; i < commands.Count; i++)
+        {
+            try
+            {
+                await _syncService.SendCommandToClientAsync(clientId, commands[i]);
+                _logger.LogInformation("Replayed show event {Type} {Id} to {ClientId}", events[i].Event.Type, events[i].Event.EventId, clientId);
+            }
+            catch (Exception ex) { _logger.LogError(ex, "Show event replay failed for {ClientId}", clientId); }
+        }
+    }
+
+    /// <summary>One EVENT command per running event (T0 in the timestamp, Traversal image as an asset ref), in order.</summary>
+    internal static IReadOnlyList<SyncCommand> BuildReplayCommands(IEnumerable<(ShowEvent Event, ContentAssetRef? Asset)> events, Func<int> nextSequenceNumber) =>
+        events.Select(e => ShowEventCodec.ToCommand(e.Event, nextSequenceNumber(), e.Asset)).ToList();
 
     /// <summary>
     /// Send a Stop command to a specific client to terminate its cross-screen D2D player.

@@ -119,11 +119,15 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     /// <summary>True while a scene plays, so events have a canvas and a clock.</summary>
     public bool CanFireEvents => ActiveScene != null && ActiveLayout != null;
 
+    /// <summary>The event defaults were saved (the tray re-registers the hotkeys). Raised on the caller's thread.</summary>
+    public event Action? EventSettingsChanged;
+
     /// <summary>Persist the event defaults and use them for the next event.</summary>
     public void SaveEventSettings(ShowEventSettings settings)
     {
         EventSettings = settings;
         ShowEventSettingsStore.Save(settings);
+        EventSettingsChanged?.Invoke();
     }
 
     partial void OnActiveSceneChanged(CrossScreenConfig? value) => OnPropertyChanged(nameof(CanFireEvents));
@@ -250,7 +254,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         }
         if (type == ShowEventType.Announce)
         {
-            text = settings.AnnounceText;
+            text = settings.AnnounceText?.Trim() ?? "";   // the factory sends the trimmed text; measure the same
             aspect = TextSprite.MeasureAspect(text);
         }
 
@@ -282,8 +286,16 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         }
 
         int sent = 0;
-        if (_service.SyncCoordinator != null)
-            sent = await _service.SyncCoordinator.BroadcastShowEventAsync(evt, EventAsset(evt.ImagePath));
+        var coordinator = _service.SyncCoordinator;
+        if (coordinator != null)
+        {
+            // Resume / Resync replay the running events to a client of the scene (set here: a coordinator only
+            // exists while the server runs, and events only exist once one was dispatched).
+            coordinator.ActiveShowEventsProvider = ActiveShowEventsWithAssets;
+            var scene = ActiveScene ?? LastScene;
+            sent = await coordinator.BroadcastShowEventAsync(evt, EventAsset(evt.ImagePath),
+                scene == null ? null : RemoteTargetIds(scene));
+        }
 
         EventStatusText = sent > 0 ? $"{evt.Type} → this machine + {sent} client(s)" : $"{evt.Type} → this machine";
         EventFired?.Invoke(evt);
@@ -301,12 +313,30 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             }
     }
 
+    /// <summary>The running events with their Traversal images, for the coordinator's resume / Resync replay. Any thread.</summary>
+    private IReadOnlyList<(ShowEvent Event, ContentAssetRef? Asset)> ActiveShowEventsWithAssets() =>
+        _showEvents.Active(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
+            .Select(e => (e, EventAsset(e.ImagePath)))
+            .ToList();
+
+    /// <summary>
+    /// The remote seats a scene plays on: its selected node ids (empty = every node of the room) without this
+    /// machine's monitors. Stop and events use the same rule, so an event never reaches an idle client.
+    /// </summary>
+    private List<string> RemoteTargetIds(CrossScreenConfig scene)
+    {
+        var selectedIds = new HashSet<string>(scene.SelectedMonitorIds);
+        return AllNodeIds()
+            .Where(id => !NodeIds.IsLocalMonitor(id) && (selectedIds.Count == 0 || selectedIds.Contains(id)))
+            .ToList();
+    }
+
     private static ContentAssetRef? EventAsset(string? path) =>
         string.IsNullOrEmpty(path) || !File.Exists(path)
             ? null
             : new ContentAssetRef { ContentId = ContentIdentity.ComputeId(path), Role = AssetRole.Event, OriginalPath = path };
 
-    /// <summary>Cache the Traversal image on every client ahead of time (when it is picked and on every scene start).</summary>
+    /// <summary>Cache the Traversal image on every client ahead of time (when it is picked; a show's prefetch includes it).</summary>
     public async Task PrefetchEventImageAsync()
     {
         var asset = EventAsset(EventSettings.TraversalImagePath);
@@ -423,10 +453,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             // Send stop command to remote clients that were part of this session
             if (_service.SyncCoordinator != null && LastScene != null && !string.IsNullOrEmpty(_crossScreenContentId))
             {
-                var selectedIds = new HashSet<string>(LastScene.SelectedMonitorIds);
-                var remoteToStop = AllNodeIds()
-                    .Where(id => !NodeIds.IsLocalMonitor(id) && (selectedIds.Count == 0 || selectedIds.Contains(id)))
-                    .ToList();
+                var remoteToStop = RemoteTargetIds(LastScene);
 
                 foreach (var remoteId in remoteToStop)
                 {
@@ -675,6 +702,9 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         if (coordinator == null) return;
         var assets = configs.SelectMany(BuildAssetRefs)
             .GroupBy(a => a.ContentId).Select(g => g.First()).ToList();
+        // The Traversal image rides in the same PREFETCH (a separate one would reset the clients' prefetch counters).
+        if (EventAsset(EventSettings.TraversalImagePath) is { } eventImage && assets.All(a => a.ContentId != eventImage.ContentId))
+            assets.Add(eventImage);
         if (assets.Count == 0) return;
         await coordinator.BroadcastPrefetchAsync(assets);
     }
@@ -1310,8 +1340,6 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         {
             Debug.WriteLine("[CrossScreen] WARNING: Remote clients selected but server not running - cannot send cross-screen commands");
         }
-
-        _ = PrefetchEventImageAsync();
 
         StartFullscreenDetectionIfNeeded();
 
