@@ -1,6 +1,6 @@
 # Scene Presets, Import/Export, Tray Quick Start, Starter Presets — Design
 
-**Created:** 2026-10-03 · **Status:** approved, implementation pending · **Roadmap:** Tier 2.2 (rollout step 4 of
+**Created:** 2026-10-03 · **Status:** implemented 2026-10-03 ([plan](2026-10-03-presets-plan.md); UI manual checks pending, checklist 2026-10-04 §2.7) · **Roadmap:** Tier 2.2 (rollout step 4 of
 [authoring UX & preview](2026-09-17-authoring-ux-and-preview-design.md) §4; steps 1–3 and 5 are done)
 
 ## Goal

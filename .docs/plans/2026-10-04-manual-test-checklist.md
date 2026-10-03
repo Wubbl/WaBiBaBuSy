@@ -92,6 +92,22 @@ Close with the window's ✕, reopen from the tray. Before 10-03 reopening blacke
 - [ ] **Plain wallpaper** (Developer tools D2D or LibVLC) → close / reopen → still playing; Clear all removes it
 - [ ] **Exit from the tray** with the window closed during a show → no `WaBiBaBuSy.Player.D2D` left in Task Manager, desktop wallpaper restored
 
+### 2.7 Presets & tray Quick start (new 10-03, build-verified only)
+Preset folder: `%APPDATA%\WaBiBaBuSy\presets\`. Rename it first to test the first start.
+- [ ] **First start** with no preset folder: 14 presets + `assets\` appear (Logo Conveyor … Party Colors); no Lunar Tears
+- [ ] Editor **Presets ▾ → Comet**: the draft is the comet (trail in the preview); the room selection is unchanged; Play on all plays it
+- [ ] **Save as preset…** with a new name → it appears in Presets ▾, Playlist "＋ Add ▾ → From preset" and the tray's Quick start without a restart; typing an existing name → the button says "Replace preset"
+- [ ] **Export…** to a USB / other folder → `Name.json` + `assets\` next to it; on a second machine (or after deleting the preset) **Import…** it → loads into the editor and plays
+- [ ] **Import…** a raw showcase scene (`TestScenarios\showcase\scenes\05-cat-parade.json` next to the exe) → its assets are copied into `presets\assets\`; importing it again → "05-cat-parade (2)", no second copy of `cat.gif`
+- [ ] Playlist **＋ Add ▾ → From preset → Mexican Wave** → item named "Mexican Wave", plays on all seats in the show
+- [ ] **Window never opened** after an app restart: tray **Quick start ▸ Mexican Wave** → plays on every local monitor; Stop / Clear all from the window afterwards stop it
+- [ ] Server started earlier, a client connected, window **closed**: Quick start → plays on the client too (the host builds the room itself)
+- [ ] Quick start **while a show runs** → the show stops, the preset plays; open the window → toolbar shows the running scene, the room marks the nodes
+- [ ] Connected **as a client** to another server: Quick start is hidden in the tray menu
+- [ ] A hand-broken preset JSON in the folder: Presets ▾ lists it, loading it shows "Could not load …" under the footer buttons; Quick start logs a warning; nothing crashes
+- [ ] **Ring Cat** with the room's Path = Ring: the cat faces where it runs and wraps seamlessly around both rows
+- [ ] Bezel gaps set in a standalone room (no server) survive closing / reopening the window
+
 ## 3. Test mode — UI, CLI and API (server alone; new 10-02, build-verified only)
 
 - [ ] **Settings refresh:** turn "Enable test mode" off → Save → `⋯` → Developer tools no longer offers "Run test suite" without reopening the window; on again → it is back

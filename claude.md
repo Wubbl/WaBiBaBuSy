@@ -2,7 +2,7 @@
 
 **Project Name:** WallpaperBiBaBuSync (BiBaBu = our club name)
 **Version:** 2.6.3 | **Framework:** .NET 9.0 | **Status:** MVP complete + post-MVP visual features + LAN-party Tier 0 / 1.1 / 2.1
-**Last Updated:** 2026-10-02 | **Next:** E2E Multi-Client Testing (test-mode scenarios + checklist), then roadmap Tier 2.2 / 2.4 / 2.3
+**Last Updated:** 2026-10-03 | **Next:** E2E Multi-Client Testing (test-mode scenarios + checklist), then roadmap Tier 2.4 / 2.3
 
 WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5% server CPU, ±50ms drift tolerance, and distributed client-side rendering. Supports images (JPG/PNG/BMP), videos (MP4/AVI/MKV), and GIFs across multi-monitor setups.
 
@@ -23,6 +23,7 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 - Backgrounds: SolidColor, StretchedImage, TiledImage, ThreeZone corridor, IconZone (A* pathfinding around real desktop icons)
 - Debug overlay in player (F11 / IPC): A* path, icon rects, zone bands, movement trail, info panel
 - Playlist / Party Mode: rotate animation configs across all machines on a loop (per-item duration + global default, shuffle, opt-in Linear lap-snap; Playlist tab in the right panel, show controls in the toolbar; JSON-persisted under `%APPDATA%\WaBiBaBuSy\playlists\`)
+- Scene presets: save / load / import / export scenes as presets (`%APPDATA%\WaBiBaBuSy\presets\`, scene-file format, imported assets bundled relative), add them to playlists; tray "Quick start ▸" plays one on all seats with the window closed; 14 starter presets seeded on first run from the showcase scenes
 - Show reliability: hashed content ids, persistent client cache, every scene asset transferred, playlist prefetch with per-node readiness, server download throttle, health strip + Resync all
 - Auto-update system with SHA-256 verification and rollback
 - System tray operation with minimal UI footprint
@@ -139,7 +140,7 @@ dotnet run --project WaBiBaBuSy.UI
 
 1. **E2E Multi-Client Testing** — run `TestScenarios/sync-basic`, `parity-matrix`, `clock-skew` on 2+ machines, then the hands-on checklist `.docs/plans/2026-09-28-gui-and-e2e-test-checklist.md` (Tier 1 July work, Tier 0, ring, physical canvas, show reliability, UI redesign GUI checks, reconnection <5s)
 2. **VALIDATE: File logging + Installer** — LogToFile at `%LOCALAPPDATA%\WaBiBaBuSy\Logs\`; clean Windows 10/11 install
-3. **Roadmap Tier 2** — 2.2 authoring UX → 2.4 crossing effects + events → 2.3 scene layers (see `.docs/plans/2026-09-17-lan-party-roadmap.md`)
+3. **Roadmap Tier 2** — 2.4 crossing effects + events (rest) → 2.3 scene layers (see `.docs/plans/2026-09-17-lan-party-roadmap.md`)
 
 Full list: `.docs/2026.07_OPEN_ITEMS.md` (refreshed 2026-10-02).
 
