@@ -15,6 +15,7 @@ using Avalonia.VisualTree;
 using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Core.Services.Logging;
 using WaBiBaBuSy.Models.Networking;
+using WaBiBaBuSy.Models.Show;
 using WaBiBaBuSy.Models.Topology;
 using WaBiBaBuSy.Models.Wallpaper;
 using WaBiBaBuSy.UI.ViewModels;
@@ -45,6 +46,9 @@ public partial class RoomView : Control
     /// <summary>Defines the <see cref="ActiveLayout"/> property.</summary>
     public static readonly StyledProperty<SeatMapLayoutResult?> ActiveLayoutProperty =
         AvaloniaProperty.Register<RoomView, SeatMapLayoutResult?>(nameof(ActiveLayout));
+    /// <summary>Defines the <see cref="ShowEvents"/> property.</summary>
+    public static readonly StyledProperty<IReadOnlyList<ShowEvent>?> ShowEventsProperty =
+        AvaloniaProperty.Register<RoomView, IReadOnlyList<ShowEvent>?>(nameof(ShowEvents));
     /// <summary>Defines the <see cref="IsClockPaused"/> property.</summary>
     public static readonly StyledProperty<bool> IsClockPausedProperty =
         AvaloniaProperty.Register<RoomView, bool>(nameof(IsClockPaused));
@@ -73,6 +77,9 @@ public partial class RoomView : Control
     /// it are not painted either way.
     /// </summary>
     public SeatMapLayoutResult? ActiveLayout { get => GetValue(ActiveLayoutProperty); set => SetValue(ActiveLayoutProperty, value); }
+
+    /// <summary>Live one-shot events drawn over the animating tiles (Live mode only).</summary>
+    public IReadOnlyList<ShowEvent>? ShowEvents { get => GetValue(ShowEventsProperty); set => SetValue(ShowEventsProperty, value); }
     /// <summary>Freeze the design clock (draft preview). No effect while live.</summary>
     public bool IsClockPaused { get => GetValue(IsClockPausedProperty); set => SetValue(IsClockPausedProperty, value); }
     /// <summary>Design-clock speed multiplier (1×, 4×, 16× in the preview bar). No effect while live.</summary>
@@ -126,7 +133,7 @@ public partial class RoomView : Control
 
     static RoomView()
     {
-        AffectsRender<RoomView>(SceneProperty, SharedStartUtcMsProperty, SpriteImagePathProperty, ActiveLayoutProperty);
+        AffectsRender<RoomView>(SceneProperty, SharedStartUtcMsProperty, SpriteImagePathProperty, ActiveLayoutProperty, ShowEventsProperty);
         FocusableProperty.OverrideDefaultValue<RoomView>(true);
         ClipToBoundsProperty.OverrideDefaultValue<RoomView>(true);
     }
@@ -301,7 +308,7 @@ public partial class RoomView : Control
             var client = byId.GetValueOrDefault(tile.Id);
             // Live: only nodes that are playing and were part of the start get the sprite.
             var node = live && client?.IsAnimating != true ? null : paintLayout?.Get(tile.Id);
-            DrawTile(ctx, tile, client, node, scene, elapsed);
+            DrawTile(ctx, tile, client, node, scene, elapsed, live);
         }
         foreach (var gap in _grid.Gaps) DrawGap(ctx, gap, byId.GetValueOrDefault(gap.HolderId));
         DrawNewRowZone(ctx);
@@ -339,7 +346,7 @@ public partial class RoomView : Control
         ctx.DrawText(ft, new Point(box.X + (box.W - ft.Width) / 2, box.Y + (box.H - ft.Height) / 2));
     }
 
-    private void DrawTile(DrawingContext ctx, TileBox t, ClientNodeViewModel? c, NodeLayout? node, CrossScreenConfig? scene, long elapsed)
+    private void DrawTile(DrawingContext ctx, TileBox t, ClientNodeViewModel? c, NodeLayout? node, CrossScreenConfig? scene, long elapsed, bool live)
     {
         bool dragged = _gesture == Gesture.DraggingTile && t.Id == _pressedId;
         using var opacity = ctx.PushOpacity(dragged ? 0.35 : 1.0);
@@ -357,6 +364,9 @@ public partial class RoomView : Control
                                   node.Width * s, node.Height * s);
             _painter.PaintBackground(ctx, screen, s, scene);
             _painter.PaintSprite(ctx, screen, s, node, scene!, elapsed);
+            if (live && ShowEvents is { Count: > 0 } events)
+                _painter.PaintShowEvents(ctx, screen, s, node, events, SharedStartUtcMs, elapsed,
+                    sharedCanvas: scene!.DistributionMode == AnimationDistributionMode.Sequential);
         }
         else if (c?.ThumbnailImage is { } thumb)
         {

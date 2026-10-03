@@ -21,6 +21,7 @@ using WaBiBaBuSy.Core.Services.Logging;
 using WaBiBaBuSy.Models;
 using WaBiBaBuSy.Models.Configuration;
 using WaBiBaBuSy.Models.Networking;
+using WaBiBaBuSy.Models.Show;
 using WaBiBaBuSy.Models.Wallpaper;
 using WaBiBaBuSy.WallpaperEngine.Composition;
 using WaBiBaBuSy.WallpaperEngine.Native;
@@ -687,6 +688,9 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         _server.UpdateRoom(this, RoomNodes(), _seatMap, ReferencePixelsPerCm);
     }
 
+    /// <summary>Live one-shot events for the room preview.</summary>
+    public IReadOnlyList<ShowEvent> RoomShowEvents => _server.ActiveShowEvents;
+
     private void OnServerPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         switch (e.PropertyName)
@@ -696,6 +700,9 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                 ActiveSpriteImagePath = ResolveSpriteImagePath(_server.ActiveScene?.Animation.AnimationPath);
                 OnPropertyChanged(nameof(ActiveScene));
                 OnPropertyChanged(nameof(RoomScene));
+                break;
+            case nameof(ServerPlaybackHost.ActiveShowEvents):
+                OnPropertyChanged(nameof(RoomShowEvents));
                 break;
             case nameof(ServerPlaybackHost.ActiveSharedStartMs):
                 OnPropertyChanged(nameof(ActiveSharedStartMs));

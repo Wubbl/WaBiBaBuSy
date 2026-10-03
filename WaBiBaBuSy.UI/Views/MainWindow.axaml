@@ -255,6 +255,7 @@
                                                SharedStartUtcMs="{Binding RoomSharedStartMs}"
                                                SpriteImagePath="{Binding RoomSpriteImagePath}"
                                                ActiveLayout="{Binding RoomLayout}"
+                                               ShowEvents="{Binding RoomShowEvents}"
                                                IsClockPaused="{Binding PreviewPaused}"
                                                ClockSpeed="{Binding PreviewClockSpeed}"
                                                ClockRestartToken="{Binding PreviewRestartToken}"/>

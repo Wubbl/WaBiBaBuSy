@@ -17,7 +17,7 @@ namespace WaBiBaBuSy.UI.Controls;
 /// IconZone path-following and video are not simulated. Used by <see cref="RoomView"/> for every tile;
 /// holds a one-entry sprite bitmap cache.
 /// </summary>
-public sealed class ScenePainter
+public sealed partial class ScenePainter
 {
     private const int MaxPreviewCellsPerNode = 400;
     private static readonly IBrush MonoCellBrush = new SolidColorBrush(Color.Parse("#BBBBBB"));
