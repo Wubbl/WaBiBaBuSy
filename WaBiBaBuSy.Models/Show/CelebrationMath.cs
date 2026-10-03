@@ -73,7 +73,7 @@ public static class CelebrationMath
         }
 
         float size = (float)(8.0 + 10.0 * U(seed, i, 5));
-        double spinDegPerS = (U(seed, i, 6) - 0.5) * 720.0;
+        double spinDegPerS = (U(seed, i, 8) - 0.5) * 720.0;
         double rot = (U(seed, i, 6) * 360.0 + spinDegPerS * t) % 360.0;
         if (rot < 0) rot += 360.0;
         int color = Math.Min(PartyColors.Length, (int)(U(seed, i, 4) * (PartyColors.Length + 1)));
@@ -81,26 +81,16 @@ public static class CelebrationMath
         return true;
     }
 
-    /// <summary>Upper bound of <see cref="VisibleOnNode"/>'s output for this node (size of the caller's buffer).</summary>
-    public static int Capacity(NodeLayout node, int count)
-    {
-        int cw = node.CanvasWidth > 0 ? node.CanvasWidth : Math.Max(1, node.Width);
-        return Math.Min(count, (int)Math.Ceiling((node.Width + 2 * Margin) / cw * count) + 3);
-    }
-
     /// <summary>
-    /// The particles that can touch <paramref name="node"/>, in node-local coordinates (X mirrored on mirrored nodes);
-    /// returns how many were written. Wrapping (Ring) layouts take the copy of each particle nearest the node.
-    /// A node (plus margin) wider than the whole ring evaluates every particle once.
+    /// Index range [jLo, jHi] (before wrapping into 0..count-1) that can touch <paramref name="node"/>. For a wrapping node
+    /// whose slice plus margin is wider than the whole ring, <paramref name="oversized"/> is set and the range is all indices.
     /// </summary>
-    public static int VisibleOnNode(ShowEvent evt, NodeLayout node, long localMs, Span<CelebrationParticle> output)
+    private static void IndexRange(NodeLayout node, int cw, int n, out int jLo, out int jHi, out bool oversized)
     {
-        int cw = node.CanvasWidth > 0 ? node.CanvasWidth : Math.Max(1, node.Width);
-        int ch = node.CanvasHeight > 0 ? node.CanvasHeight : Math.Max(1, node.Height);
-        int n = Count(cw);
         double lo = node.OffsetX - Margin, hi = node.OffsetX + node.Width + Margin;
-        int jLo = (int)Math.Floor(lo / cw * n) - 1;
-        int jHi = (int)Math.Ceiling(hi / cw * n) + 1;
+        jLo = (int)Math.Floor(lo / cw * n) - 1;
+        jHi = (int)Math.Ceiling(hi / cw * n) + 1;
+        oversized = false;
         if (!node.Wraps)
         {
             jLo = Math.Max(jLo, 0);
@@ -108,23 +98,61 @@ public static class CelebrationMath
         }
         else if (jHi - jLo + 1 > n)
         {
+            oversized = true;
             jLo = 0;
             jHi = n - 1;
         }
+    }
+
+    /// <summary>Upper bound of <see cref="VisibleOnNode"/>'s output for this node (size of the caller's buffer).</summary>
+    public static int Capacity(NodeLayout node, int count)
+    {
+        int cw = node.CanvasWidth > 0 ? node.CanvasWidth : Math.Max(1, node.Width);
+        IndexRange(node, cw, Count(cw), out _, out _, out bool oversized);
+        if (oversized) return 2 * count;   // a particle straddling the seam can be visible as two copies
+        return Math.Min(count, (int)Math.Ceiling((node.Width + 2 * Margin) / cw * count) + 3);
+    }
+
+    /// <summary>
+    /// The particles that can touch <paramref name="node"/>, in node-local coordinates (X mirrored on mirrored nodes);
+    /// returns how many were written. Wrapping (Ring) layouts take the copy of each particle nearest the node.
+    /// A wrapping node (plus margin) wider than the whole ring evaluates every particle and emits each of its
+    /// copies (shifted by -1, 0, +1 ring widths) that touches the node, so one particle can appear twice.
+    /// </summary>
+    public static int VisibleOnNode(ShowEvent evt, NodeLayout node, long localMs, Span<CelebrationParticle> output)
+    {
+        int cw = node.CanvasWidth > 0 ? node.CanvasWidth : Math.Max(1, node.Width);
+        int ch = node.CanvasHeight > 0 ? node.CanvasHeight : Math.Max(1, node.Height);
+        int n = Count(cw);
+        IndexRange(node, cw, n, out int jLo, out int jHi, out bool oversized);
 
         int written = 0;
         for (int j = jLo; j <= jHi && written < output.Length; j++)
         {
             int i = node.Wraps ? (int)(((long)j % n + n) % n) : j;
             if (!Particle(evt, i, n, cw, ch, localMs, out var p)) continue;
-            float vx = p.X;
-            if (node.Wraps) vx += (float)Math.Floor((double)j / n) * cw;   // j = i + k·n → the copy shifted by k·cw
-            float lx = NodeMapping.ToLocalX(vx, p.Width, node);
-            float ly = NodeMapping.ToLocalY(p.Y, node);
-            float r = Math.Max(p.Width, p.Height);                          // rotation slack
-            if (lx + r < 0f || lx - r > node.Width || ly + r < 0f || ly - r > node.Height) continue;
-            output[written++] = p with { X = lx, Y = ly };
+            if (oversized)
+            {
+                for (int k = -1; k <= 1 && written < output.Length; k++)
+                    if (TryLocal(p, p.X + k * cw, node, out var local)) output[written++] = local;
+            }
+            else
+            {
+                float vx = p.X;
+                if (node.Wraps) vx += (float)Math.Floor((double)j / n) * cw;   // j = i + k·n → the copy shifted by k·cw
+                if (TryLocal(p, vx, node, out var local)) output[written++] = local;
+            }
         }
         return written;
+    }
+
+    /// <summary>Maps a particle copy at virtual X to node-local coordinates; false if it cannot touch the node.</summary>
+    private static bool TryLocal(in CelebrationParticle p, float virtualX, NodeLayout node, out CelebrationParticle local)
+    {
+        float lx = NodeMapping.ToLocalX(virtualX, p.Width, node);
+        float ly = NodeMapping.ToLocalY(p.Y, node);
+        float r = 1.1f * Math.Max(p.Width, p.Height);                       // rotation slack (corner-anchored)
+        local = p with { X = lx, Y = ly };
+        return !(lx + r < 0f || lx - r > node.Width || ly + r < 0f || ly - r > node.Height);
     }
 }

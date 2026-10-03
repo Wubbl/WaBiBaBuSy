@@ -50,15 +50,20 @@ public class CelebrationMathTests
     }
 
     [Theory]
-    [InlineData(500L, false)]
-    [InlineData(2500L, false)]
-    [InlineData(2500L, true)]
-    public void VisibleOnNode_MissesNoParticleThatTouchesTheNode(long local, bool wraps)
+    [InlineData(500L, 1500, false, false)]
+    [InlineData(2500L, 1500, false, false)]
+    [InlineData(2500L, 0, true, false)]      // left ring seam: needs k = -1 copies
+    [InlineData(2500L, 3000, true, false)]   // right ring seam: needs j >= n, k = +1 copies
+    [InlineData(500L, 0, true, true)]        // one-node ring (slice + margin wider than the ring)
+    [InlineData(2500L, 0, true, true)]
+    [InlineData(4000L, 0, true, true)]
+    public void VisibleOnNode_MissesNoParticleThatTouchesTheNode(long local, int offsetX, bool wraps, bool oneNodeRing)
     {
         var e = Burst(seed: 77);
-        var node = Node(wraps ? 0 : 1500, wraps: wraps);
+        var node = oneNodeRing ? Node(0, width: CanvasW, wraps: true) : Node(offsetX, wraps: wraps);
         int n = CelebrationMath.Count(CanvasW);
-        var seen = Visible(e, node, local).Select(p => p.Index).ToHashSet();
+        var seen = Visible(e, node, local);
+        int expectedCopies = 0;
         for (int i = 0; i < n; i++)
         {
             if (!CelebrationMath.Particle(e, i, n, CanvasW, CanvasH, local, out var p)) continue;
@@ -66,9 +71,13 @@ public class CelebrationMathTests
             {
                 float x = p.X + k * CanvasW;
                 bool touches = x + p.Width > node.OffsetX && x < node.OffsetX + node.Width && p.Y + p.Height > 0 && p.Y < CanvasH;
-                if (touches) Assert.Contains(i, seen);
+                if (!touches) continue;
+                expectedCopies++;
+                // the exact copy (index i shifted by k ring widths) must be among the outputs
+                Assert.Contains(seen, s => s.Index == i && Math.Abs(NodeMapping.ToVirtualX(s.X, s.Width, node) - x) < 0.01f);
             }
         }
+        Assert.True(expectedCopies > 0, "oracle found no touching particle - test would be vacuous");
     }
 
     [Fact]
