@@ -1,7 +1,9 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using WaBiBaBuSy.Core.Services.Show;
 using WaBiBaBuSy.Grpc;
 using WaBiBaBuSy.Grpc.Services;
+using WaBiBaBuSy.Models.Show;
 using WaBiBaBuSy.Models.Wallpaper;
 
 using WaBiBaBuSy.Models.Topology;
@@ -539,6 +541,26 @@ public class WallpaperSyncCoordinator
             try { await _syncService.SendCommandToClientAsync(client.ClientId, command); }
             catch (Exception ex) { _logger.LogError(ex, "Prefetch send failed for {ClientId}", client.ClientId); }
         }
+    }
+
+    /// <summary>
+    /// One-shot show event to every connected client (roadmap 2.4). The image of a Traversal is registered for
+    /// download like scene assets. Returns how many clients the command reached.
+    /// </summary>
+    public async Task<int> BroadcastShowEventAsync(ShowEvent evt, ContentAssetRef? asset)
+    {
+        if (_syncService == null) return 0;
+        if (asset != null) _syncService.RegisterContent(asset.ContentId, asset.OriginalPath);
+
+        var command = ShowEventCodec.ToCommand(evt, System.Threading.Interlocked.Increment(ref _sequenceNumber), asset);
+        int sent = 0;
+        foreach (var client in _syncService.GetConnectedClients().ToList())
+        {
+            try { if (await _syncService.SendCommandToClientAsync(client.ClientId, command)) sent++; }
+            catch (Exception ex) { _logger.LogError(ex, "Show event send failed for {ClientId}", client.ClientId); }
+        }
+        _logger.LogInformation("Show event {Type} {Id} (T0 {T0}) → {Sent} client(s)", evt.Type, evt.EventId, evt.T0Utc, sent);
+        return sent;
     }
 
     /// <summary>

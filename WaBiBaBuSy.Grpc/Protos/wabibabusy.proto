@@ -143,6 +143,7 @@ message SyncCommand {
   int32 sequence_number = 3;
   string content_id = 4;
   SyncParameters params = 5;
+  string event_json = 6;   // EVENT: JSON ShowEvent (one-shot show event); its T0 is timestamp_utc
 }
 
 // Command types
@@ -159,6 +160,7 @@ enum CommandType {
   PREFETCH = 9;           // Cache params.assets in the background (playlist prefetch); no rendering
   TEST_MODE = 10;         // Automated test run: timecode strip on/off, simulated clock skew (params.test_*)
   TEST_PROBE = 11;        // Automated test run: report the frame shown at timestamp_utc (params.test_*)
+  EVENT = 12;             // One-shot show event (Spotlight, Celebration, …): ShowEvent JSON in event_json, T0 = timestamp_utc. Old clients log "unknown" and ignore it.
 }
 
 // Sync parameters

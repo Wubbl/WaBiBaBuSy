@@ -11,6 +11,8 @@ public static class AssetRole
     public const string Primary = "primary";
     public const string Additional = "additional";
     public const string Background = "background";
+    /// <summary>Image of a one-shot show event (Traversal).</summary>
+    public const string Event = "event";
 }
 
 /// <summary>
