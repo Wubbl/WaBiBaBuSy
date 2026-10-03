@@ -149,12 +149,7 @@ public sealed class ScenePainter
         float ly = NodeMapping.ToLocalY(vy, eff);
 
         var bg = scene.Background;
-        if (bg.Mode == BackgroundMode.ThreeZone && bg.CorridorHeightPx > 0)
-        {
-            float minY = bg.CorridorTopPx, maxY = bg.CorridorTopPx + bg.CorridorHeightPx - animH;
-            if (maxY < minY) maxY = minY;
-            ly = Math.Clamp(ly, minY, maxY);
-        }
+        ly = ClampCorridor(ly, bg, animH);
 
         var grading = scene.Animation.ColorGrading;
         bool traveling = grading != null && grading.Mode is ColorGradingMode.TravelingRainbow or ColorGradingMode.TravelingList or ColorGradingMode.TravelingRandom;
@@ -190,27 +185,110 @@ public sealed class ScenePainter
 
         bool hit = false;
         Span<float> copies = stackalloc float[2];
-        int n = NodeMapping.WrapCopies(vx, animW, eff, copies);
         var bmp = SpriteBitmap;
+
+        // Roadmap 2.4 effects, with the players' pure math (SpriteEffects).
+        var fx = SpriteEffects.Supported(scene.Animation, scene.Movement, bg.Mode) ? scene.Animation.Effects : null;
+        var input = new SpritePoseInput(scene.Movement, animW, animH, eff.CanvasWidth, eff.CanvasHeight, 0f, eff);
+
+        // Trail first (farthest ghost first), then the sprite on top.
+        if (fx != null)
+        {
+            int count = SpriteEffects.TrailCount(fx.Trail);
+            for (int k = count; k >= 1; k--)
+            {
+                var ghost = SpriteEffects.Ghost(fx.Trail!, k);
+                long t = e - ghost.OffsetMs;
+                if (t < 0 || ghost.Opacity <= 0.005f) continue;
+                var (gx, gy) = SpriteEffects.Pose(input, t);
+                float gly = ClampCorridor(NodeMapping.ToLocalY(gy, eff), bg, animH);
+                float gScale = SpriteEffects.PulseScale(fx.Pulse, t) * ghost.Scale;
+                float gRot = SpriteEffects.SpinDegrees(fx.SpinDegPerSecond, t);
+                int gn = NodeMapping.WrapCopies(gx, animW, eff, copies);
+                for (int i = 0; i < gn; i++)
+                {
+                    float glx = NodeMapping.ToLocalX(copies[i], animW, eff);
+                    if (!NodeMapping.IsVisible(glx, animW, eff)) continue;
+                    DrawSprite(ctx, rect, s, bmp, glx, gly, animW, animH, gScale, gRot, ghost.Opacity, tint);
+                }
+            }
+        }
+
+        float spriteScale = fx != null ? SpriteEffects.PulseScale(fx.Pulse, e) : 1f;
+        float spriteRot = fx != null ? SpriteEffects.SpinDegrees(fx.SpinDegPerSecond, e) : 0f;
+        int n = NodeMapping.WrapCopies(vx, animW, eff, copies);
         for (int i = 0; i < n; i++)
         {
             float lx = NodeMapping.ToLocalX(copies[i], animW, eff);
             if (!NodeMapping.IsVisible(lx, animW, eff)) continue;
-            var dest = new Rect(rect.Left + lx * s, rect.Top + ly * s, Math.Max(1, animW * s), Math.Max(1, animH * s));
-            if (bmp != null)
-            {
-                ctx.DrawImage(bmp, new Rect(bmp.Size), dest);
-                if (tint.HasValue)
-                    ctx.FillRectangle(new SolidColorBrush(tint.Value, 0.45), dest);
-            }
-            else
-            {
-                ctx.FillRectangle(new SolidColorBrush(tint ?? Color.Parse("#E0E0E0")), dest, 2);
-            }
+            DrawSprite(ctx, rect, s, bmp, lx, ly, animW, animH, spriteScale, spriteRot, 1.0, tint);
             float center = lx + animW / 2f;
             if (center >= 0 && center < eff.Width) hit = true;
         }
+
+        if (fx != null && SpriteEffects.FindBezelEvent(input, fx, e) is { } ev)
+            PaintBezel(ctx, rect, s, SpriteEffects.Visual(ev, eff), ParseHex(fx.BezelColorHex));
         return hit;
+    }
+
+    /// <summary>The sprite (or its placeholder) at local canvas coordinates, scaled and rotated about its center.</summary>
+    private static void DrawSprite(DrawingContext ctx, Rect rect, double s, Bitmap? bmp, float lx, float ly, int animW, int animH,
+        float scale, float rotationDeg, double opacity, Color? tint)
+    {
+        var dest = new Rect(rect.Left + lx * s, rect.Top + ly * s, Math.Max(1, animW * s), Math.Max(1, animH * s));
+        bool transformed = Math.Abs(scale - 1f) > 0.0005f || Math.Abs(rotationDeg) > 0.01f;
+        using var transform = transformed
+            ? ctx.PushTransform(Matrix.CreateTranslation(-dest.Center.X, -dest.Center.Y) * Matrix.CreateScale(scale, scale)
+                * Matrix.CreateRotation(rotationDeg * Math.PI / 180.0) * Matrix.CreateTranslation(dest.Center.X, dest.Center.Y))
+            : default(DrawingContext.PushedState?);
+        using var alpha = opacity < 0.999 ? ctx.PushOpacity(opacity) : default(DrawingContext.PushedState?);
+        if (bmp != null)
+        {
+            ctx.DrawImage(bmp, new Rect(bmp.Size), dest);
+            if (tint.HasValue)
+                ctx.FillRectangle(new SolidColorBrush(tint.Value, 0.45), dest);
+        }
+        else
+        {
+            ctx.FillRectangle(new SolidColorBrush(tint ?? Color.Parse("#E0E0E0")), dest, 2);
+        }
+    }
+
+    /// <summary>ThreeZone corridor clamp, as the players do it.</summary>
+    private static float ClampCorridor(float ly, BackgroundLayerConfig bg, int animH)
+    {
+        if (bg.Mode != BackgroundMode.ThreeZone || bg.CorridorHeightPx <= 0) return ly;
+        float minY = bg.CorridorTopPx, maxY = bg.CorridorTopPx + bg.CorridorHeightPx - animH;
+        if (maxY < minY) maxY = minY;
+        return Math.Clamp(ly, minY, maxY);
+    }
+
+    /// <summary>Glow strip, flash or ripple ring of a bezel event over the node rect.</summary>
+    private static void PaintBezel(DrawingContext ctx, Rect rect, double s, BezelVisual v, Color color)
+    {
+        if (v.Opacity <= 0.005f) return;
+        var area = new Rect(rect.Left + v.X * s, rect.Top + v.Y * s, v.Width * s, v.Height * s);
+        switch (v.Effect)
+        {
+            case BezelEffect.Glow:
+                var bright = Color.FromArgb((byte)(255 * v.Opacity), color.R, color.G, color.B);
+                var clear = Color.FromArgb(0, color.R, color.G, color.B);
+                var brush = new LinearGradientBrush
+                {
+                    StartPoint = new RelativePoint(v.EdgeOnRight ? 1 : 0, 0.5, RelativeUnit.Relative),
+                    EndPoint = new RelativePoint(v.EdgeOnRight ? 0 : 1, 0.5, RelativeUnit.Relative),
+                    GradientStops = { new GradientStop(bright, 0), new GradientStop(clear, 1) },
+                };
+                ctx.FillRectangle(brush, area);
+                break;
+            case BezelEffect.Flash:
+                ctx.FillRectangle(new SolidColorBrush(color, v.Opacity), area);
+                break;
+            case BezelEffect.Ripple:
+                var pen = new Pen(new SolidColorBrush(color, v.Opacity), Math.Max(1, v.StrokeWidth * s));
+                ctx.DrawEllipse(null, pen, new Point(rect.Left + v.X * s, rect.Top + v.Y * s), v.Radius * s, v.Radius * s);
+                break;
+        }
     }
 
     /// <summary>One-line legend: time, lap, canvas size, sprite owner.</summary>
