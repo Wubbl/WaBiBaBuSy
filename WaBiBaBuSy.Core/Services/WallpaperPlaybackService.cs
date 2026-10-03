@@ -2,8 +2,10 @@ using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using WaBiBaBuSy.Core.Interfaces;
 using WaBiBaBuSy.Core.Services.Networking;
+using WaBiBaBuSy.Core.Services.Show;
 using WaBiBaBuSy.Grpc;
 using WaBiBaBuSy.Models;
+using WaBiBaBuSy.Models.Show;
 using WaBiBaBuSy.Models.Wallpaper;
 
 using WaBiBaBuSy.Models.Content;
@@ -50,6 +52,12 @@ public class WallpaperPlaybackService : IDisposable
     /// The UI layer sets this to tear down _remoteD2DServices on the client side.
     /// </summary>
     public Func<Task>? D2DCrossScreenStopDelegate { get; set; }
+
+    /// <summary>
+    /// One-shot show event (roadmap 2.4): T0 already in this machine's clock terms, image path rewritten to the cache
+    /// (null when it could not be fetched). Set by the UI layer to forward the event to the local players.
+    /// </summary>
+    public Func<ShowEvent, Task>? ShowEventDelegate { get; set; }
 
     // Drift detection state
     private CancellationTokenSource? _driftMonitorCts;
@@ -152,6 +160,39 @@ public class WallpaperPlaybackService : IDisposable
         _logger.LogInformation("[Playback:PREFETCH] done: {Ready}/{Total}", _prefetchReady, _prefetchTotal);
     }
 
+    /// <summary>EVENT: parse, fetch the image into the cache, rewrite its path, forward. Never throws.</summary>
+    internal async Task HandleShowEventAsync(SyncCommand command)
+    {
+        try
+        {
+            if (!ShowEventCodec.TryFromCommand(command, out var evt) || evt == null)
+            {
+                _logger.LogWarning("[Playback:EVENT] Ignoring an unreadable show event (seq {Seq})", command.SequenceNumber);
+                return;
+            }
+
+            var asset = command.Params?.Assets.FirstOrDefault();
+            if (asset != null)
+            {
+                evt.ImagePath = await EnsureCachedAsync(asset.ContentId);
+                if (evt.ImagePath == null)
+                    _logger.LogWarning("[Playback:EVENT] Could not fetch {ContentId}; {Type} is drawn without its image", asset.ContentId, evt.Type);
+            }
+            else
+            {
+                evt.ImagePath = null;   // a path on the server means nothing here
+            }
+
+            _logger.LogInformation("[Playback:EVENT] {Type} {Id} T0={T0} duration={Duration}ms", evt.Type, evt.EventId, evt.T0Utc, evt.DurationMs);
+            var forward = ShowEventDelegate;
+            if (forward != null) await forward(evt);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Playback:EVENT] Show event failed");
+        }
+    }
+
     /// <summary>
     /// Handle incoming sync command from server
     /// </summary>
@@ -162,6 +203,13 @@ public class WallpaperPlaybackService : IDisposable
             command.Type, command.ContentId, command.SequenceNumber);
         _logger.LogInformation("[Playback] D2DApplyDelegate is {Status}", D2DApplyDelegate != null ? "SET" : "NULL (no D2D rendering possible)");
         _logger.LogInformation("[Playback] RendererFactory is {Status}", _rendererFactory != null ? "SET" : "NULL");
+
+        // Show events skip the timestamp wait: the players hold them until T0 (fetching the image takes time too).
+        if (command.Type == CommandType.Event)
+        {
+            _ = Task.Run(() => HandleShowEventAsync(command));
+            return;
+        }
 
         // Schedule command execution based on timestamp
         _ = Task.Run(async () =>

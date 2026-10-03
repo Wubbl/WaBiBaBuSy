@@ -98,6 +98,14 @@ public class WaBiBaBuSyService : IDisposable
             _playbackService.D2DCrossScreenStopDelegate = d2dCrossScreenStop;
     }
 
+    /// <summary>Set the show-event delegate (forwards EVENTs to this machine's players). Kept for later connections.</summary>
+    public void SetShowEventDelegate(Func<Models.Show.ShowEvent, Task>? showEvent)
+    {
+        PlaybackDelegates.ShowEvent = showEvent;
+        if (_playbackService != null)
+            _playbackService.ShowEventDelegate = showEvent;
+    }
+
     /// <summary>
     /// Get the wallpaper sync client (only available in client mode)
     /// </summary>
