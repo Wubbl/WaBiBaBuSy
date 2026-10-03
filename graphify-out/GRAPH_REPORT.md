@@ -1,16 +1,16 @@
-# Graph Report - WaBiBaBuSy  (2026-10-02)
+# Graph Report - WaBiBaBuSy  (2026-10-03)
 
 ## Corpus Check
-- 252 files · ~371,698 words
+- 286 files · ~291,885 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2631 nodes · 4025 edges · 214 communities (90 shown, 124 thin omitted)
-- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 49 edges (avg confidence: 0.8)
+- 3116 nodes · 4898 edges · 228 communities (101 shown, 127 thin omitted)
+- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 56 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `e2ab0575`
+- Built from commit: `dcf4e3bb`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -32,12 +32,14 @@
 - [[_COMMUNITY_Community 14|Community 14]]
 - [[_COMMUNITY_Community 15|Community 15]]
 - [[_COMMUNITY_Community 16|Community 16]]
+- [[_COMMUNITY_Community 17|Community 17]]
 - [[_COMMUNITY_Community 18|Community 18]]
 - [[_COMMUNITY_Community 19|Community 19]]
 - [[_COMMUNITY_Community 20|Community 20]]
 - [[_COMMUNITY_Community 21|Community 21]]
 - [[_COMMUNITY_Community 22|Community 22]]
 - [[_COMMUNITY_Community 23|Community 23]]
+- [[_COMMUNITY_Community 24|Community 24]]
 - [[_COMMUNITY_Community 25|Community 25]]
 - [[_COMMUNITY_Community 26|Community 26]]
 - [[_COMMUNITY_Community 27|Community 27]]
@@ -45,9 +47,8 @@
 - [[_COMMUNITY_Community 29|Community 29]]
 - [[_COMMUNITY_Community 30|Community 30]]
 - [[_COMMUNITY_Community 31|Community 31]]
-- [[_COMMUNITY_Community 32|Community 32]]
 - [[_COMMUNITY_Community 33|Community 33]]
-- [[_COMMUNITY_Community 34|Community 34]]
+- [[_COMMUNITY_Community 35|Community 35]]
 - [[_COMMUNITY_Community 36|Community 36]]
 - [[_COMMUNITY_Community 37|Community 37]]
 - [[_COMMUNITY_Community 38|Community 38]]
@@ -59,6 +60,7 @@
 - [[_COMMUNITY_Community 44|Community 44]]
 - [[_COMMUNITY_Community 45|Community 45]]
 - [[_COMMUNITY_Community 46|Community 46]]
+- [[_COMMUNITY_Community 47|Community 47]]
 - [[_COMMUNITY_Community 48|Community 48]]
 - [[_COMMUNITY_Community 49|Community 49]]
 - [[_COMMUNITY_Community 50|Community 50]]
@@ -75,23 +77,23 @@
 - [[_COMMUNITY_Community 61|Community 61]]
 - [[_COMMUNITY_Community 62|Community 62]]
 - [[_COMMUNITY_Community 63|Community 63]]
+- [[_COMMUNITY_Community 64|Community 64]]
 - [[_COMMUNITY_Community 65|Community 65]]
 - [[_COMMUNITY_Community 66|Community 66]]
 - [[_COMMUNITY_Community 67|Community 67]]
 - [[_COMMUNITY_Community 68|Community 68]]
-- [[_COMMUNITY_Community 69|Community 69]]
 - [[_COMMUNITY_Community 70|Community 70]]
 - [[_COMMUNITY_Community 71|Community 71]]
 - [[_COMMUNITY_Community 72|Community 72]]
 - [[_COMMUNITY_Community 73|Community 73]]
 - [[_COMMUNITY_Community 74|Community 74]]
 - [[_COMMUNITY_Community 75|Community 75]]
+- [[_COMMUNITY_Community 76|Community 76]]
+- [[_COMMUNITY_Community 77|Community 77]]
 - [[_COMMUNITY_Community 78|Community 78]]
 - [[_COMMUNITY_Community 79|Community 79]]
 - [[_COMMUNITY_Community 80|Community 80]]
 - [[_COMMUNITY_Community 81|Community 81]]
-- [[_COMMUNITY_Community 82|Community 82]]
-- [[_COMMUNITY_Community 83|Community 83]]
 - [[_COMMUNITY_Community 84|Community 84]]
 - [[_COMMUNITY_Community 85|Community 85]]
 - [[_COMMUNITY_Community 86|Community 86]]
@@ -100,8 +102,6 @@
 - [[_COMMUNITY_Community 89|Community 89]]
 - [[_COMMUNITY_Community 90|Community 90]]
 - [[_COMMUNITY_Community 91|Community 91]]
-- [[_COMMUNITY_Community 92|Community 92]]
-- [[_COMMUNITY_Community 93|Community 93]]
 - [[_COMMUNITY_Community 94|Community 94]]
 - [[_COMMUNITY_Community 95|Community 95]]
 - [[_COMMUNITY_Community 96|Community 96]]
@@ -129,9 +129,9 @@
 - [[_COMMUNITY_Community 118|Community 118]]
 - [[_COMMUNITY_Community 119|Community 119]]
 - [[_COMMUNITY_Community 120|Community 120]]
-- [[_COMMUNITY_Community 121|Community 121]]
 - [[_COMMUNITY_Community 122|Community 122]]
 - [[_COMMUNITY_Community 123|Community 123]]
+- [[_COMMUNITY_Community 124|Community 124]]
 - [[_COMMUNITY_Community 125|Community 125]]
 - [[_COMMUNITY_Community 126|Community 126]]
 - [[_COMMUNITY_Community 127|Community 127]]
@@ -144,7 +144,6 @@
 - [[_COMMUNITY_Community 134|Community 134]]
 - [[_COMMUNITY_Community 135|Community 135]]
 - [[_COMMUNITY_Community 136|Community 136]]
-- [[_COMMUNITY_Community 137|Community 137]]
 - [[_COMMUNITY_Community 138|Community 138]]
 - [[_COMMUNITY_Community 139|Community 139]]
 - [[_COMMUNITY_Community 140|Community 140]]
@@ -155,7 +154,7 @@
 - [[_COMMUNITY_Community 145|Community 145]]
 - [[_COMMUNITY_Community 146|Community 146]]
 - [[_COMMUNITY_Community 147|Community 147]]
-- [[_COMMUNITY_Community 148|Community 148]]
+- [[_COMMUNITY_Community 149|Community 149]]
 - [[_COMMUNITY_Community 150|Community 150]]
 - [[_COMMUNITY_Community 151|Community 151]]
 - [[_COMMUNITY_Community 152|Community 152]]
@@ -168,7 +167,6 @@
 - [[_COMMUNITY_Community 159|Community 159]]
 - [[_COMMUNITY_Community 160|Community 160]]
 - [[_COMMUNITY_Community 161|Community 161]]
-- [[_COMMUNITY_Community 162|Community 162]]
 - [[_COMMUNITY_Community 163|Community 163]]
 - [[_COMMUNITY_Community 164|Community 164]]
 - [[_COMMUNITY_Community 165|Community 165]]
@@ -194,6 +192,7 @@
 - [[_COMMUNITY_Community 185|Community 185]]
 - [[_COMMUNITY_Community 186|Community 186]]
 - [[_COMMUNITY_Community 187|Community 187]]
+- [[_COMMUNITY_Community 188|Community 188]]
 - [[_COMMUNITY_Community 189|Community 189]]
 - [[_COMMUNITY_Community 190|Community 190]]
 - [[_COMMUNITY_Community 191|Community 191]]
@@ -202,329 +201,373 @@
 - [[_COMMUNITY_Community 194|Community 194]]
 - [[_COMMUNITY_Community 195|Community 195]]
 - [[_COMMUNITY_Community 196|Community 196]]
-- [[_COMMUNITY_Community 197|Community 197]]
 - [[_COMMUNITY_Community 198|Community 198]]
 - [[_COMMUNITY_Community 199|Community 199]]
 - [[_COMMUNITY_Community 200|Community 200]]
 - [[_COMMUNITY_Community 201|Community 201]]
+- [[_COMMUNITY_Community 203|Community 203]]
+- [[_COMMUNITY_Community 204|Community 204]]
+- [[_COMMUNITY_Community 205|Community 205]]
+- [[_COMMUNITY_Community 206|Community 206]]
+- [[_COMMUNITY_Community 207|Community 207]]
+- [[_COMMUNITY_Community 208|Community 208]]
+- [[_COMMUNITY_Community 209|Community 209]]
+- [[_COMMUNITY_Community 210|Community 210]]
+- [[_COMMUNITY_Community 211|Community 211]]
+- [[_COMMUNITY_Community 212|Community 212]]
+- [[_COMMUNITY_Community 213|Community 213]]
+- [[_COMMUNITY_Community 214|Community 214]]
+- [[_COMMUNITY_Community 215|Community 215]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `MainWindowViewModel` - 165 edges
-2. `Program` - 151 edges
+1. `MainWindowViewModel` - 167 edges
+2. `Program` - 154 edges
 3. `RoomView` - 63 edges
-4. `WallpaperSyncClient` - 56 edges
-5. `WaBiBaBuSyService` - 54 edges
-6. `WallpaperSyncService` - 53 edges
-7. `string` - 49 edges
-8. `int` - 46 edges
-9. `Win32Interop` - 45 edges
-10. `MainWindowViewModel` - 40 edges
+4. `string` - 62 edges
+5. `ServerPlaybackHost` - 59 edges
+6. `WallpaperSyncClient` - 57 edges
+7. `WallpaperSyncService` - 56 edges
+8. `WaBiBaBuSyService` - 55 edges
+9. `int` - 53 edges
+10. `TestRunnerTests` - 46 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `AssetRole` --references--> `string`  [EXTRACTED]
   WaBiBaBuSy.Models/Content/ContentAssetRef.cs → WaBiBaBuSy.WallpaperEngine/Direct2D/D2DVorticeRenderer.cs
 - `WaBiBaBuSyService` --references--> `MdnsClientDiscoveryService`  [EXTRACTED]
   WaBiBaBuSy.Core/Services/WaBiBaBuSyService.cs → WaBiBaBuSy.UI/ViewModels/ServerBrowserViewModel.cs
+- `WaBiBaBuSyService` --references--> `WallpaperPlaybackService`  [EXTRACTED]
+  WaBiBaBuSy.Core/Services/WaBiBaBuSyService.cs → WaBiBaBuSy.Tests/SkewedSchedulingTests.cs
 - `Program` --references--> `ushort`  [EXTRACTED]
   WaBiBaBuSy.Player.D2D/Program.cs → WaBiBaBuSy.WallpaperEngine/Direct2D/D2DVorticeRenderer.cs
 - `Program` --references--> `ID3D11Device`  [EXTRACTED]
   WaBiBaBuSy.Player.D2D/Program.cs → WaBiBaBuSy.WallpaperEngine/Direct2D/D2DVorticeRenderer.cs
-- `Program` --references--> `ID3D11DeviceContext`  [EXTRACTED]
-  WaBiBaBuSy.Player.D2D/Program.cs → WaBiBaBuSy.WallpaperEngine/Direct2D/D2DVorticeRenderer.cs
 
-## Communities (214 total, 124 thin omitted)
+## Communities (228 total, 127 thin omitted)
 
 ### Community 0 - "Community 0"
-Cohesion: 0.03
-Nodes (11): ClientNodeViewModel, ConcurrentDictionary<int, IWallpaperRenderer>, ConcurrentDictionary<int, ThumbnailCaptureService>, ConcurrentDictionary<string, int>, FullscreenDetectionService, PlaylistOrchestrator, SeatMap, UpdateInfo (+3 more)
+Cohesion: 0.05
+Nodes (18): Control, RoomView, RoomView, DropTarget, Gesture, IPen, IPointer, IRoomHost (+10 more)
 
 ### Community 1 - "Community 1"
-Cohesion: 0.05
-Nodes (19): Action, Control, RoomView, RoomView, DropTarget, Gesture, IPen, IPointer (+11 more)
+Cohesion: 0.06
+Nodes (9): FakeHost, FakeTransport, ITestProbeTarget, FakeTarget, ProbeFanOutTests, FakeHost, FakeTarget, FakeTransport (+1 more)
 
 ### Community 2 - "Community 2"
-Cohesion: 0.06
-Nodes (9): ITestHost, ITestTransport, TestHostAdapter, RunContext, TestRunner, TestRunStatus, EmptyHost, NoTransport (+1 more)
+Cohesion: 0.05
+Nodes (15): PlaylistOrchestrator, CancellationTokenSource, ContentCacheManager, HwndSource, PlaylistResumePoint, Process, WallpaperPlaybackService, Task (+7 more)
 
 ### Community 3 - "Community 3"
-Cohesion: 0.08
-Nodes (8): FakeHost, FakeTransport, ITestProbeTarget, FakeTarget, ProbeFanOutTests, FakeHost, FakeTarget, TestRunnerTests
+Cohesion: 0.06
+Nodes (6): MovementConfig, SpriteEffectsConfig, BezelEffectsTests, ExpectedPositionTests, RandomWalkMemoTests, SpriteEffectsTests
 
 ### Community 4 - "Community 4"
-Cohesion: 0.06
-Nodes (17): EventArgs, FrameRenderedEventArgs, IWallpaperRenderer, DiscoveredServer, ServerDiscoveredEventArgs, ServerLostEventArgs, AnimationPrepareReceivedEventArgs, AnimationStartReceivedEventArgs (+9 more)
+Cohesion: 0.04
+Nodes (10): ClientNodeViewModel, ConcurrentDictionary<int, D2DCompositionService>, ConcurrentDictionary<int, IWallpaperRenderer>, ConcurrentDictionary<int, ThumbnailCaptureService>, ConcurrentDictionary<string, int>, UpdateInfo, VideoThumbnailGenerator, CrossScreenApplyResult (+2 more)
 
 ### Community 5 - "Community 5"
-Cohesion: 0.13
-Nodes (4): AssetRole, ContentAssetRef, SceneAssets, SeatMapEditorTests
+Cohesion: 0.05
+Nodes (8): byte, DesktopIconService, Direct2DInterop, ThumbnailCaptureService, uint, DwmTiming, CliConsole, StartupOptions
 
 ### Community 6 - "Community 6"
-Cohesion: 0.08
-Nodes (8): AsyncDuplexStreamingCall, ClientConfiguration, ClockOffsetEstimator, GrpcChannel, WallpaperSyncClient, PerfSampler, ReconnectBackoff, ThumbnailCaptureService
+Cohesion: 0.06
+Nodes (6): PlaylistStore, ConfigurationManager, SeatMapStore, ContentCacheIndex, JsonSerializerOptions, ConfigurationUpdateTests
 
 ### Community 7 - "Community 7"
-Cohesion: 0.06
-Nodes (5): BandwidthLimiter, DriftMonitor, SemaphoreSlim, WallpaperSyncService, TopologyStore
+Cohesion: 0.07
+Nodes (8): PaletteGenerator, Dictionary, HashSet, PerfSampler, RunContext, TestRunner, TestRunStatus, SceneChecks
 
 ### Community 8 - "Community 8"
 Cohesion: 0.06
-Nodes (7): WaBiBaBuSyService, UpdateApplicator, UpdateManager, WallpaperPlaybackService, WallpaperSyncClient, WallpaperSyncCoordinator, WallpaperSyncServerHost
+Nodes (15): BackgroundMode, Color4, ContentFitMode, DebugOverlayState, FrameIntervalTracker, GCHandle, ID2D1Bitmap, ID2D1BitmapBrush (+7 more)
 
 ### Community 9 - "Community 9"
-Cohesion: 0.06
-Nodes (7): PlaylistStore, SeatMapStore, TopologyEntry, TopologyStore, ContentCacheIndex, JsonSerializerOptions, ConfigurationUpdateTests
+Cohesion: 0.05
+Nodes (8): AnimationDistributor, ClientAnimationState, ClientAnimationRenderer, LocalAnimationState, ConcurrentDictionary, ContentIdentity, RemotePlaybackHost, WaBiBaBuSyService
 
 ### Community 10 - "Community 10"
-Cohesion: 0.07
-Nodes (18): BackgroundMode, Color4, ContentFitMode, DebugOverlayState, FrameIntervalTracker, GCHandle, ID2D1Bitmap, ID2D1BitmapBrush (+10 more)
+Cohesion: 0.06
+Nodes (5): BandwidthLimiter, DriftMonitor, SemaphoreSlim, WallpaperSyncService, TopologyStore
+
+### Community 11 - "Community 11"
+Cohesion: 0.06
+Nodes (17): EventArgs, FrameRenderedEventArgs, IWallpaperRenderer, DiscoveredServer, ServerDiscoveredEventArgs, ServerLostEventArgs, AnimationPrepareReceivedEventArgs, AnimationStartReceivedEventArgs (+9 more)
 
 ### Community 12 - "Community 12"
-Cohesion: 0.07
-Nodes (11): ConcurrentDictionary<int, D2DCompositionService>, IClassicDesktopStyleApplicationLifetime, MainWindow, MainWindowViewModel, TestRunCoordinator, TrayViewModel, MainWindow, ServerBrowserDialog (+3 more)
+Cohesion: 0.09
+Nodes (7): AsyncDuplexStreamingCall, ClientConfiguration, ClockOffsetEstimator, GrpcChannel, WallpaperSyncClient, ReconnectBackoff, ThumbnailCaptureService
 
 ### Community 13 - "Community 13"
+Cohesion: 0.06
+Nodes (5): WaBiBaBuSyService, UpdateApplicator, UpdateManager, WallpaperSyncCoordinator, WallpaperSyncServerHost
+
+### Community 17 - "Community 17"
+Cohesion: 0.07
+Nodes (11): IClassicDesktopStyleApplicationLifetime, MainWindow, MainWindowViewModel, ObservedTestRunControl, RemotePlaybackHost, TestRunCoordinator, TrayViewModel, MainWindow (+3 more)
+
+### Community 18 - "Community 18"
 Cohesion: 0.09
 Nodes (4): CrossScreenConfig, DispatcherTimer, SeatMapLayoutResult, MainWindowViewModel
 
-### Community 14 - "Community 14"
+### Community 19 - "Community 19"
 Cohesion: 0.09
 Nodes (4): ScreenConfiguration, VirtualCanvasManager, D2DPlayerHost, Rectangle
 
-### Community 15 - "Community 15"
-Cohesion: 0.08
-Nodes (5): MovementTypeOption, ObservableCollection, ViewModelBase, CrossScreenConfigViewModel, ZoneColorItem
+### Community 20 - "Community 20"
+Cohesion: 0.09
+Nodes (5): FullscreenDetectionService, PlaylistOrchestrator, SeatMap, CrossScreenApplyResult, ServerPlaybackHost
 
-### Community 16 - "Community 16"
+### Community 22 - "Community 22"
+Cohesion: 0.09
+Nodes (7): IAsyncLifetime, ITestRunControl, FakeControl, TestControlEndpointsTests, FakeControl, WallpaperSyncServerHostTests, WebApplication
+
+### Community 23 - "Community 23"
+Cohesion: 0.07
+Nodes (15): Action, CancellationToken, DiscoveredServerItem, IAsyncStreamReader, IReadOnlyList, IServerStreamWriter, MdnsClientDiscoveryService, Metadata (+7 more)
+
+### Community 24 - "Community 24"
+Cohesion: 0.1
+Nodes (8): AnimationLayerRenderer, BackgroundLayerRenderer, FileLoggerProvider, ILoggerFactory, CompositionRenderer, AppLogger, LoggingConfiguration, VirtualCanvasManager
+
+### Community 25 - "Community 25"
 Cohesion: 0.07
 Nodes (15): PlayerCommandClose, PlayerCommandLoad, PlayerCommandLoadAnimation, PlayerCommandPlay, PlayerCommandProbe, PlayerCommandRefresh, PlayerCommandSetDebugOverlayFlags, PlayerCommandStartAnimation (+7 more)
 
-### Community 18 - "Community 18"
-Cohesion: 0.11
-Nodes (3): PlaylistItemRow, PlaylistStore, PlaylistViewModel
+### Community 26 - "Community 26"
+Cohesion: 0.09
+Nodes (4): MovementTypeOption, ObservableCollection, SpriteEffectsForm, CrossScreenConfigViewModel
 
-### Community 19 - "Community 19"
-Cohesion: 0.13
-Nodes (5): MinHeap, ZonePlanner, List, FileReplacement, FileReplacer
-
-### Community 20 - "Community 20"
+### Community 27 - "Community 27"
 Cohesion: 0.07
 Nodes (26): Application Files, Build Command, code:powershell (cd Installer), code:powershell (cd C:\Users\Patrick\Documents\GitHub\WaBiBaBuSy), code:powershell (# Run the installer), code:block4 (C:\Program Files\WaBiBaBuSy\), code:block5 (%LOCALAPPDATA%\WaBiBaBuSy\), Distribution (+18 more)
 
-### Community 22 - "Community 22"
+### Community 29 - "Community 29"
+Cohesion: 0.1
+Nodes (4): ServerTestChannel, SyncServiceHarness, ServerTestChannelTests, WallpaperSyncServiceTestModeTests
+
+### Community 30 - "Community 30"
 Cohesion: 0.08
 Nodes (4): AnimationService, AnimationFileDownloader, AnimationOrchestrator, ClientAnimationRenderer
 
-### Community 29 - "Community 29"
-Cohesion: 0.09
-Nodes (5): int, ReconnectBackoff, GifMetadataReader, MovementCalculatorWrapTests, PlaylistEditing
+### Community 31 - "Community 31"
+Cohesion: 0.12
+Nodes (3): PlaylistItemRow, PlaylistStore, PlaylistViewModel
 
-### Community 30 - "Community 30"
+### Community 33 - "Community 33"
+Cohesion: 0.11
+Nodes (3): ID2D1LinearGradientBrush, ID2D1SolidColorBrush, Program
+
+### Community 36 - "Community 36"
+Cohesion: 0.09
+Nodes (5): IDisposable, ContentCacheIndexTests, ContentIdentityTests, SceneAssetsTests, SeatMapStoreTests
+
+### Community 40 - "Community 40"
 Cohesion: 0.13
 Nodes (9): D2DVorticeRenderer, ID2D1Factory1, ID2D1RenderTarget, ID3D11Device, ID3D11DeviceContext, IDXGISwapChain1, ScreenMapping, ushort (+1 more)
 
-### Community 31 - "Community 31"
+### Community 41 - "Community 41"
+Cohesion: 0.13
+Nodes (5): double, DriftMonitor, DwmPresentEstimator, Contains(), RoomGrid
+
+### Community 42 - "Community 42"
 Cohesion: 0.1
 Nodes (19): Animation Distribution Modes, Architectural Invariants (DO NOT BREAK), code:bash (dotnet restore && dotnet build), Core Architecture, Current Work (Priority Order), D2D Player Architecture, Development Guidelines, Documentation Map (+11 more)
 
-### Community 39 - "Community 39"
-Cohesion: 0.12
-Nodes (5): IAsyncLifetime, ITestRunControl, FakeControl, TestControlEndpointsTests, WebApplication
-
-### Community 41 - "Community 41"
+### Community 51 - "Community 51"
 Cohesion: 0.11
 Nodes (17): Alternative: Command Line Build, Building the Installer, "Cannot open file" error, code:powershell (dotnet publish WaBiBaBuSy.UI\WaBiBaBuSy.UI.csproj --configur), code:block2 (publish\installer\WaBiBaBuSy-Setup-2.0.0.exe), code:powershell ("C:\Program Files (x86)\Inno Setup 6\ISCC.exe" WaBiBaBuSy.is), Customization, Distribution (+9 more)
 
-### Community 43 - "Community 43"
-Cohesion: 0.13
-Nodes (4): IDisposable, ContentCacheIndexTests, ContentIdentityTests, SceneAssetsTests
-
-### Community 45 - "Community 45"
-Cohesion: 0.15
-Nodes (3): FrameDimension, GifWallpaperRenderer, Timer
-
-### Community 48 - "Community 48"
-Cohesion: 0.16
-Nodes (5): PlaylistOrchestrator, CancellationTokenSource, Process, Task, ProcessCommunicator
-
-### Community 49 - "Community 49"
-Cohesion: 0.17
-Nodes (3): AnimationOrchestrator, AnimationSchedule, AnimationDistributor
-
-### Community 50 - "Community 50"
-Cohesion: 0.18
-Nodes (5): AnimationLayerRenderer, BackgroundLayerRenderer, ILoggerFactory, CompositionRenderer, VirtualCanvasManager
-
-### Community 51 - "Community 51"
-Cohesion: 0.23
-Nodes (3): FileLoggerProvider, AppLogger, LoggingConfiguration
-
 ### Community 52 - "Community 52"
-Cohesion: 0.17
-Nodes (4): AnimationLayerConfig, IWallpaperRenderer, AnimationLayerRenderer, MovementConfig
-
-### Community 53 - "Community 53"
 Cohesion: 0.14
-Nodes (5): LibVLC, MediaPlayer, ImageWallpaperRendererLibVLC, WallpaperConfig, WallpaperState
+Nodes (4): TopologyEntry, TopologyStore, List, SyncServiceHarness
+
+### Community 54 - "Community 54"
+Cohesion: 0.15
+Nodes (7): DateTimeOffset, ITimer, TimeProvider, TimerCallback, TimeSpan, ManualTimeProvider, ManualTimer
+
+### Community 55 - "Community 55"
+Cohesion: 0.14
+Nodes (6): Func, ILoggerProvider, FileLogger, FileLoggerProvider, BandwidthLimiter, StreamWriter
 
 ### Community 56 - "Community 56"
 Cohesion: 0.15
-Nodes (4): DiscoveredServerItem, MdnsClientDiscoveryService, DiscoveredServerItem, ServerBrowserViewModel
+Nodes (3): FrameDimension, GifWallpaperRenderer, Timer
 
 ### Community 59 - "Community 59"
-Cohesion: 0.18
-Nodes (4): double, FrameIntervalTracker, Contains(), RoomGrid
+Cohesion: 0.17
+Nodes (3): AnimationOrchestrator, AnimationSchedule, AnimationDistributor
 
 ### Community 60 - "Community 60"
 Cohesion: 0.14
-Nodes (13): Architecture notes, code:bash (git clone https://github.com/Pfnetsch/WaBiBaBuSy.git), code:bash (dotnet test), Contributing, Distribution modes, Features, License, Performance (+5 more)
+Nodes (9): FrameIntervalStats, NodeProbeSample, PerfSample, PlayerProbeReply, PlayerProbeRequest, PresentSources, ProbeRequest, RemoteProbeResult (+1 more)
 
 ### Community 61 - "Community 61"
+Cohesion: 0.22
+Nodes (4): Exception, ProbeAt, ScenarioException, ScenarioLoader
+
+### Community 63 - "Community 63"
+Cohesion: 0.15
+Nodes (5): PlayerProcesses, string, TestControlEndpoints, TestModeErrors, NodeIds
+
+### Community 65 - "Community 65"
+Cohesion: 0.2
+Nodes (3): ConcurrentDictionary<IntPtr, bool>, IntPtr, DesktopWindowManager
+
+### Community 66 - "Community 66"
+Cohesion: 0.14
+Nodes (5): LibVLC, MediaPlayer, ImageWallpaperRendererLibVLC, WallpaperConfig, WallpaperState
+
+### Community 70 - "Community 70"
+Cohesion: 0.14
+Nodes (4): int, ReconnectBackoff, GifMetadataReader, PlaylistEditing
+
+### Community 71 - "Community 71"
+Cohesion: 0.19
+Nodes (3): AnimationLayerConfig, IWallpaperRenderer, AnimationLayerRenderer
+
+### Community 72 - "Community 72"
+Cohesion: 0.19
+Nodes (5): SceneClock, Form, CrossScreenFrameRenderer, PictureBox, Stopwatch
+
+### Community 74 - "Community 74"
+Cohesion: 0.14
+Nodes (13): Architecture notes, code:bash (git clone https://github.com/Pfnetsch/WaBiBaBuSy.git), code:bash (dotnet test), Contributing, Distribution modes, Features, License, Performance (+5 more)
+
+### Community 75 - "Community 75"
 Cohesion: 0.49
 Nodes (10): browse(), sendBatchVLMCmd(), sendCommand(), sendEQCmd(), sendVLMCmd(), updateArt(), updateEQ(), updatePlayList() (+2 more)
 
-### Community 62 - "Community 62"
-Cohesion: 0.17
-Nodes (8): FrameIntervalStats, NodeProbeSample, PerfSample, PlayerProbeReply, PlayerProbeRequest, ProbeRequest, RemoteProbeResult, Verdicts
-
-### Community 63 - "Community 63"
-Cohesion: 0.23
-Nodes (4): Exception, ProbeAt, ScenarioException, ScenarioLoader
-
-### Community 66 - "Community 66"
+### Community 80 - "Community 80"
 Cohesion: 0.19
 Nodes (4): BoolToTextConverter, FileNameConverter, HexToColorConverter, IValueConverter
 
-### Community 68 - "Community 68"
+### Community 81 - "Community 81"
+Cohesion: 0.18
+Nodes (4): IStorageProvider, ViewModelBase, ZoneColorItem, SettingsViewModel
+
+### Community 84 - "Community 84"
 Cohesion: 0.17
 Nodes (8): Bitmap, Color, DriftState, ObservableObject, ClientNodeViewModel, ViewModelBase, WallpaperItemViewModel, WallpaperType
 
-### Community 70 - "Community 70"
+### Community 86 - "Community 86"
 Cohesion: 0.18
-Nodes (4): ITestRunControl, TestRunCoordinator, TestRunner, TestRunnerOptions
+Nodes (3): bool, FrameIntervalTracker, TimecodeStrip
 
-### Community 71 - "Community 71"
-Cohesion: 0.2
-Nodes (5): Func, ILoggerProvider, FileLogger, FileLoggerProvider, StreamWriter
-
-### Community 72 - "Community 72"
+### Community 87 - "Community 87"
 Cohesion: 0.23
 Nodes (5): ILogger, UpdateDownloader, UpdateManager, UpdateDownloader, UpdateVerifier
 
-### Community 73 - "Community 73"
+### Community 88 - "Community 88"
 Cohesion: 0.27
 Nodes (11): ExactFrameStep, PlaySceneStep, ProbeSeriesStep, ProbeStep, ScenarioRequirements, ScenarioThresholds, StopStep, TestModeStep (+3 more)
 
-### Community 74 - "Community 74"
+### Community 89 - "Community 89"
 Cohesion: 0.3
 Nodes (3): LayoutNodeInput, SeatMapLayoutBuilder, SeatMapLayoutResult
 
-### Community 79 - "Community 79"
+### Community 94 - "Community 94"
 Cohesion: 0.29
 Nodes (3): BackgroundLayerConfig, Image, BackgroundLayerRenderer
 
-### Community 80 - "Community 80"
+### Community 95 - "Community 95"
 Cohesion: 0.17
 Nodes (11): code:csharp (public static ColorMatrix5x4 ComputeForCell(ColorGradingConf), code:csharp (bool isTraveling = config.ColorGrading.Mode is), code:csharp (var cellMatrix = ColorGrader.ComputeForCell(config.ColorGrad), ColorGrader Changes, New Enum Values, Non-Goals, Overview, Performance (+3 more)
 
-### Community 84 - "Community 84"
-Cohesion: 0.2
-Nodes (4): BandwidthLimiter, ClockOffsetEstimator, object, Queue
-
-### Community 85 - "Community 85"
+### Community 98 - "Community 98"
 Cohesion: 0.18
 Nodes (3): long, BandwidthLimiterTests, FakeClock
 
-### Community 89 - "Community 89"
+### Community 102 - "Community 102"
 Cohesion: 0.24
-Nodes (4): byte, IntPtr, ThumbnailCaptureService, uint
+Nodes (5): IHost, MdnsServerService, ServerStatusChangedEventArgs, WallpaperSyncServerHost, ServerConfiguration
 
-### Community 90 - "Community 90"
-Cohesion: 0.22
-Nodes (3): bool, LibVLCPreloader, TimecodeStrip
-
-### Community 92 - "Community 92"
+### Community 104 - "Community 104"
 Cohesion: 0.2
 Nodes (5): AnimationAck, AnimationCompleteReport, AnimationStatusRequest, AnimationStatusResponse, AnimationStopRequest
 
-### Community 101 - "Community 101"
+### Community 112 - "Community 112"
+Cohesion: 0.22
+Nodes (4): ClockOffsetEstimator, object, Queue, LibVLCPreloader
+
+### Community 116 - "Community 116"
 Cohesion: 0.22
 Nodes (7): AnimationLayerConfig, BackgroundLayerConfig, CrossScreenConfig, MovementConfig, WaypointF, ZoneLayout, ZoneRect
 
-### Community 103 - "Community 103"
-Cohesion: 0.22
-Nodes (3): string, TestModeErrors, SeatMapStoreTests
-
-### Community 108 - "Community 108"
+### Community 120 - "Community 120"
 Cohesion: 0.31
-Nodes (4): DesktopWindowManager, Form, CrossScreenFrameRenderer, PictureBox
+Nodes (4): ManualTimeProvider, SkewedSchedulingTests, WallpaperPlaybackService, WallpaperSyncClient
 
-### Community 109 - "Community 109"
+### Community 122 - "Community 122"
 Cohesion: 0.54
 Nodes (5): createElementLi(), format_time(), isMobile(), setIntv(), toFloat()
 
-### Community 112 - "Community 112"
-Cohesion: 0.29
-Nodes (4): IHost, MdnsServerService, ServerStatusChangedEventArgs, WallpaperSyncServerHost
-
-### Community 114 - "Community 114"
+### Community 126 - "Community 126"
 Cohesion: 0.32
-Nodes (3): MdnsServerService, ServerConfiguration, ServiceProfile
+Nodes (3): MdnsServerService, ServiceDiscovery, ServiceProfile
 
-### Community 115 - "Community 115"
-Cohesion: 0.32
+### Community 128 - "Community 128"
+Cohesion: 0.36
 Nodes (3): DriftAnalyzer, DriftResult, NodeTimingError
 
-### Community 116 - "Community 116"
+### Community 129 - "Community 129"
 Cohesion: 0.25
 Nodes (7): NodeFailure, PixelParityResult, ProbeReport, RunEnvironment, StepReport, TestNodeInfo, TestRunReport
 
-### Community 122 - "Community 122"
+### Community 136 - "Community 136"
 Cohesion: 0.29
 Nodes (3): Application, App, App
 
-### Community 137 - "Community 137"
+### Community 149 - "Community 149"
 Cohesion: 0.29
 Nodes (6): Assets, FFmpeg, LGPL notice — libVLC, NuGet packages, Third-Party Notices, Windows desktop integration
 
-### Community 142 - "Community 142"
+### Community 154 - "Community 154"
 Cohesion: 0.33
 Nodes (5): AppConfiguration, ClientConfig, LoggingConfig, ServerConfig, WallpaperRenderConfig
 
-### Community 148 - "Community 148"
+### Community 159 - "Community 159"
 Cohesion: 0.33
 Nodes (3): NodeLayout, SeatMap, SeatRow
 
-### Community 154 - "Community 154"
+### Community 160 - "Community 160"
+Cohesion: 0.33
+Nodes (3): AssetRole, ContentAssetRef, SceneAssets
+
+### Community 164 - "Community 164"
 Cohesion: 0.33
 Nodes (5): Results, Running, Scenarios, Showcase and playlist presets, Test scenarios
 
-### Community 165 - "Community 165"
+### Community 173 - "Community 173"
 Cohesion: 0.4
 Nodes (4): Alternative: Use FFmpeg from System PATH, FFmpeg Binaries, File List, Quick Setup
 
-### Community 176 - "Community 176"
+### Community 183 - "Community 183"
+Cohesion: 0.5
+Nodes (3): PulseConfig, SpriteEffectsConfig, TrailConfig
+
+### Community 186 - "Community 186"
 Cohesion: 0.5
 Nodes (3): Archived files, Archived: Legacy GDI+ Composition & Frame-Streaming Stack, Removed gRPC frame-streaming path
 
 ## Knowledge Gaps
-- **223 isolated node(s):** `DepsFiles`, `Lazy`, `AppConfiguration`, `WallpaperSyncServerHost`, `WallpaperSyncCoordinator` (+218 more)
+- **232 isolated node(s):** `DepsFiles`, `Lazy`, `AppConfiguration`, `WallpaperSyncServerHost`, `WallpaperSyncCoordinator` (+227 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **124 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **127 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `string` connect `Community 103` to `Community 0`, `Community 1`, `Community 3`, `Community 132`, `Community 5`, `Community 6`, `Community 7`, `Community 134`, `Community 9`, `Community 10`, `Community 133`, `Community 13`, `Community 15`, `Community 18`, `Community 19`, `Community 151`, `Community 152`, `Community 25`, `Community 26`, `Community 30`, `Community 32`, `Community 37`, `Community 40`, `Community 43`, `Community 56`, `Community 68`, `Community 69`, `Community 71`, `Community 72`, `Community 86`, `Community 89`, `Community 94`, `Community 97`, `Community 98`, `Community 104`, `Community 110`, `Community 111`, `Community 113`, `Community 119`, `Community 120`?**
-  _High betweenness centrality (0.131) - this node is a cross-community bridge._
-- **Why does `int` connect `Community 29` to `Community 0`, `Community 129`, `Community 2`, `Community 3`, `Community 4`, `Community 1`, `Community 6`, `Community 7`, `Community 133`, `Community 138`, `Community 10`, `Community 11`, `Community 13`, `Community 15`, `Community 145`, `Community 18`, `Community 21`, `Community 152`, `Community 28`, `Community 30`, `Community 32`, `Community 33`, `Community 34`, `Community 39`, `Community 45`, `Community 48`, `Community 52`, `Community 59`, `Community 68`, `Community 78`, `Community 84`, `Community 85`, `Community 89`, `Community 90`, `Community 93`, `Community 97`, `Community 98`, `Community 108`, `Community 127`?**
-  _High betweenness centrality (0.127) - this node is a cross-community bridge._
-- **Why does `Program` connect `Community 10` to `Community 17`, `Community 19`, `Community 149`, `Community 29`, `Community 30`, `Community 33`, `Community 35`, `Community 52`, `Community 53`, `Community 59`, `Community 64`, `Community 72`, `Community 76`, `Community 77`, `Community 79`, `Community 84`, `Community 85`, `Community 89`, `Community 90`, `Community 103`, `Community 127`?**
-  _High betweenness centrality (0.109) - this node is a cross-community bridge._
+- **Why does `string` connect `Community 63` to `Community 0`, `Community 1`, `Community 2`, `Community 132`, `Community 5`, `Community 6`, `Community 133`, `Community 8`, `Community 4`, `Community 10`, `Community 12`, `Community 144`, `Community 145`, `Community 18`, `Community 147`, `Community 20`, `Community 21`, `Community 23`, `Community 26`, `Community 31`, `Community 160`, `Community 33`, `Community 163`, `Community 36`, `Community 37`, `Community 40`, `Community 46`, `Community 50`, `Community 52`, `Community 55`, `Community 60`, `Community 61`, `Community 73`, `Community 76`, `Community 78`, `Community 81`, `Community 84`, `Community 87`, `Community 91`, `Community 99`, `Community 107`, `Community 108`, `Community 109`, `Community 118`, `Community 120`, `Community 123`, `Community 124`, `Community 125`?**
+  _High betweenness centrality (0.154) - this node is a cross-community bridge._
+- **Why does `int` connect `Community 70` to `Community 0`, `Community 1`, `Community 2`, `Community 3`, `Community 4`, `Community 5`, `Community 8`, `Community 9`, `Community 10`, `Community 11`, `Community 12`, `Community 141`, `Community 140`, `Community 15`, `Community 144`, `Community 16`, `Community 18`, `Community 20`, `Community 22`, `Community 23`, `Community 26`, `Community 157`, `Community 31`, `Community 163`, `Community 39`, `Community 40`, `Community 41`, `Community 43`, `Community 44`, `Community 45`, `Community 56`, `Community 62`, `Community 71`, `Community 72`, `Community 73`, `Community 81`, `Community 84`, `Community 85`, `Community 86`, `Community 98`, `Community 105`, `Community 112`, `Community 120`?**
+  _High betweenness centrality (0.149) - this node is a cross-community bridge._
+- **Why does `MainWindowViewModel` connect `Community 4` to `Community 0`, `Community 2`, `Community 3`, `Community 9`, `Community 137`, `Community 141`, `Community 17`, `Community 18`, `Community 20`, `Community 26`, `Community 32`, `Community 37`, `Community 52`, `Community 56`, `Community 63`, `Community 69`, `Community 70`, `Community 81`, `Community 83`, `Community 84`, `Community 85`, `Community 86`, `Community 96`, `Community 98`, `Community 112`, `Community 114`, `Community 121`?**
+  _High betweenness centrality (0.099) - this node is a cross-community bridge._
 - **What connects `DepsFiles`, `Lazy`, `AppConfiguration` to the rest of the system?**
-  _223 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _232 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Community 0` be split into smaller, more focused modules?**
-  _Cohesion score 0.03 - nodes in this community are weakly interconnected._
-- **Should `Community 1` be split into smaller, more focused modules?**
   _Cohesion score 0.05 - nodes in this community are weakly interconnected._
-- **Should `Community 2` be split into smaller, more focused modules?**
+- **Should `Community 1` be split into smaller, more focused modules?**
   _Cohesion score 0.06 - nodes in this community are weakly interconnected._
+- **Should `Community 2` be split into smaller, more focused modules?**
+  _Cohesion score 0.05 - nodes in this community are weakly interconnected._

@@ -79,6 +79,19 @@ automated runs (§4) are quick and cover timing + pixel parity, so §5 only need
 - [ ] Showcase preset "BiBaBu Party" → the "Comet" item plays with its trail on all nodes
 - [ ] Facing rows (mirrored): the glow / ripple appears at the edge the sprite actually crossed
 
+### 2.6 Close / reopen the server window (new 10-03, build-verified only)
+Close with the window's ✕, reopen from the tray. Before 10-03 reopening blacked out the wall and lost the show.
+- [ ] **During a scene:** Play a Sequential scene on all → close → the wall keeps playing → reopen → the wall does **not** blink or go black; toolbar ■ visible; tiles marked as playing; toggle the preview badge to "● Preview: live" → the room paints the scene in step with the wall
+- [ ] … then ■ stops it on every node (remotes too); Play another scene → the old one is replaced, no second sprite stacked on a monitor
+- [ ] **During a show:** start a looping show (short items) → close → wait for at least one item switch (the wall switches; remotes too) → reopen → toolbar ■ ⏭ and "Now: … · next: … in m:ss"; Playlist tab shows that playlist with the green ▶ on the current row
+- [ ] … ⏭ switches at once and the ▶ row follows; Resync all re-sends to the remotes; ■ stops the show; Clear all clears the wall
+- [ ] **Reopen several times** during a show → still one player per monitor (Task Manager: `WaBiBaBuSy.Player.D2D` count = monitors playing)
+- [ ] **During a test run:** Developer tools → Run test suite → `smoke-local` → close the window mid-run → the run finishes (report written) and restores what played before → reopen mid-run instead → Cancel and the status line are back and keep updating
+- [ ] **Control API with the window closed:** `POST /test/run` → refused ("open the server control panel first"), as before
+- [ ] **Debug overlay:** F11 on → close / reopen → the overlay checkbox is still on, the player still shows it
+- [ ] **Plain wallpaper** (Developer tools D2D or LibVLC) → close / reopen → still playing; Clear all removes it
+- [ ] **Exit from the tray** with the window closed during a show → no `WaBiBaBuSy.Player.D2D` left in Task Manager, desktop wallpaper restored
+
 ## 3. Test mode — UI, CLI and API (server alone; new 10-02, build-verified only)
 
 - [ ] **Settings refresh:** turn "Enable test mode" off → Save → `⋯` → Developer tools no longer offers "Run test suite" without reopening the window; on again → it is back

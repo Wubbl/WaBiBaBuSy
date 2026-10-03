@@ -109,7 +109,7 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 
 **Implementation path:**
 1. Docked Scene editor (`SceneEditorPanel` → `CrossScreenConfigViewModel.BuildConfig`) → user picks mode → stored in `CrossScreenConfig.DistributionMode`
-2. `MainWindowViewModel.StartCrossScreen()` → converts to `perMonitorMode = (mode == Simultaneous)`
+2. `ServerPlaybackHost.ApplyCrossScreenConfigAsync()` (Play, toolbar Start and every show item; app-lifetime, owned by the tray) → converts to `perMonitorMode = (mode == Simultaneous)`
 3. `D2DCompositionService.InitializeAsync(perMonitorMode)` → adjusts `VirtualCanvasWidth` and `MonitorOffsetX`
 4. `Player.D2D` receives IPC message → uses `MovementCalculator` → subtracts `MonitorOffsetX` from virtual position
 

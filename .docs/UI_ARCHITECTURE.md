@@ -27,8 +27,8 @@ WaBiBaBuSy runs as a **system tray application**. The main window is hidden by d
 
 | ViewModel | Responsibility |
 |-----------|---------------|
-| `MainWindowViewModel` | Primary UI logic: gallery, topology, playback controls, animation start/stop, D2D composition lifecycle; implements `IRoomHost` for `RoomView` (selection, drag/split/merge, per-node clear/resync, gap edits) |
-| `TrayViewModel` | System tray context menu: Start/Stop Server, Connect, Settings, Exit |
+| `MainWindowViewModel` | Primary UI logic: gallery, topology, playback controls; implements `IRoomHost` for `RoomView` (selection, drag/split/merge, per-node clear/resync, gap edits). A view over `ServerPlaybackHost`: pushes the room to it, forwards its live state, `Detach()` on window close |
+| `TrayViewModel` | System tray context menu: Start/Stop Server, Connect, Settings, Exit; owns the app-lifetime `ServerPlaybackHost` (players, running scene, show — survive the main window) and `RemotePlaybackHost` (client mode) |
 | `SettingsViewModel` | Configuration load/save, section selection (`SelectedSectionIndex` → Server/Client/Wallpaper/Logging), logging settings (level, component toggles, file output), save error tracking |
 | `CrossScreenConfigViewModel` | Animation mode selection, distance settings; backs the Scene tab's `SceneEditorPanel` |
 | `PlaylistViewModel` | Playlist load/save, item durations, drag reorder, Duplicate/Remove; backs the Playlist tab's `PlaylistPanel` |

@@ -1,8 +1,18 @@
 # WaBiBaBuSy - Recent Updates & Changelog
 
-**Last Updated:** 2026-10-02
+**Last Updated:** 2026-10-03
 
 ---
+
+## 2026-10-03 — Fix: closing the server window lost the running scene / show
+
+- **Symptom**: on the server, closing the main window kept the wall playing, but reopening it blacked the wall out (the new view model killed every player it did not track) and lost the show: no toolbar ■ / ⏭ / "Now: … next: …", no ▶ row, no live preview, and Stop / Clear all no longer reached what played. A show kept switching items through the closed window's view model, spawning players nothing tracked.
+- **Cause**: the server's local players, the running scene, the playlist orchestrator and the room's live state lived in `MainWindowViewModel`, which exists only while the window is open (`TrayViewModel.ShowWindow` creates a new one each time). Same lifetime bug as client mode before `a434e43`.
+- **Fix**: `ServerPlaybackHost` (`WaBiBaBuSy.UI/Services`, next to `RemotePlaybackHost`), created once by the tray, owns this machine's D2D / LibVLC players, thumbnails, fullscreen detection, the show (`PlaylistOrchestrator`), the running scene and its live state (`ActiveScene`, shared start, layout), the Play guard, the IconZone lap recompute, the debug overlay switches and the test-run entry points. The view model is a view over it: forwarding properties (XAML unchanged), host events (`SceneApplied`, `NodesStopped`, `ShowChanged`), `Detach()` on window close (also ends a leak — closed view models stayed subscribed to the service). It pushes the room (nodes as `RoomNode`, seat map, reference DPI) to the host on every topology refresh and room edit; with the window closed, scenes and show items use the last room it pushed. Show prefetch readiness is read from the server's client list, so it no longer depends on the window. On open, the Playlist tab loads the running show (a copy) on its current row, the room re-marks the playing nodes, and the debug overlay switches match the players. Opening the window no longer kills players (every player has an app-lifetime owner; prior-session orphans are still killed at app start). `TestHostAdapter` wraps the host, so a test run survives closing / reopening the window (starting one still needs the window open, as before). Exit stops the show and the local players through the host.
+- **Pure parts** (`496d81c`, tested): `CrossScreenPlanner` (targets, local start order, per-node size / DPI fallbacks, seat-map layout, cm→px — the first half of the old apply method), `RoomNode` / `NodeIds`, `TestNodeList`, `ShowStatus` (the now/next line — minutes no longer wrap at an hour — and the prefetch rule). 22 new tests.
+- **Removed**: dead code that touched the moved state (`StartOrchestrationAnimation`, `OnDistributedAnimationRender`, `ApplyGifWithLibVLCAsync`, the unreachable schedule-id stop branch) and the player-PID plumbing that only served the kill-on-open.
+- **Limit**: a client that joins while the window is closed is part of the show's next items only once the window was open again (the host lays scenes out over the last room the window pushed).
+- **Verified**: build + 686 unit tests (all green); `smoke-local` via `--test-run --exit` passes through the new test host (8/8 steps, spread 11-12 ms, no players left after exit). Close / reopen checks added to `.docs/plans/2026-10-04-manual-test-checklist.md` §2.6.
 
 ## 2026-10-03 — Sprite and bezel effects (roadmap 2.4, slice 1)
 

@@ -127,6 +127,8 @@ WaBiBaBuSy/
 │   │   ├── BoolToTextConverter.cs
 │   │   └── HexToColorConverter.cs
 │   ├── Services/
+│   │   ├── ServerPlaybackHost.cs             # App-lifetime: this machine's players, running scene, show (server/standalone)
+│   │   ├── RemotePlaybackHost.cs             # App-lifetime: players driven by the server (client mode)
 │   │   └── VideoThumbnailGenerator.cs        # Video thumbnail extraction
 │   └── Assets/                               # Icons, images
 │
@@ -301,7 +303,7 @@ await _service.ConnectToServerAsync(address, port, ApplyD2DFromRemoteAsync);
 ### Data Flow
 
 1. Docked Scene editor (`SceneEditorPanel` → `CrossScreenConfigViewModel.BuildConfig`) → user picks mode → `CrossScreenConfig.DistributionMode`
-2. `MainWindowViewModel.StartCrossScreen()` → `perMonitorMode = (mode == Simultaneous)`
+2. `ServerPlaybackHost.ApplyCrossScreenConfigAsync()` (Play, Start, show items) → `perMonitorMode = (mode == Simultaneous)`
 3. `D2DCompositionService.InitializeAsync(perMonitorMode)` → sets `VirtualCanvasWidth` + `MonitorOffsetX`
 4. `Player.D2D` receives IPC → `MovementCalculator` positions animation deterministically
 
