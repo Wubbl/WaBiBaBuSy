@@ -1,0 +1,162 @@
+# Manual Test Checklist (2026-10-04)
+
+**Purpose:** one day of hands-on testing. It carries over everything still unticked from
+[`2026-09-28-gui-and-e2e-test-checklist.md`](2026-09-28-gui-and-e2e-test-checklist.md) (that file keeps the 09-29 results),
+re-checks the four `[n]` findings from 09-29, and adds what the 2026-10-02/03 work left **build-verified only**
+(test-mode UI, CLI, player probe handling, networking).
+
+**How to use:** tick `[x]` pass / `[n]` fail as you go, note what you saw under the item. Failures → a line in
+`.docs/2025.12_OpenIssues.md` (what you did, what you saw, which machine, log excerpt). Order matters: the
+automated runs (§4) are quick and cover timing + pixel parity, so §5 only needs eyes for what software cannot judge.
+
+**Time budget:** §0–§2 ≈ 1 h (server alone) · §3–§4 ≈ 1 h · §5–§6 ≈ 1.5 h · §7 ≈ 30 min.
+
+---
+
+## 0. Setup
+
+- [ ] Same build everywhere: `git pull`, `dotnet build -c Release` → 0 errors, `dotnet test WaBiBaBuSy.Tests` → all green. Commit: `______`
+- [ ] Machines: server `______` (2 monitors) · client 1 `______` · client 2 `______` · client 3 `______`
+- [ ] At least one pair with **different resolutions** (1080p + 1440p)
+- [ ] Settings → Logging → "Log to file" on every machine
+- [ ] Server: Settings → Server → Developer → **Enable test mode** on, then restart the server
+- [ ] Clients: Settings → Client → "Answer automated test runs from the server" is on (default)
+- [ ] Content: transparent PNG logo, an animated GIF (~20 MB), a second image (background / extra image), a short video
+- [ ] Note whether the machine clocks are NTP-synced (§6 skew items)
+
+## 1. Re-check the 09-29 findings
+
+- [ ] **View logs** (right-click a remote tile): the logs appear within 10 s, header "=== Logs from <hostname> ===". On 09-29 it stayed at "Requesting logs…"; fixed 09-30 (`6ac1607`), display reworked 10-02 (`f5949c4`).
+- [ ] **View logs, no reply:** stop the client app first → after 10 s "No reply from … Its logs are in its configured log folder on that machine (default …)".
+- [ ] **Start new row here** on the 3rd tile of a 5-tile row. With Path = Ring or Snake the new row runs **←** (right to left), so its tiles show in reverse on screen while the chain order (#n badges) stays 3, 4, 5. Check whether that is what you saw on 09-29. If the #n badges themselves are out of order, it is a bug. Also note which you would expect in a real room: ______
+- [ ] **Endless:** Motion → Movement **Linear** → Advanced → "Endless (no loop reset)" (the box only appears for Linear) → with color grading None the amber chip "Endless needs a Traveling color mode" appears above the tabs.
+- [ ] **Extra images:** Ctrl+click a second thumbnail → it is listed under "Extra images". These are additional sprites: with a pattern each cell picks one of the images; without a pattern the copies are spread by the "spread (px)" / "time offset (ms)" fields under Motion. Is that clear enough in the UI? Ideas: ______
+
+## 2. GUI — server alone (carried over from 09-28 §1.3–§1.6)
+
+### 2.1 Scene editor
+- [ ] Motion → Static with the default IconZone background → Play → sprite stays centered on every monitor (no path wandering, no rotation)
+- [ ] Gallery right-click → "Show as plain wallpaper on all nodes" on a JPG, a GIF and an MP4 → each fills every monitor, still / looping, no colors; the editor shows SolidColor · Fill · Simultaneous · Static
+- [ ] Footer "▣ Plain wallpaper ▾" → On selection (disabled with nothing selected) → only the selected node shows the current file plainly
+
+### 2.2 Playlist tab & show controls
+- [ ] Tab loads the newest saved playlist; a 30 000 ms item shows "30"
+- [ ] `＋ Add current scene` → row with thumbnail; Save → name appears in the picker
+- [ ] Click a row → scene loads into the editor and the tiles; change speed → Save to playlist ▾ → Update "name" → Details show the new speed
+- [ ] Drag ≡ of the first row below the last → marker follows, row moves, its duration box still updates the summary
+- [ ] Right-click → Duplicate ("name copy" below) / Remove
+- [ ] Duration "12,5" → "12.5s"; "abc" → "(default)"
+- [ ] Toolbar picker lists playlists (incl. the presets: BiBaBu Party, Chill Lounge, Hype, Showcase Tour — `dotnet run tools/build-playlist-presets.cs` if missing); picking one loads it into the tab
+- [ ] ▶ starts the show: ■ and ⏭ appear, label "Now: A · next: B in 0:1x", playing row has a green ▶
+- [ ] ⏭ switches immediately; ■ stops the show, ⏭ and label disappear
+- [ ] Play from the editor during a show → the show stops first, then the scene plays; ■ stops it
+- [ ] Save a playlist "E2E" with 3 items (different content + movement), close and reopen → "E2E" loaded
+
+### 2.3 Settings
+- [ ] `⋯` → Settings opens centered, sidebar, Server selected; each item shows only its section
+- [ ] Advanced expanders collapsed (Server: Max Clients + Service Name; Client: Heartbeat + Max Cache Size)
+- [ ] Browse buttons open a folder picker; Cancel keeps the value
+- [ ] Open again from tray and from `⋯` → no second window, existing one to front
+- [ ] Change Server Address → Cancel → reopen → old value; Save → reopen → new value
+- [ ] `client-config.json` read-only → Save → amber error line, window stays open (remove read-only after)
+- [ ] `clientId` in `client-config.json` unchanged after Save
+- [ ] Log Directory only visible with "Log to file"; Enter = Save, Esc = Cancel
+
+### 2.4 Local wall (server's own monitors)
+- [ ] Sequential Linear GIF crosses the bezel between the two local monitors without a jump
+- [ ] Face travel direction: a Bounce sprite flips when it reverses (no backwards swimming, no flicker at the apex)
+- [ ] Wave mode: Simultaneous + Bounce + 250 ms node delay → the bounce runs from monitor 1 to 2
+- [ ] Mixed refresh rates between local monitors → ⚠ on the tile with a tooltip
+- [ ] F11 debug overlay in the player still works
+
+## 3. Test mode — UI, CLI and API (server alone; new 10-02, build-verified only)
+
+- [ ] **Settings refresh:** turn "Enable test mode" off → Save → `⋯` → Developer tools no longer offers "Run test suite" without reopening the window; on again → it is back
+- [ ] **Menu run:** Developer tools → Run test suite… → `TestScenarios\smoke-local.json` → status line shows progress, Cancel visible; ends with "Test: pass · <folder>"
+- [ ] **Double-click guard:** double-click "Run test suite…" quickly → only one file picker opens
+- [ ] **Open results:** "Open last results" opens `report.html`; delete that run folder first → "Could not open the report: …" in the status line, no crash
+- [ ] **report.html:** verdict, step table, drift chart, annotated captures (timecode strip + marker boxes), "Node failures" section absent on a clean run
+- [ ] **CLI from a terminal** (main window open on the server): `start /wait WaBiBaBuSy.UI.exe --test-run TestScenarios\smoke-local.json --exit` (cmd) or `Start-Process -Wait …` (PowerShell) → the result line appears in that terminal, `echo %errorlevel%` = 0; **while it runs, the main window menu shows the run with Cancel**
+- [ ] **CLI typo:** `WaBiBaBuSy.UI.exe --tset-run x` → warning + usage line in the terminal
+- [ ] **Control API:** `curl -X POST -H "Content-Type: application/json" -d "{\"scenario\":\"C:/…/TestScenarios/smoke-local.json\"}" http://127.0.0.1:50052/test/run` → 202; the menu shows the run; `curl http://127.0.0.1:50052/test/status` while it runs
+- [ ] **API from another machine:** from a client, `curl http://<server-ip>:50051/test/status` → 404 (not 415/400/405)
+- [ ] **Port 50052 busy:** start something on 50052 first (e.g. `python -m http.server 50052 --bind 127.0.0.1`), then Start Server → the server starts (clients can connect), the log warns that the test control API is off
+- [ ] **No logs popup:** during a run with a remote (§4) the main window's client-logs panel does **not** open when the run fetches logs at the end
+- [ ] **Frame statistics:** in the run's `logs\server.log` search for `no present statistics`. If it appears, note what was on screen (maximized / fullscreen window over the desktop? monitor asleep? HDR?): ______. The 10-02 runs flipped between 0 and 16 such lines with the same build
+
+## 4. Automated runs — 2+ machines (covers 09-28 §3–§4 timing and parity)
+
+Connect the clients first (§5.1). Attach each `report.html` path to the results table.
+
+- [ ] `sync-basic.json` (~11 min: clean start, bezel crossing, 10-minute drift / CPU / GPU / memory series) → verdict `______`, worst spread `___ ms`
+- [ ] `parity-matrix.json`, room in **pixel mode** → verdict `______`, all exact-frame comparisons 0 % differing
+- [ ] `parity-matrix.json` again with **Room ⚙ → Physical units** on → verdict `______`
+- [ ] `clock-skew.json` with `REMOTE-HOSTNAME-1/-2` replaced by the tile names → verdict `______`; the testMode step passes (skew key matched) and the first probe's skew check passes
+- [ ] **Lost node:** start `sync-basic`, pull one client's network cable after ~1 min → the run continues; `report.html` lists the client under "Node failures" with a time ≈ when the cable came out (within one probe); run verdict at least warn
+- [ ] **Client logs:** each run folder has `logs\<client>.log` per client, no two clients sharing a file even with similar names
+
+## 5. Multi-client — manual (carried over from 09-28 §2–§3)
+
+### 5.1 Connect & identity
+- [ ] Client: type the server IP → Connect connects directly (no discovery override)
+- [ ] Client: empty IP → Connect / Find discovers the server via mDNS
+- [ ] **Client connected from the tray only** (main window never opened on that client): Play a Sequential scene on all → does it cross screens in sync with the others? Suspected bug: it falls back to plain D2D (client log: `D2DCrossScreenApplyDelegate is NULL`). Result: ______
+- [ ] All clients appear as tiles within ~5 s with correct name, resolution, refresh rate, status dot
+- [ ] Arrange: 2 rows (server + client 1 in row 1, clients 2–3 in row 2), facing, Ring; set gaps
+- [ ] **Restart a client app** → same tile, same seat / order (persistent ClientId)
+- [ ] **Restart the server** → order, rows and gaps intact (`%APPDATA%\WaBiBaBuSy\topology.json`)
+- [ ] Right-click a remote tile → Resync re-sends that node's animation
+- [ ] Remote tiles show live thumbnails; after a client reconnect (§7) they come back without replaying a scene
+
+### 5.2 What only eyes can judge
+- [ ] **Clean start:** the sprite appears on the same frame on all nodes, no ragged start
+- [ ] **Ring:** sprite leaves the last seat and enters seat 1 in the same frame (no teleport)
+- [ ] **Facing rows:** the sprite travels left → right as seen by the people on both sides
+- [ ] **Mixed resolutions, pixel mode:** no vertical jump at the bezel
+- [ ] **Physical units:** same sprite height in cm on 1080p and 1440p (ruler: ___ cm / ___ cm), same cm/s; Target-height fit honors the cm value
+- [ ] **Room preview vs wall:** "sprite on: …" matches the machine that shows it
+- [ ] **Face travel direction** on a remote matches the server
+- [ ] **IconZone** with global path on remotes behaves like locally
+- [ ] **Multi-image / background image item** renders on remotes (assets transferred)
+- [ ] **Simultaneous + Wave delay** runs across machines in node order
+
+## 6. Show reliability & sync (carried over from 09-28 §4)
+
+- [ ] Start Show "E2E" on all nodes: tiles show "⬇ x/y", then "✓ cached" before the first item plays
+- [ ] Item switches without a download pause; "next: … in m:ss" counts down correctly
+- [ ] ⏭ skip propagates to all remotes at once
+- [ ] Restart a client during the show → rejoins the current item at the right position, no re-download (`cache-index.json`)
+- [ ] Health strip reflects reality; "Resync all" re-sends the running animation to everyone
+- [ ] Linear lap-snap: an item switch waits for the lap end when enabled
+- [ ] Tiles show a green "ping N ms" (LAN 0–2 ms); tooltip: sync ±, ping, corrected clock offset
+- [ ] Skew a client's clock ±2 s *before* starting → stays aligned; tooltip offset ≈ ±2000 ms, label stays green
+- [ ] Step a client's clock *during* a scene → server log warns "Clock offset … jumped" once; Resync all realigns it
+- [ ] Close the server window → client thumbnail uploads stop within ~5 s; reopen → back within ~6 s
+- [ ] Prefetch a large video to all clients → server upload stays at the Upload Limit (default 20 MB/s, Task Manager → Ethernet)
+- [ ] **Show + test run:** start a show, then a test run → after the run the show is **not** restored (known limitation, follow-ups "Remaining" #2) — confirm nothing worse happens (no stuck players, ▶ works)
+
+## 7. Failure & recovery (carried over from 09-28 §5)
+
+- [ ] Pull a client's network cable mid-animation for ~10 s → reconnects and rejoins at the right position; time it: `___ s` (target < 5 s after the link is back)
+- [ ] Close a client app during a room drag → drag cancels (or applies if the tile stays offline); refresh continues
+- [ ] Hard power-off a client → the server drops the tile within ~40 s
+- [ ] Stop the server while clients play → clients keep their wallpaper and reconnect when the server is back
+- [ ] File logging: log files at `%LOCALAPPDATA%\WaBiBaBuSy\Logs\` on every machine, rolling daily
+
+## 8. Optional
+
+- [ ] Installer on a clean Windows 10/11 machine (Inno Setup, `/Installer/`); fallback version 2.6.3
+- [ ] Auto-update a client from an older build (SHA-256 check, rollback on failure)
+
+## Results
+
+| Section | Pass | Fail | Notes / issue ids / report paths |
+|---|---|---|---|
+| 1 Re-checks | | | |
+| 2 GUI server alone | | | |
+| 3 Test mode UI / CLI / API | | | |
+| 4 Automated runs | | | |
+| 5 Multi-client manual | | | |
+| 6 Show & sync | | | |
+| 7 Failure & recovery | | | |
+| 8 Optional | | | |

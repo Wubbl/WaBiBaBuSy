@@ -6,6 +6,8 @@ LAN-party Tier 0 / 1.1 / 1.2 / 1.3 / 2.1 (2026-09-17), UI redesign Plans 1–3 +
 **Sources:** manual-check steps in the three UI redesign plans, `2026.07_OPEN_ITEMS.md §1`,
 the Tier 0 / 1.x rows of `2026-09-17-lan-party-roadmap.md`.
 
+**Superseded for the remaining items by [`2026-10-04-manual-test-checklist.md`](2026-10-04-manual-test-checklist.md)** (carries over every unticked item and re-checks the `[n]` findings below). This file keeps the 09-29 results.
+
 **How to use:** tick items as you go. Anything that fails → a line in `.docs/2025.12_OpenIssues.md`
 (what you did, what you saw, which machine, log excerpt). Screenshots help for layout issues.
 
