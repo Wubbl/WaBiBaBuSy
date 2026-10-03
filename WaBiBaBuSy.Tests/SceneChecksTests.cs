@@ -175,4 +175,41 @@ public class SceneChecksTests
         Assert.Equal(SizeUnit.Pixels, s.Animation.SizeUnit);
         Assert.Equal(SpeedUnit.PixelsPerSecond, s.Movement.SpeedUnit);
     }
+
+    [Fact]
+    public void Validate_EffectsWithPattern_Warns()
+    {
+        var s = Scene();
+        s.Animation.Pattern = new PatternConfig();
+        s.Animation.Effects = new SpriteEffectsConfig { SpinDegPerSecond = 30 };
+        Assert.Contains("Effects are not drawn with a pattern", SceneChecks.Validate(s, Canvas(5000)));
+    }
+
+    [Fact]
+    public void Validate_EffectsWithExtraImages_Warns()
+    {
+        var s = Scene();
+        s.Animation.AdditionalAnimationPaths.Add("b.png");
+        s.Animation.Effects = new SpriteEffectsConfig { Entry = BezelEffect.Glow };
+        Assert.Contains("Effects need a single image (no extra images)", SceneChecks.Validate(s, Canvas(5000)));
+    }
+
+    [Fact]
+    public void Validate_EffectsOnIconZonePath_Warns()
+    {
+        var s = Scene();
+        s.Background.Mode = BackgroundMode.IconZone;
+        s.Movement.Type = MovementType.Linear;
+        s.Animation.Effects = new SpriteEffectsConfig { Trail = new TrailConfig() };
+        Assert.Contains("Effects are not drawn on an IconZone path", SceneChecks.Validate(s, Canvas(5000)));
+    }
+
+    [Fact]
+    public void Validate_NothingEnabled_NoEffectWarnings()
+    {
+        var s = Scene();
+        s.Animation.Pattern = new PatternConfig();
+        s.Animation.Effects = new SpriteEffectsConfig();          // nothing enabled
+        Assert.DoesNotContain(SceneChecks.Validate(s, Canvas(5000)), w => w.StartsWith("Effects"));
+    }
 }

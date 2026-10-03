@@ -142,6 +142,20 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     // Tier 0.5: mirror the sprite horizontally whenever it travels leftwards on screen.
     [ObservableProperty] private bool _faceTravelDirection = false;
 
+    // ── Effects (roadmap 2.4) ──
+    [ObservableProperty] private bool _trailEnabled;
+    [ObservableProperty] private int _trailCount = 6;
+    [ObservableProperty] private int _trailSpacingMs = 60;
+    [ObservableProperty] private bool _trailUseGradingColor = true;
+    [ObservableProperty] private bool _pulseEnabled;
+    [ObservableProperty] private int _pulseAmplitudePercent = 8;
+    [ObservableProperty] private float _pulseFrequencyHz = 0.8f;
+    [ObservableProperty] private float _spinDegPerSecond;
+    [ObservableProperty] private int _bezelEntryIndex;      // BezelEffect: 0 None, 1 Glow, 2 Flash, 3 Ripple
+    [ObservableProperty] private int _bezelExitIndex;
+    [ObservableProperty] private string _bezelColorHex = "#FFFFFF";
+    [ObservableProperty] private int _bezelDurationMs = 350;
+
     // Tier 0.7: Wave mode — per-node clock shift in Simultaneous distribution (ms per node).
     [ObservableProperty] private int _nodePhaseDelayMs = 0;
 
@@ -157,6 +171,22 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     {
         get => AnimationDistributionModeIndex == 1;
         set { if (value) AnimationDistributionModeIndex = 1; }
+    }
+
+    /// <summary>The Effects tab as a config; null when nothing is enabled (keeps saved scenes unchanged).</summary>
+    private SpriteEffectsConfig? BuildEffects()
+    {
+        var fx = new SpriteEffectsConfig
+        {
+            Trail = TrailEnabled ? new TrailConfig { Count = TrailCount, SpacingMs = TrailSpacingMs, UseGradingColor = TrailUseGradingColor } : null,
+            Pulse = PulseEnabled ? new PulseConfig { Amplitude = PulseAmplitudePercent / 100f, FrequencyHz = PulseFrequencyHz } : null,
+            SpinDegPerSecond = SpinDegPerSecond,
+            Entry = (BezelEffect)BezelEntryIndex,
+            Exit = (BezelEffect)BezelExitIndex,
+            BezelColorHex = string.IsNullOrWhiteSpace(BezelColorHex) ? "#FFFFFF" : BezelColorHex.Trim(),
+            BezelDurationMs = BezelDurationMs,
+        };
+        return SpriteEffects.HasAny(fx) ? fx : null;
     }
 
     partial void OnAnimationDistributionModeIndexChanged(int value)
@@ -460,6 +490,20 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         SpeedMultiplier = config.Animation.SpeedMultiplier;
         FaceTravelDirection = config.Animation.FaceTravelDirection;
 
+        var fx = config.Animation.Effects;
+        TrailEnabled = fx?.Trail != null;
+        TrailCount = fx?.Trail?.Count ?? 6;
+        TrailSpacingMs = fx?.Trail?.SpacingMs ?? 60;
+        TrailUseGradingColor = fx?.Trail?.UseGradingColor ?? true;
+        PulseEnabled = fx?.Pulse != null;
+        PulseAmplitudePercent = (int)MathF.Round((fx?.Pulse?.Amplitude ?? 0.08f) * 100f);
+        PulseFrequencyHz = fx?.Pulse?.FrequencyHz ?? 0.8f;
+        SpinDegPerSecond = fx?.SpinDegPerSecond ?? 0f;
+        BezelEntryIndex = (int)(fx?.Entry ?? BezelEffect.None);
+        BezelExitIndex = (int)(fx?.Exit ?? BezelEffect.None);
+        BezelColorHex = fx?.BezelColorHex ?? "#FFFFFF";
+        BezelDurationMs = fx?.BezelDurationMs ?? 350;
+
         // Color grading
         var grading = config.Animation.ColorGrading ?? new ColorGradingConfig();
         ColorGradingModeIndex = (int)grading.Mode;
@@ -568,6 +612,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                 RotateWithPath = RotateWithPath,
                 SpeedMultiplier = SpeedMultiplier > 0 ? SpeedMultiplier : 1.0,
                 FaceTravelDirection = FaceTravelDirection,
+                Effects = BuildEffects(),
                 ColorGrading = new ColorGradingConfig
                 {
                     Mode = (ColorGradingMode)ColorGradingModeIndex,

@@ -145,6 +145,16 @@ public partial class PlaylistItemRow : ViewModelBase
                 parts.Add($"{grading.Mode}{detail}");
             }
 
+            var fx = cfg.Animation.Effects;
+            if (SpriteEffects.HasAny(fx))
+            {
+                if (SpriteEffects.TrailCount(fx!.Trail) > 0) parts.Add($"trail {fx.Trail!.Count}");
+                if (fx.Pulse != null) parts.Add("pulse");
+                if (fx.SpinDegPerSecond != 0f) parts.Add($"spin {fx.SpinDegPerSecond:0}°/s");
+                if (fx.Entry != BezelEffect.None) parts.Add($"entry {fx.Entry.ToString().ToLowerInvariant()}");
+                if (fx.Exit != BezelEffect.None) parts.Add($"exit {fx.Exit.ToString().ToLowerInvariant()}");
+            }
+
             return string.Join(" · ", parts);
         }
     }

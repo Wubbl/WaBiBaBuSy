@@ -70,6 +70,16 @@ public static class SceneChecks
         if (anim.Pattern != null && IsVideo(anim.AnimationPath))
             warnings.Add("Pattern with a video: every cell decodes the video");
 
+        if (SpriteEffects.HasAny(anim.Effects))
+        {
+            if (anim.Pattern != null)
+                warnings.Add("Effects are not drawn with a pattern");
+            else if (anim.AdditionalAnimationPaths.Any(p => !string.IsNullOrWhiteSpace(p)))
+                warnings.Add("Effects need a single image (no extra images)");
+            else if (MovementCalculator.FollowsIconPath(scene.Background.Mode, scene.Movement))
+                warnings.Add("Effects are not drawn on an IconZone path");
+        }
+
         double crossing = CrossingSeconds(scene, layout);
         if (crossing > 0 && crossing < MinCrossingSeconds)
             warnings.Add("Very fast: " + CrossingReadout(scene, layout));

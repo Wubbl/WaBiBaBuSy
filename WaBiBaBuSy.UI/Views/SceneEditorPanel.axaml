@@ -431,6 +431,70 @@
                     </ScrollViewer>
                 </TabItem>
 
+                <!-- EFFECTS (roadmap 2.4) -->
+                <TabItem Header="Effects">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Spacing="8" Margin="0,10,12,10">
+                            <CheckBox IsChecked="{Binding TrailEnabled}" Content="Trail ⓘ"
+                                      ToolTip.Tip="Fading copies of the sprite where it was a moment ago. Single image, not with a pattern or an IconZone path."/>
+                            <Grid ColumnDefinitions="120,*" IsVisible="{Binding TrailEnabled}">
+                                <TextBlock Classes="label" Text="Ghosts"/>
+                                <NumericUpDown Grid.Column="1" Value="{Binding TrailCount}" Minimum="1" Maximum="32" Increment="1" Width="130" HorizontalAlignment="Left"/>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*" IsVisible="{Binding TrailEnabled}">
+                                <TextBlock Classes="label" Text="Spacing (ms)"/>
+                                <NumericUpDown Grid.Column="1" Value="{Binding TrailSpacingMs}" Minimum="10" Maximum="500" Increment="10" Width="130" HorizontalAlignment="Left"/>
+                            </Grid>
+                            <CheckBox IsChecked="{Binding TrailUseGradingColor}" IsVisible="{Binding TrailEnabled}" Content="Ghosts keep their color ⓘ"
+                                      ToolTip.Tip="With a time-based color mode each ghost shows the color the sprite had then (a rainbow comet)."/>
+
+                            <CheckBox IsChecked="{Binding PulseEnabled}" Content="Pulse ⓘ" ToolTip.Tip="The sprite breathes: its size swings around 100 %."/>
+                            <Grid ColumnDefinitions="120,*" IsVisible="{Binding PulseEnabled}">
+                                <TextBlock Classes="label" Text="Size swing (%)"/>
+                                <NumericUpDown Grid.Column="1" Value="{Binding PulseAmplitudePercent}" Minimum="1" Maximum="90" Increment="1" Width="130" HorizontalAlignment="Left"/>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*" IsVisible="{Binding PulseEnabled}">
+                                <TextBlock Classes="label" Text="Breaths / s"/>
+                                <NumericUpDown Grid.Column="1" Value="{Binding PulseFrequencyHz}" Minimum="0.1" Maximum="5" Increment="0.1" FormatString="0.0" Width="130" HorizontalAlignment="Left"/>
+                            </Grid>
+
+                            <Grid ColumnDefinitions="120,*">
+                                <TextBlock Classes="label" Text="Spin (°/s) ⓘ" ToolTip.Tip="Constant rotation; negative = counter-clockwise. 0 = off."/>
+                                <NumericUpDown Grid.Column="1" Value="{Binding SpinDegPerSecond}" Minimum="-720" Maximum="720" Increment="15" Width="130" HorizontalAlignment="Left"/>
+                            </Grid>
+
+                            <TextBlock Classes="label" Text="Bezel crossing ⓘ" Margin="0,8,0,0"
+                                       ToolTip.Tip="Drawn on the machine the sprite enters / leaves, at that screen edge."/>
+                            <Grid ColumnDefinitions="120,*">
+                                <TextBlock Classes="label" Text="On entry"/>
+                                <ComboBox Grid.Column="1" SelectedIndex="{Binding BezelEntryIndex}" Width="140">
+                                    <ComboBoxItem Content="None"/>
+                                    <ComboBoxItem Content="Glow"/>
+                                    <ComboBoxItem Content="Flash"/>
+                                    <ComboBoxItem Content="Ripple"/>
+                                </ComboBox>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*">
+                                <TextBlock Classes="label" Text="On exit"/>
+                                <ComboBox Grid.Column="1" SelectedIndex="{Binding BezelExitIndex}" Width="140">
+                                    <ComboBoxItem Content="None"/>
+                                    <ComboBoxItem Content="Glow"/>
+                                    <ComboBoxItem Content="Flash"/>
+                                    <ComboBoxItem Content="Ripple"/>
+                                </ComboBox>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*">
+                                <TextBlock Classes="label" Text="Color"/>
+                                <TextBox Grid.Column="1" Text="{Binding BezelColorHex}" Width="140" HorizontalAlignment="Left"/>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*">
+                                <TextBlock Classes="label" Text="Duration (ms)"/>
+                                <NumericUpDown Grid.Column="1" Value="{Binding BezelDurationMs}" Minimum="50" Maximum="3000" Increment="50" Width="130" HorizontalAlignment="Left"/>
+                            </Grid>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
                 <!-- BACKGROUND -->
                 <TabItem Header="Background">
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
