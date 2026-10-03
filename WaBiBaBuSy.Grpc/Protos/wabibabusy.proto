@@ -198,6 +198,7 @@ message SyncParameters {
   bool test_capture = 32;              // TEST_PROBE: read the frame back as PNG
   bool test_has_exact_elapsed = 33;    // TEST_PROBE: exact-frame probe (offscreen render)
   int64 test_exact_elapsed_ms = 34;    // TEST_PROBE: the exact effective elapsed to render
+  string log_request_id = 35;          // FETCH_LOGS: echoed in ClientLogData.request_id so a late reply cannot complete the next fetch
 }
 
 // One transferable file of a scene (Tier 1.3 show reliability)
@@ -516,6 +517,7 @@ message ClientLogData {
   string log_content = 2;          // Log file text content (last N lines)
   int64 timestamp = 3;             // When logs were captured
   string log_date = 4;             // Which log file date (yyyy-MM-dd)
+  string request_id = 5;           // FETCH_LOGS SyncParameters.log_request_id echoed back (empty from clients before 2026-10 = matches any waiting fetch)
 }
 
 // Server response to log upload

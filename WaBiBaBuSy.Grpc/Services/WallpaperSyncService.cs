@@ -22,9 +22,10 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     private readonly ConcurrentDictionary<string, ThumbnailData> _clientThumbnails;
     private readonly ConcurrentDictionary<string, string> _contentRegistry; // contentId -> server file path
     private readonly ConcurrentDictionary<string, ClientLogData> _clientLogs; // clientId -> latest logs
-    // FetchClientLogsAsync waiters, completed by SendClientLogs. A reply carries no request id, so
-    // fetches for one client are serialized (_logFetchGates): one pending fetch per client at a time.
-    private readonly ConcurrentDictionary<string, TaskCompletionSource<ClientLogData>> _logWaiters = new();
+    // FetchClientLogsAsync waiters, completed by SendClientLogs. Fetches for one client are serialized
+    // (_logFetchGates): one pending fetch per client at a time. Each fetch has a request id the client
+    // echoes, so a late reply to a timed-out fetch cannot complete the next one.
+    private readonly ConcurrentDictionary<string, LogWaiter> _logWaiters = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _logFetchGates = new();
     private readonly ConcurrentDictionary<string, int> _serverLocalMonitorOrders = new(); // SERVER_LOCALHOST_MONITOR_* order overrides
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _writeLocks = new(); // per-client gRPC stream write serialization
@@ -1251,7 +1252,14 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
 
         _clientLogs[request.ClientId] = request;
         if (_logWaiters.TryGetValue(request.ClientId, out var waiter))
-            waiter.TrySetResult(request);
+        {
+            // Empty id: a client from before the request id — it answers whatever fetch waits (old behaviour).
+            if (string.IsNullOrEmpty(request.RequestId) || request.RequestId == waiter.RequestId)
+                waiter.Reply.TrySetResult(request);
+            else
+                _logger.LogDebug("Ignoring log reply {RequestId} from {ClientId}: the waiting fetch is {WaitingId} (late reply to a timed-out fetch, or to a plain log request)",
+                    request.RequestId, request.ClientId, waiter.RequestId);
+        }
 
         // Raise event for UI
         ClientLogsReceived?.Invoke(this, new ClientLogsReceivedEventArgs(request.ClientId, request.LogContent));
@@ -1267,14 +1275,20 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     /// Ask a client for its log (FETCH_LOGS). False when the client has no command stream.
     /// A nonzero window limits the reply to lines between the two UTC instants.
     /// </summary>
-    public async Task<bool> RequestClientLogsAsync(string clientId, long fromUtcMs = 0, long toUtcMs = 0)
+    public Task<bool> RequestClientLogsAsync(string clientId, long fromUtcMs = 0, long toUtcMs = 0) =>
+        // Its own id, so this reply (shown via ClientLogsReceived) never answers a fetch that waits meanwhile.
+        SendFetchLogsAsync(clientId, fromUtcMs, toUtcMs, NewLogRequestId());
+
+    private static string NewLogRequestId() => Guid.NewGuid().ToString("N");
+
+    private async Task<bool> SendFetchLogsAsync(string clientId, long fromUtcMs, long toUtcMs, string requestId)
     {
         var command = new SyncCommand
         {
             Type = CommandType.FetchLogs,
             TimestampUtc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             ContentId = clientId,
-            Params = new SyncParameters { LogFromUtcMs = fromUtcMs, LogToUtcMs = toUtcMs }
+            Params = new SyncParameters { LogFromUtcMs = fromUtcMs, LogToUtcMs = toUtcMs, LogRequestId = requestId }
         };
 
         bool sent = await SendCommandToClientAsync(clientId, command);
@@ -1294,20 +1308,24 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         var gate = _logFetchGates.GetOrAdd(clientId, _ => new SemaphoreSlim(1, 1));
         // The holder finishes within its own timeout; waiting longer than ours means something hangs.
         if (!await gate.WaitAsync(timeout)) return null;
-        var waiter = new TaskCompletionSource<ClientLogData>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var waiter = new LogWaiter(NewLogRequestId(),
+            new TaskCompletionSource<ClientLogData>(TaskCreationOptions.RunContinuationsAsynchronously));
         _logWaiters[clientId] = waiter;
         try
         {
-            if (!await RequestClientLogsAsync(clientId, fromUtcMs, toUtcMs)) return null;
-            try { return await waiter.Task.WaitAsync(timeout); }
+            if (!await SendFetchLogsAsync(clientId, fromUtcMs, toUtcMs, waiter.RequestId)) return null;
+            try { return await waiter.Reply.Task.WaitAsync(timeout); }
             catch (TimeoutException) { return null; }
         }
         finally
         {
-            _logWaiters.TryRemove(new KeyValuePair<string, TaskCompletionSource<ClientLogData>>(clientId, waiter));
+            _logWaiters.TryRemove(new KeyValuePair<string, LogWaiter>(clientId, waiter));
             gate.Release();
         }
     }
+
+    /// <summary>A pending <see cref="FetchClientLogsAsync"/>: the request id the client echoes and the reply it waits for.</summary>
+    private sealed record LogWaiter(string RequestId, TaskCompletionSource<ClientLogData> Reply);
 
     /// <summary>
     /// Get the latest logs received from a client

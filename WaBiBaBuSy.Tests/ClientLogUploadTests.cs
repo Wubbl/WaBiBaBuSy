@@ -101,4 +101,22 @@ public class ClientLogUploadTests : IDisposable
         Assert.Equal(new[] { "[23:59:30.000 INF] late in day one", "[00:00:30.000 INF] early in day two" },
             text.Split(Environment.NewLine));
     }
+
+    [Fact]
+    public void LogReply_EchoesTheRequestId()
+    {
+        var reply = WallpaperSyncClient.CreateLogReply("c1", "text", "2026-10-03", "abc123");
+
+        Assert.Equal("c1", reply.ClientId);
+        Assert.Equal("text", reply.LogContent);
+        Assert.Equal("2026-10-03", reply.LogDate);
+        Assert.Equal("abc123", reply.RequestId);
+    }
+
+    [Fact]
+    public void LogReply_WithoutRequestId_SendsEmpty()
+    {
+        // An old server sends no id: the reply carries none, which the server matches to any waiting fetch.
+        Assert.Equal("", WallpaperSyncClient.CreateLogReply("c1", "text", "2026-10-03", null).RequestId);
+    }
 }

@@ -14,16 +14,20 @@ public class WallpaperSyncServiceTestModeTests : IDisposable
 
     public void Dispose() => _h.Dispose();
 
-    /// <summary>A client that answers every FETCH_LOGS with its window ("from-to") after <paramref name="delayMs"/>.</summary>
-    private void ConnectEchoingClient(string clientId, int delayMs = 50) =>
+    /// <summary>
+    /// A client that answers every FETCH_LOGS with its window ("from-to") after <paramref name="delayMs"/>,
+    /// echoing the request id (or not, like a client from before the request id).
+    /// </summary>
+    private void ConnectEchoingClient(string clientId, int delayMs = 50, bool echoRequestId = true) =>
         _h.Connect(clientId, command =>
         {
             if (command.Type != CommandType.FetchLogs) return;
             var window = $"{command.Params.LogFromUtcMs}-{command.Params.LogToUtcMs}";
+            var requestId = echoRequestId ? command.Params.LogRequestId : "";
             _ = Task.Run(async () =>
             {
                 await Task.Delay(delayMs);
-                await _h.ReplyLogsAsync(clientId, window);
+                await _h.ReplyLogsAsync(clientId, window, requestId);
             });
         });
 
@@ -58,6 +62,83 @@ public class WallpaperSyncServiceTestModeTests : IDisposable
         Assert.Null(await _h.Service.FetchClientLogsAsync("c1", 0, 0, TimeSpan.FromMilliseconds(200)));
         answer = true;
         Assert.Equal("late", (await _h.Service.FetchClientLogsAsync("c1", 0, 0, TimeSpan.FromSeconds(5)))?.LogContent);
+    }
+
+    [Fact]
+    public async Task FetchClientLogs_EachFetchCarriesItsOwnRequestId()
+    {
+        var ids = new List<string>();
+        _h.Connect("c1", command =>
+        {
+            if (command.Type != CommandType.FetchLogs) return;
+            var id = command.Params.LogRequestId;
+            lock (ids) ids.Add(id);
+            _ = Task.Run(() => _h.ReplyLogsAsync("c1", "ok", id));
+        });
+
+        await _h.Service.FetchClientLogsAsync("c1", 0, 0, TimeSpan.FromSeconds(5));
+        await _h.Service.FetchClientLogsAsync("c1", 0, 0, TimeSpan.FromSeconds(5));
+
+        Assert.Equal(2, ids.Count);
+        Assert.All(ids, id => Assert.False(string.IsNullOrEmpty(id)));
+        Assert.NotEqual(ids[0], ids[1]);
+    }
+
+    [Fact]
+    public async Task FetchClientLogs_LateReplyToATimedOutFetch_DoesNotCompleteTheNextFetch()
+    {
+        // Fetch 1 times out; its reply arrives while fetch 2 waits. Fetch 2 must get its own reply.
+        string? firstId = null;
+        int fetches = 0;
+        _h.Connect("c1", command =>
+        {
+            if (command.Type != CommandType.FetchLogs) return;
+            var id = command.Params.LogRequestId;
+            if (Interlocked.Increment(ref fetches) == 1) { firstId = id; return; }   // too slow to answer fetch 1
+            _ = Task.Run(async () =>
+            {
+                await _h.ReplyLogsAsync("c1", "stale", firstId!);
+                await Task.Delay(100);
+                await _h.ReplyLogsAsync("c1", "fresh", id);
+            });
+        });
+
+        Assert.Null(await _h.Service.FetchClientLogsAsync("c1", 0, 0, TimeSpan.FromMilliseconds(200)));
+        Assert.Equal("fresh", (await _h.Service.FetchClientLogsAsync("c1", 0, 0, TimeSpan.FromSeconds(5)))?.LogContent);
+    }
+
+    [Fact]
+    public async Task FetchClientLogs_ReplyWithoutRequestId_StillCompletesTheFetch()
+    {
+        // A client from before the request id echoes nothing: its reply answers whatever fetch waits.
+        ConnectEchoingClient("c1", echoRequestId: false);
+
+        var logs = await _h.Service.FetchClientLogsAsync("c1", 1, 2, TimeSpan.FromSeconds(5));
+
+        Assert.Equal("1-2", logs?.LogContent);
+    }
+
+    [Fact]
+    public async Task RequestClientLogs_ReplyDoesNotCompleteAWaitingFetch()
+    {
+        // A fire-and-forget request ("View logs" without a waiter) gets its own id: its reply is
+        // shown, but it is not the answer to a fetch that waits at the same time.
+        _h.Connect("c1", command =>
+        {
+            if (command.Type != CommandType.FetchLogs) return;
+            var id = command.Params.LogRequestId;
+            bool isFetch = command.Params.LogFromUtcMs == 7;
+            _ = Task.Run(async () =>
+            {
+                if (isFetch) await Task.Delay(150);
+                await _h.ReplyLogsAsync("c1", isFetch ? "fetch" : "plain", id);
+            });
+        });
+
+        var fetch = _h.Service.FetchClientLogsAsync("c1", 7, 8, TimeSpan.FromSeconds(5));
+        Assert.True(await _h.Service.RequestClientLogsAsync("c1"));
+
+        Assert.Equal("fetch", (await fetch)?.LogContent);
     }
 
     [Fact]

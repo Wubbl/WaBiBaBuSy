@@ -766,9 +766,10 @@ public class WallpaperSyncClient : IDisposable
     /// <summary>
     /// Upload the local log file to the server (FETCH_LOGS). Always answers: a read failure is
     /// sent back as text so the server never waits forever. A nonzero window returns only the
-    /// lines between the two UTC instants (test runs).
+    /// lines between the two UTC instants (test runs). <paramref name="requestId"/> is the FETCH_LOGS
+    /// request id, echoed so the server can match the reply to its request.
     /// </summary>
-    public async Task SendLogsToServerAsync(string logDirectory, long fromUtcMs = 0, long toUtcMs = 0)
+    public async Task SendLogsToServerAsync(string logDirectory, long fromUtcMs = 0, long toUtcMs = 0, string requestId = "")
     {
         if (_client == null || string.IsNullOrEmpty(_clientId))
         {
@@ -781,13 +782,7 @@ public class WallpaperSyncClient : IDisposable
 
         try
         {
-            var response = await _client.SendClientLogsAsync(new ClientLogData
-            {
-                ClientId = _clientId,
-                LogContent = logContent,
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                LogDate = logDate
-            });
+            var response = await _client.SendClientLogsAsync(CreateLogReply(_clientId, logContent, logDate, requestId));
             _logger.LogInformation("Logs sent to server: {Success}", response.Success);
         }
         catch (Exception ex)
@@ -795,6 +790,16 @@ public class WallpaperSyncClient : IDisposable
             _logger.LogError(ex, "Error sending logs to server");
         }
     }
+
+    /// <summary>The FETCH_LOGS reply: the log text plus the request id echoed back (empty when the server sent none).</summary>
+    internal static ClientLogData CreateLogReply(string clientId, string logContent, string logDate, string? requestId) => new()
+    {
+        ClientId = clientId,
+        LogContent = logContent,
+        Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+        LogDate = logDate,
+        RequestId = requestId ?? "",
+    };
 
     /// <summary>
     /// The text a FETCH_LOGS reply carries: the last 500 lines of today's file, or, for a nonzero
@@ -1068,7 +1073,8 @@ public class WallpaperSyncClient : IDisposable
                         _logger.LogInformation("Server requested logs - sending log file");
                         var logDir = ConfigurationManager.LoadLoggingConfiguration().LogDirectory;
                         long from = command.Params?.LogFromUtcMs ?? 0, to = command.Params?.LogToUtcMs ?? 0;
-                        _ = Task.Run(() => SendLogsToServerAsync(logDir, from, to));
+                        var requestId = command.Params?.LogRequestId ?? "";
+                        _ = Task.Run(() => SendLogsToServerAsync(logDir, from, to, requestId));
                         continue;
                     }
 

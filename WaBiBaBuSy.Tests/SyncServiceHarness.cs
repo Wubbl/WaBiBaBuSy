@@ -36,9 +36,12 @@ internal sealed class SyncServiceHarness : IDisposable
             new FakeServerCallContext(new Metadata { { "client-id", clientId } }, cts.Token));
     }
 
-    /// <summary>A client's FETCH_LOGS reply (SendClientLogs RPC).</summary>
-    public Task<LogReceiveResponse> ReplyLogsAsync(string clientId, string content) =>
-        Service.SendClientLogs(new ClientLogData { ClientId = clientId, LogContent = content },
+    /// <summary>
+    /// A client's FETCH_LOGS reply (SendClientLogs RPC). <paramref name="requestId"/> is the fetch's
+    /// <c>LogRequestId</c> echoed back; empty is what a client from before the request id sends.
+    /// </summary>
+    public Task<LogReceiveResponse> ReplyLogsAsync(string clientId, string content, string requestId = "") =>
+        Service.SendClientLogs(new ClientLogData { ClientId = clientId, LogContent = content, RequestId = requestId },
             new FakeServerCallContext(new Metadata(), CancellationToken.None));
 
     /// <summary>Upload a probe result the way WallpaperSyncClient does: header first, then capture chunks.</summary>
