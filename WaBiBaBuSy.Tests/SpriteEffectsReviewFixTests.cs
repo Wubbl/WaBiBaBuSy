@@ -138,4 +138,38 @@ public class SpriteEffectsReviewFixTests
         s.Animation.Effects = new SpriteEffectsConfig { SpinDegPerSecond = 10 };
         SceneChecks.Validate(s, null);
     }
+
+    // ── #10: the playlist summary describes what is actually drawn ──
+
+    [Fact]
+    public void Describe_ListsActiveEffects()
+    {
+        var fx = new SpriteEffectsConfig
+        {
+            Trail = new TrailConfig { Count = 8 }, Pulse = new PulseConfig(), SpinDegPerSecond = -45,
+            Entry = BezelEffect.Ripple, Exit = BezelEffect.Glow,
+        };
+        Assert.Equal(new[] { "trail 8", "pulse", "spin -45°/s", "entry ripple", "exit glow" }, SpriteEffects.Describe(fx));
+    }
+
+    [Fact]
+    public void Describe_UsesClampedCountAndSkipsInactivePulse()
+    {
+        var fx = new SpriteEffectsConfig { Trail = new TrailConfig { Count = 1000 }, Pulse = new PulseConfig { FrequencyHz = 0 } };
+        Assert.Equal(new[] { $"trail {SpriteEffects.MaxTrailCount}" }, SpriteEffects.Describe(fx));
+        Assert.Empty(SpriteEffects.Describe(null));
+    }
+
+    // ── analytic anchor for the scan (design section 8 CrossingTimeTests) ──
+
+    [Fact]
+    public void Entry_AnalyticCrossingTime()
+    {
+        // Linear starts at x = -100 and moves 1 px/ms: the 100 px sprite overlaps a node at offset 1000 once
+        // x > 900, i.e. t > 1000 ms; the first 16 ms grid time after that is 1008 ms.
+        var node = new NodeLayout { Id = "n", OffsetX = 1000, Width = 1000, Height = 600, CanvasWidth = 2000, CanvasHeight = 600 };
+        var input = new SpritePoseInput(new MovementConfig { Type = MovementType.Linear, SpeedPixelsPerSecond = 1000 }, 100, 100, 2000, 600, 0f, node);
+        var ev = SpriteEffects.FindBezelEvent(input, new SpriteEffectsConfig { Entry = BezelEffect.Glow }, 1100);
+        Assert.Equal(1008, ev!.Value.EventElapsedMs);
+    }
 }

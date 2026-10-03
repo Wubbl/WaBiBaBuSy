@@ -3695,6 +3695,11 @@ partial class Program
 
             // Roadmap 2.4: trail behind the sprite, pulse + spin on it (pure functions of elapsed).
             var fx = SpriteEffects.Supported(_animationConfig, _movementConfig, _backgroundMode) ? _animationConfig.Effects : null;
+            if (fx != null && _animationConfig.FaceTravelDirection)
+            {
+                // Same pose-based facing as the trail ghosts: frame history free, so exact frames agree too.
+                flipX = _facingLeft = _lastFlipX = SpriteEffects.FacingLeftAt(PoseInput(), elapsedMs, _facingLeft);
+            }
             if (fx != null) DrawTrail(fx, bmp, elapsedMs, gradingActive && !isTraveling);
             float spriteScale = fx != null ? SpriteEffects.PulseScale(fx.Pulse, elapsedMs) : 1f;
             if (fx != null) rotDeg += SpriteEffects.SpinDegrees(fx.SpinDegPerSecond, elapsedMs);
@@ -3817,9 +3822,9 @@ partial class Program
             {
                 var lp = new Vortice.Direct2D1.LayerParameters1
                 {
-                    ContentBounds = new Vortice.RawRectF(
-                        float.NegativeInfinity, float.NegativeInfinity,
-                        float.PositiveInfinity, float.PositiveInfinity),
+                    // The cell's own rect (in the current transform's space): a trail draws one such layer per
+                    // tinted ghost, and an unbounded layer costs a full-screen surface each time.
+                    ContentBounds = new Vortice.RawRectF(x, y, x + w, y + h),
                     MaskTransform = System.Numerics.Matrix3x2.Identity,
                     Opacity = alpha,
                     LayerOptions = Vortice.Direct2D1.LayerOptions1.None

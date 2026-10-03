@@ -203,13 +203,20 @@ public sealed class ScenePainter
                 var (gx, gy) = SpriteEffects.Pose(input, t);
                 float gly = ClampCorridor(NodeMapping.ToLocalY(gy, eff), bg, animH);
                 float gScale = SpriteEffects.PulseScale(fx.Pulse, t) * ghost.Scale;
+                // Like the players: with a time-based color mode each ghost keeps the color it had at its moment.
+                var gTint = tint;
+                if (tint.HasValue && fx.Trail!.UseGradingColor && grading != null)
+                {
+                    var (gr, gg, gb) = ColorGrader.ComputeCurrentColor(grading, t);
+                    gTint = Color.FromRgb((byte)(gr * 255), (byte)(gg * 255), (byte)(gb * 255));
+                }
                 float gRot = SpriteEffects.SpinDegrees(fx.SpinDegPerSecond, t);
                 int gn = NodeMapping.WrapCopies(gx, animW, eff, copies);
                 for (int i = 0; i < gn; i++)
                 {
                     float glx = NodeMapping.ToLocalX(copies[i], animW, eff);
                     if (!NodeMapping.IsVisible(glx, animW, eff)) continue;
-                    DrawSprite(ctx, rect, s, bmp, glx, gly, animW, animH, gScale, gRot, ghost.Opacity, tint);
+                    DrawSprite(ctx, rect, s, bmp, glx, gly, animW, animH, gScale, gRot, ghost.Opacity, gTint);
                 }
             }
         }

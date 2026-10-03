@@ -38,10 +38,25 @@ public static class SpriteEffects
 
     /// <summary>True when <paramref name="fx"/> asks for at least one effect.</summary>
     public static bool HasAny(SpriteEffectsConfig? fx) =>
-        fx != null && (TrailCount(fx.Trail) > 0
-                       || (fx.Pulse != null && fx.Pulse.Amplitude > 0f && fx.Pulse.FrequencyHz > 0f)
-                       || fx.SpinDegPerSecond != 0f
+        fx != null && (TrailCount(fx.Trail) > 0 || PulseActive(fx.Pulse) || fx.SpinDegPerSecond != 0f
                        || fx.Entry != BezelEffect.None || fx.Exit != BezelEffect.None);
+
+    /// <summary>True when the pulse changes the size at all.</summary>
+    public static bool PulseActive(PulseConfig? pulse) => pulse != null && pulse.Amplitude > 0f && pulse.FrequencyHz > 0f;
+
+    /// <summary>Short labels of what is drawn ("trail 8", "pulse", "spin 45°/s", "entry ripple", …) for summaries.</summary>
+    public static IReadOnlyList<string> Describe(SpriteEffectsConfig? fx)
+    {
+        var parts = new List<string>();
+        if (fx == null) return parts;
+        int trail = TrailCount(fx.Trail);
+        if (trail > 0) parts.Add($"trail {trail}");
+        if (PulseActive(fx.Pulse)) parts.Add("pulse");
+        if (fx.SpinDegPerSecond != 0f) parts.Add(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"spin {fx.SpinDegPerSecond:0}°/s"));
+        if (fx.Entry != BezelEffect.None) parts.Add($"entry {fx.Entry.ToString().ToLowerInvariant()}");
+        if (fx.Exit != BezelEffect.None) parts.Add($"exit {fx.Exit.ToString().ToLowerInvariant()}");
+        return parts;
+    }
 
     /// <summary>
     /// Effects are drawn for a single image moved by <see cref="MovementCalculator"/>: not with a pattern (cells

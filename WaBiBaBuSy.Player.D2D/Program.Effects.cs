@@ -72,11 +72,11 @@ partial class Program
         var clear = new Color4(color.R, color.G, color.B, 0f);
         _bezelSolidBrush = _d2dContext!.CreateSolidColorBrush(color);
         var stops = new GradientStop[2];
-        stops[0] = new GradientStop(0f, ref color);   // bright at the crossing edge
-        stops[1] = new GradientStop(1f, ref clear);   // fades into the screen
+        stops[0] = new GradientStop(0f, in color);   // bright at the crossing edge
+        stops[1] = new GradientStop(1f, in clear);   // fades into the screen
         using var stopCol = _d2dContext.CreateGradientStopCollection(stops, Gamma.StandardRgb, ExtendMode.Clamp);
         var start = Vector2.Zero; var end = Vector2.UnitX;
-        _bezelGlowBrush = _d2dContext.CreateLinearGradientBrush(new LinearGradientBrushProperties(ref start, ref end), stopCol);
+        _bezelGlowBrush = _d2dContext.CreateLinearGradientBrush(new LinearGradientBrushProperties(in start, in end), stopCol);
         _bezelBrushColor = colorHex;
     }
 
