@@ -75,10 +75,20 @@ public sealed class PlayerProbeReply
     public int PhaseMs { get; set; }
     /// <summary>When the frame was rendered (just before Present), player-local UTC ms.</summary>
     public long RenderLocalUtcMs { get; set; }
-    /// <summary>When the frame reached the screen (DXGI frame statistics); null when unavailable.</summary>
+    /// <summary>When the frame reached the screen; null when unavailable. <see cref="PresentSource"/> says how it was obtained.</summary>
     public long? PresentLocalUtcMs { get; set; }
-    /// <summary>True when the present time was extrapolated from a later frame's statistics.</summary>
+    /// <summary>
+    /// True when the present time was not measured for this frame itself: extrapolated from a later frame's DXGI
+    /// statistics, or estimated from DWM timing / the refresh rate (every <see cref="PresentSource"/> but <see cref="PresentSources.Dxgi"/>).
+    /// </summary>
     public bool PresentEstimated { get; set; }
+    /// <summary>
+    /// Where <see cref="PresentLocalUtcMs"/> came from: one of <see cref="PresentSources"/>. Null when there is no present
+    /// time, and in replies from players older than 2026-10-03 (those only ever used DXGI).
+    /// </summary>
+    public string? PresentSource { get; set; }
+    /// <summary>Why the present time is not plain DXGI (e.g. "DXGI frame statistics all zero"), or why there is none; null otherwise.</summary>
+    public string? PresentNote { get; set; }
     /// <summary>The player's frame counter for the sampled frame.</summary>
     public long FrameIndex { get; set; }
     /// <summary>Frame pacing over the frames before the probe; null before the second frame.</summary>
@@ -99,6 +109,22 @@ public sealed class PlayerProbeReply
     public int Height { get; set; }
     /// <summary>PNG written by the player on its machine.</summary>
     public string? CapturePath { get; set; }
+}
+
+/// <summary>Values of <see cref="PlayerProbeReply.PresentSource"/>.</summary>
+public static class PresentSources
+{
+    /// <summary>DXGI frame statistics for exactly this frame (<c>SyncQPCTime</c>): measured.</summary>
+    public const string Dxgi = "dxgi";
+    /// <summary>DXGI statistics of a later frame, stepped back by the measured frame interval.</summary>
+    public const string DxgiStepBack = "dxgi-stepback";
+    /// <summary>DXGI statistics unusable; estimated from DWM composition timing (<see cref="DwmPresentEstimator"/>).</summary>
+    public const string Dwm = "dwm";
+    /// <summary>Neither DXGI nor a usable DWM clock for this monitor; Present + 1.5 of the monitor's refresh periods.</summary>
+    public const string Nominal = "nominal";
+
+    /// <summary>True for the estimates that do not come from DXGI at all (<see cref="Dwm"/>, <see cref="Nominal"/>).</summary>
+    public static bool IsNonDxgiEstimate(string? source) => source is Dwm or Nominal;
 }
 
 /// <summary>Frame pacing over the last N frames.</summary>
@@ -186,6 +212,10 @@ public sealed class NodeProbeSample
     public long? PresentLocalUtcMs { get; set; }
     /// <inheritdoc cref="PlayerProbeReply.PresentEstimated"/>
     public bool PresentEstimated { get; set; }
+    /// <inheritdoc cref="PlayerProbeReply.PresentSource"/>
+    public string? PresentSource { get; set; }
+    /// <inheritdoc cref="PlayerProbeReply.PresentNote"/>
+    public string? PresentNote { get; set; }
     /// <inheritdoc cref="PlayerProbeReply.FrameIndex"/>
     public long FrameIndex { get; set; }
     /// <inheritdoc cref="RemoteProbeResult.ClockOffsetMs"/>
@@ -227,6 +257,8 @@ public sealed class NodeProbeSample
         RenderLocalUtcMs = r.RenderLocalUtcMs,
         PresentLocalUtcMs = r.PresentLocalUtcMs,
         PresentEstimated = r.PresentEstimated,
+        PresentSource = r.PresentSource,
+        PresentNote = r.PresentNote,
         FrameIndex = r.FrameIndex,
         ClockOffsetMs = clockOffsetMs,
         RttMs = rttMs,
