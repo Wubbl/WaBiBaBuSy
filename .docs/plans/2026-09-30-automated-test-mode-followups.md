@@ -102,9 +102,11 @@ Legend: **F** fixed (commit) · **AF** already fixed before 2026-10-02 · **WF**
 
 ## Remaining
 
-1. **Zero frame statistics (Task 16 root cause).** In some desktop states `IDXGISwapChain::GetFrameStatistics` returns S_OK with `PresentCount = 0` / `SyncRefreshCount = 0` for the wallpaper windows, so every probe falls back to render time (the report says so; drift spread is then render-time based and misses the 6–17 ms present latency). Which state triggers it is unknown — it switched between 20:34 and 21:02 on 2026-10-02 on the dev machine with no code change. Next step: note what is on screen when it happens (maximized / fullscreen window over the desktop, monitor sleep, HDR, refresh-rate change), and consider a fallback source such as `DwmGetCompositionTimingInfo` (`qpcVBlank`, `cFrame`) for composed windows.
-2. **Restore a running show after a test run** — needs the running `Playlist` from `PlaylistOrchestrator` and an `ITestHost` restore that is not limited to `CrossScreenConfig`.
-3. **Skewed-scheduling unit test** — needs an injectable clock (or `InternalsVisibleTo`) in `WallpaperPlaybackService` / `WallpaperSyncClient`.
-4. **Log fetch correlation id** — a reply that arrives after its fetch timed out can complete the next queued fetch for that client; fix = request id in `ClientLogData` / FETCH_LOGS (proto change).
-5. **Manual checks** of the build-verified UI and player changes (menu status for CLI/API runs, CLI console line, Settings refresh, stranded-probe replies) — fold into the 2026-09-28 checklist run.
-6. Not test mode, found in passing: `TrayViewModel.Connect` never wires the cross-screen apply/stop delegates, so a client connected from the tray without the main window cannot play cross-screen scenes. Tracked in `.docs/2025.12_OpenIssues.md`.
+All six items were resolved on 2026-10-03:
+
+1. ~~Zero frame statistics~~ — **F** `7ffb27b`: after 3 frames of unusable DXGI statistics a probe resolves from `DwmGetCompositionTimingInfo` (`PresentSource = dwm`; first vblank after the next composition), or `Present + 1.5 refresh periods` (`nominal`) when DWM's clock belongs to another display. Verified live 2026-10-03 in the zero-statistics state: 16/16 samples with a present time (165 Hz monitor `dwm`, 75 Hz monitor `nominal`), spread 8–10 ms. When DXGI works, the player logs DXGI vs the DWM model side by side. Which desktop state triggers the zero statistics is still unknown.
+2. ~~Restore a running show after a test run~~ — **F** `c9ce043` (`ITestHost.CaptureRestorePoint` / `RestoreAsync`, `PlaylistOrchestrator.CaptureResumePoint` / `Resume`; the interrupted item restarts, shuffle order kept). UI build-verified only.
+3. ~~Skewed-scheduling unit test~~ — **F** `398c000` (`TimeProvider` seam on `WallpaperSyncClient`, `SkewedSchedulingTests`).
+4. ~~Log fetch correlation id~~ — **F** `3ae2858` (`SyncParameters.log_request_id = 35`, `ClientLogData.request_id = 5`; an empty id from older clients still matches).
+5. Manual checks of the build-verified UI and player changes — in [`2026-10-04-manual-test-checklist.md`](2026-10-04-manual-test-checklist.md).
+6. ~~Tray-connected client unsynchronized~~ — **F** `a434e43` (`RemotePlaybackHost`, see `.docs/RECENT_UPDATES.md`).

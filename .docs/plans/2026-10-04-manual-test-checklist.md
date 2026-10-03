@@ -82,7 +82,8 @@ automated runs (§4) are quick and cover timing + pixel parity, so §5 only need
 - [ ] **API from another machine:** from a client, `curl http://<server-ip>:50051/test/status` → 404 (not 415/400/405)
 - [ ] **Port 50052 busy:** start something on 50052 first (e.g. `python -m http.server 50052 --bind 127.0.0.1`), then Start Server → the server starts (clients can connect), the log warns that the test control API is off
 - [ ] **No logs popup:** during a run with a remote (§4) the main window's client-logs panel does **not** open when the run fetches logs at the end
-- [ ] **Frame statistics:** in the run's `logs\server.log` search for `no present statistics`. If it appears, note what was on screen (maximized / fullscreen window over the desktop? monitor asleep? HDR?): ______. The 10-02 runs flipped between 0 and 16 such lines with the same build
+- [ ] **Frame statistics:** in the run's `logs\server.log` search for `DWM fallback`. If it appears, note what was on screen (maximized / fullscreen window over the desktop? monitor asleep? HDR?): ______. Each sample in `report.json` has `presentSource` (`dxgi`, `dxgi-stepback`, `dwm`, `nominal`); none should lack a present time
+- [ ] **DWM model calibration:** when DXGI works, the log shows `DXGI present X ms after Present; dwm model Y ms (diff ±Z ms)` — Z mostly within one refresh period: ______
 
 ## 4. Automated runs — 2+ machines (covers 09-28 §3–§4 timing and parity)
 

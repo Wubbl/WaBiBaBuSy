@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-10-03 — Tray-connected clients in sync · DWM present-time fallback · show restored after test runs
+
+- **Tray-connected clients** (`a434e43`): client-mode rendering (cross-screen D2D, plain D2D, Stop, thumbnails, test probes) moved from `MainWindowViewModel` (exists only while the window is open) to the app-lifetime `RemotePlaybackHost` (`WaBiBaBuSy.UI/Services`), created and registered once by the tray. Before, a client connected from the tray played cross-screen scenes unsynchronized ("D2DCrossScreenApplyDelegate is NULL - falling back to plain D2D"). `WaBiBaBuSyService` keeps the delegates (`ClientPlaybackDelegates`) across connections. Player cleanup: prior-session orphans are killed at app start (players older than the app); opening the main window still kills untracked players but spares the host's; Clear all stops the host's players first; Exit stops them.
+- **DWM present-time fallback** (`7ffb27b`): when DXGI frame statistics are unusable for 3 frames (the all-zero state of 10-02), a probe's present time comes from `DwmGetCompositionTimingInfo` (`DwmPresentEstimator`), or Present + 1.5 refresh periods when DWM's clock is another display. `PresentSource` / `PresentNote` on probe replies and samples; the drift message names estimated monitors. Live: 16/16 samples resolved, spread 8–10 ms (render-time fallback had shown 0 ms).
+- **Show restore** (`c9ce043`): a test run brings back a running playlist show at the interrupted item (shuffle order kept), not only a plain scene.
+- **Test seams** (`398c000`, `3ae2858`): `TimeProvider` seam + `SkewedSchedulingTests`; FETCH_LOGS replies matched by request id (`log_request_id = 35`, `request_id = 5`). `InternalsVisibleTo("WaBiBaBuSy.Tests")` on Core.
+- Fix: drift messages named local monitors "server #1#1".
+
 ## 2026-10-02 — Test-mode follow-ups resolved · fix: control API leaked test mode to the LAN
 
 All ~30 deferred findings from the test-mode reviews re-checked against the code and fixed, found already fixed, or closed with a reason — per-item record in `.docs/plans/2026-09-30-automated-test-mode-followups.md`. Unit tests 437 → 553.
