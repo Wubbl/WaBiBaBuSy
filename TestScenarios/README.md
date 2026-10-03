@@ -24,7 +24,7 @@ The bundled files are copied next to the exe (`TestScenarios\` in the build/inst
 | `parity-matrix.json` | 1+ client | Linear, SineWave, Static, Bounce wave, pattern + traveling colors, face direction, IconZone: marker positions and exact-frame pixel parity |
 | `clock-skew.json` | 1+ client | Simulated client clock skew: start and drift stay within tolerance |
 | `showcase/showcase.json` | server only | Not a pass/fail check: plays 12 showcase scenes and renders exact frames at 1/4/9/20 s as a contact sheet for tuning animation settings |
-| `showcase/events.json` | server only | Not a pass/fail check: fires the five one-shot show events (Celebration, Spotlight, Traversal, Blackout, Announce) at fixed scene times and renders exact frames inside each event |
+| `showcase/events.json` | server only | Not a pass/fail check: fires the five one-shot show events (Celebration, Spotlight, Traversal, Blackout — in white, so the frame differs from the dark scene —, Announce) at fixed scene times and renders exact frames inside each event; waits 3 s after the Traversal so remote clients have its image |
 
 Room settings (Ring / Snake, facing rows, Physical units) come from the room, not from the scene. Set them before
 `parity-matrix.json`, and run it twice to cover both pixel mode and Physical units.

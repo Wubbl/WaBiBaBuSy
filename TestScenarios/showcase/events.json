@@ -18,13 +18,14 @@
 
     { "type": "showEvent", "label": "traversal cat", "atElapsedMs": 12000,
       "event": { "type": "Traversal", "durationMs": 6000, "imagePath": "assets/cat.gif", "spriteAspect": 1.0, "heightFraction": 0.4 } },
+    { "type": "wait", "label": "remote clients download the traversal image", "ms": 3000 },
     { "type": "exactFrame", "label": "traversal t=+1.5s", "elapsedMs": 13500 },
     { "type": "exactFrame", "label": "traversal t=+4.5s", "elapsedMs": 16500 },
 
-    { "type": "showEvent", "label": "blackout", "atElapsedMs": 19000,
-      "event": { "type": "Blackout", "durationMs": 2000, "colorHex": "#000000" } },
-    { "type": "exactFrame", "label": "blackout t=+0.125s (fading in)", "elapsedMs": 19125 },
-    { "type": "exactFrame", "label": "blackout t=+1s (full)", "elapsedMs": 20000 },
+    { "type": "showEvent", "label": "whiteout (Blackout in white, visible on the dark scene)", "atElapsedMs": 19000,
+      "event": { "type": "Blackout", "durationMs": 2000, "colorHex": "#FFFFFF" } },
+    { "type": "exactFrame", "label": "whiteout t=+0.125s (fading in)", "elapsedMs": 19125 },
+    { "type": "exactFrame", "label": "whiteout t=+1s (full)", "elapsedMs": 20000 },
 
     { "type": "showEvent", "label": "announce", "atElapsedMs": 22000,
       "event": { "type": "Announce", "durationMs": 6000, "text": "Round 3 starts in 5 min", "spriteAspect": 8.2, "heightFraction": 0.25, "colorHex": "#FFFFFF" } },
