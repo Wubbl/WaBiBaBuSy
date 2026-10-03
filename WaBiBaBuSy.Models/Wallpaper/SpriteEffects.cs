@@ -1,7 +1,31 @@
+using WaBiBaBuSy.Models.Topology;
+
 namespace WaBiBaBuSy.Models.Wallpaper;
 
 /// <summary>One trail ghost: how far back in time it samples the sprite, its opacity and its size factor.</summary>
 public readonly record struct TrailGhost(long OffsetMs, float Opacity, float Scale);
+
+/// <summary>Everything the pose of the sprite depends on, for one node.</summary>
+public readonly record struct SpritePoseInput(
+    MovementConfig Movement, int AnimW, int AnimH, int CanvasW, int CanvasH, float TileAlignStepX, NodeLayout Node);
+
+/// <summary>Which crossing a bezel event marks.</summary>
+public enum BezelEventKind { Entry, Exit }
+
+/// <summary>A bezel crossing on this node that is still within the effect's duration.</summary>
+/// <param name="Kind">Entry or exit.</param>
+/// <param name="Effect">What to draw for it.</param>
+/// <param name="EventElapsedMs">First 16 ms grid time in the new state (identical on every node and frame).</param>
+/// <param name="Progress">0 at the crossing, 1 when the effect ends.</param>
+/// <param name="AtRightEdge">The crossing happened at the node's right screen edge.</param>
+/// <param name="CenterVirtualY">Sprite center Y (virtual canvas) at the crossing.</param>
+public readonly record struct BezelEvent(
+    BezelEventKind Kind, BezelEffect Effect, long EventElapsedMs, float Progress, bool AtRightEdge, float CenterVirtualY);
+
+/// <summary>What to draw for a bezel event, in node-local canvas units.</summary>
+/// <remarks>Glow: rect X/Y/Width/Height, bright at the edge (EdgeOnRight). Flash: whole node. Ripple: circle at X/Y with Radius and StrokeWidth.</remarks>
+public readonly record struct BezelVisual(
+    BezelEffect Effect, float Opacity, float X, float Y, float Width, float Height, float Radius, float StrokeWidth, bool EdgeOnRight);
 
 /// <summary>
 /// Pure math of the sprite effects (<see cref="SpriteEffectsConfig"/>), shared by the D2D players and the room
@@ -65,5 +89,105 @@ public static class SpriteEffects
         float opacity = Math.Clamp(trail.StartOpacity, 0f, 1f) * (1f - (k - 1) / (float)count);
         float scale = MathF.Pow(Math.Clamp(trail.ScaleFalloff, 0.1f, 1f), k);
         return new TrailGhost(offset, Math.Clamp(opacity, 0f, 1f), scale);
+    }
+
+    /// <summary>Grid of the bezel scan, ms (one 60 Hz frame).</summary>
+    public const int BezelScanStepMs = 16;
+
+    /// <summary>Width of the Glow strip, canvas units.</summary>
+    public const float GlowWidth = 120f;
+
+    /// <summary>Ripple radius when the effect ends, canvas units.</summary>
+    public const float RippleMaxRadius = 600f;
+
+    /// <summary><see cref="SpriteEffectsConfig.BezelDurationMs"/> clamped to 50..3000 ms (bounds the scan cost).</summary>
+    public static int BezelDurationMs(SpriteEffectsConfig fx) => Math.Clamp(fx.BezelDurationMs, 50, 3000);
+
+    /// <summary>Sprite top-left in virtual canvas units — exactly what the players compute for MovementCalculator movement.</summary>
+    public static (float VirtualX, float VirtualY) Pose(in SpritePoseInput p, long elapsedMs) =>
+        MovementCalculator.Calculate(p.Movement, elapsedMs, p.AnimW, p.AnimH, p.CanvasW, p.CanvasH,
+            tileAlignStepX: p.TileAlignStepX, canvasWraps: p.Node.Wraps);
+
+    /// <summary>
+    /// True when any wrap copy of the sprite overlaps the node at <paramref name="elapsedMs"/>. <paramref name="localX"/>:
+    /// screen-space left edge of the visible copy (of the first copy when none is visible).
+    /// </summary>
+    public static bool IsOnNode(in SpritePoseInput p, long elapsedMs, out float localX, out float virtualY)
+    {
+        var (vx, vy) = Pose(p, elapsedMs);
+        virtualY = vy;
+        Span<float> copies = stackalloc float[2];
+        int n = NodeMapping.WrapCopies(vx, p.AnimW, p.Node, copies);
+        for (int i = 0; i < n; i++)
+        {
+            float lx = NodeMapping.ToLocalX(copies[i], p.AnimW, p.Node);
+            if (NodeMapping.IsVisible(lx, p.AnimW, p.Node)) { localX = lx; return true; }
+        }
+        localX = NodeMapping.ToLocalX(copies[0], p.AnimW, p.Node);
+        return false;
+    }
+
+    /// <summary>
+    /// Screen-space facing at <paramref name="elapsedMs"/> from the motion over the previous 16 ms (mirrored nodes
+    /// included); <paramref name="fallback"/> when it barely moves or wraps around the ring.
+    /// </summary>
+    public static bool FacingLeftAt(in SpritePoseInput p, long elapsedMs, bool fallback)
+    {
+        float x1 = NodeMapping.ToLocalX(Pose(p, elapsedMs).VirtualX, p.AnimW, p.Node);
+        float x0 = NodeMapping.ToLocalX(Pose(p, elapsedMs - BezelScanStepMs).VirtualX, p.AnimW, p.Node);
+        float dx = x1 - x0;
+        if (MathF.Abs(dx) > p.Node.Width) dx = 0f;    // loop / ring wrap, not a direction change
+        return SyncTiming.ResolveFacingLeft(dx, fallback);
+    }
+
+    /// <summary>
+    /// The newest bezel crossing on this node within the effect duration, or null. Scans the sprite's visibility
+    /// backwards on a 16 ms grid aligned to absolute elapsed time, so every frame and every node agree on the
+    /// crossing time without any frame history. Samples before elapsed 0 end the scan: a sprite that is on a node
+    /// when the scene starts did not cross into it.
+    /// </summary>
+    public static BezelEvent? FindBezelEvent(in SpritePoseInput p, SpriteEffectsConfig fx, long elapsedMs)
+    {
+        if (elapsedMs < 0 || (fx.Entry == BezelEffect.None && fx.Exit == BezelEffect.None)) return null;
+        int duration = BezelDurationMs(fx);
+        long newerT = elapsedMs - SyncTiming.PositiveModulo(elapsedMs, BezelScanStepMs);
+        bool newerVisible = IsOnNode(p, newerT, out float newerX, out float newerY);
+        for (long t = newerT - BezelScanStepMs; t >= 0 && elapsedMs - newerT <= duration; t -= BezelScanStepMs)
+        {
+            bool olderVisible = IsOnNode(p, t, out float olderX, out float olderY);
+            if (olderVisible != newerVisible)
+            {
+                var kind = newerVisible ? BezelEventKind.Entry : BezelEventKind.Exit;
+                var effect = kind == BezelEventKind.Entry ? fx.Entry : fx.Exit;
+                if (effect == BezelEffect.None) return null;
+                float x = newerVisible ? newerX : olderX;       // the copy that is (entry) / was (exit) on the node
+                float y = newerVisible ? newerY : olderY;
+                bool right = x + p.AnimW / 2f > p.Node.Width / 2f;
+                return new BezelEvent(kind, effect, newerT, (elapsedMs - newerT) / (float)duration, right, y + p.AnimH / 2f);
+            }
+            newerT = t; newerVisible = olderVisible; newerX = olderX; newerY = olderY;
+        }
+        return null;
+    }
+
+    /// <summary>Geometry and opacity of <paramref name="e"/> on <paramref name="node"/> (design section 3 table).</summary>
+    public static BezelVisual Visual(in BezelEvent e, NodeLayout node)
+    {
+        float p = Math.Clamp(e.Progress, 0f, 1f);
+        float fade = 1f - p;
+        float edgeX = e.AtRightEdge ? node.Width : 0f;
+        switch (e.Effect)
+        {
+            case BezelEffect.Glow:
+                float w = Math.Min(GlowWidth, node.Width / 2f);
+                return new BezelVisual(BezelEffect.Glow, fade, e.AtRightEdge ? node.Width - w : 0f, 0f, w, node.Height, 0f, 0f, e.AtRightEdge);
+            case BezelEffect.Flash:
+                return new BezelVisual(BezelEffect.Flash, 0.35f * fade * fade, 0f, 0f, node.Width, node.Height, 0f, 0f, e.AtRightEdge);
+            case BezelEffect.Ripple:
+                float cy = NodeMapping.ToLocalY(e.CenterVirtualY, node);
+                return new BezelVisual(BezelEffect.Ripple, fade, edgeX, cy, 0f, 0f, p * RippleMaxRadius, 2f + 10f * fade, e.AtRightEdge);
+            default:
+                return new BezelVisual(BezelEffect.None, 0f, 0f, 0f, 0f, 0f, 0f, 0f, e.AtRightEdge);
+        }
     }
 }
