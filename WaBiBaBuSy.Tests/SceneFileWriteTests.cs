@@ -56,6 +56,23 @@ public class SceneFileWriteTests : IDisposable
         Assert.Contains("Größe.png", json);
     }
 
+    // A hand-edited preset with a nested null used to load fine and crash the editor (NullReferenceException in
+    // LoadFromConfig) — it must be reported like a top-level null.
+    [Theory]
+    [InlineData("""{ "Animation": { "AnimationPath": "logo.png", "ColorGrading": null } }""", "Animation.ColorGrading")]
+    [InlineData("""{ "Animation": { "AnimationPath": "logo.png", "ColorGrading": { "ColorList": null } } }""", "Animation.ColorGrading.ColorList")]
+    [InlineData("""{ "Animation": { "AnimationPath": "logo.png" }, "Background": { "IconZonePaletteHexes": null } }""", "Background.IconZonePaletteHexes")]
+    [InlineData("""{ "Animation": { "AnimationPath": "logo.png" }, "SelectedMonitorIds": null }""", "SelectedMonitorIds")]
+    public void Load_NestedNull_ThrowsScenarioException(string json, string member)
+    {
+        Asset("logo.png");
+        var path = Path.Combine(_dir, "scene.json");
+        File.WriteAllText(path, json);
+
+        var ex = Assert.Throws<ScenarioException>(() => SceneFile.Load(path));
+        Assert.Contains(member + " is null", ex.Message);
+    }
+
     [Fact]
     public void Clone_IsDeepAndEqual()
     {

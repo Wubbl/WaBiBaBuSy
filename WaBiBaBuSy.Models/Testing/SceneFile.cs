@@ -64,10 +64,18 @@ public static class SceneFile
         if (config == null) throw new ScenarioException($"{full}: empty scene");
         // JSON "null" overrides the (non-nullable) defaults: report it instead of crashing later.
         var nulls = new List<string>();
+        // Nested collections too: a hand-edited preset with one of them null would crash the editor later.
         if (IsNull(config.Animation)) nulls.Add("Animation");
-        else if (IsNull(config.Animation.AdditionalAnimationPaths)) nulls.Add("Animation.AdditionalAnimationPaths");
+        else
+        {
+            if (IsNull(config.Animation.AdditionalAnimationPaths)) nulls.Add("Animation.AdditionalAnimationPaths");
+            if (IsNull(config.Animation.ColorGrading)) nulls.Add("Animation.ColorGrading");
+            else if (IsNull(config.Animation.ColorGrading.ColorList)) nulls.Add("Animation.ColorGrading.ColorList");
+        }
         if (IsNull(config.Background)) nulls.Add("Background");
+        else if (IsNull(config.Background.IconZonePaletteHexes)) nulls.Add("Background.IconZonePaletteHexes");
         if (IsNull(config.Movement)) nulls.Add("Movement");
+        if (IsNull(config.SelectedMonitorIds)) nulls.Add("SelectedMonitorIds");
         if (nulls.Count > 0) throw new ScenarioException($"{full}: {string.Join(", ", nulls.Select(n => n + " is null"))}");
 
         var dir = Path.GetDirectoryName(full)!;

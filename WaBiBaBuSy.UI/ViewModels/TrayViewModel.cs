@@ -49,6 +49,8 @@ public partial class TrayViewModel : ObservableObject
     // Scene presets (editor, playlist, Quick start); seeded with the starter presets on first run
     private readonly PresetStore _presets = new();
     private NativeMenuItem? _quickStartItem;
+    // Why the last Quick start did not play; shown at the top of the submenu until a start succeeds
+    private string? _quickStartProblem;
 
     [ObservableProperty]
     private bool _isClientConnected;
@@ -305,6 +307,11 @@ public partial class TrayViewModel : ObservableObject
     {
         if (_quickStartItem?.Menu is not { } submenu) return;
         submenu.Items.Clear();
+        if (_quickStartProblem != null)
+        {
+            submenu.Items.Add(new NativeMenuItem($"⚠ {_quickStartProblem}") { IsEnabled = false });
+            submenu.Items.Add(new NativeMenuItemSeparator());
+        }
         var names = _presets.List();
         foreach (var name in names)
         {
@@ -318,21 +325,38 @@ public partial class TrayViewModel : ObservableObject
 
     partial void OnIsClientConnectedChanged(bool value) => Dispatcher.UIThread.Post(RebuildQuickStartMenu);
 
-    /// <summary>Play a preset on every seat through the app-lifetime host (no window needed).</summary>
+    /// <summary>
+    /// Play a preset on every seat through the app-lifetime host (no window needed). A failure is logged and shown
+    /// at the top of the Quick start submenu (the tray has no other place to say it); a start clears it.
+    /// </summary>
     private async Task QuickStartAsync(string name)
     {
         var log = AppLogger.CreateLogger<TrayViewModel>();
         if (_service.IsClientConnected) return;
+        string? problem;
         try
         {
             var config = await _presets.LoadAsync(name);
-            if (!await _serverPlayback.QuickStartAsync(config))
-                log.LogWarning("Quick start '{Preset}' did not start (a start was in flight, or the room has no node)", name);
+            problem = await _serverPlayback.QuickStartAsync(config)
+                ? null
+                : "did not start (another start was in flight, or no monitor / client to play on)";
         }
-        catch (Exception ex) when (ex is ScenarioException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
-            log.LogWarning("Quick start '{Preset}' failed: {Message}", name, ex.Message);
+            // Everything: an exception escaping this fire-and-forget click would go unobserved.
+            log.LogWarning(ex, "Quick start '{Preset}' failed", name);
+            problem = ex.Message;
         }
+        if (problem != null) log.LogWarning("Quick start '{Preset}': {Problem}", name, problem);
+        _quickStartProblem = problem == null ? null : $"{name}: {Shorten(problem)}";
+        RebuildQuickStartMenu();
+    }
+
+    /// <summary>Menu-sized text: one line, at most 90 characters.</summary>
+    private static string Shorten(string text)
+    {
+        var line = text.ReplaceLineEndings(" ");
+        return line.Length <= 90 ? line : line[..87] + "…";
     }
 
     /// <summary>

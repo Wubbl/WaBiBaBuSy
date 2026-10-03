@@ -104,7 +104,8 @@ Preset folder: `%APPDATA%\WaBiBaBuSy\presets\`. Rename it first to test the firs
 - [ ] Server started earlier, a client connected, window **closed**: Quick start → plays on the client too (the host builds the room itself)
 - [ ] Quick start **while a show runs** → the show stops, the preset plays; open the window → toolbar shows the running scene, the room marks the nodes
 - [ ] Connected **as a client** to another server: Quick start is hidden in the tray menu
-- [ ] A hand-broken preset JSON in the folder: Presets ▾ lists it, loading it shows "Could not load …" under the footer buttons; Quick start logs a warning; nothing crashes
+- [ ] A hand-broken preset JSON in the folder (bad JSON, or e.g. `"ColorGrading": { "ColorList": null }`): Presets ▾ lists it, loading it shows "Could not load …" under the footer buttons; nothing crashes
+- [ ] Quick start of that broken preset (or one whose asset was deleted): nothing plays, and the Quick start submenu now starts with a greyed "⚠ <name>: <reason>" line; a successful Quick start removes it
 - [ ] **Ring Cat** with the room's Path = Ring: the cat faces where it runs and wraps seamlessly around both rows
 - [ ] Bezel gaps set in a standalone room (no server) survive closing / reopening the window
 

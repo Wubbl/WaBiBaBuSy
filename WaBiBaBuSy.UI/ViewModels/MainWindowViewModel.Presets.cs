@@ -7,7 +7,9 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Core.Services.Animation;
+using WaBiBaBuSy.Core.Services.Logging;
 using WaBiBaBuSy.Models.Testing;
 
 namespace WaBiBaBuSy.UI.ViewModels;
@@ -36,6 +38,13 @@ public partial class MainWindowViewModel
     /// <summary>"Replace preset" when the typed name exists — the overwrite warning.</summary>
     public string SavePresetButtonText =>
         PresetNameDraft.Trim().Length > 0 && _presets.Exists(PresetNameDraft.Trim()) ? "Replace preset" : "Save preset";
+
+    /// <summary>
+    /// Every preset action catches everything: a hand-edited or foreign preset must end in a status line, never take
+    /// the server down mid-party (an exception escaping an async command ends the app).
+    /// </summary>
+    private static void LogPresetFailure(Exception ex) =>
+        AppLogger.CreateLogger<MainWindowViewModel>().LogWarning(ex, "Preset action failed");
 
     /// <summary>Called once from the constructor.</summary>
     private void InitPresets()
@@ -70,8 +79,9 @@ public partial class MainWindowViewModel
             PresetNameDraft = name;
             PresetStatus = $"Loaded preset “{name}”";
         }
-        catch (Exception ex) when (ex is ScenarioException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
+            LogPresetFailure(ex);
             PresetStatus = $"Could not load “{name}”: {ex.Message}";
         }
     }
@@ -91,8 +101,9 @@ public partial class MainWindowViewModel
             PresetNameDraft = saved;
             PresetStatus = $"Saved preset “{saved}”";
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
+            LogPresetFailure(ex);
             PresetStatus = $"Could not save “{name}”: {ex.Message}";
         }
     }
@@ -116,8 +127,9 @@ public partial class MainWindowViewModel
             await PresetStore.ExportAsync(SceneEditor.BuildConfig(), path);
             PresetStatus = $"Exported {Path.GetFileName(path)} (+ assets\\ next to it)";
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
+            LogPresetFailure(ex);
             PresetStatus = $"Export failed: {ex.Message}";
         }
     }
@@ -141,8 +153,9 @@ public partial class MainWindowViewModel
             await LoadPresetAsync(name);
             PresetStatus = $"Imported preset “{name}”";
         }
-        catch (Exception ex) when (ex is ScenarioException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
+            LogPresetFailure(ex);
             PresetStatus = $"Import failed: {ex.Message}";
         }
     }
@@ -156,8 +169,9 @@ public partial class MainWindowViewModel
             config.SelectedMonitorIds = new();
             PlaylistEditor.AddItem(config, name);
         }
-        catch (Exception ex) when (ex is ScenarioException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
+            LogPresetFailure(ex);
             PresetStatus = $"Could not add “{name}”: {ex.Message}";
         }
     }
