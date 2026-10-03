@@ -59,13 +59,6 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     /// <summary>True while RoomView drags a tile (topology refresh paused); see <see cref="BeginNodeDrag"/>.</summary>
     private bool _nodeDragActive;
 
-    /// <summary>
-    /// Gaps set in the room for nodes whose distance no store reads back: local-only monitors
-    /// (no server running) and expanded multi-monitor nodes in client mode. Session-only; read by
-    /// every topology refresh so the 2 s refresh does not snap edits back.
-    /// </summary>
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _sessionGapCm = new();
-
     [ObservableProperty]
     private ObservableCollection<ClientNodeViewModel> _clients = new();
 
@@ -185,27 +178,11 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     /// <summary>Row count for the "Split evenly" quick setup in the Room ⚙ popover.</summary>
     [ObservableProperty] private int _roomQuickRowCount = 2;
 
-    private float? _referencePixelsPerCm;
-
     /// <summary>
     /// Pixels per cm of the server's primary monitor — the reference DPI of a physical canvas.
     /// Cached (monitor DPI does not change at runtime). 0 when it cannot be queried.
     /// </summary>
-    public float ReferencePixelsPerCm
-    {
-        get
-        {
-            if (_referencePixelsPerCm.HasValue) return _referencePixelsPerCm.Value;
-            try
-            {
-                var monitors = NativeMonitorInfo.GetAllMonitors();
-                var primary = monitors.FirstOrDefault(m => m.IsPrimary) ?? monitors.FirstOrDefault();
-                _referencePixelsPerCm = primary?.PixelsPerCm ?? 0f;
-            }
-            catch { _referencePixelsPerCm = 0f; }
-            return _referencePixelsPerCm.Value;
-        }
-    }
+    public float ReferencePixelsPerCm => LocalMonitors.ReferencePixelsPerCm;
 
     partial void OnRoomTraversalIndexChanged(int value) => UpdateRoomSettings();
     partial void OnRoomTurnGapCmChanged(int value) => UpdateRoomSettings();
@@ -682,6 +659,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     public void Detach()
     {
         _detached = true;
+        _server.ReleaseRoom(this);
         StopRefreshTimer();
         _refreshTimer.Elapsed -= OnRefreshTimerElapsed;
         _draftDebounce?.Stop();
@@ -701,7 +679,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         // Never an empty room (the window's first refresh has not run yet: keep what the last window pushed),
         // and never from a closed window (a newer one may already push its own).
         if (_detached || Clients.Count == 0) return;
-        _server.UpdateRoom(RoomNodes(), _seatMap, ReferencePixelsPerCm);
+        _server.UpdateRoom(this, RoomNodes(), _seatMap, ReferencePixelsPerCm);
     }
 
     private void OnServerPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -997,7 +975,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         var c = FindClient(nodeId);
         if (c == null) return;
         c.PhysicalDistanceCm = SeatMapEditor.NormalizeGapCm(cm);
-        _sessionGapCm[nodeId] = c.PhysicalDistanceCm;
+        _server.SessionGapCm[nodeId] = c.PhysicalDistanceCm;
         SyncRoom();
         await UpdateClientDistance(c);
         SeatMapVersion++;
@@ -1865,106 +1843,9 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                 if (_enableNetworkTopologyDebugOutput)
                     Debug.WriteLine($"Server mode: Got {connectedClients.Count} connected clients");
 
-                // Create a list that includes the server's local monitors as the first nodes
-                var allNodes = new List<WaBiBaBuSy.Grpc.ConnectedClient>();
-
-                // Enumerate local monitors for the server machine
-                var screens = System.Windows.Forms.Screen.AllScreens;
-                var nativeMonitorsServer = WaBiBaBuSy.WallpaperEngine.Native.NativeMonitorInfo.GetAllMonitors();
-                var serverRefreshByDevice = nativeMonitorsServer.ToDictionary(m => m.DeviceName, m => m.RefreshRateHz);
-                var serverScreenConfig = new WaBiBaBuSy.Grpc.ScreenConfiguration
-                {
-                    MonitorCount = screens.Length,
-                    TotalWidth = System.Windows.Forms.SystemInformation.VirtualScreen.Width,
-                    TotalHeight = System.Windows.Forms.SystemInformation.VirtualScreen.Height
-                };
-                for (int i = 0; i < screens.Length; i++)
-                {
-                    var screen = screens[i];
-                    serverRefreshByDevice.TryGetValue(screen.DeviceName, out int serverRefreshHz);
-                    serverScreenConfig.Monitors.Add(new WaBiBaBuSy.Grpc.MonitorInfo
-                    {
-                        Index = i,
-                        Width = screen.Bounds.Width,
-                        Height = screen.Bounds.Height,
-                        X = screen.Bounds.X,
-                        Y = screen.Bounds.Y,
-                        IsPrimary = screen.Primary,
-                        DeviceName = screen.DeviceName,
-                        RefreshRate = serverRefreshHz
-                    });
-                }
-
-                // Add one server node per local monitor
-                for (int i = 0; i < screens.Length; i++)
-                {
-                    var screen = screens[i];
-                    var nodeId = $"SERVER_LOCALHOST_MONITOR_{i}";
-                    // Use persisted order if available, otherwise default to index
-                    var persistedOrder = _service.GetServerLocalMonitorOrder(nodeId) ?? i;
-                    var serverNode = new WaBiBaBuSy.Grpc.ConnectedClient
-                    {
-                        ClientId = nodeId,
-                        Hostname = $"{Environment.MachineName} - Monitor {i + 1} (Server)",
-                        IpAddress = screen.Primary ? "Primary Monitor (Server)" : $"Monitor {i + 1} (Server)",
-                        Status = WaBiBaBuSy.Grpc.ClientStatusEnum.ClientConnected,
-                        OrderPosition = persistedOrder,
-                        PhysicalDistanceCm = _service.GetServerLocalMonitorDistance(nodeId) ?? _sessionGapCm.GetValueOrDefault(nodeId),
-                        ScreenConfig = serverScreenConfig
-                    };
-                    allNodes.Add(serverNode);
-                    if (_enableNetworkTopologyDebugOutput)
-                        Debug.WriteLine($"Added server monitor node: {serverNode.Hostname} at position {serverNode.OrderPosition}");
-                }
-
-                // Add connected clients - expand each client into per-monitor nodes
-                int nextOrder = screens.Length;
-                foreach (var client in connectedClients)
-                {
-                    int clientMonitorCount = client.ScreenConfig?.MonitorCount ?? 1;
-                    if (clientMonitorCount > 1 && client.ScreenConfig?.Monitors.Count > 0)
-                    {
-                        // Expand into one node per monitor
-                        for (int m = 0; m < client.ScreenConfig.Monitors.Count; m++)
-                        {
-                            var monitor = client.ScreenConfig.Monitors[m];
-                            var expandedId = $"{client.ClientId}_MONITOR_{m}";
-                            var expandedOrder = _service.GetServerLocalMonitorOrder(expandedId) ?? nextOrder;
-                            nextOrder++;
-                            allNodes.Add(new WaBiBaBuSy.Grpc.ConnectedClient
-                            {
-                                ClientId = expandedId,
-                                Hostname = $"{client.Hostname} - Monitor {m + 1}",
-                                IpAddress = client.IpAddress,
-                                Status = client.Status,
-                                OrderPosition = expandedOrder,
-                                // Expanded nodes are not connected clients: their gap lives only in the topology store.
-                                PhysicalDistanceCm = _service.GetServerLocalMonitorDistance(expandedId) ?? client.PhysicalDistanceCm,
-                                ScreenConfig = client.ScreenConfig,
-                                ClockOffsetMs = client.ClockOffsetMs,
-                                RttMs = client.RttMs,
-                                LastDriftReportUtc = client.LastDriftReportUtc
-                            });
-                        }
-                    }
-                    else
-                    {
-                        // Single monitor client - use server's OrderPosition directly
-                        allNodes.Add(new WaBiBaBuSy.Grpc.ConnectedClient
-                        {
-                            ClientId = client.ClientId,
-                            Hostname = client.Hostname,
-                            IpAddress = client.IpAddress,
-                            Status = client.Status,
-                            OrderPosition = client.OrderPosition,
-                            PhysicalDistanceCm = client.PhysicalDistanceCm,
-                            ScreenConfig = client.ScreenConfig,
-                            ClockOffsetMs = client.ClockOffsetMs,
-                            RttMs = client.RttMs,
-                            LastDriftReportUtc = client.LastDriftReportUtc
-                        });
-                    }
-                }
+                // The server's local monitors first, then the clients (multi-monitor clients expanded)
+                var allNodes = RoomNodeSources.ServerNodes(LocalMonitors.Snapshot(), connectedClients,
+                    _service.GetServerLocalMonitorOrder, _service.GetServerLocalMonitorDistance, _server.SessionGapCm);
 
                 if (_enableNetworkTopologyDebugOutput)
                     Debug.WriteLine($"Total nodes to display: {allNodes.Count}");
@@ -1997,7 +1878,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                                     Status = client.Status,
                                     OrderPosition = nextOrder++,
                                     // The server topology only reports the base client's gap; keep this session's edit.
-                                    PhysicalDistanceCm = _sessionGapCm.TryGetValue(expandedId, out var gap) ? gap : client.PhysicalDistanceCm,
+                                    PhysicalDistanceCm = _server.SessionGapCm.TryGetValue(expandedId, out var gap) ? gap : client.PhysicalDistanceCm,
                                     ScreenConfig = client.ScreenConfig,
                                     ClockOffsetMs = client.ClockOffsetMs,
                                     RttMs = client.RttMs,
@@ -2046,60 +1927,9 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     /// </summary>
     private void ShowLocalMachineNode()
     {
-        var screens = System.Windows.Forms.Screen.AllScreens;
+        var nodes = RoomNodeSources.StandaloneNodes(LocalMonitors.Snapshot(), _server.SessionGapCm);
         if (_enableNetworkTopologyDebugOutput)
-            Debug.WriteLine($"[ShowLocalMachineNode] Detected {screens.Length} monitor(s)");
-
-        var nativeMonitors = WaBiBaBuSy.WallpaperEngine.Native.NativeMonitorInfo.GetAllMonitors();
-        var refreshByDevice = nativeMonitors.ToDictionary(m => m.DeviceName, m => m.RefreshRateHz);
-
-        // Create screen configuration with all monitors
-        var screenConfig = new WaBiBaBuSy.Grpc.ScreenConfiguration
-        {
-            MonitorCount = screens.Length,
-            TotalWidth = System.Windows.Forms.SystemInformation.VirtualScreen.Width,
-            TotalHeight = System.Windows.Forms.SystemInformation.VirtualScreen.Height
-        };
-
-        // Add monitor info for each screen
-        for (int i = 0; i < screens.Length; i++)
-        {
-            var screen = screens[i];
-            refreshByDevice.TryGetValue(screen.DeviceName, out int refreshHz);
-            screenConfig.Monitors.Add(new WaBiBaBuSy.Grpc.MonitorInfo
-            {
-                Index = i,
-                Width = screen.Bounds.Width,
-                Height = screen.Bounds.Height,
-                X = screen.Bounds.X,
-                Y = screen.Bounds.Y,
-                IsPrimary = screen.Primary,
-                DeviceName = screen.DeviceName,
-                RefreshRate = refreshHz
-            });
-        }
-
-        // Create one node per monitor
-        var nodes = new List<WaBiBaBuSy.Grpc.ConnectedClient>();
-        for (int i = 0; i < screens.Length; i++)
-        {
-            var screen = screens[i];
-            var node = new WaBiBaBuSy.Grpc.ConnectedClient
-            {
-                ClientId = $"LOCAL_MACHINE_MONITOR_{i}",
-                Hostname = $"{Environment.MachineName} - Monitor {i + 1}",
-                IpAddress = screen.Primary ? "Primary Monitor" : $"Monitor {i + 1}",
-                Status = WaBiBaBuSy.Grpc.ClientStatusEnum.ClientConnected,
-                OrderPosition = i,
-                // No server, no store: gaps set in the room live for the session.
-                PhysicalDistanceCm = _sessionGapCm.GetValueOrDefault($"LOCAL_MACHINE_MONITOR_{i}"),
-                ScreenConfig = screenConfig // Share the same screen config across all nodes
-            };
-            nodes.Add(node);
-            if (_enableNetworkTopologyDebugOutput)
-                Debug.WriteLine($"[ShowLocalMachineNode] Created node for monitor {i}: {screen.Bounds.Width}x{screen.Bounds.Height} at ({screen.Bounds.X}, {screen.Bounds.Y})");
-        }
-
+            Debug.WriteLine($"[ShowLocalMachineNode] {nodes.Count} monitor node(s)");
         UpdateClientList(nodes);
     }
 
@@ -2162,50 +1992,14 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                     if (_enableNetworkTopologyDebugOutput)
                         Debug.WriteLine($"[UpdateClientList] Adding new client: {grpcClient.ClientId} ({grpcClient.Hostname}) at X={x}, Y={y}");
 
-                    // Extract monitor info for this specific node
-                    int monitorIndex = -1;
-                    string? monitorName = null;
-                    int monitorWidth = 0;
-                    int monitorHeight = 0;
-                    bool isPrimary = false;
-                    int monitorRefreshHz = 0;
-                    float monitorPixelsPerCm = 0f;
-
-                    // Check if this is a monitor-specific node (LOCAL_MACHINE_MONITOR_X, SERVER_LOCALHOST_MONITOR_X, or ClientId_MONITOR_X)
-                    string? monitorSuffix = null;
-                    if (grpcClient.ClientId.StartsWith("LOCAL_MACHINE_MONITOR_"))
-                        monitorSuffix = grpcClient.ClientId.Replace("LOCAL_MACHINE_MONITOR_", "");
-                    else if (grpcClient.ClientId.StartsWith("SERVER_LOCALHOST_MONITOR_"))
-                        monitorSuffix = grpcClient.ClientId.Replace("SERVER_LOCALHOST_MONITOR_", "");
-                    else if (grpcClient.ClientId.Contains("_MONITOR_"))
-                        monitorSuffix = grpcClient.ClientId.Substring(grpcClient.ClientId.LastIndexOf("_MONITOR_") + "_MONITOR_".Length);
-
-                    if (monitorSuffix != null && int.TryParse(monitorSuffix, out monitorIndex))
-                    {
-                        // Find the corresponding monitor info in screen config
-                        if (grpcClient.ScreenConfig != null && grpcClient.ScreenConfig.Monitors.Count > monitorIndex)
-                        {
-                            var monitorInfo = grpcClient.ScreenConfig.Monitors[monitorIndex];
-                            monitorName = monitorInfo.DeviceName;
-                            monitorWidth = monitorInfo.Width;
-                            monitorHeight = monitorInfo.Height;
-                            isPrimary = monitorInfo.IsPrimary;
-                            monitorRefreshHz = monitorInfo.RefreshRate;
-                            monitorPixelsPerCm = monitorInfo.PixelsPerCm;
-                        }
-                    }
-                    else if (grpcClient.ScreenConfig?.Monitors.Count == 1)
-                    {
-                        // Single monitor client - use its only monitor info
-                        var monitorInfo = grpcClient.ScreenConfig.Monitors[0];
-                        monitorIndex = 0;
-                        monitorName = monitorInfo.DeviceName;
-                        monitorWidth = monitorInfo.Width;
-                        monitorHeight = monitorInfo.Height;
-                        isPrimary = monitorInfo.IsPrimary;
-                        monitorRefreshHz = monitorInfo.RefreshRate;
-                        monitorPixelsPerCm = monitorInfo.PixelsPerCm;
-                    }
+                    // Monitor info for this node (LOCAL_MACHINE_MONITOR_X, SERVER_LOCALHOST_MONITOR_X, ClientId_MONITOR_X, single-monitor client)
+                    var (monitorIndex, monitorInfo) = RoomNodeSources.MonitorFor(grpcClient);
+                    string? monitorName = monitorInfo?.DeviceName;
+                    int monitorWidth = monitorInfo?.Width ?? 0;
+                    int monitorHeight = monitorInfo?.Height ?? 0;
+                    bool isPrimary = monitorInfo?.IsPrimary ?? false;
+                    int monitorRefreshHz = monitorInfo?.RefreshRate ?? 0;
+                    float monitorPixelsPerCm = monitorInfo?.PixelsPerCm ?? 0f;
 
                     var newClient = new ClientNodeViewModel
                     {

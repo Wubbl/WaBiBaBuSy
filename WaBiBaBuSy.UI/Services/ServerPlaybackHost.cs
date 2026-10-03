@@ -39,7 +39,8 @@ public readonly record struct DebugOverlayFlags(bool Enabled, bool ShowPath, boo
 /// window shows it and Stop / Clear all / ⏭ / Resync work on it, and test runs keep their host. Before
 /// 2026-10-03 all of this lived in the main window's view model, and reopening the window killed the players
 /// it could no longer see. The view model is a view over this host; it pushes the room (nodes, seat map) with
-/// <see cref="UpdateRoom"/>, and while the window is closed scenes and show items use the last room it pushed.
+/// <see cref="UpdateRoom"/>, and while the window is closed scenes and show items use the last room it pushed;
+/// tray Quick start rebuilds the room from its sources (<see cref="EnsureRoom"/>).
 /// Every member runs on the UI thread unless noted.
 /// </summary>
 public sealed partial class ServerPlaybackHost : ObservableObject
@@ -58,10 +59,12 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     private PlaylistOrchestrator? _playlistOrchestrator;
     private string? _crossScreenContentId;         // ContentId sent to remote clients at start (used for stop)
 
-    // The room as the control panel last pushed it (UpdateRoom)
+    // The room as the control panel last pushed it (UpdateRoom), or as EnsureRoom built it
     private volatile IReadOnlyList<RoomNode> _nodes = Array.Empty<RoomNode>();
     private SeatMap _seatMap = SeatMap.SingleRow();
     private float _referencePixelsPerCm;
+    // The window that last pushed the room; null = no open window keeps it current (EnsureRoom rebuilds it).
+    private object? _roomOwner;
 
     // Sequential IconZone lap-recompute state
     private int _lastGlobalLap = -1;
@@ -126,12 +129,42 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         OnPropertyChanged(nameof(HasActiveRenderer));
     }
 
+    /// <summary>
+    /// Bezel gaps set in the room that no store keeps (standalone monitors, expanded nodes in client mode).
+    /// App-lifetime, so they survive closing the window.
+    /// </summary>
+    public ConcurrentDictionary<string, int> SessionGapCm { get; } = new();
+
     /// <summary>The room's nodes, seat map and reference DPI — what scenes and show items are laid out over.</summary>
-    public void UpdateRoom(IReadOnlyList<RoomNode> nodes, SeatMap seatMap, float referencePixelsPerCm)
+    public void UpdateRoom(object owner, IReadOnlyList<RoomNode> nodes, SeatMap seatMap, float referencePixelsPerCm)
     {
+        _roomOwner = owner;
         _nodes = nodes;
         _seatMap = seatMap;
         _referencePixelsPerCm = referencePixelsPerCm;
+    }
+
+    /// <summary>The window closed: its room is no longer kept current (a newer window's room stays).</summary>
+    public void ReleaseRoom(object owner)
+    {
+        if (ReferenceEquals(_roomOwner, owner)) _roomOwner = null;
+    }
+
+    /// <summary>
+    /// Make sure the room is current: an open window keeps it so; otherwise build it from the sources the window
+    /// uses (server monitors + clients when the server runs, else this machine's monitors; stored seat map).
+    /// </summary>
+    public void EnsureRoom()
+    {
+        if (_roomOwner != null && _nodes.Count > 0) return;
+        var local = LocalMonitors.Snapshot();
+        var sources = _service.IsServerRunning
+            ? RoomNodeSources.ServerNodes(local, _service.GetConnectedClients(),
+                _service.GetServerLocalMonitorOrder, _service.GetServerLocalMonitorDistance, SessionGapCm)
+            : RoomNodeSources.StandaloneNodes(local, SessionGapCm);
+        _nodes = sources.Select(RoomNodeSources.ToRoomNode).OrderBy(n => n.Order).ToList();
+        _seatMap = SeatMapStore.Load();
+        _referencePixelsPerCm = LocalMonitors.ReferencePixelsPerCm;
     }
 
     private List<string> AllNodeIds() => _nodes.Select(n => n.Id).Distinct().ToList();
@@ -175,6 +208,27 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         if (IsCrossScreenRunning)
             await StopAsync();
         await StartSceneAsync(config);
+    }
+
+    /// <summary>
+    /// Tray Quick start: play <paramref name="config"/> on every node of the room, window open or not. Same teardown
+    /// as ▶ Play (a running show or scene stops first). False when a start is in flight or the room has no node.
+    /// </summary>
+    public async Task<bool> QuickStartAsync(CrossScreenConfig config)
+    {
+        if (!TryBeginStart()) return false;
+        try
+        {
+            EnsureRoom();
+            if (_nodes.Count == 0) return false;
+            config.SelectedMonitorIds = new List<string>();
+            await PlaySceneAsync(config);
+            return IsCrossScreenRunning;
+        }
+        finally
+        {
+            EndStart();
+        }
     }
 
     /// <summary>Start <paramref name="config"/> as the manual scene (toolbar Start; no-op while one runs).</summary>
