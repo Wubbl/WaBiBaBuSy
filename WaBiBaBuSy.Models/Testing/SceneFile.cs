@@ -1,3 +1,4 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using WaBiBaBuSy.Models.Content;
@@ -16,6 +17,20 @@ public static class SceneFile
         AllowTrailingCommas = true,
         Converters = { new JsonStringEnumConverter() },
     };
+
+    private static readonly JsonSerializerOptions WriteOptions = new(JsonOptions)
+    {
+        WriteIndented = true,
+        // Paths with umlauts stay readable in hand-edited preset files.
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
+    /// <summary>Scene JSON as <see cref="Load"/> reads it (PascalCase, enum names, indented).</summary>
+    public static string ToJson(CrossScreenConfig config) => JsonSerializer.Serialize(config, WriteOptions);
+
+    /// <summary>Deep copy through the scene JSON.</summary>
+    public static CrossScreenConfig Clone(CrossScreenConfig config) =>
+        JsonSerializer.Deserialize<CrossScreenConfig>(JsonSerializer.Serialize(config, JsonOptions), JsonOptions)!;
 
     /// <summary>
     /// Load a scene; the animation, additional image and background image paths become absolute
