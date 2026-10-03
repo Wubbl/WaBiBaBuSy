@@ -29,4 +29,8 @@
     <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="WaBiBaBuSy.Tests" />
+  </ItemGroup>
+
 </Project>
