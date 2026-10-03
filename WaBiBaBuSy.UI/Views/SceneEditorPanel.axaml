@@ -639,6 +639,41 @@
                     <Button Content="⟲ Revert" Command="{Binding RevertSceneCommand}" Margin="0,0,6,6"
                             ToolTip.Tip="Back to the loaded playlist item, else what is playing now"/>
                 </WrapPanel>
+                <!-- Presets: load / save / share the scene (targets stay with the room) -->
+                <WrapPanel>
+                    <Button Content="Presets ▾" Margin="0,0,6,6" IsEnabled="{Binding HasPresets}"
+                            ToolTip.Tip="Load a preset into the editor; the targets stay as selected in the room">
+                        <Button.Flyout>
+                            <MenuFlyout ItemsSource="{Binding ScenePresets}">
+                                <MenuFlyout.ItemContainerTheme>
+                                    <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}" x:DataType="vm:PresetMenuEntry">
+                                        <Setter Property="Header" Value="{Binding Name}"/>
+                                        <Setter Property="Command" Value="{Binding Command}"/>
+                                    </ControlTheme>
+                                </MenuFlyout.ItemContainerTheme>
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
+                    <Button Content="Save as preset…" Margin="0,0,6,6"
+                            ToolTip.Tip="Save this scene as a preset (without targets); gallery files are referenced, not copied">
+                        <Button.Flyout>
+                            <Flyout Placement="Top">
+                                <StackPanel Spacing="6" Width="240">
+                                    <TextBlock Text="Preset name" Classes="label"/>
+                                    <TextBox Text="{Binding PresetNameDraft}" PlaceholderText="e.g. Comet"/>
+                                    <Button Content="{Binding SavePresetButtonText}" Command="{Binding SaveAsPresetCommand}"
+                                            Classes="accent" HorizontalAlignment="Right"/>
+                                </StackPanel>
+                            </Flyout>
+                        </Button.Flyout>
+                    </Button>
+                    <Button Content="Export…" Command="{Binding ExportSceneCommand}" Margin="0,0,6,6"
+                            ToolTip.Tip="Write the scene as JSON with an assets folder next to it, e.g. to share with the club"/>
+                    <Button Content="Import…" Command="{Binding ImportPresetCommand}" Margin="0,0,6,6"
+                            ToolTip.Tip="Import a scene / exported preset file; its assets are copied into the preset folder"/>
+                </WrapPanel>
+                <TextBlock Text="{Binding PresetStatus}" Classes="hint"
+                           IsVisible="{Binding PresetStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
             </StackPanel>
         </Border>
         </Grid>

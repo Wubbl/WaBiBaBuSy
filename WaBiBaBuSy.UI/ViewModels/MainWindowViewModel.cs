@@ -422,6 +422,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
 
         // Docked Scene editor: default draft, units from the room, preview wiring
         InitSceneEditor();
+        InitPresets();
         InitPlaylist();
     }
 
@@ -670,6 +671,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         _server.SceneApplied -= OnSceneApplied;
         _server.NodesStopped -= OnNodesStopped;
         _server.ShowChanged -= OnShowChanged;
+        _presets.Changed -= OnPresetsChanged;
         _service.ServerStatusChanged -= OnServerStatusChanged;
         _service.ClientConnectionStatusChanged -= OnClientConnectionStatusChanged;
         _service.UpdateAvailable -= OnUpdateAvailableFromServer;

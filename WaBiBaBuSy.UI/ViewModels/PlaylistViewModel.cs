@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Diagnostics;
@@ -141,7 +142,7 @@ public partial class PlaylistViewModel : ViewModelBase
     {
         get
         {
-            if (Items.Count == 0) return "No items yet — build a scene, then ＋ Add current scene.";
+            if (Items.Count == 0) return "No items yet — ＋ Add ▾ the current scene or a preset.";
             var totalMs = Items.Sum(r => (long)r.EffectiveDurationMs);
             var span = TimeSpan.FromMilliseconds(totalMs);
             var length = span.TotalHours >= 1
@@ -232,10 +233,23 @@ public partial class PlaylistViewModel : ViewModelBase
         if (config != null) AddItem(config);
     }
 
-    /// <summary>Append a scene as a new item (named after its file) and make it the loaded item.</summary>
-    public PlaylistItemRow AddItem(CrossScreenConfig config)
+    /// <summary>"＋ Add ▾ → From preset" entries (filled by the host).</summary>
+    public ObservableCollection<PresetMenuEntry> PresetEntries { get; } = new();
+
+    [ObservableProperty] private bool _hasPresets;
+
+    /// <summary>Replace the "From preset" entries.</summary>
+    public void SetPresetEntries(IEnumerable<PresetMenuEntry> entries)
     {
-        var name = string.IsNullOrWhiteSpace(config.Animation.AnimationPath)
+        PresetEntries.Clear();
+        foreach (var e in entries) PresetEntries.Add(e);
+        HasPresets = PresetEntries.Count > 0;
+    }
+
+    /// <summary>Append a scene as a new item (named <paramref name="name"/>, else after its file) and make it the loaded item.</summary>
+    public PlaylistItemRow AddItem(CrossScreenConfig config, string? name = null)
+    {
+        name ??= string.IsNullOrWhiteSpace(config.Animation.AnimationPath)
             ? "Scene"
             : Path.GetFileNameWithoutExtension(config.Animation.AnimationPath);
         var row = new PlaylistItemRow(new PlaylistItem { Name = name, Config = config });

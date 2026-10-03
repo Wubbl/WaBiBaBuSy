@@ -84,8 +84,21 @@
             </Canvas>
         </Grid>
 
-        <Button Grid.Row="4" Content="＋ Add current scene" Command="{Binding AddCurrentSceneCommand}"
-                HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,6,0,0"
-                ToolTip.Tip="Append the Scene editor's draft as a new item"/>
+        <Button Grid.Row="4" Content="＋ Add ▾" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                Margin="0,6,0,0" ToolTip.Tip="Append the Scene editor's draft or a preset as a new item">
+            <Button.Flyout>
+                <MenuFlyout>
+                    <MenuItem Header="Current scene" Command="{Binding AddCurrentSceneCommand}"/>
+                    <MenuItem Header="From preset" ItemsSource="{Binding PresetEntries}" IsEnabled="{Binding HasPresets}">
+                        <MenuItem.ItemContainerTheme>
+                            <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}" x:DataType="vm:PresetMenuEntry">
+                                <Setter Property="Header" Value="{Binding Name}"/>
+                                <Setter Property="Command" Value="{Binding Command}"/>
+                            </ControlTheme>
+                        </MenuItem.ItemContainerTheme>
+                    </MenuItem>
+                </MenuFlyout>
+            </Button.Flyout>
+        </Button>
     </Grid>
 </UserControl>
