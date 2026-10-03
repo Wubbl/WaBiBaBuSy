@@ -10,6 +10,7 @@ using WaBiBaBuSy.Core.Services;
 using WaBiBaBuSy.Core.Services.Logging;
 using WaBiBaBuSy.Core.Services.Testing;
 using WaBiBaBuSy.Models.Content;
+using WaBiBaBuSy.Models.Show;
 using WaBiBaBuSy.Models.Topology;
 using WaBiBaBuSy.Models.Wallpaper;
 using WaBiBaBuSy.WallpaperEngine.Composition;
@@ -30,6 +31,7 @@ public sealed class RemotePlaybackHost
     private readonly WaBiBaBuSyService _service;
     private readonly DesktopWindowManager _desktopManager;
     private readonly ConcurrentDictionary<int, D2DCompositionService> _players = new();
+    private readonly ShowEventLog _showEvents = new();
 
     public RemotePlaybackHost(WaBiBaBuSyService service, DesktopWindowManager desktopManager)
     {
@@ -54,6 +56,29 @@ public sealed class RemotePlaybackHost
         _service.SetD2DCrossScreenStopDelegate(StopAllAsync);
         _service.ClientTestProbeTargets = () => _players.Values.Cast<ITestProbeTarget>().ToList();
         _service.ClientThumbnailCapture = ThumbnailCapture;
+        _service.SetShowEventDelegate(OnShowEventAsync);
+    }
+
+    /// <summary>EVENT from the server (T0 in this machine's clock, image in the cache): keep it and send it to every player.</summary>
+    public async Task OnShowEventAsync(ShowEvent evt)
+    {
+        if (!_showEvents.Add(evt)) return;
+        foreach (var player in _players.Values)
+        {
+            try { await player.SendShowEventAsync(evt); }
+            catch (Exception ex) { Debug.WriteLine($"[Events] Player send failed: {ex.Message}"); }
+        }
+    }
+
+    /// <summary>A new player continues the events that have not ended (playlist item switch, late start).</summary>
+    private async Task ReplayEventsAsync(D2DCompositionService player)
+    {
+        long now = _service.Client?.NowUtcMs ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        foreach (var evt in _showEvents.Active(now))
+        {
+            try { await player.SendShowEventAsync(evt); }
+            catch (Exception ex) { Debug.WriteLine($"[Events] Replay failed: {ex.Message}"); }
+        }
     }
 
     /// <summary>Hide or show every remote-driven player window (pause on fullscreen apps).</summary>
@@ -192,6 +217,7 @@ public sealed class RemotePlaybackHost
         await d2dService.StartAsync(startTimestampMs: req.SharedStartTimestampMs, pixelsPerSecond: pixelsPerSecond);
 
         _players[monitorIndex] = d2dService;
+        await ReplayEventsAsync(d2dService);
         await CatchUpTestModeAsync(d2dService, testMode);
         AdoptRemoteThumbnail(monitorIndex, d2dService, req.FilePath);
 
@@ -247,6 +273,7 @@ public sealed class RemotePlaybackHost
             try { kvp.Value.Dispose(); } catch { }
         }
         _players.Clear();
+        _showEvents.Clear();
         ThumbnailCapture.ClearWallpaperHwnd();
         Debug.WriteLine("[D2D-CrossScreen] All remote D2D services stopped");
     }
@@ -331,6 +358,7 @@ public sealed class RemotePlaybackHost
         await d2dService.StartAsync(startTimestampMs: 0, pixelsPerSecond: 0);
 
         _players[monitorIndex] = d2dService;
+        await ReplayEventsAsync(d2dService);
         await CatchUpTestModeAsync(d2dService, testMode);
         AdoptRemoteThumbnail(monitorIndex, d2dService, filePath);
         Debug.WriteLine($"[D2D-Remote] SUCCESS: Applied D2D wallpaper '{Path.GetFileName(filePath)}' on monitor {monitorIndex}");

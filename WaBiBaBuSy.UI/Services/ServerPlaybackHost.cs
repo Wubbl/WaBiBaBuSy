@@ -16,6 +16,7 @@ using WaBiBaBuSy.Core.Services.Testing;
 using WaBiBaBuSy.Models;
 using WaBiBaBuSy.Models.Configuration;
 using WaBiBaBuSy.Models.Content;
+using WaBiBaBuSy.Models.Show;
 using WaBiBaBuSy.Models.Testing;
 using WaBiBaBuSy.Models.Topology;
 using WaBiBaBuSy.Models.Wallpaper;
@@ -98,6 +99,34 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     /// <summary>Test-run progress / result line for the toolbar; survives the window.</summary>
     [ObservableProperty] private string? _testRunStatusText;
 
+    // ── One-shot show events (roadmap 2.4) ──
+    private readonly ShowEventLog _showEvents = new();
+    private double _activeMaxRttMs;
+
+    /// <summary>Events of the running scene that have not ended (the room preview draws them).</summary>
+    [ObservableProperty] private IReadOnlyList<ShowEvent> _activeShowEvents = Array.Empty<ShowEvent>();
+
+    /// <summary>Last event result or refusal, for the Events strip.</summary>
+    [ObservableProperty] private string? _eventStatusText;
+
+    /// <summary>Defaults of the Events strip and hotkeys.</summary>
+    public ShowEventSettings EventSettings { get; private set; } = ShowEventSettingsStore.Load();
+
+    /// <summary>An event was fired (after it went to the players and clients).</summary>
+    public event Action<ShowEvent>? EventFired;
+
+    /// <summary>True while a scene plays, so events have a canvas and a clock.</summary>
+    public bool CanFireEvents => ActiveScene != null && ActiveLayout != null;
+
+    /// <summary>Persist the event defaults and use them for the next event.</summary>
+    public void SaveEventSettings(ShowEventSettings settings)
+    {
+        EventSettings = settings;
+        ShowEventSettingsStore.Save(settings);
+    }
+
+    partial void OnActiveSceneChanged(CrossScreenConfig? value) => OnPropertyChanged(nameof(CanFireEvents));
+
     /// <summary>The debug overlay switches last sent to the players.</summary>
     public DebugOverlayFlags DebugOverlay { get; private set; } = DebugOverlayFlags.Default;
 
@@ -177,6 +206,95 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         ActiveStartLeadMs = 0;
         ActiveEffectiveMovement = null;
         ActiveLayout = null;
+        _showEvents.Clear();
+        ActiveShowEvents = Array.Empty<ShowEvent>();
+    }
+
+    // ── Show events ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Fire a one-shot event on every seat: this machine's players and every connected client. Refused (false, with
+    /// <see cref="EventStatusText"/>) when nothing plays or the event is incomplete. Call on the UI thread.
+    /// </summary>
+    public async Task<bool> FireEventAsync(ShowEventType type, string? targetSeatId = null)
+    {
+        var scene = ActiveScene;
+        var layout = ActiveLayout;
+        if (scene == null || layout == null)
+        {
+            EventStatusText = "Events need a running scene.";
+            return false;
+        }
+
+        var settings = EventSettings;
+        string? image = null;
+        string? text = null;
+        float aspect = 1f;
+        if (type == ShowEventType.Traversal)
+        {
+            image = string.IsNullOrWhiteSpace(settings.TraversalImagePath) ? scene.Animation.AnimationPath : settings.TraversalImagePath;
+            aspect = EventImages.Aspect(image);
+        }
+
+        var request = new ShowEventRequest(type, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), _activeMaxRttMs, layout,
+            PerMonitor: scene.DistributionMode == AnimationDistributionMode.Simultaneous, targetSeatId,
+            Seed: Random.Shared.Next(), EventId: Guid.NewGuid().ToString("N"), image, aspect, text);
+        var evt = ShowEventFactory.Create(request, settings, out var error);
+        if (evt == null)
+        {
+            EventStatusText = error;
+            return false;
+        }
+        await DispatchEventAsync(evt);
+        return true;
+    }
+
+    /// <summary>Test runs: send a prepared event (T0 already set by the runner). Call on the UI thread.</summary>
+    public Task FireEventForTestAsync(ShowEvent evt) => DispatchEventAsync(evt);
+
+    private async Task DispatchEventAsync(ShowEvent evt)
+    {
+        _showEvents.Add(evt);
+        ActiveShowEvents = _showEvents.Active(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+
+        foreach (var player in _players.Values)
+        {
+            try { await player.SendShowEventAsync(evt); }
+            catch (Exception ex) { Debug.WriteLine($"[Events] Local player send failed: {ex.Message}"); }
+        }
+
+        int sent = 0;
+        if (_service.SyncCoordinator != null)
+            sent = await _service.SyncCoordinator.BroadcastShowEventAsync(evt, EventAsset(evt.ImagePath));
+
+        EventStatusText = sent > 0 ? $"{evt.Type} → this machine + {sent} client(s)" : $"{evt.Type} → this machine";
+        EventFired?.Invoke(evt);
+    }
+
+    private async Task ReplayEventsAsync(IEnumerable<D2DCompositionService> players)
+    {
+        var active = _showEvents.Active(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        if (active.Count == 0) return;
+        foreach (var player in players)
+            foreach (var evt in active)
+            {
+                try { await player.SendShowEventAsync(evt); }
+                catch (Exception ex) { Debug.WriteLine($"[Events] Replay failed: {ex.Message}"); }
+            }
+    }
+
+    private static ContentAssetRef? EventAsset(string? path) =>
+        string.IsNullOrEmpty(path) || !File.Exists(path)
+            ? null
+            : new ContentAssetRef { ContentId = ContentIdentity.ComputeId(path), Role = AssetRole.Event, OriginalPath = path };
+
+    /// <summary>Cache the Traversal image on every client ahead of time (when it is picked and on every scene start).</summary>
+    public async Task PrefetchEventImageAsync()
+    {
+        var asset = EventAsset(EventSettings.TraversalImagePath);
+        if (asset == null || _service.SyncCoordinator == null) return;
+        try { await _service.SyncCoordinator.BroadcastPrefetchAsync(new[] { asset }); }
+        catch (Exception ex) { Debug.WriteLine($"[Events] Prefetch of the traversal image failed: {ex.Message}"); }
     }
 
     // ── Scenes ──────────────────────────────────────────────────────────────
@@ -1100,6 +1218,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         // same frame instead of popping in mid-lap. Lead = 3×worst RTT + the local load time we
         // just measured, clamped to [800, 4000] ms.
         double maxRttMs = plan.MaxRemoteRttMs;
+        _activeMaxRttMs = maxRttMs;   // events fired during this scene use the same lead rule
         int startLeadMs = SyncTiming.ComputeStartLeadMs(maxRttMs, (int)phase1Timer.ElapsedMilliseconds);
         var sharedStartTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + startLeadMs;
         var pixelsPerSecond = effMovement.Type == MovementType.Static
@@ -1115,6 +1234,9 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             await d2dService.StartAsync(startTimestampMs: sharedStartTimestamp, pixelsPerSecond: pixelsPerSecond);
             _players[monitorIndex] = d2dService;
         }
+
+        // An event still running (e.g. across a playlist item switch) continues on the new players at its position.
+        await ReplayEventsAsync(newServices.Select(s => s.service));
 
         // Phase 3: Send cross-screen D2D commands to remote clients
         if (remoteClients.Count > 0 && _service.SyncCoordinator != null)
@@ -1167,6 +1289,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         {
             Debug.WriteLine("[CrossScreen] WARNING: Remote clients selected but server not running - cannot send cross-screen commands");
         }
+
+        _ = PrefetchEventImageAsync();
 
         StartFullscreenDetectionIfNeeded();
 
