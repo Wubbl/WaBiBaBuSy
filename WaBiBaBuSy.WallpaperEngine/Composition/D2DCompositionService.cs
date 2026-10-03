@@ -1,6 +1,7 @@
 using System.Drawing;
 using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Core.Services.Testing;
+using WaBiBaBuSy.Models.Show;
 using WaBiBaBuSy.Models.Testing;
 using WaBiBaBuSy.Models.Wallpaper;
 using WaBiBaBuSy.Player.Common.Messages;
@@ -60,6 +61,17 @@ public class D2DCompositionService : IDisposable, ITestProbeTarget
             if (!host.IsRunning) continue;
             try { await host.SendTestModeAsync(timecode, clockSkewMs); }
             catch (Exception ex) { _logger.LogError(ex, "Failed to send test mode to a player host"); }
+        }
+    }
+
+    /// <summary>Send a one-shot show event to every running player of this service.</summary>
+    public async Task SendShowEventAsync(ShowEvent evt)
+    {
+        foreach (var host in _playerHosts.Values)
+        {
+            if (!host.IsRunning) continue;
+            try { await host.SendShowEventAsync(evt); }
+            catch (Exception ex) { _logger.LogError(ex, "Failed to send show event {Id} to a player host", evt.EventId); }
         }
     }
 

@@ -4,6 +4,7 @@ using System.Drawing;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using WaBiBaBuSy.Core.Services.Testing;
+using WaBiBaBuSy.Models.Show;
 using WaBiBaBuSy.Models.Testing;
 using WaBiBaBuSy.Models.Wallpaper;
 using WaBiBaBuSy.Player.Common.Messages;
@@ -630,6 +631,13 @@ public class D2DPlayerHost : IDisposable
     {
         if (!IsRunning) return;
         await SendCommandAsync(JsonConvert.SerializeObject(new PlayerCommandTestMode { Timecode = timecode, ClockSkewMs = clockSkewMs }));
+    }
+
+    /// <summary>One-shot show event. Fire-and-forget: the player sends no stdout reply.</summary>
+    public async Task SendShowEventAsync(ShowEvent evt)
+    {
+        if (!IsRunning) return;
+        await SendCommandAsync(JsonConvert.SerializeObject(new PlayerCommandShowEvent { Event = evt }));
     }
 
     /// <summary>
