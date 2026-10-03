@@ -8,6 +8,7 @@ using Vortice.Mathematics;
 using WaBiBaBuSy.Models.Show;
 using WaBiBaBuSy.Models.Wallpaper;
 using WaBiBaBuSy.Player.Common.Messages;
+using WaBiBaBuSy.WallpaperEngine.Show;
 
 namespace WaBiBaBuSy.Player.D2D;
 
@@ -64,6 +65,11 @@ partial class Program
         Func<EventSpriteFrames>? decode = evt.Type switch
         {
             ShowEventType.Traversal when !string.IsNullOrEmpty(evt.ImagePath) => () => DecodeImageFrames(evt.ImagePath!),
+            ShowEventType.Announce when !string.IsNullOrWhiteSpace(evt.Text) => () => new EventSpriteFrames
+            {
+                Frames = new List<Bitmap> { TextSprite.Render(evt.Text!, evt.ColorHex) },
+                DelaysMs = new List<int> { 100 },
+            },
             _ => null,
         };
         if (decode == null)

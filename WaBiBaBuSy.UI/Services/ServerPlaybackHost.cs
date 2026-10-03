@@ -23,6 +23,7 @@ using WaBiBaBuSy.Models.Wallpaper;
 using WaBiBaBuSy.WallpaperEngine.Composition;
 using WaBiBaBuSy.WallpaperEngine.Native;
 using WaBiBaBuSy.WallpaperEngine.Renderers;
+using WaBiBaBuSy.WallpaperEngine.Show;
 using WaBiBaBuSy.WallpaperEngine.Services;
 using AppVersionInfo = WaBiBaBuSy.Common.Version.VersionInfo;
 
@@ -246,6 +247,11 @@ public sealed partial class ServerPlaybackHost : ObservableObject
                 return false;
             }
             aspect = EventImages.Aspect(image);
+        }
+        if (type == ShowEventType.Announce)
+        {
+            text = settings.AnnounceText;
+            aspect = TextSprite.MeasureAspect(text);
         }
 
         var request = new ShowEventRequest(type, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), _activeMaxRttMs, layout,

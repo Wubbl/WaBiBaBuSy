@@ -113,9 +113,16 @@ public sealed partial class ScenePainter
         }
     }
 
-    /// <summary>Announce text scaled into its box (Task 16 fills this in; until then a placeholder box).</summary>
-    private static void PaintAnnounceText(DrawingContext ctx, Rect dest, ShowEvent evt) =>
-        ctx.DrawRectangle(null, new Pen(EventBrush(evt.ColorHex, 0.8), 1), dest);
+    /// <summary>Announce text scaled into its box (same box the players draw their text bitmap into).</summary>
+    private static void PaintAnnounceText(DrawingContext ctx, Rect dest, ShowEvent evt)
+    {
+        var ft = new FormattedText(evt.Text ?? string.Empty, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+            new Typeface("Segoe UI", FontStyle.Normal, FontWeight.Bold), 100, EventBrush(evt.ColorHex, 1));
+        if (ft.Width <= 0 || ft.Height <= 0) return;
+        var m = Matrix.CreateScale(dest.Width / ft.Width, dest.Height / ft.Height) * Matrix.CreateTranslation(dest.X, dest.Y);
+        using (ctx.PushTransform(m))
+            ctx.DrawText(ft, new Point(0, 0));
+    }
 
     private Bitmap? EventImage(string? path)
     {

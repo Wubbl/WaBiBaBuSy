@@ -26,6 +26,10 @@
     { "type": "exactFrame", "label": "blackout t=+0.125s (fading in)", "elapsedMs": 19125 },
     { "type": "exactFrame", "label": "blackout t=+1s (full)", "elapsedMs": 20000 },
 
+    { "type": "showEvent", "label": "announce", "atElapsedMs": 22000,
+      "event": { "type": "Announce", "durationMs": 6000, "text": "Round 3 starts in 5 min", "spriteAspect": 8.2, "heightFraction": 0.25, "colorHex": "#FFFFFF" } },
+    { "type": "exactFrame", "label": "announce t=+3s", "elapsedMs": 25000 },
+
     { "type": "stop" }
   ]
 }

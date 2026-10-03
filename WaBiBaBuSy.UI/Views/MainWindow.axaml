@@ -303,6 +303,9 @@
                                         ToolTip.Tip="Use the scene's sprite"/>
                                 <Button Content="■ Blackout" Command="{Binding Events.BlackoutCommand}" Padding="8,3" FontSize="11"
                                         ToolTip.Tip="Every seat fades to black (Ctrl+Alt+4)"/>
+                                <TextBox Text="{Binding Events.AnnounceText}" Watermark="Announcement…" Width="180" FontSize="11" Margin="10,0,4,0"/>
+                                <Button Content="✎ Announce" Command="{Binding Events.AnnounceCommand}" Padding="8,3" FontSize="11"
+                                        ToolTip.Tip="The text runs around the room once (Ctrl+Alt+5)"/>
                             </WrapPanel>
                             <TextBlock Text="{Binding Events.StatusText}" Foreground="#AAAAAA" FontSize="10"
                                        IsVisible="{Binding Events.StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
