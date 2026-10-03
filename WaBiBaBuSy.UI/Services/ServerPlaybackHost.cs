@@ -206,6 +206,12 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         ActiveStartLeadMs = 0;
         ActiveEffectiveMovement = null;
         ActiveLayout = null;
+        ClearShowEvents();
+    }
+
+    /// <summary>Forget the events (the clients forget theirs when they get Stop); UI thread.</summary>
+    private void ClearShowEvents()
+    {
         _showEvents.Clear();
         ActiveShowEvents = Array.Empty<ShowEvent>();
     }
@@ -233,6 +239,12 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         if (type == ShowEventType.Traversal)
         {
             image = string.IsNullOrWhiteSpace(settings.TraversalImagePath) ? scene.Animation.AnimationPath : settings.TraversalImagePath;
+            var ext = Path.GetExtension(image).ToLowerInvariant();
+            if (ext is not (".png" or ".gif" or ".jpg" or ".jpeg" or ".bmp"))
+            {
+                EventStatusText = "The scene's sprite is a video — pick a traversal image in the Events strip.";
+                return false;
+            }
             aspect = EventImages.Aspect(image);
         }
 
@@ -443,6 +455,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     /// </summary>
     public async Task ClearNodesAsync(IReadOnlyCollection<string> nodeIds)
     {
+        // Stopped clients drop their event log; keep the server's in step so a replay never diverges seats.
+        if (nodeIds.Count > 0) ClearShowEvents();
         foreach (var id in nodeIds)
         {
             if (NodeIds.IsLocalMonitor(id))
