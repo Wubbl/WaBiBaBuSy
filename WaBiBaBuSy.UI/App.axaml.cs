@@ -1,3 +1,4 @@
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
@@ -30,6 +31,8 @@ public partial class App : Application
             // Set DataContext for TrayIcon bindings
             var tray = new TrayViewModel(desktop);
             DataContext = tray;
+            // "Quick start ▸ <presets>" is built in code: NativeMenu has no ItemsSource.
+            tray.AttachTrayMenu(Avalonia.Controls.TrayIcon.GetIcons(this)?.FirstOrDefault()?.Menu);
             if (StartupOptions.Current.TestRunPath is { } testRun)
                 Avalonia.Threading.Dispatcher.UIThread.Post(() => _ = tray.RunTestFromCommandLineAsync(testRun, StartupOptions.Current.ExitWhenDone));
         }

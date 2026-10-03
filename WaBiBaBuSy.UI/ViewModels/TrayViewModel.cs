@@ -8,11 +8,13 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Common;
 using WaBiBaBuSy.Common.Version;
 using WaBiBaBuSy.Core.Services.Logging;
 using WaBiBaBuSy.Core.Interfaces;
 using WaBiBaBuSy.Core.Services;
+using WaBiBaBuSy.Core.Services.Animation;
 using WaBiBaBuSy.Core.Services.Testing;
 using WaBiBaBuSy.Models.Configuration;
 using WaBiBaBuSy.Models.Testing;
@@ -44,9 +46,15 @@ public partial class TrayViewModel : ObservableObject
     private readonly RemotePlaybackHost _remotePlayback;
     // Server / standalone mode: this machine's players, the running scene and the show, with or without the main window
     private readonly ServerPlaybackHost _serverPlayback;
+    // Scene presets (editor, playlist, Quick start); seeded with the starter presets on first run
+    private readonly PresetStore _presets = new();
+    private NativeMenuItem? _quickStartItem;
 
     [ObservableProperty]
     private bool _isClientConnected;
+
+    /// <summary>The app's preset store, shared with every control panel.</summary>
+    public PresetStore Presets => _presets;
 
     public string VersionText => $"v{VersionInfo.AppVersion} (build {VersionInfo.BuildNumber})";
 
@@ -98,6 +106,9 @@ public partial class TrayViewModel : ObservableObject
             run => Dispatcher.UIThread.Post(() => _ = _mainViewModel?.TrackTestRunAsync(run)));
         _service.TestRunControl = _testControl;
 
+        _presets.Changed += (_, _) => Dispatcher.UIThread.Post(RebuildQuickStartMenu);
+        _ = SeedPresetsAsync();
+
         // The test-mode menu reads the setting once; refresh it when Settings saves.
         SettingsViewModel.AnySettingsSaved += (_, _) => _mainViewModel?.RefreshTestModeEnabled();
     }
@@ -135,7 +146,7 @@ public partial class TrayViewModel : ObservableObject
     {
         if (_mainWindow == null || !_mainWindow.IsVisible)
         {
-            var viewModel = new MainWindowViewModel(_service, _serverPlayback) { TestCoordinator = _testControl };
+            var viewModel = new MainWindowViewModel(_service, _serverPlayback, _presets) { TestCoordinator = _testControl };
             // A run started while the window was closed (control API) still shows its Cancel button.
             if (_testControl.ActiveRun is { } activeRun) _ = viewModel.TrackTestRunAsync(activeRun);
             var window = new MainWindow { DataContext = viewModel };
@@ -260,6 +271,68 @@ public partial class TrayViewModel : ObservableObject
     private void OnClientConnectionStatusChanged(object? sender, Core.Services.Networking.ConnectionStatusChangedEventArgs e)
     {
         IsClientConnected = e.IsConnected;
+    }
+
+    // ── Presets / Quick start ─────────────────────────────────────────────
+
+    /// <summary>First run: the starter presets (shipped showcase scenes) into an empty preset folder.</summary>
+    private async Task SeedPresetsAsync()
+    {
+        var log = AppLogger.CreateLogger<TrayViewModel>();
+        try
+        {
+            var starterDir = Path.Combine(AppContext.BaseDirectory, "TestScenarios", "showcase");
+            int seeded = await PresetSeeder.SeedIfEmptyAsync(_presets, starterDir, log);
+            if (seeded > 0) log.LogInformation("Seeded {Count} starter preset(s) into {Dir}", seeded, _presets.Directory);
+        }
+        catch (Exception ex)
+        {
+            log.LogWarning(ex, "Seeding the starter presets failed");
+        }
+    }
+
+    /// <summary>Insert "Quick start ▸" below "Open Control Panel" in the tray menu (NativeMenu has no ItemsSource).</summary>
+    public void AttachTrayMenu(NativeMenu? menu)
+    {
+        if (menu == null) return;
+        _quickStartItem = new NativeMenuItem("Quick start") { Menu = new NativeMenu() };
+        menu.Items.Insert(Math.Min(1, menu.Items.Count), _quickStartItem);
+        RebuildQuickStartMenu();
+    }
+
+    /// <summary>One entry per preset; hidden while connected to another server as a client.</summary>
+    private void RebuildQuickStartMenu()
+    {
+        if (_quickStartItem?.Menu is not { } submenu) return;
+        submenu.Items.Clear();
+        var names = _presets.List();
+        foreach (var name in names)
+        {
+            var item = new NativeMenuItem(name);
+            item.Click += (_, _) => _ = QuickStartAsync(name);
+            submenu.Items.Add(item);
+        }
+        _quickStartItem.IsEnabled = names.Count > 0;
+        _quickStartItem.IsVisible = !IsClientConnected;
+    }
+
+    partial void OnIsClientConnectedChanged(bool value) => Dispatcher.UIThread.Post(RebuildQuickStartMenu);
+
+    /// <summary>Play a preset on every seat through the app-lifetime host (no window needed).</summary>
+    private async Task QuickStartAsync(string name)
+    {
+        var log = AppLogger.CreateLogger<TrayViewModel>();
+        if (_service.IsClientConnected) return;
+        try
+        {
+            var config = await _presets.LoadAsync(name);
+            if (!await _serverPlayback.QuickStartAsync(config))
+                log.LogWarning("Quick start '{Preset}' did not start (a start was in flight, or the room has no node)", name);
+        }
+        catch (Exception ex) when (ex is ScenarioException or IOException or UnauthorizedAccessException)
+        {
+            log.LogWarning("Quick start '{Preset}' failed: {Message}", name, ex.Message);
+        }
     }
 
     /// <summary>

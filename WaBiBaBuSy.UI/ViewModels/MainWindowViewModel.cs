@@ -41,6 +41,8 @@ namespace WaBiBaBuSy.UI.ViewModels;
 public partial class MainWindowViewModel : ViewModelBase, IRoomHost
 {
     private readonly WaBiBaBuSyService _service;
+    // The app's scene presets (the tray's store, so its Quick start menu follows every change)
+    private readonly PresetStore _presets;
     private readonly System.Timers.Timer _refreshTimer;
     private readonly VideoThumbnailGenerator _thumbnailGenerator;
     // This machine's players, the running scene and the show: app-lifetime (owned by the tray, outlives this window)
@@ -367,9 +369,10 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     // Window reference for dialogs
     private Window? _mainWindow;
 
-    public MainWindowViewModel(WaBiBaBuSyService service, ServerPlaybackHost server)
+    public MainWindowViewModel(WaBiBaBuSyService service, ServerPlaybackHost server, PresetStore? presets = null)
     {
         _service = service;
+        _presets = presets ?? new PresetStore();
         // Every player belongs to an app-lifetime host (this one or the tray's RemotePlaybackHost), so what
         // a closed window started keeps running and shows up here again. Prior-session orphans are killed
         // at app start. Detach() undoes these subscriptions when the window closes.
