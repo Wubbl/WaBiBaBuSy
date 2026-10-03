@@ -74,6 +74,12 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     [ObservableProperty]
     private ClientNodeViewModel? _selectedClient;
 
+    /// <summary>The selected node becomes the Spotlight target.</summary>
+    partial void OnSelectedClientChanged(ClientNodeViewModel? value) => Events.SelectSeat(value?.ClientId);
+
+    /// <summary>The Events strip (one-shot show events).</summary>
+    public ShowEventsViewModel Events { get; }
+
     [ObservableProperty]
     private WallpaperItemViewModel? _selectedWallpaper;
 
@@ -378,10 +384,12 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         // a closed window started keeps running and shows up here again. Prior-session orphans are killed
         // at app start. Detach() undoes these subscriptions when the window closes.
         _server = server;
+        Events = new ShowEventsViewModel(server);
         _server.PropertyChanged += OnServerPropertyChanged;
         _server.SceneApplied += OnSceneApplied;
         _server.NodesStopped += OnNodesStopped;
         _server.ShowChanged += OnShowChanged;
+        RefreshEventSeats();
         // Fields, not properties: loading must not re-send the flags to the players
         _debugOverlayEnabled = server.DebugOverlay.Enabled;
         _debugShowPath = server.DebugOverlay.ShowPath;
@@ -624,6 +632,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     {
         _storageProvider = storageProvider;
         SceneEditor.SetStorageProvider(storageProvider);
+        Events.SetStorageProvider(storageProvider);
     }
 
     /// <summary>
@@ -664,6 +673,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     public void Detach()
     {
         _detached = true;
+        Events.Detach();
         _server.ReleaseRoom(this);
         StopRefreshTimer();
         _refreshTimer.Elapsed -= OnRefreshTimerElapsed;
@@ -691,6 +701,19 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     /// <summary>Live one-shot events for the room preview.</summary>
     public IReadOnlyList<ShowEvent> RoomShowEvents => _server.ActiveShowEvents;
 
+    /// <summary>Spotlight picker: the running layout's seats in traversal order, labeled with the node names.</summary>
+    private void RefreshEventSeats()
+    {
+        var layout = _server.ActiveLayout;
+        var names = Clients.GroupBy(c => c.ClientId).ToDictionary(g => g.Key, g => g.First().DisplayName);
+        var seats = layout == null
+            ? new List<SeatChoice>()
+            : layout.Nodes.OrderBy(n => n.Order)
+                .Select(n => new SeatChoice(n.Id, $"{n.Order + 1}. {names.GetValueOrDefault(n.Id, n.Id)}"))
+                .ToList();
+        Events.RefreshSeats(seats);
+    }
+
     private void OnServerPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         switch (e.PropertyName)
@@ -711,6 +734,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             case nameof(ServerPlaybackHost.ActiveLayout):
                 OnPropertyChanged(nameof(ActiveLayout));
                 OnPropertyChanged(nameof(RoomLayout));
+                RefreshEventSeats();
                 break;
             case nameof(ServerPlaybackHost.ActiveStartLeadMs):
             case nameof(ServerPlaybackHost.ActiveEffectiveMovement):

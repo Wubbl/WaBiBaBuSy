@@ -184,7 +184,7 @@
 
             <!-- Left Panel: Client Network Graph -->
             <Border Grid.Column="0" Background="#1E1E1E" Padding="15">
-                <Grid RowDefinitions="Auto,Auto,*,Auto,Auto,Auto">
+                <Grid RowDefinitions="Auto,Auto,*,Auto,Auto,Auto,Auto">
                     <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10" Margin="0,0,0,10">
                         <TextBlock Text="Room" FontSize="16"
                                    FontWeight="SemiBold" Foreground="White"/>
@@ -283,8 +283,34 @@
                                    Foreground="#666666" FontSize="10" VerticalAlignment="Center"/>
                     </StackPanel>
 
-                    <!-- Selection bar: only while nodes are selected -->
+                    <!-- Events strip: one-shot moments on every seat (also Ctrl+Alt+1..5) -->
                     <Border Grid.Row="4" Background="#252526" CornerRadius="5" Padding="10,6" Margin="0,8,0,0"
+                            IsVisible="{Binding IsServerMode}">
+                        <StackPanel Spacing="4">
+                            <WrapPanel>
+                                <TextBlock Text="Events" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <Button Content="★ Spotlight" Command="{Binding Events.SpotlightCommand}" Padding="8,3" FontSize="11" Margin="0,0,4,0"
+                                        ToolTip.Tip="Spotlight the picked seat: its border pulses, every other seat dims and points to it (Ctrl+Alt+1)"/>
+                                <ComboBox ItemsSource="{Binding Events.Seats}" SelectedItem="{Binding Events.SelectedSeat}"
+                                          MinWidth="140" FontSize="11" Margin="0,0,10,0" ToolTip.Tip="Spotlight target (the selected node in the room)"/>
+                                <Button Content="✦ Celebration" Command="{Binding Events.CelebrationCommand}" Padding="8,3" FontSize="11" Margin="0,0,4,0"
+                                        ToolTip.Tip="Confetti burst over the whole room (Ctrl+Alt+2)"/>
+                                <Button Content="↻ Traversal" Command="{Binding Events.TraversalCommand}" Padding="8,3" FontSize="11" Margin="0,0,2,0"
+                                        ToolTip.Tip="The image runs around the room exactly once (Ctrl+Alt+3)"/>
+                                <Button Content="{Binding Events.TraversalImageName}" Command="{Binding Events.PickTraversalImageCommand}"
+                                        Padding="6,3" FontSize="10" Margin="0,0,2,0" ToolTip.Tip="Pick the traversal image (default: the scene's sprite)"/>
+                                <Button Content="✕" Command="{Binding Events.ClearTraversalImageCommand}" Padding="4,3" FontSize="10" Margin="0,0,10,0"
+                                        ToolTip.Tip="Use the scene's sprite"/>
+                                <Button Content="■ Blackout" Command="{Binding Events.BlackoutCommand}" Padding="8,3" FontSize="11"
+                                        ToolTip.Tip="Every seat fades to black (Ctrl+Alt+4)"/>
+                            </WrapPanel>
+                            <TextBlock Text="{Binding Events.StatusText}" Foreground="#AAAAAA" FontSize="10"
+                                       IsVisible="{Binding Events.StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Selection bar: only while nodes are selected -->
+                    <Border Grid.Row="5" Background="#252526" CornerRadius="5" Padding="10,6" Margin="0,8,0,0"
                             IsVisible="{Binding HasNodeSelection}">
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <TextBlock Text="{Binding SelectionSummary}" FontWeight="SemiBold" FontSize="12"
@@ -303,7 +329,7 @@
                     </Border>
 
                     <!-- Remote Client Log Viewer -->
-                    <Border Grid.Row="5"
+                    <Border Grid.Row="6"
                             Background="#1A1A2E"
                             BorderBrush="#0078D4"
                             BorderThickness="1"
