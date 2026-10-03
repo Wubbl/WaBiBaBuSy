@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
+using WaBiBaBuSy.Core.Services.Animation;
 using WaBiBaBuSy.Core.Services.Testing;
 using WaBiBaBuSy.Models.Testing;
 using WaBiBaBuSy.Models.Wallpaper;
@@ -224,6 +225,30 @@ public class TestRunnerTests : IDisposable
         Assert.Equal("no scene is playing", report.Steps[1].Message);
         Assert.True(_host.Restored);
         Assert.True(File.Exists(Path.Combine(report.ResultsDirectory, "report.json")));
+    }
+
+    [Fact]
+    public async Task RunningShow_IsHandedBackToTheHostAfterTheRun()
+    {
+        var show = new Playlist { Name = "party", Items = { new PlaylistItem { Name = "a" }, new PlaylistItem { Name = "b" } } };
+        var before = new TestRestorePoint { Show = new PlaylistResumePoint(show, new[] { 1, 0 }, 1) };
+        _host.RestorePoint = before;
+
+        var report = await Runner().RunAsync(Scenario($$"""{{PlayMarker}}, { "type": "stop" }"""), "unit.json", CancellationToken.None);
+
+        Assert.False(report.Aborted, report.AbortReason);
+        Assert.Equal(0, _host.PlayCountAtCapture);                       // captured before the run played anything
+        Assert.Same(before, _host.RestoredTo);
+    }
+
+    [Fact]
+    public async Task NoScenePlayed_NothingRestored()
+    {
+        _host.RestorePoint = new TestRestorePoint { Scene = new CrossScreenConfig() };
+        var report = await Runner().RunAsync(Scenario("""{ "type": "wait", "ms": 10 }"""), "unit.json", CancellationToken.None);
+
+        Assert.False(report.Aborted, report.AbortReason);
+        Assert.False(_host.Restored);                                    // the run never touched what was playing
     }
 
     [Fact]
@@ -622,7 +647,12 @@ public class TestRunnerTests : IDisposable
         /// <summary>This remote reports Connected = false from the first scene start on (lost mid-run).</summary>
         public string? DisconnectOnPlay { get; set; }
         public int PlayCount { get; private set; }
-        public bool Restored { get; private set; }
+        /// <summary>What <see cref="CaptureRestorePoint"/> hands the runner.</summary>
+        public TestRestorePoint RestorePoint { get; set; } = TestRestorePoint.Nothing;
+        /// <summary><see cref="PlayCount"/> when the runner captured the restore point (-1 = never captured).</summary>
+        public int PlayCountAtCapture { get; private set; } = -1;
+        public TestRestorePoint? RestoredTo { get; private set; }
+        public bool Restored => RestoredTo != null;
         public FakeTarget Target(int monitor) => _targets.Single(t => t.MonitorIndex == monitor);
 
         public void AddLocalMonitor(int index)
@@ -655,8 +685,8 @@ public class TestRunnerTests : IDisposable
         }
 
         public Task StopAllAsync() => Task.CompletedTask;
-        public CrossScreenConfig? CurrentScene => null;
-        public Task RestoreSceneAsync(CrossScreenConfig? scene) { Restored = true; return Task.CompletedTask; }
+        public TestRestorePoint CaptureRestorePoint() { PlayCountAtCapture = PlayCount; return RestorePoint; }
+        public Task RestoreAsync(TestRestorePoint restorePoint) { RestoredTo = restorePoint; return Task.CompletedTask; }
         public Task<bool> PrefetchAsync(IReadOnlyList<CrossScreenConfig> scenes, TimeSpan timeout, CancellationToken ct) => Task.FromResult(true);
         public IReadOnlyList<ITestProbeTarget> LocalProbeTargets() => _targets;
         public void ReportProgress(string text) { }

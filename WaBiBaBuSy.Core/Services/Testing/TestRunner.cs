@@ -96,7 +96,18 @@ public sealed class TestRunner
             Thresholds = scenario.Thresholds,
         };
         var ctx = new RunContext { Scenario = scenario, Report = report };
-        var previousScene = _host.CurrentScene;
+        TestRestorePoint restorePoint;
+        try
+        {
+            restorePoint = _host.CaptureRestorePoint();
+        }
+        catch (Exception ex)
+        {
+            // Not worth failing the run for: afterwards everything is stopped, as if nothing had played.
+            _logger.LogWarning(ex, "Could not capture what was playing before the test run");
+            report.Warnings.Add($"could not capture what was playing before the run: {ex.Message}");
+            restorePoint = TestRestorePoint.Nothing;
+        }
         SetStatus(scenario, 0, "preflight", report);
 
         try
@@ -167,7 +178,7 @@ public sealed class TestRunner
         {
             try
             {
-                await CleanupAsync(ctx, previousScene);
+                await CleanupAsync(ctx, restorePoint);
                 await CollectLogsAsync(ctx, startedMs);
             }
             catch (Exception ex)
@@ -701,7 +712,7 @@ public sealed class TestRunner
 
     // ── cleanup, logs ───────────────────────────────────────────────────────
 
-    private async Task CleanupAsync(RunContext ctx, CrossScreenConfig? previousScene)
+    private async Task CleanupAsync(RunContext ctx, TestRestorePoint restorePoint)
     {
         try
         {
@@ -718,11 +729,11 @@ public sealed class TestRunner
         }
         try
         {
-            if (ctx.ScenePlayed) await _host.RestoreSceneAsync(previousScene);
+            if (ctx.ScenePlayed) await _host.RestoreAsync(restorePoint);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Could not restore the scene that played before the test run");
+            _logger.LogWarning(ex, "Could not restore the scene or show that played before the test run");
         }
     }
 
