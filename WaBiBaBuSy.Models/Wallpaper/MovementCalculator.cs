@@ -278,15 +278,40 @@ public static class MovementCalculator
         int effectiveSeed = config.RandomSeed ^ (int)((uint)iteration * 2246822519u);
 
         // Combine seed and step index for deterministic randomness
-        var rng = new Random(effectiveSeed ^ (int)((uint)stepIndex * 2654435761u)); // Knuth multiplicative hash
+        var (dx, dy) = FirstTwoDoubles(effectiveSeed ^ (int)((uint)stepIndex * 2654435761u)); // Knuth multiplicative hash
 
         float rangeX = MathF.Max(0, canvasWidth - animWidth);
         float rangeY = MathF.Max(0, canvasHeight - animHeight);
 
-        float x = (float)(rng.NextDouble() * rangeX);
-        float y = (float)(rng.NextDouble() * rangeY);
+        float x = (float)(dx * rangeX);
+        float y = (float)(dy * rangeY);
 
         return (x, y);
+    }
+
+    // Per-thread memo of the first two NextDouble() values per seed. The sprite effects sample the walk many times
+    // per frame (trail ghosts, bezel scan); a seeded Random per sample was ~15 KB of garbage per frame. The values
+    // are exactly what new Random(seed) yields, so every machine still computes the same path.
+    private const int SeedMemoSize = 64;
+    [ThreadStatic] private static int[]? _memoSeeds;
+    [ThreadStatic] private static double[]? _memoValues;
+    [ThreadStatic] private static bool[]? _memoUsed;
+
+    private static (double First, double Second) FirstTwoDoubles(int seed)
+    {
+        _memoSeeds ??= new int[SeedMemoSize];
+        _memoValues ??= new double[SeedMemoSize * 2];
+        _memoUsed ??= new bool[SeedMemoSize];
+        int slot = (int)((uint)seed * 2654435761u >> 26);   // top 6 bits → 0..63
+        if (_memoUsed[slot] && _memoSeeds[slot] == seed)
+            return (_memoValues[slot * 2], _memoValues[slot * 2 + 1]);
+        var rng = new Random(seed);
+        double first = rng.NextDouble(), second = rng.NextDouble();
+        _memoSeeds[slot] = seed;
+        _memoValues[slot * 2] = first;
+        _memoValues[slot * 2 + 1] = second;
+        _memoUsed[slot] = true;
+        return (first, second);
     }
 
     /// <summary>
