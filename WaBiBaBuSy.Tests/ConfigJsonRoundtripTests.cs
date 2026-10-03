@@ -141,4 +141,48 @@ public class ConfigJsonRoundtripTests
         Assert.Equal(original.IconFadePaddingPx, restored.IconFadePaddingPx);
         Assert.Equal(original.IconZoneExpansionPx, restored.IconZoneExpansionPx);
     }
+
+    private static AnimationLayerConfig WithEffects() => new()
+    {
+        AnimationPath = @"C:nimish.gif",
+        Effects = new SpriteEffectsConfig
+        {
+            Trail = new TrailConfig { Count = 9, SpacingMs = 45, StartOpacity = 0.6f, ScaleFalloff = 0.8f, UseGradingColor = false },
+            Pulse = new PulseConfig { Amplitude = 0.12f, FrequencyHz = 1.5f },
+            SpinDegPerSecond = 90f,
+            Entry = BezelEffect.Ripple,
+            Exit = BezelEffect.Glow,
+            BezelColorHex = "#7FDBFF",
+            BezelDurationMs = 500,
+        },
+    };
+
+    private static void AssertEffects(SpriteEffectsConfig? fx)
+    {
+        Assert.NotNull(fx);
+        Assert.Equal(9, fx!.Trail!.Count);
+        Assert.Equal(45, fx.Trail.SpacingMs);
+        Assert.Equal(0.6f, fx.Trail.StartOpacity);
+        Assert.Equal(0.8f, fx.Trail.ScaleFalloff);
+        Assert.False(fx.Trail.UseGradingColor);
+        Assert.Equal(0.12f, fx.Pulse!.Amplitude);
+        Assert.Equal(1.5f, fx.Pulse.FrequencyHz);
+        Assert.Equal(90f, fx.SpinDegPerSecond);
+        Assert.Equal(BezelEffect.Ripple, fx.Entry);
+        Assert.Equal(BezelEffect.Glow, fx.Exit);
+        Assert.Equal("#7FDBFF", fx.BezelColorHex);
+        Assert.Equal(500, fx.BezelDurationMs);
+    }
+
+    [Fact]
+    public void AnimationLayerConfig_Effects_RoundtripSystemTextJson() =>
+        AssertEffects(JsonSerializer.Deserialize<AnimationLayerConfig>(JsonSerializer.Serialize(WithEffects()))!.Effects);
+
+    [Fact]
+    public void AnimationLayerConfig_Effects_RoundtripNewtonsoft() =>   // player IPC (D2DPlayerHost) uses Newtonsoft
+        AssertEffects(Newtonsoft.Json.JsonConvert.DeserializeObject<AnimationLayerConfig>(Newtonsoft.Json.JsonConvert.SerializeObject(WithEffects()))!.Effects);
+
+    [Fact]
+    public void AnimationLayerConfig_WithoutEffects_DeserializesToNull() =>
+        Assert.Null(JsonSerializer.Deserialize<AnimationLayerConfig>("""{"AnimationPath":"a.gif"}""")!.Effects);
 }

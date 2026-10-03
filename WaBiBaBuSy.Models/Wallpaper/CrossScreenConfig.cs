@@ -264,6 +264,9 @@ public class AnimationLayerConfig
     /// </summary>
     public bool FaceTravelDirection { get; set; } = false;
 
+    /// <summary>Trail, pulse, spin and bezel crossing effects (roadmap 2.4); null = none.</summary>
+    public SpriteEffectsConfig? Effects { get; set; }
+
     /// <summary>
     /// Additional animation file paths beyond <see cref="AnimationPath"/>.
     /// Used by the multi-image feature: with <see cref="Pattern"/>, images are randomly distributed across cells;
