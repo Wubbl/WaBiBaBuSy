@@ -178,9 +178,10 @@ public class WallpaperPlaybackService : IDisposable
     }
 
     /// <summary>
-    /// Execute command at the specified timestamp
+    /// Execute command at the specified timestamp, measured on the sync client's clock (incl. any
+    /// simulated test skew). Internal for unit tests of skewed scheduling.
     /// </summary>
-    private async Task ExecuteCommandWithTimingAsync(SyncCommand command)
+    internal async Task ExecuteCommandWithTimingAsync(SyncCommand command)
     {
         // Calculate delay until execution time
         var targetTimestamp = command.TimestampUtc;
@@ -193,7 +194,8 @@ public class WallpaperPlaybackService : IDisposable
         {
             _logger.LogDebug("Waiting {DelayMs}ms before executing {CommandType} command",
                 delayMs, command.Type);
-            await Task.Delay((int)delayMs);
+            // Same time source as NowUtcMs (the system clock; a manual clock in unit tests).
+            await Task.Delay(TimeSpan.FromMilliseconds((int)delayMs), _syncClient.TimeProvider);
         }
         else if (delayMs < -1000) // More than 1 second late
         {

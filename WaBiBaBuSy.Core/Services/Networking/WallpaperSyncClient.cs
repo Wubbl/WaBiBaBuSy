@@ -50,8 +50,21 @@ public class WallpaperSyncClient : IDisposable
     /// <summary>Last TEST_MODE from the server; applied to players created later (before their start).</summary>
     public (bool Timecode, int ClockSkewMs) TestModeState { get; private set; }
 
+    /// <summary>
+    /// Real UTC and timers behind the sync clock: <see cref="TimeProvider.System"/>; unit tests substitute a
+    /// manual clock. Waits for scheduled commands (<see cref="WallpaperPlaybackService"/>) use it too.
+    /// </summary>
+    internal TimeProvider TimeProvider { get; set; } = TimeProvider.System;
+
+    /// <summary>The simulated test skew (set by TEST_MODE). Settable for unit tests of skewed scheduling.</summary>
+    internal int SimulatedClockSkewMs
+    {
+        get => _clockSkewMs;
+        set => _clockSkewMs = value;
+    }
+
     /// <summary>This machine's clock as the sync sees it: real UTC plus the simulated test skew (0 outside tests).</summary>
-    private long NowMs() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + _clockSkewMs;
+    private long NowMs() => TimeProvider.GetUtcNow().ToUnixTimeMilliseconds() + _clockSkewMs;
 
     /// <summary>This machine's clock as the sync sees it (real UTC + simulated test skew).</summary>
     public long NowUtcMs => NowMs();
