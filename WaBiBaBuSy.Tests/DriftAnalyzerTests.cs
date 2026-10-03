@@ -27,6 +27,23 @@ public class DriftAnalyzerTests
     }
 
     [Fact]
+    public void Message_LocalMonitorName_IsNotSuffixedTwice()
+    {
+        // Local nodes are named "server #1" already; remote multi-monitor nodes get "#n" appended.
+        var local = Node("server #1"); local.MonitorIndex = 1; local.PresentLocalUtcMs = null;
+        var remote = Node("pc-02"); remote.MonitorIndex = 1; remote.PresentLocalUtcMs = null;
+        var missing = Node("server #2"); missing.MonitorIndex = 2; missing.Missing = true;
+
+        var result = DriftAnalyzer.Analyze(new[] { local, remote, missing, Node("a") }, Start, T);
+
+        Assert.Contains("server #1", result.Message);
+        Assert.DoesNotContain("server #1#1", result.Message);
+        Assert.Contains("pc-02#1", result.Message);
+        Assert.Contains("server #2", result.Message);
+        Assert.DoesNotContain("server #2#2", result.Message);
+    }
+
+    [Fact]
     public void ErrorMs_HealthyNode_IsMinusPresentLatency() =>
         Assert.Equal(-16, DriftAnalyzer.ErrorMs(Node("a"), Start));
 

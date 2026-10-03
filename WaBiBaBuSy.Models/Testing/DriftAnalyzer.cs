@@ -71,7 +71,7 @@ public static class DriftAnalyzer
         // both inflates the spread by up to a frame: use present-time samples only when there are ≥ 2.
         var presentErrors = errors.Where(e => !e.UsedRenderTime).ToList();
         var fallbackNames = errors.Where(e => e.UsedRenderTime)
-            .Select(e => e.MonitorIndex > 0 ? $"{e.NodeName}#{e.MonitorIndex}" : e.NodeName).ToList();
+            .Select(e => DisplayName(e.NodeName, e.MonitorIndex)).ToList();
         bool presentOnly = presentErrors.Count >= 2;
         var basis = presentOnly ? presentErrors : errors;
 
@@ -95,7 +95,7 @@ public static class DriftAnalyzer
         }
         // DXGI statistics were unusable on these monitors: present time estimated from DWM timing / refresh rate.
         var estimated = errors.Where(e => PresentSources.IsNonDxgiEstimate(e.PresentSource))
-            .Select(e => $"{(e.MonitorIndex > 0 ? $"{e.NodeName}#{e.MonitorIndex}" : e.NodeName)} ({e.PresentSource})").ToList();
+            .Select(e => $"{DisplayName(e.NodeName, e.MonitorIndex)} ({e.PresentSource})").ToList();
         if (estimated.Count > 0) message += $", estimated present time: {string.Join(", ", estimated)}";
         if (missing.Count > 0) message += $", missing: {string.Join(", ", missing)}";
 
@@ -110,5 +110,9 @@ public static class DriftAnalyzer
     private static double RenderErrorMs(NodeProbeSample sample, long sharedStartServerUtcMs) =>
         sample.RenderedElapsedMs + sample.PhaseMs - (sample.RenderLocalUtcMs + sample.ClockOffsetMs - sharedStartServerUtcMs);
 
-    private static string DisplayName(NodeProbeSample s) => s.MonitorIndex > 0 ? $"{s.NodeName}#{s.MonitorIndex}" : s.NodeName;
+    private static string DisplayName(NodeProbeSample s) => DisplayName(s.NodeName, s.MonitorIndex);
+
+    /// <summary>"pc-02#1" for a remote's second monitor; local nodes are already named "server #1".</summary>
+    private static string DisplayName(string nodeName, int monitorIndex) =>
+        monitorIndex > 0 && !nodeName.EndsWith($"#{monitorIndex}", StringComparison.Ordinal) ? $"{nodeName}#{monitorIndex}" : nodeName;
 }
