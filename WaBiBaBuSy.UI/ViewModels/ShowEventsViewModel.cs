@@ -30,12 +30,16 @@ public partial class ShowEventsViewModel : ObservableObject
         _server = server;
         _server.PropertyChanged += OnServerPropertyChanged;
         _announceText = server.EventSettings.AnnounceText;
+        _hotkeysEnabled = server.EventSettings.HotkeysEnabled;
     }
 
     public ObservableCollection<SeatChoice> Seats { get; } = new();
 
     [ObservableProperty] private SeatChoice? _selectedSeat;
     [ObservableProperty] private string _announceText;
+
+    /// <summary>Ctrl+Alt+1..5 fire events while the server runs (off frees AltGr+digit on German keyboards).</summary>
+    [ObservableProperty] private bool _hotkeysEnabled;
 
     public bool CanFire => _server.CanFireEvents;
     public string? StatusText => _server.EventStatusText;
@@ -47,9 +51,13 @@ public partial class ShowEventsViewModel : ObservableObject
 
     public void SetStorageProvider(IStorageProvider storageProvider) => _storageProvider = storageProvider;
 
-    /// <summary>Seats of the running layout in traversal order; keeps the selection when it still exists.</summary>
+    /// <summary>
+    /// Seats of the running layout in traversal order; keeps the selection when it still exists. No-op when the
+    /// list is unchanged (same ids and labels in order), so a periodic refresh leaves the picker alone.
+    /// </summary>
     public void RefreshSeats(IReadOnlyList<SeatChoice> seats)
     {
+        if (Seats.SequenceEqual(seats)) return;   // records: compares Id and Label
         var keep = SelectedSeat?.Id ?? _server.EventSettings.LastTargetSeatId;
         Seats.Clear();
         foreach (var seat in seats) Seats.Add(seat);
@@ -70,10 +78,14 @@ public partial class ShowEventsViewModel : ObservableObject
         _server.SaveEventSettings(_server.EventSettings);
     }
 
-    partial void OnAnnounceTextChanged(string value)
+    // In memory only; saved when Announce fires (no disk write per keystroke).
+    partial void OnAnnounceTextChanged(string value) => _server.EventSettings.AnnounceText = value;
+
+    partial void OnHotkeysEnabledChanged(bool value)
     {
-        _server.EventSettings.AnnounceText = value;
-        _server.SaveEventSettings(_server.EventSettings);
+        if (value == _server.EventSettings.HotkeysEnabled) return;
+        _server.EventSettings.HotkeysEnabled = value;
+        _server.SaveEventSettings(_server.EventSettings);   // the tray re-registers the hotkeys
     }
 
     [RelayCommand(CanExecute = nameof(CanFire))]
@@ -89,7 +101,11 @@ public partial class ShowEventsViewModel : ObservableObject
     private Task Blackout() => _server.FireEventAsync(ShowEventType.Blackout);
 
     [RelayCommand(CanExecute = nameof(CanFire))]
-    private Task Announce() => _server.FireEventAsync(ShowEventType.Announce);
+    private Task Announce()
+    {
+        _server.SaveEventSettings(_server.EventSettings);   // persist the typed text (interrupts and the hotkey use it)
+        return _server.FireEventAsync(ShowEventType.Announce);
+    }
 
     [RelayCommand]
     private async Task PickTraversalImage()

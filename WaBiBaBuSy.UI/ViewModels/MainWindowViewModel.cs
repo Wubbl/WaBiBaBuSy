@@ -2101,6 +2101,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             OnPropertyChanged(nameof(ShowHealthSummary));
             NotifyClientSelectionCommands();
             UpdatePlaylistNextLabel();
+            RefreshEventSeats();   // node names for the Spotlight picker (no-op while ids and labels are unchanged)
 
             ClientCount = Clients.Count;
             ConnectedClientCount = Clients.Count(c => c.IsConnected

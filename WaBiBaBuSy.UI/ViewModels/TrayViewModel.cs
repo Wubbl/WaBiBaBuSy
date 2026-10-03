@@ -96,6 +96,8 @@ public partial class TrayViewModel : ObservableObject
         // Ctrl+Alt+1..5 fire show events — registered only while this machine runs the server.
         _hotkeys.Pressed += slot => Dispatcher.UIThread.Post(() => _ = OnEventHotkeyAsync(slot));
         _service.ServerStatusChanged += (_, e) => Dispatcher.UIThread.Post(() => UpdateHotkeys(e.IsRunning));
+        // The Events strip's Hotkeys toggle (Ctrl+Alt+digit is AltGr+digit on German keyboards) takes effect at once.
+        _serverPlayback.EventSettingsChanged += () => Dispatcher.UIThread.Post(() => UpdateHotkeys(_service.IsServerRunning));
         UpdateHotkeys(_service.IsServerRunning);
 
         // Subscribe to service events
@@ -234,7 +236,15 @@ public partial class TrayViewModel : ObservableObject
     private async Task OnEventHotkeyAsync(int slot)
     {
         if (ShowEventHotkeys.TypeForSlot(slot) is not { } type) return;
-        await _serverPlayback.FireEventAsync(type, _serverPlayback.EventSettings.LastTargetSeatId);
+        try
+        {
+            await _serverPlayback.FireEventAsync(type, _serverPlayback.EventSettings.LastTargetSeatId);
+        }
+        catch (Exception ex)
+        {
+            AppLogger.CreateLogger<TrayViewModel>().LogError(ex, "Show event hotkey {Type} failed", type);
+            _serverPlayback.EventStatusText = $"{type} failed: {ex.Message}";
+        }
     }
 
     private async Task ExitAsync(int exitCode)

@@ -365,7 +365,7 @@ public partial class RoomView : Control
             _painter.PaintBackground(ctx, screen, s, scene);
             _painter.PaintSprite(ctx, screen, s, node, scene!, elapsed);
             if (live && ShowEvents is { Count: > 0 } events)
-                _painter.PaintShowEvents(ctx, screen, s, node, events, SharedStartUtcMs, elapsed,
+                _painter.PaintShowEvents(ctx, screen, s, ScenePainter.EffectiveNode(scene!, node), events, SharedStartUtcMs, elapsed,
                     sharedCanvas: scene!.DistributionMode == AnimationDistributionMode.Sequential);
         }
         else if (c?.ThumbnailImage is { } thumb)

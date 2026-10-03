@@ -130,6 +130,16 @@ public sealed partial class ScenePainter
         }
     }
 
+    /// <summary>
+    /// The layout a node's player actually uses: the seat-map node in Sequential mode; in Simultaneous mode a
+    /// per-monitor one (offset 0, its own canvas, not mirrored, no wrap) — what the player synthesizes when it
+    /// gets no layout. The sprite and the show events of the preview both go through it.
+    /// </summary>
+    public static NodeLayout EffectiveNode(CrossScreenConfig scene, NodeLayout node) =>
+        scene.DistributionMode == AnimationDistributionMode.Simultaneous
+            ? new NodeLayout { Id = node.Id, OffsetX = 0, OffsetY = 0, Width = node.Width, Height = node.Height, CanvasWidth = node.Width, CanvasHeight = node.Height, Order = node.Order }
+            : node;
+
     /// <summary>Draws the scene's sprite/pattern on one node (clipped to <paramref name="rect"/>); true when the sprite's center is on this node.</summary>
     public bool PaintSprite(DrawingContext ctx, Rect rect, double s, NodeLayout node, CrossScreenConfig scene, long elapsedMs)
     {
@@ -138,9 +148,7 @@ public sealed partial class ScenePainter
         long e = SyncTiming.ApplyNodePhase(elapsedMs, node.Order, scene.Movement.NodePhaseDelayMs, perMonitor);
         if (!SyncTiming.ShouldDrawAnimation(e)) return false;
 
-        var eff = perMonitor
-            ? new NodeLayout { Id = node.Id, OffsetX = 0, OffsetY = 0, Width = node.Width, Height = node.Height, CanvasWidth = node.Width, CanvasHeight = node.Height, Order = node.Order }
-            : node;
+        var eff = EffectiveNode(scene, node);
         var (animW, animH) = SpriteSizeFor(scene, node);
         if (animW <= 0 || animH <= 0) return false;
 
