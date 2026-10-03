@@ -34,6 +34,7 @@ partial class Program
     }
 
     private const int MaxEventSpriteHeight = 1024;
+    private const long MaxEventSpriteBytes = 64L * 1024 * 1024;   // decoded size cap per sprite (GDI+ copy, again in VRAM)
 
     private static readonly object _showEventLock = new();
     private static readonly ShowEventLog _showEvents = new();                                         // own lock
@@ -43,6 +44,7 @@ partial class Program
     private static readonly ShowEvent[] _showEventScratch = new ShowEvent[ShowEventLog.Capacity];   // render thread only
     private static CelebrationParticle[] _particleScratch = new CelebrationParticle[512];           // render thread only
     private static readonly List<string> _staleSpriteScratch = new();                                // render thread only
+    private static readonly Color4[] _celebrationColors = new Color4[6];                            // render thread only
     private static ID2D1SolidColorBrush? _eventBrush;
     private static long _lastEventPruneUtcMs;
 
@@ -103,12 +105,20 @@ partial class Program
         collection.Coalesce();
         var frames = new List<Bitmap>(collection.Count);
         var delays = new List<int>(collection.Count);
+        long bytes = 0;
         foreach (var frame in collection)
         {
             if (frame.Height > MaxEventSpriteHeight)
             {
                 uint w = (uint)Math.Max(1L, (long)frame.Width * MaxEventSpriteHeight / frame.Height);
                 frame.Resize(new MagickGeometry(w, (uint)MaxEventSpriteHeight) { IgnoreAspectRatio = true });
+            }
+            bytes += (long)frame.Width * frame.Height * 4;
+            if (frames.Count > 0 && bytes > MaxEventSpriteBytes)
+            {
+                _logger?.LogWarning("[Event] Sprite {Path} exceeds {Cap} MB decoded; kept the first {Kept} of {Total} frames",
+                    path, MaxEventSpriteBytes / (1024 * 1024), frames.Count, collection.Count);
+                break;
             }
             frames.Add(frame.ToBitmap());
             int delay = (int)(frame.AnimationDelay * 10);
@@ -135,13 +145,15 @@ partial class Program
             {
                 using (frames)
                 {
+                    var gpu = new ID2D1Bitmap[frames.Frames.Count];
                     try
                     {
-                        var gpu = frames.Frames.Select(UploadBitmapToD2D).ToArray();
+                        for (int k = 0; k < gpu.Length; k++) gpu[k] = UploadBitmapToD2D(frames.Frames[k]);
                         _eventSprites[id] = new EventSpriteGpu { Frames = gpu, DelaysMs = frames.DelaysMs.ToArray(), TotalMs = Math.Max(1, frames.DelaysMs.Sum()) };
                     }
                     catch (Exception ex)
                     {
+                        foreach (var b in gpu) b?.Dispose();   // frames uploaded before the failing one
                         _logger?.LogWarning(ex, "[Event] Could not upload the sprite of {Id}", id);
                     }
                 }
@@ -277,12 +289,22 @@ partial class Program
         int visible = CelebrationMath.VisibleOnNode(evt, _layout, local, _particleScratch);
         float env = ShowEventMath.Envelope(local, evt.DurationMs);
         if (env <= 0.005f) return;
+        // Slot 0 = the event color, 1..5 = the party colors; parsed once per call, not per particle.
+        var (er, eg, eb) = ShowEventMath.ParseColor(evt.ColorHex);
+        _celebrationColors[0] = new Color4(er / 255f, eg / 255f, eb / 255f, 1f);
+        for (int k = 0; k < CelebrationMath.PartyColors.Length; k++)
+        {
+            var (r, g, b) = ShowEventMath.ParseColor(CelebrationMath.PartyColors[k]);
+            _celebrationColors[k + 1] = new Color4(r / 255f, g / 255f, b / 255f, 1f);
+        }
+        _eventBrush!.Opacity = Math.Clamp(env, 0f, 1f);
         try
         {
             for (int i = 0; i < visible; i++)
             {
                 var p = _particleScratch[i];
-                SetEventBrush(CelebrationMath.ColorFor(evt, p.ColorIndex), env);
+                int slot = p.ColorIndex <= 0 ? 0 : (p.ColorIndex - 1) % CelebrationMath.PartyColors.Length + 1;   // = CelebrationMath.ColorFor
+                _eventBrush.Color = _celebrationColors[slot];
                 var center = new Vector2(p.X + p.Width / 2f, p.Y + p.Height / 2f);
                 _d2dContext!.Transform = Matrix3x2.CreateRotation(p.RotationDeg * MathF.PI / 180f, center) * canvas;
                 _d2dContext.FillRectangle(new System.Drawing.RectangleF(p.X, p.Y, p.Width, p.Height), _eventBrush!);
@@ -297,13 +319,8 @@ partial class Program
     /// <summary>Traversal image or Announce text bitmap, one lap (TraversalMath), wrap copies on a Ring. Skipped until decoded.</summary>
     private static void DrawEventSprite(ShowEvent evt, long local)
     {
-        if (!_eventSprites.TryGetValue(evt.EventId, out var sprite))
-        {
-            bool known;
-            lock (_showEventLock) known = _decodingEventSprites.Contains(evt.EventId) || _decodedEventSprites.ContainsKey(evt.EventId);
-            if (!known) StartEventSpriteDecode(evt);   // e.g. after DisposeNativeD2DResources released the GPU copy
-            return;
-        }
+        // Decoding starts only from HandleShowEventCommand (failures log once); until the upload the event is skipped.
+        if (!_eventSprites.TryGetValue(evt.EventId, out var sprite)) return;
         int cw = _layout.CanvasWidth > 0 ? _layout.CanvasWidth : _layout.Width;
         int ch = _layout.CanvasHeight > 0 ? _layout.CanvasHeight : _layout.Height;
         var pose = TraversalMath.Pose(evt, cw, ch, _layout.Wraps, local);
@@ -331,7 +348,7 @@ partial class Program
         }
     }
 
-    /// <summary>Release the event brush and GPU sprites (reload / device loss / exit). Events stay; sprites are re-decoded on demand.</summary>
+    /// <summary>Release the event brush and GPU sprites (exit / final cleanup only: scene loads keep the D2D device, so these survive them).</summary>
     private static void DisposeShowEventResources()
     {
         _eventBrush?.Dispose();

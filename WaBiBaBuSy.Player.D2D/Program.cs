@@ -4170,7 +4170,6 @@ partial class Program
     private static void DisposeNativeD2DResources()
     {
         DisposeEffectBrushes();
-        DisposeShowEventResources();
         if (_d2dGifFrames != null)
         {
             for (int i = 0; i < _d2dGifFrames.Length; i++)
@@ -4240,6 +4239,7 @@ partial class Program
 
         // Dispose native D2D resources
         DisposeNativeD2DResources();
+        DisposeShowEventResources();   // survives scene loads (they keep the D2D device); released only here
 
         // Debug overlay brushes (lazy-created, may be null)
         _debugPathBrush?.Dispose();     _debugPathBrush = null;
