@@ -17,6 +17,7 @@ using WaBiBaBuSy.Core.Services.Testing;
 using WaBiBaBuSy.Models.Configuration;
 using WaBiBaBuSy.Models.Testing;
 using WaBiBaBuSy.Models.Wallpaper;
+using WaBiBaBuSy.UI.Services;
 using WaBiBaBuSy.UI.Services.Testing;
 using WaBiBaBuSy.UI.Views;
 using WaBiBaBuSy.WallpaperEngine.Composition;
@@ -39,8 +40,8 @@ public partial class TrayViewModel : ObservableObject
     private MainWindow? _mainWindow;
     // Read from Kestrel threads (control API): must not touch Avalonia objects such as _mainWindow.DataContext.
     private volatile MainWindowViewModel? _mainViewModel;
-    // D2D services for remote-triggered rendering on this client
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, D2DCompositionService> _clientD2DServices = new();
+    // Client mode: renders what the server sends, for every connect path, with or without the main window
+    private readonly RemotePlaybackHost _remotePlayback;
 
     [ObservableProperty]
     private bool _isClientConnected;
@@ -67,6 +68,15 @@ public partial class TrayViewModel : ObservableObject
         var rendererFactory = CreateRendererFactory(_desktopManager);
 
         _service = new WaBiBaBuSyService(logger, serverConfig, clientConfig, rendererFactory);
+
+        // Players left behind by a crashed or killed prior session would keep rendering stale content.
+        int orphans = PlayerProcesses.Kill(priorSessionOnly: true);
+        if (orphans > 0)
+            Console.WriteLine($"[Startup] Killed {orphans} orphan player process(es) from a prior session");
+
+        // Registered before any connect so the first command after registering already renders synchronized.
+        _remotePlayback = new RemotePlaybackHost(_service, _desktopManager);
+        _remotePlayback.Register();
 
         // Subscribe to service events
         _service.ClientConnectionStatusChanged += OnClientConnectionStatusChanged;
@@ -120,7 +130,7 @@ public partial class TrayViewModel : ObservableObject
     {
         if (_mainWindow == null || !_mainWindow.IsVisible)
         {
-            var viewModel = new MainWindowViewModel(_service) { TestCoordinator = _testControl };
+            var viewModel = new MainWindowViewModel(_service, _remotePlayback) { TestCoordinator = _testControl };
             // A run started while the window was closed (control API) still shows its Cancel button.
             if (_testControl.ActiveRun is { } activeRun) _ = viewModel.TrackTestRunAsync(activeRun);
             var window = new MainWindow { DataContext = viewModel };
@@ -156,75 +166,8 @@ public partial class TrayViewModel : ObservableObject
     [RelayCommand]
     private void Connect()
     {
-        _ = _service.DiscoverAndConnectAsync("localhost", 50051, ApplyD2DFromRemoteAsync);
-    }
-
-    /// <summary>
-    /// D2D apply delegate called when the server sends a D2D LOAD command to this client.
-    /// Creates a local D2DCompositionService and renders on this machine's desktop.
-    /// </summary>
-    private async Task ApplyD2DFromRemoteAsync(string filePath, int monitorIndex, string backgroundColor, int fitMode)
-    {
-        // Dispose previous service for this monitor
-        if (_clientD2DServices.TryRemove(monitorIndex, out var existing))
-        {
-            existing.Dispose();
-            await Task.Delay(300);
-        }
-
-        var monitors = WaBiBaBuSy.WallpaperEngine.Native.NativeMonitorInfo.GetAllMonitors();
-        if (monitorIndex < 0 || monitorIndex >= monitors.Length)
-        {
-            Console.WriteLine($"[D2D-Remote] Invalid monitor index {monitorIndex}");
-            return;
-        }
-
-        var screen = monitors[monitorIndex];
-
-        var screenConfig = new ScreenConfiguration
-        {
-            ClientId = $"REMOTE_CLIENT_MONITOR_{monitorIndex}",
-            Order = monitorIndex,
-            Width = screen.Bounds.Width,
-            Height = screen.Bounds.Height,
-            PhysicalDistanceCm = 0
-        };
-
-        var canvasManager = new VirtualCanvasManager(
-            AppLogger.CreateLogger<VirtualCanvasManager>());
-        canvasManager.CalculateLayout(new[] { screenConfig });
-
-        var backgroundConfig = new BackgroundLayerConfig
-        {
-            Mode = BackgroundMode.SolidColor,
-            ColorHex = backgroundColor
-        };
-
-        var animationConfig = new AnimationLayerConfig
-        {
-            AnimationPath = filePath,
-            TargetHeight = screen.Bounds.Height,
-            Loop = true,
-            VerticalAlign = VerticalAlignment.Center,
-            CenterInitialPosition = true,
-            FitMode = (ContentFitMode)fitMode
-        };
-
-        var d2dService = new D2DCompositionService(
-            AppLogger.CreateLogger<D2DCompositionService>(),
-            AppLogger.Factory,
-            _desktopManager);
-
-        var actualBounds = new System.Drawing.Rectangle(
-            screen.Bounds.X, screen.Bounds.Y,
-            screen.Bounds.Width, screen.Bounds.Height);
-
-        await d2dService.InitializeAsync(canvasManager, backgroundConfig, animationConfig, actualBounds, monitorIndex);
-        await Task.Delay(100);
-        await d2dService.StartAsync(startTimestampMs: 0, pixelsPerSecond: 0);
-
-        _clientD2DServices[monitorIndex] = d2dService;
-        Console.WriteLine($"[D2D-Remote] Applied D2D wallpaper '{Path.GetFileName(filePath)}' on monitor {monitorIndex}");
+        // Render delegates are registered once (RemotePlaybackHost), so this connects like the main window does.
+        _ = _service.DiscoverAndConnectAsync("localhost", 50051);
     }
 
     [RelayCommand]
@@ -261,6 +204,10 @@ public partial class TrayViewModel : ObservableObject
         {
             mainViewModel.Cleanup();
         }
+
+        // Client mode: stop the server-driven players
+        try { await _remotePlayback.StopAllAsync(); }
+        catch (Exception ex) { Console.WriteLine($"[Exit] Stopping remote players failed: {ex.Message}"); }
 
         // Cleanup: Stop server/client if running
         await _service.StopServerAsync();

@@ -92,6 +92,10 @@ public class D2DCompositionService : IDisposable, ITestProbeTarget
         }
     }
 
+    /// <summary>Process ids of this service's running player processes.</summary>
+    public IReadOnlyList<int> PlayerProcessIds =>
+        _playerHosts.Values.Select(h => h.ProcessId).OfType<int>().ToList();
+
     /// <summary>
     /// Gets or sets whether to run in static mode (render first frame only, then stop).
     /// Must be set before calling InitializeAsync.

@@ -58,34 +58,42 @@ public class WaBiBaBuSyService : IDisposable
     public WallpaperPlaybackService? PlaybackService => _playbackService;
 
     /// <summary>
-    /// Set the D2D apply delegate on the playback service.
-    /// Call this after ConnectToServerAsync to enable D2D rendering on this client.
-    /// Signature: (filePath, monitorIndex, backgroundColor, fitMode) → Task
+    /// Client-mode render delegates. Kept across connections and applied to every playback service a
+    /// connect creates (before the first command can arrive), so they can be set once at app start.
+    /// </summary>
+    public ClientPlaybackDelegates PlaybackDelegates { get; } = new();
+
+    /// <summary>
+    /// Set the D2D apply delegate: (filePath, monitorIndex, backgroundColor, fitMode) → Task.
+    /// Kept for later connections; applied to the current playback service when connected.
     /// </summary>
     public void SetD2DApplyDelegate(Func<string, int, string, int, Task>? d2dApply)
     {
+        PlaybackDelegates.D2DApply = d2dApply;
         if (_playbackService != null)
             _playbackService.D2DApplyDelegate = d2dApply;
     }
 
     /// <summary>
-    /// Set the cross-screen D2D apply delegate on the playback service.
-    /// Enables synchronized cross-screen D2D animation on this client.
+    /// Set the cross-screen D2D apply delegate (synchronized cross-screen animation on this client).
     /// The delegate receives the full <see cref="Models.Wallpaper.CrossScreenApplyRequest"/>
     /// (canvas geometry, shared timestamp, movement/animation/background configs).
+    /// Kept for later connections; applied to the current playback service when connected.
     /// </summary>
     public void SetD2DCrossScreenApplyDelegate(Func<Models.Wallpaper.CrossScreenApplyRequest, Task>? d2dCrossScreenApply)
     {
+        PlaybackDelegates.CrossScreenApply = d2dCrossScreenApply;
         if (_playbackService != null)
             _playbackService.D2DCrossScreenApplyDelegate = d2dCrossScreenApply;
     }
 
     /// <summary>
-    /// Set the cross-screen D2D stop delegate on the playback service.
-    /// Called when the server sends a Stop command so the client tears down its D2D players.
+    /// Set the cross-screen D2D stop delegate, called when the server sends a Stop command so the
+    /// client tears down its D2D players. Kept for later connections.
     /// </summary>
     public void SetD2DCrossScreenStopDelegate(Func<Task>? d2dCrossScreenStop)
     {
+        PlaybackDelegates.CrossScreenStop = d2dCrossScreenStop;
         if (_playbackService != null)
             _playbackService.D2DCrossScreenStopDelegate = d2dCrossScreenStop;
     }
@@ -334,6 +342,7 @@ public class WaBiBaBuSyService : IDisposable
 
                 // Create and initialize wallpaper playback service
                 _playbackService = new WallpaperPlaybackService(AppLogger.CreateLogger<WallpaperPlaybackService>(), _client, _rendererFactory, _clientConfig.CacheDirectory, cacheManager);
+                PlaybackDelegates.ApplyTo(_playbackService);
 
                 // Initialize update services
                 _updateVerifier = new UpdateVerifier(AppLogger.CreateLogger<UpdateVerifier>());
