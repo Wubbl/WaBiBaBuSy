@@ -42,6 +42,8 @@ public partial class TrayViewModel : ObservableObject
     private volatile MainWindowViewModel? _mainViewModel;
     // Client mode: renders what the server sends, for every connect path, with or without the main window
     private readonly RemotePlaybackHost _remotePlayback;
+    // Server / standalone mode: this machine's players, the running scene and the show, with or without the main window
+    private readonly ServerPlaybackHost _serverPlayback;
 
     [ObservableProperty]
     private bool _isClientConnected;
@@ -77,6 +79,7 @@ public partial class TrayViewModel : ObservableObject
         // Registered before any connect so the first command after registering already renders synchronized.
         _remotePlayback = new RemotePlaybackHost(_service, _desktopManager);
         _remotePlayback.Register();
+        _serverPlayback = new ServerPlaybackHost(_service, _desktopManager, _remotePlayback);
 
         // Subscribe to service events
         _service.ClientConnectionStatusChanged += OnClientConnectionStatusChanged;
@@ -84,8 +87,10 @@ public partial class TrayViewModel : ObservableObject
         // Subscribe to application exit event to restore desktop
         _desktop.Exit += OnApplicationExit;
 
+        // A run starts only with the control panel open (its room is the node list); once started it keeps
+        // its host when the window closes.
         _testCoordinator = new TestRunCoordinator(
-            () => _mainViewModel is { } vm ? new TestHostAdapter(vm) : null,
+            () => _mainViewModel != null ? new TestHostAdapter(_serverPlayback) : null,
             () => _service.ServerSyncService is { } sync ? new ServerTestChannel(sync) : null,
             AppLogger.Factory);
         // StartAsync may come from a Kestrel thread (control API): hop to the UI thread to show the run.
@@ -130,7 +135,7 @@ public partial class TrayViewModel : ObservableObject
     {
         if (_mainWindow == null || !_mainWindow.IsVisible)
         {
-            var viewModel = new MainWindowViewModel(_service, _remotePlayback) { TestCoordinator = _testControl };
+            var viewModel = new MainWindowViewModel(_service, _serverPlayback) { TestCoordinator = _testControl };
             // A run started while the window was closed (control API) still shows its Cancel button.
             if (_testControl.ActiveRun is { } activeRun) _ = viewModel.TrackTestRunAsync(activeRun);
             var window = new MainWindow { DataContext = viewModel };
@@ -199,11 +204,9 @@ public partial class TrayViewModel : ObservableObject
         if (_testCoordinator.Cancel() && !await _testCoordinator.WaitForIdleAsync(TimeSpan.FromSeconds(10)))
             Console.WriteLine("[Test] The test run did not finish within 10 s of cancelling; exiting anyway");
 
-        // Cleanup wallpaper renderers (kill player processes)
-        if (_mainWindow?.DataContext is MainWindowViewModel mainViewModel)
-        {
-            mainViewModel.Cleanup();
-        }
+        // Server / standalone mode: stop the show and this machine's players
+        try { await _serverPlayback.ShutdownAsync(); }
+        catch (Exception ex) { Console.WriteLine($"[Exit] Stopping local players failed: {ex.Message}"); }
 
         // Client mode: stop the server-driven players
         try { await _remotePlayback.StopAllAsync(); }
@@ -232,12 +235,10 @@ public partial class TrayViewModel : ObservableObject
             var scenario = ScenarioLoader.Load(scenarioPath);
             ShowWindow();
             if (!_service.IsServerRunning) await _service.StartServerAsync();
-            var vm = (MainWindowViewModel)_mainWindow!.DataContext!;
-
             var deadline = DateTime.UtcNow.AddSeconds(120);
             while (true)
             {
-                var nodes = await vm.TestNodesAsync();
+                var nodes = await _serverPlayback.TestNodesAsync();
                 int remotes = nodes.Count(n => !n.IsLocal && n.Connected);
                 if (remotes >= scenario.Requires.MinRemoteNodes && nodes.Any(n => n.IsLocal)) break;
                 if (DateTime.UtcNow > deadline)

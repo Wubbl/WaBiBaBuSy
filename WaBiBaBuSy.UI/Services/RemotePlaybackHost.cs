@@ -56,9 +56,6 @@ public sealed class RemotePlaybackHost
         _service.ClientThumbnailCapture = ThumbnailCapture;
     }
 
-    /// <summary>Process ids of the remote-driven players (spared when the main window clears untracked players).</summary>
-    public IReadOnlyList<int> PlayerProcessIds => _players.Values.SelectMany(p => p.PlayerProcessIds).ToList();
-
     /// <summary>Hide or show every remote-driven player window (pause on fullscreen apps).</summary>
     public void SetPlayersVisible(bool visible)
     {

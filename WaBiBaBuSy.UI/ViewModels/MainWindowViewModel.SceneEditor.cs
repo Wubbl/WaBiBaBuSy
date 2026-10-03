@@ -68,20 +68,10 @@ public partial class MainWindowViewModel
     [ObservableProperty] private int _previewRestartToken;
 
     /// <summary>
-    /// True while a Play button's request is in flight (draft build → teardown of any running show/scene
-    /// → start). Guards the two Play buttons and the toolbar show ▶ against starting a second scene
-    /// before the first has finished applying, which would otherwise leave its players/remote nodes
-    /// running untracked.
+    /// True while a Play request is in flight (draft build → teardown of any running show/scene → start).
+    /// The guard lives in the playback host, so test runs and the show ▶ respect it too.
     /// </summary>
-    [ObservableProperty] private bool _isStartingScene;
-
-    partial void OnIsStartingSceneChanged(bool value)
-    {
-        PlayOnSelectionCommand.NotifyCanExecuteChanged();
-        PlayOnAllCommand.NotifyCanExecuteChanged();
-        PlayPlainOnSelectionCommand.NotifyCanExecuteChanged();
-        PlayPlainOnAllCommand.NotifyCanExecuteChanged();
-    }
+    public bool IsStartingScene => _server.IsStartingScene;
 
     /// <summary>Scene the room paints.</summary>
     public CrossScreenConfig? RoomScene => IsPreviewDraft ? DraftScene : ActiveScene;
@@ -102,10 +92,7 @@ public partial class MainWindowViewModel
         ? "Targets: all nodes (select nodes in the room to narrow)"
         : $"Targets: {SelectedNodeCount} selected";
 
-    partial void OnActiveSceneChanged(CrossScreenConfig? value) => OnPropertyChanged(nameof(RoomScene));
-    partial void OnActiveSharedStartMsChanged(long value) => OnPropertyChanged(nameof(RoomSharedStartMs));
     partial void OnActiveSpriteImagePathChanged(string? value) => OnPropertyChanged(nameof(RoomSpriteImagePath));
-    partial void OnActiveLayoutChanged(SeatMapLayoutResult? value) => OnPropertyChanged(nameof(RoomLayout));
 
     /// <summary>Opening the panel previews the draft, collapsing it shows what is live.</summary>
     partial void OnIsRightPanelOpenChanged(bool value) => IsPreviewDraft = value;
@@ -172,6 +159,7 @@ public partial class MainWindowViewModel
     /// <summary>Rebuild the draft preview after <see cref="DraftDebounceMs"/> ms of quiet. Safe from any thread.</summary>
     public void ScheduleDraftUpdate()
     {
+        if (_detached) return;   // the window closed
         if (!Dispatcher.UIThread.CheckAccess())
         {
             Dispatcher.UIThread.Post(ScheduleDraftUpdate);
@@ -296,8 +284,7 @@ public partial class MainWindowViewModel
     /// </summary>
     private async Task PlayDraftAsync(bool selectionOnly)
     {
-        if (IsStartingScene) return;
-        IsStartingScene = true;
+        if (!_server.TryBeginStart()) return;
         try
         {
             var config = SceneEditor.BuildConfig();
@@ -314,23 +301,13 @@ public partial class MainWindowViewModel
             if (selectionOnly && targets.Count == 0) return;   // stale selection: never fall back to "all"
             config.SelectedMonitorIds = targets;
 
-            if (_playlistOrchestrator?.IsRunning == true)
-            {
-                // A show never sets IsCrossScreenRunning, so StopCrossScreen alone would only cancel the
-                // playlist loop and leave its current item's D2D players and remote nodes running.
-                await StopPlaylistAsync();
-                await ClearNodesAsync(Clients.Select(c => c.ClientId).Distinct().ToList());
-            }
-            if (IsCrossScreenRunning)
-                await StopCrossScreen();
-
-            _crossScreenConfig = config;
-            HasAnimationConfig = true;
-            await StartCrossScreen();
+            // Tears down a running show (loop + its players / remote nodes) or scene, then starts the draft.
+            SyncRoom();
+            await _server.PlaySceneAsync(config);
         }
         finally
         {
-            IsStartingScene = false;
+            _server.EndStart();
         }
     }
 
@@ -339,5 +316,5 @@ public partial class MainWindowViewModel
 
     /// <summary>What Revert restores: the loaded playlist item, else what is playing now (a running scene,
     /// or the last one played), else the default scene.</summary>
-    private CrossScreenConfig RevertTarget() => PlaylistEditor.LoadedItem?.Model.Config ?? ActiveScene ?? _crossScreenConfig ?? DefaultScene();
+    private CrossScreenConfig RevertTarget() => PlaylistEditor.LoadedItem?.Model.Config ?? ActiveScene ?? _server.LastScene ?? DefaultScene();
 }

@@ -74,8 +74,9 @@ public partial class MainWindow : Window
 
     private void OnWindowClosed(object? sender, EventArgs e)
     {
+        // What plays keeps playing (ServerPlaybackHost); the view model only lets go of it.
         if (DataContext is MainWindowViewModel viewModel)
-            viewModel.StopRefreshTimer();
+            viewModel.Detach();
     }
 
     private void OnFileDragOver(object? sender, DragEventArgs e)

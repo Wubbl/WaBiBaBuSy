@@ -42,19 +42,13 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
 {
     private readonly WaBiBaBuSyService _service;
     private readonly System.Timers.Timer _refreshTimer;
-    private readonly DesktopWindowManager _desktopManager;
     private readonly VideoThumbnailGenerator _thumbnailGenerator;
-    // Multi-monitor support: ConcurrentDictionary<monitorIndex, renderer> (thread-safe for gRPC callbacks)
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, IWallpaperRenderer> _localWallpaperRenderers = new();
-    // D2D composition services: ConcurrentDictionary<monitorIndex, service> (for Direct2D rendering with separate player process)
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, D2DCompositionService> _d2dCompositionServices = new();
-    // Thumbnail capture services per monitor for live wallpaper preview in topology
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, ThumbnailCaptureService> _thumbnailCaptureServices = new();
-    // Client mode: the app-lifetime players driven by the server (owned by the tray, outlives this window)
-    private readonly RemotePlaybackHost _remotePlayback;
-    // Fullscreen detection service for pausing wallpaper when a fullscreen app is active
-    private FullscreenDetectionService? _fullscreenDetection;
-    private bool _wallpaperPausedByFullscreen;
+    // This machine's players, the running scene and the show: app-lifetime (owned by the tray, outlives this window)
+    private readonly ServerPlaybackHost _server;
+    // Set once the room re-marked the nodes of a scene that was already playing when this window opened
+    private bool _liveMarksRestored;
+    // The window closed: a refresh still in flight must not push this window's room into the host any more
+    private volatile bool _detached;
     // Content cache manager for LRU eviction
     private ContentCacheManager? _cacheManager;
     // Debug flag: Enable/disable network topology debug output
@@ -102,11 +96,11 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     [ObservableProperty]
     private bool _isCrossScreenMode;
 
-    [ObservableProperty]
-    private bool _isCrossScreenRunning;
+    /// <summary>True while a manual scene runs (a show never sets it).</summary>
+    public bool IsCrossScreenRunning => _server.IsCrossScreenRunning;
 
-    [ObservableProperty]
-    private bool _hasAnimationConfig;
+    /// <summary>True once a scene was played (the toolbar Start replays it).</summary>
+    public bool HasAnimationConfig => _server.LastScene != null;
 
     [ObservableProperty]
     private string _d2dBackgroundColor = "#000000";
@@ -169,8 +163,6 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     private WaBiBaBuSy.Models.Update.UpdateInfo? _pendingUpdateInfo;
     private string? _downloadedUpdatePath;
 
-    private CrossScreenConfig? _crossScreenConfig;
-    private WaBiBaBuSy.Core.Services.Animation.PlaylistOrchestrator? _playlistOrchestrator;
 
     // ── Room / seat map (Tier 1.1) ──────────────────────────────────────────
     // The seat map breaks the ordered node chain into rows and decides how the path travels
@@ -285,6 +277,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     {
         _seatMap = map;
         SeatMapStore.Save(map);
+        SyncRoom();
         SeatMapVersion++;
         OnPropertyChanged(nameof(SeatMap));
         OnPropertyChanged(nameof(RoomSummary));
@@ -305,57 +298,17 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     private Task SplitRoomEvenly() => ApplyRoomEditAsync(SeatMapEditor.SplitEvenly(_seatMap, RoomOrder, RoomQuickRowCount));
 
     // ── Live preview of the running scene (Tier 2.1) ────────────────────────
-    // Set by ApplyCrossScreenConfigAsync, cleared by ClearActiveScene when the players stop.
-    [ObservableProperty] private SeatMapLayoutResult? _activeLayout;
-    [ObservableProperty] private CrossScreenConfig? _activeScene;
-    [ObservableProperty] private long _activeSharedStartMs;
-    [ObservableProperty] private int _activeStartLeadMs;
-    /// <summary>Movement the players received (after cm→px); test runs compute expected positions from it.</summary>
-    [ObservableProperty] private MovementConfig? _activeEffectiveMovement;
+    // Owned by the playback host: set when a scene or show item is applied, cleared when the players stop.
+    public SeatMapLayoutResult? ActiveLayout => _server.ActiveLayout;
+    public CrossScreenConfig? ActiveScene => _server.ActiveScene;
+    public long ActiveSharedStartMs => _server.ActiveSharedStartMs;
+    public int ActiveStartLeadMs => _server.ActiveStartLeadMs;
+    /// <summary>Movement the players received (after cm→px).</summary>
+    public MovementConfig? ActiveEffectiveMovement => _server.ActiveEffectiveMovement;
+    /// <summary>Preview image of the running scene (the gallery thumbnail for videos).</summary>
     [ObservableProperty] private string? _activeSpriteImagePath;
 
     // ── Tier 1.3 show reliability ────────────────────────────────────────────
-
-    /// <summary>Content refs (hashed ids) for every existing file a scene references.</summary>
-    private static List<ContentAssetRef> BuildAssetRefs(CrossScreenConfig config)
-    {
-        var refs = new List<ContentAssetRef>();
-        foreach (var (path, role) in SceneAssets.CollectPaths(config))
-        {
-            if (!File.Exists(path)) continue;
-            refs.Add(new ContentAssetRef { ContentId = ContentIdentity.ComputeId(path), Role = role, OriginalPath = path });
-        }
-        return refs;
-    }
-
-    /// <summary>Orchestrator hook: ask every client to cache the whole show before it starts.</summary>
-    private async Task PrefetchShowAssetsAsync(IReadOnlyList<CrossScreenConfig> configs)
-    {
-        var coordinator = _service.SyncCoordinator;
-        if (coordinator == null) return;
-        var assets = configs.SelectMany(BuildAssetRefs)
-            .GroupBy(a => a.ContentId).Select(g => g.First()).ToList();
-        if (assets.Count == 0) return;
-        await coordinator.BroadcastPrefetchAsync(assets);
-    }
-
-    /// <summary>Orchestrator hook: poll the topology until every remote node reports its prefetch complete.</summary>
-    private async Task<bool> WaitUntilRemotesPrefetchedAsync(TimeSpan timeout)
-    {
-        var deadline = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(500);
-            RefreshTopology();
-            bool allReady = await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                var remotes = Clients.Where(c => c.IsConnected && !IsLocalMonitor(c.ClientId)).ToList();
-                return remotes.Count == 0 || remotes.All(c => c.IsPrefetchComplete);
-            });
-            if (allReady) return true;
-        }
-        return false;
-    }
 
     /// <summary>One-line show health for the topology header.</summary>
     public string ShowHealthSummary
@@ -386,17 +339,10 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     private void UpdatePlaylistNextLabel()
     {
         // A non-looping show ends on its own: keep the tab's running flag honest.
-        PlaylistEditor.IsShowRunning = _playlistOrchestrator?.IsRunning == true;
-        var o = _playlistOrchestrator;
-        if (o == null || !o.IsRunning || o.NextSwitchUtcMs <= 0)
-        {
-            // The show ended (or was never started): the ▶ marker on the last-playing row is stale.
-            if (o == null || !o.IsRunning) PlaylistEditor.MarkPlaying(-1);
-            PlaylistNextLabel = "";
-            return;
-        }
-        PlaylistNextLabel = ShowStatus.Format(o.CurrentItem?.Name, o.NextItem?.Name,
-            o.NextSwitchUtcMs - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        PlaylistEditor.IsShowRunning = _server.IsShowRunning;
+        // The show ended (or was never started): the ▶ marker on the last-playing row is stale.
+        if (!_server.IsShowRunning) PlaylistEditor.MarkPlaying(-1);
+        PlaylistNextLabel = _server.ShowStatusLine;
     }
 
     [RelayCommand]
@@ -437,16 +383,6 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         }).ToList();
         return SeatMapLayoutBuilder.Build(_seatMap, inputs, ReferencePixelsPerCm);
     }
-    private string? _currentAnimationScheduleId;  // Track active animation schedule (Phase 3)
-    private string? _crossScreenContentId;         // ContentId sent to remote clients at start (used for stop)
-
-    // Sequential IconZone lap-recompute state
-    private int _lastGlobalLap = -1;
-    private readonly object _seqLapLock = new();
-    private int _seqCellW, _seqCellH, _seqVirtualCanvasWidth, _seqVirtualH;
-    private int _seqPathPaddingPx, _seqVisualPaddingPx;
-    private List<string> _seqPaletteHexes = new();
-    private string _seqCorridorColorHex = "#1E1E1E";
 
     // Storage provider for file picker dialogs
     private IStorageProvider? _storageProvider;
@@ -454,20 +390,24 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     // Window reference for dialogs
     private Window? _mainWindow;
 
-    public MainWindowViewModel(WaBiBaBuSyService service, RemotePlaybackHost remotePlayback)
+    public MainWindowViewModel(WaBiBaBuSyService service, ServerPlaybackHost server)
     {
         _service = service;
-        _remotePlayback = remotePlayback;
+        // Every player belongs to an app-lifetime host (this one or the tray's RemotePlaybackHost), so what
+        // a closed window started keeps running and shows up here again. Prior-session orphans are killed
+        // at app start. Detach() undoes these subscriptions when the window closes.
+        _server = server;
+        _server.PropertyChanged += OnServerPropertyChanged;
+        _server.SceneApplied += OnSceneApplied;
+        _server.NodesStopped += OnNodesStopped;
+        _server.ShowChanged += OnShowChanged;
+        // Fields, not properties: loading must not re-send the flags to the players
+        _debugOverlayEnabled = server.DebugOverlay.Enabled;
+        _debugShowPath = server.DebugOverlay.ShowPath;
+        _debugShowIconRects = server.DebugOverlay.ShowIconRects;
+        _debugShowZoneBands = server.DebugOverlay.ShowZoneBands;
+        _debugShowInfoPanel = server.DebugOverlay.ShowInfoPanel;
 
-        // A previous window's local players are no longer tracked (a closed window keeps its players
-        // running) and would stack under new ones: kill them. The tray's client-mode players are tracked
-        // by RemotePlaybackHost and keep running. Prior-session orphans are killed at app start.
-        int killed = PlayerProcesses.Kill(priorSessionOnly: false, keep: remotePlayback.PlayerProcessIds);
-        if (killed > 0)
-            Debug.WriteLine($"[Startup] Killed {killed} untracked player process(es)");
-
-        // Initialize desktop manager for local wallpaper rendering
-        _desktopManager = new DesktopWindowManager(AppLogger.CreateLogger<DesktopWindowManager>());
         _thumbnailGenerator = new VideoThumbnailGenerator(AppLogger.CreateLogger<VideoThumbnailGenerator>());
 
         // Load client config to pre-fill connect fields
@@ -493,17 +433,9 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             clientCfg.CacheDirectory,
             clientCfg.MaxCacheSizeMB);
 
-        // Create fullscreen detection service (started/stopped with wallpaper lifecycle)
-        if (clientCfg.PauseOnFullscreen)
-        {
-            _fullscreenDetection = new FullscreenDetectionService(
-                AppLogger.CreateLogger<FullscreenDetectionService>());
-            _fullscreenDetection.FullscreenStateChanged += OnFullscreenStateChanged;
-            Debug.WriteLine("[Fullscreen] Detection ready (will start when wallpaper is active)");
-        }
-
-        // Load wallpaper gallery from disk
+        // Load wallpaper gallery from disk (before the sprite path: video thumbnails come from it)
         LoadWallpaperGallery();
+        ActiveSpriteImagePath = ResolveSpriteImagePath(server.ActiveScene?.Animation.AnimationPath);
 
         // Room layout (rows / ring) — single row until the user configures the room
         LoadSeatMap();
@@ -511,75 +443,6 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         // Docked Scene editor: default draft, units from the room, preview wiring
         InitSceneEditor();
         InitPlaylist();
-    }
-
-    /// <summary>
-    /// Start fullscreen detection when a wallpaper becomes active.
-    /// </summary>
-    private void StartFullscreenDetectionIfNeeded()
-    {
-        if (_fullscreenDetection != null && !_fullscreenDetection.IsRunning)
-        {
-            _fullscreenDetection.Start();
-        }
-    }
-
-    /// <summary>
-    /// Stop fullscreen detection when no wallpapers are active.
-    /// </summary>
-    private void StopFullscreenDetectionIfIdle()
-    {
-        if (_fullscreenDetection == null) return;
-
-        bool hasActiveWallpaper = _d2dCompositionServices.Any()
-            || _remotePlayback.HasPlayers
-            || _localWallpaperRenderers.Any()
-            || IsCrossScreenRunning;
-
-        if (!hasActiveWallpaper)
-        {
-            _fullscreenDetection.Stop();
-            _wallpaperPausedByFullscreen = false;
-            Debug.WriteLine("[Fullscreen] Detection stopped (no active wallpapers)");
-        }
-    }
-
-    private void OnFullscreenStateChanged(object? sender, FullscreenStateChangedEventArgs e)
-    {
-        if (e.IsFullscreen)
-        {
-            // Hide all D2D player windows
-            foreach (var kvp in _d2dCompositionServices)
-                kvp.Value.SetPlayersVisible(false);
-            _remotePlayback.SetPlayersVisible(false);
-
-            // Pause LibVLC renderers
-            foreach (var kvp in _localWallpaperRenderers)
-            {
-                try { kvp.Value.PauseAsync().GetAwaiter().GetResult(); }
-                catch { /* best effort */ }
-            }
-
-            _wallpaperPausedByFullscreen = true;
-            Debug.WriteLine($"[Fullscreen] Wallpaper hidden — fullscreen app: {e.ProcessName}");
-        }
-        else if (_wallpaperPausedByFullscreen)
-        {
-            // Show all D2D player windows
-            foreach (var kvp in _d2dCompositionServices)
-                kvp.Value.SetPlayersVisible(true);
-            _remotePlayback.SetPlayersVisible(true);
-
-            // Resume LibVLC renderers
-            foreach (var kvp in _localWallpaperRenderers)
-            {
-                try { kvp.Value.StartAsync().GetAwaiter().GetResult(); }
-                catch { /* best effort */ }
-            }
-
-            _wallpaperPausedByFullscreen = false;
-            Debug.WriteLine("[Fullscreen] Wallpaper restored — fullscreen app closed");
-        }
     }
 
     /// <summary>
@@ -812,6 +675,104 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         _refreshTimer.Stop();
     }
 
+    /// <summary>
+    /// The window closed: stop refreshing and let go of the app-lifetime services, so this view model no
+    /// longer reacts to them (or keeps itself alive through them). What plays keeps playing in the host.
+    /// </summary>
+    public void Detach()
+    {
+        _detached = true;
+        StopRefreshTimer();
+        _refreshTimer.Elapsed -= OnRefreshTimerElapsed;
+        _draftDebounce?.Stop();
+        _server.PropertyChanged -= OnServerPropertyChanged;
+        _server.SceneApplied -= OnSceneApplied;
+        _server.NodesStopped -= OnNodesStopped;
+        _server.ShowChanged -= OnShowChanged;
+        _service.ServerStatusChanged -= OnServerStatusChanged;
+        _service.ClientConnectionStatusChanged -= OnClientConnectionStatusChanged;
+        _service.UpdateAvailable -= OnUpdateAvailableFromServer;
+        _service.UpdateStatusChanged -= OnUpdateStatusChanged;
+    }
+
+    /// <summary>Hand the room (nodes, seat map, reference DPI) to the playback host; scenes are laid out over it.</summary>
+    private void SyncRoom()
+    {
+        // Never an empty room (the window's first refresh has not run yet: keep what the last window pushed),
+        // and never from a closed window (a newer one may already push its own).
+        if (_detached || Clients.Count == 0) return;
+        _server.UpdateRoom(RoomNodes(), _seatMap, ReferencePixelsPerCm);
+    }
+
+    private void OnServerPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        switch (e.PropertyName)
+        {
+            case nameof(ServerPlaybackHost.ActiveScene):
+                // The sprite first: the room repaints on RoomScene and must not pair the new scene with the old image.
+                ActiveSpriteImagePath = ResolveSpriteImagePath(_server.ActiveScene?.Animation.AnimationPath);
+                OnPropertyChanged(nameof(ActiveScene));
+                OnPropertyChanged(nameof(RoomScene));
+                break;
+            case nameof(ServerPlaybackHost.ActiveSharedStartMs):
+                OnPropertyChanged(nameof(ActiveSharedStartMs));
+                OnPropertyChanged(nameof(RoomSharedStartMs));
+                break;
+            case nameof(ServerPlaybackHost.ActiveLayout):
+                OnPropertyChanged(nameof(ActiveLayout));
+                OnPropertyChanged(nameof(RoomLayout));
+                break;
+            case nameof(ServerPlaybackHost.ActiveStartLeadMs):
+            case nameof(ServerPlaybackHost.ActiveEffectiveMovement):
+            case nameof(ServerPlaybackHost.HasActiveRenderer):
+            case nameof(ServerPlaybackHost.TestRunStatusText):
+                OnPropertyChanged(e.PropertyName);
+                break;
+            case nameof(ServerPlaybackHost.IsCrossScreenRunning):
+                OnPropertyChanged(nameof(IsCrossScreenRunning));
+                OnPropertyChanged(nameof(IsAnythingPlaying));
+                StartCrossScreenCommand.NotifyCanExecuteChanged();
+                break;
+            case nameof(ServerPlaybackHost.LastScene):
+                OnPropertyChanged(nameof(HasAnimationConfig));
+                StartCrossScreenCommand.NotifyCanExecuteChanged();
+                break;
+            case nameof(ServerPlaybackHost.IsStartingScene):
+                OnPropertyChanged(nameof(IsStartingScene));
+                PlayOnSelectionCommand.NotifyCanExecuteChanged();
+                PlayOnAllCommand.NotifyCanExecuteChanged();
+                PlayPlainOnSelectionCommand.NotifyCanExecuteChanged();
+                PlayPlainOnAllCommand.NotifyCanExecuteChanged();
+                break;
+        }
+    }
+
+    /// <summary>A scene or show item was applied: its targets animate in the room.</summary>
+    private void OnSceneApplied(CrossScreenConfig config) => MarkAnimationTargets(config);
+
+    /// <summary>Nodes stopped (null = all): drop their animation markers, and with Clear their preview too.</summary>
+    private void OnNodesStopped(IReadOnlyCollection<string>? nodeIds, bool clearPreview)
+    {
+        var ids = nodeIds == null ? null : new HashSet<string>(nodeIds);
+        foreach (var client in Clients)
+        {
+            if (ids != null && !ids.Contains(client.ClientId)) continue;
+            client.IsAnimating = false;
+            client.IsCurrentAnimationTarget = false;
+            client.ActiveAnimationName = null;
+            if (!clearPreview) continue;
+            client.ThumbnailImage = null;
+            client.CurrentWallpaper = null;
+        }
+    }
+
+    /// <summary>The show started, stopped or changed item: toolbar line, Playlist tab flag and ▶ row.</summary>
+    private void OnShowChanged()
+    {
+        UpdatePlaylistNextLabel();
+        if (_server.IsShowRunning) PlaylistEditor.MarkPlaying(_server.ShowItemIndex);
+    }
+
 
     [RelayCommand]
     private void SelectClient(ClientNodeViewModel client)
@@ -859,33 +820,12 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     /// True when any renderer (D2D, LibVLC, or cross-screen) is active locally.
     /// Used to control "Clear Wallpaper" button visibility.
     /// </summary>
-    public bool HasActiveRenderer =>
-        _d2dCompositionServices.Any() || _localWallpaperRenderers.Any() || IsCrossScreenRunning;
+    public bool HasActiveRenderer => _server.HasActiveRenderer;
 
     partial void OnSelectedWallpaperChanged(WallpaperItemViewModel? value)
     {
         ApplyWallpaperToSelectedCommand.NotifyCanExecuteChanged();
         ApplyWallpaperViaDirect2DCommand.NotifyCanExecuteChanged();
-    }
-
-    partial void OnIsCrossScreenRunningChanged(bool value)
-    {
-        if (!value) ClearActiveScene();
-        OnPropertyChanged(nameof(HasActiveRenderer));
-        OnPropertyChanged(nameof(IsAnythingPlaying));
-        StartCrossScreenCommand.NotifyCanExecuteChanged();
-        ClearAllWallpapersCommand.NotifyCanExecuteChanged();
-    }
-
-    /// <summary>Stop the room's live preview: no scene, no shared clock, no layout, no sprite image.</summary>
-    private void ClearActiveScene()
-    {
-        ActiveScene = null;
-        ActiveSharedStartMs = 0;
-        ActiveStartLeadMs = 0;
-        ActiveEffectiveMovement = null;
-        ActiveSpriteImagePath = null;
-        ActiveLayout = null;
     }
 
     /// <summary>
@@ -902,11 +842,6 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             client.IsAnimating = target;
             client.ActiveAnimationName = target ? animFileName : null;
         }
-    }
-
-    partial void OnHasAnimationConfigChanged(bool value)
-    {
-        StartCrossScreenCommand.NotifyCanExecuteChanged();
     }
 
     /// <summary>
@@ -972,47 +907,10 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     });
 
     /// <summary>
-    /// Stop what the given nodes show: local monitors dispose their D2D player / LibVLC renderer,
-    /// remote nodes get a cross-screen Stop. A running playlist puts them back on its next item —
-    /// use the toolbar Stop to end a show.
+    /// Stop what the given nodes show (local players, remote cross-screen Stop). A running playlist puts
+    /// them back on its next item — use the toolbar Stop to end a show.
     /// </summary>
-    public async Task ClearNodesAsync(IReadOnlyCollection<string> nodeIds)
-    {
-        foreach (var id in nodeIds)
-        {
-            if (IsLocalMonitor(id))
-            {
-                int monitorIndex = GetMonitorIndex(id);
-                if (_d2dCompositionServices.TryRemove(monitorIndex, out var d2d))
-                {
-                    d2d.GlobalLapCompleted -= OnSequentialLapCompleted;
-                    try { await d2d.StopAsync(); } catch (Exception ex) { Debug.WriteLine($"[ClearNodes] Stop {id}: {ex.Message}"); }
-                    try { d2d.Dispose(); } catch (Exception ex) { Debug.WriteLine($"[ClearNodes] Dispose {id}: {ex.Message}"); }
-                }
-                if (_localWallpaperRenderers.TryRemove(monitorIndex, out var renderer) && renderer is IDisposable disposable)
-                {
-                    try { disposable.Dispose(); } catch (Exception ex) { Debug.WriteLine($"[ClearNodes] Renderer {id}: {ex.Message}"); }
-                }
-            }
-            else if (_service.SyncCoordinator != null && !string.IsNullOrEmpty(_crossScreenContentId))
-            {
-                try { await _service.SyncCoordinator.StopCrossScreenOnClientAsync(id, _crossScreenContentId); }
-                catch (Exception ex) { Debug.WriteLine($"[ClearNodes] Remote stop {id}: {ex.Message}"); }
-            }
-
-            var client = Clients.FirstOrDefault(c => c.ClientId == id);
-            if (client != null)
-            {
-                client.IsAnimating = false;
-                client.IsCurrentAnimationTarget = false;
-                client.ActiveAnimationName = null;
-                client.ThumbnailImage = null;
-                client.CurrentWallpaper = null;
-            }
-        }
-        OnPropertyChanged(nameof(HasActiveRenderer));
-        ClearAllWallpapersCommand.NotifyCanExecuteChanged();
-    }
+    public Task ClearNodesAsync(IReadOnlyCollection<string> nodeIds) => _server.ClearNodesAsync(nodeIds);
 
     /// <summary>Re-send the running animation to the given remote nodes (local monitors are in-process and need no resync).</summary>
     public async Task ResyncNodesAsync(IReadOnlyCollection<string> nodeIds)
@@ -1100,6 +998,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         if (c == null) return;
         c.PhysicalDistanceCm = SeatMapEditor.NormalizeGapCm(cm);
         _sessionGapCm[nodeId] = c.PhysicalDistanceCm;
+        SyncRoom();
         await UpdateClientDistance(c);
         SeatMapVersion++;
     }
@@ -1151,42 +1050,6 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         ClockOffsetMs = c.DriftMs
     }).ToList();
 
-    /// <summary>
-    /// Computes the effective rendered animation height in pixels for a given FitMode,
-    /// matching the sizing logic in Player.D2D's CalculateAnimationLayout. Used to size
-    /// the server-side A* path padding to the actual animation bitmap.
-    /// </summary>
-    private static int ComputeEffectiveAnimationHeight(AnimationLayerConfig anim, int screenWidth, int screenHeight)
-    {
-        try
-        {
-            int nativeW = 0, nativeH = 0;
-            if (!string.IsNullOrEmpty(anim.AnimationPath) && File.Exists(anim.AnimationPath))
-            {
-                using var img = System.Drawing.Image.FromFile(anim.AnimationPath);
-                nativeW = img.Width;
-                nativeH = img.Height;
-            }
-
-            if (nativeW <= 0 || nativeH <= 0)
-                return anim.TargetHeight;
-
-            return anim.FitMode switch
-            {
-                ContentFitMode.Center  => nativeH,
-                ContentFitMode.Fit     => (int)(nativeH * Math.Min((double)screenWidth / nativeW, (double)screenHeight / nativeH)),
-                ContentFitMode.Fill    => (int)(nativeH * Math.Max((double)screenWidth / nativeW, (double)screenHeight / nativeH)),
-                ContentFitMode.Stretch => screenHeight,
-                _                      => anim.TargetHeight
-            };
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[CrossScreen] Native-size probe failed for '{anim.AnimationPath}': {ex.Message}. Falling back to TargetHeight.");
-            return anim.TargetHeight;
-        }
-    }
-
     private bool CanApplyWallpaperToSelected() =>
         SelectedWallpaper != null && Clients.Any(c => c.IsSelected);
 
@@ -1210,103 +1073,12 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     partial void OnDebugShowZoneBandsChanged(bool value) => _ = SendDebugOverlayFlags();
     partial void OnDebugShowInfoPanelChanged(bool value) => _ = SendDebugOverlayFlags();
 
-    private async Task SendDebugOverlayFlags()
-    {
-        foreach (var service in _d2dCompositionServices.Values)
-        {
-            try
-            {
-                await service.SendSetDebugOverlayFlagsAsync(
-                    DebugOverlayEnabled, DebugShowPath, DebugShowIconRects,
-                    DebugShowZoneBands, DebugShowInfoPanel);
-            }
-            catch (Exception ex) { Debug.WriteLine($"[DebugOverlay] SendFlags failed: {ex.Message}"); }
-        }
-    }
+    private Task SendDebugOverlayFlags() => _server.SetDebugOverlayAsync(new DebugOverlayFlags(
+        DebugOverlayEnabled, DebugShowPath, DebugShowIconRects, DebugShowZoneBands, DebugShowInfoPanel));
 
+    /// <summary>Toolbar "Clear all": stop the show and the scene and every player on this machine.</summary>
     [RelayCommand]
-    private async Task ClearAllWallpapers()
-    {
-        Debug.WriteLine("[ClearAll] Stopping animations and clearing wallpapers");
-
-        // Stop the playlist rotation loop first so it can't respawn D2D players after teardown.
-        if (_playlistOrchestrator != null)
-            await StopPlaylistAsync();
-
-        // Stop cross-screen animation if running
-        if (IsCrossScreenRunning)
-        {
-            await StopCrossScreen();
-        }
-
-        // Stop and dispose all D2D composition services
-        // Must await StopAsync before Dispose to avoid sync-over-async deadlock
-        foreach (var kvp in _d2dCompositionServices)
-        {
-            try
-            {
-                await kvp.Value.StopAsync();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[ClearAll] Error stopping D2D service for monitor {kvp.Key}: {ex.Message}");
-            }
-
-            try
-            {
-                kvp.Value.Dispose();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[ClearAll] Error disposing D2D service for monitor {kvp.Key}: {ex.Message}");
-            }
-        }
-        _d2dCompositionServices.Clear();
-
-        // Dispose all LibVLC renderers
-        foreach (var kvp in _localWallpaperRenderers)
-        {
-            try
-            {
-                if (kvp.Value is IDisposable disposable)
-                    disposable.Dispose();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[ClearAll] Error disposing renderer for monitor {kvp.Key}: {ex.Message}");
-            }
-        }
-        _localWallpaperRenderers.Clear();
-
-        // Reset animation indicators and preview on clients
-        foreach (var client in Clients)
-        {
-            client.IsAnimating = false;
-            client.IsCurrentAnimationTarget = false;
-            client.ActiveAnimationName = null;
-            client.ThumbnailImage = null;
-            client.CurrentWallpaper = null;
-        }
-
-        // Stop fullscreen detection since no wallpapers are active
-        StopFullscreenDetectionIfIdle();
-
-        // Client mode: the server-driven players belong to the app-lifetime host; stop them properly first.
-        await _remotePlayback.StopAllAsync();
-
-        // Finally, kill any lingering Player.D2D processes that this UI has lost track of
-        // (common after crashes, debug sessions, or stale state).
-        int killed = PlayerProcesses.Kill(priorSessionOnly: false);
-        if (killed > 0)
-            Debug.WriteLine($"[ClearAll] Killed {killed} orphan player process(es)");
-
-        // Force IsCrossScreenRunning back to a sane state even if StopCrossScreen couldn't.
-        IsCrossScreenRunning = false;
-        ClearActiveScene();   // also when only a playlist ran (it never sets IsCrossScreenRunning)
-        OnPropertyChanged(nameof(HasActiveRenderer));
-
-        Debug.WriteLine("[ClearAll] All wallpapers cleared");
-    }
+    private Task ClearAllWallpapers() => _server.ClearAllAsync();
 
     [RelayCommand]
     private void SelectWallpaper(WallpaperItemViewModel wallpaper)
@@ -1366,7 +1138,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                 // Check if this is a local monitor (local-only mode or server's own monitors)
                 if (IsLocalMonitor(client.ClientId))
                 {
-                    await ApplyWallpaperLocallyInternal(SelectedWallpaper, GetMonitorIndex(client.ClientId));
+                    await _server.ApplyLocalWallpaperAsync(SelectedWallpaper.FilePath, SelectedWallpaper.Name, GetMonitorIndex(client.ClientId));
                 }
                 else if (_service.IsServerRunning && _service.SyncCoordinator != null)
                 {
@@ -1473,7 +1245,8 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                     // LOCAL: Direct D2D rendering on this machine
                     var monitorIndex = GetMonitorIndex(client.ClientId);
                     Debug.WriteLine($"[Direct2D] Local monitor {monitorIndex}");
-                    await ApplyWallpaperWithDirect2DAsync(SelectedWallpaper, monitorIndex);
+                    await _server.ApplyLocalD2DAsync(SelectedWallpaper.FilePath, SelectedWallpaper.Name, monitorIndex,
+                        D2dBackgroundColor, SelectedFitModeIndex);
                 }
                 else if (_service.IsServerRunning && _service.SyncCoordinator != null)
                 {
@@ -1518,7 +1291,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             if (isLocal)
             {
                 // LOCAL: Create renderer on this machine
-                await ApplyWallpaperLocallyInternal(wallpaper, monitorIndex);
+                await _server.ApplyLocalWallpaperAsync(wallpaper.FilePath, wallpaper.Name, monitorIndex);
             }
             else
             {
@@ -1534,329 +1307,6 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         catch (Exception ex)
         {
             Debug.WriteLine($"[ApplyWallpaperAsync] Error on {targetClientId}: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// INTERNAL: Apply wallpaper locally (implementation detail)
-    /// </summary>
-    private async Task ApplyWallpaperLocallyInternal(WallpaperItemViewModel wallpaper, int monitorIndex = 0)
-    {
-        try
-        {
-            Debug.WriteLine($"[ApplyWallpaperLocally] Applying '{wallpaper.Name}' to local machine monitor {monitorIndex}");
-
-            // Dispose previous renderer for this monitor if exists (atomic operation)
-            if (_localWallpaperRenderers.TryRemove(monitorIndex, out var existingRenderer))
-            {
-                existingRenderer.Dispose();
-            }
-
-            // Validate monitor index
-            var screens = System.Windows.Forms.Screen.AllScreens;
-            if (monitorIndex < 0 || monitorIndex >= screens.Length)
-            {
-                Debug.WriteLine($"[ApplyWallpaperLocally] Invalid monitor index {monitorIndex}. Available monitors: {screens.Length}");
-                return;
-            }
-
-            // Create appropriate renderer based on file extension
-            var extension = Path.GetExtension(wallpaper.FilePath).ToLowerInvariant();
-            IWallpaperRenderer? renderer = extension switch
-            {
-                // GIFs now use LibVLC (VideoWallpaperRenderer) for instant loading
-                ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv" or ".gif"
-                    => new VideoWallpaperRenderer(
-                        AppLogger.CreateLogger<VideoWallpaperRenderer>(),
-                        _desktopManager),
-                ".jpg" or ".jpeg" or ".png" or ".bmp"
-                    => new ImageWallpaperRendererLibVLC(
-                        AppLogger.CreateLogger<ImageWallpaperRendererLibVLC>(),
-                        _desktopManager),
-                _ => null
-            };
-
-            if (renderer == null)
-            {
-                Debug.WriteLine($"[ApplyWallpaperLocally] Unsupported file type: {extension}");
-                return;
-            }
-
-            // Initialize and play with specific monitor index
-            var config = new WallpaperConfig
-            {
-                FilePath = wallpaper.FilePath,
-                Loop = true,
-                MonitorIndex = monitorIndex
-            };
-
-            await renderer.InitializeAsync(config);
-            await renderer.StartAsync();
-
-            // Store renderer for this monitor
-            _localWallpaperRenderers[monitorIndex] = renderer;
-            ClearAllWallpapersCommand.NotifyCanExecuteChanged();
-            OnPropertyChanged(nameof(HasActiveRenderer));
-
-            // Set up thumbnail capture for live preview
-            SetupThumbnailCapture(monitorIndex, renderer.WindowHandle, wallpaper.Name);
-
-            // Update UI for the specific monitor node
-            var localClient = Clients.FirstOrDefault(c => c.ClientId == $"LOCAL_MACHINE_MONITOR_{monitorIndex}");
-            if (localClient != null)
-            {
-                localClient.CurrentWallpaper = wallpaper.Name;
-            }
-
-            Debug.WriteLine($"[ApplyWallpaperLocally] Successfully applied '{wallpaper.Name}' to monitor {monitorIndex}");
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[ApplyWallpaperLocally] Error: {ex.Message}");
-            Debug.WriteLine($"[ApplyWallpaperLocally] Stack trace: {ex.StackTrace}");
-        }
-    }
-
-    /// <summary>
-    /// INTERNAL: Apply Direct2D rendering using separate player process (Windows 11 24H2+ compatible).
-    /// This uses D2DCompositionService + D2DPlayerHost instead of the old Direct2DRenderer.
-    /// </summary>
-    private async Task ApplyWallpaperWithDirect2DAsync(WallpaperItemViewModel wallpaper, int monitorIndex = 0)
-    {
-        try
-        {
-            Debug.WriteLine($"[Direct2D] Applying '{wallpaper.Name}' to monitor {monitorIndex} via D2D separate process");
-
-            // Dispose previous composition service for this monitor if exists
-            if (_d2dCompositionServices.TryRemove(monitorIndex, out var existingService))
-            {
-                Debug.WriteLine($"[Direct2D] Disposing existing D2D composition service for monitor {monitorIndex}");
-                try
-                {
-                    existingService.Dispose();
-                    Debug.WriteLine($"[Direct2D] Successfully disposed existing service for monitor {monitorIndex}");
-
-                    // Force garbage collection to ensure processes are fully terminated
-                    GC.Collect();
-                    GC.WaitForPendingFinalizers();
-                    GC.Collect();
-
-                    // Give the system a moment to clean up
-                    await Task.Delay(500);
-                }
-                catch (Exception disposeEx)
-                {
-                    Debug.WriteLine($"[Direct2D] Error disposing existing service: {disposeEx.Message}");
-                }
-            }
-
-            // Validate monitor index using native API (avoids WinForms Screen.AllScreens issue on .NET 9)
-            var screens = WaBiBaBuSy.WallpaperEngine.Native.NativeMonitorInfo.GetAllMonitors();
-            if (monitorIndex < 0 || monitorIndex >= screens.Length)
-            {
-                Debug.WriteLine($"[Direct2D] Invalid monitor index {monitorIndex}. Available monitors: {screens.Length}");
-                return;
-            }
-
-            // Determine file type
-            var extension = Path.GetExtension(wallpaper.FilePath).ToLowerInvariant();
-
-            // OPTION 1 (DEFAULT): Use composition pipeline with LibVLC memory callbacks
-            // GIFs/videos use memory callbacks for direct frame access (zero disk I/O, <1% CPU)
-            // This enables GIFs in cross-screen animations and composition system
-
-            // OPTION 2 (DISABLED): Direct LibVLC rendering (bypasses composition)
-            // Uncomment this block to use direct LibVLC window rendering for GIFs
-            // Pros: Simplest approach, guaranteed to work
-            // Cons: Can't use GIFs in composition/cross-screen animations
-            /*
-            if (extension == ".gif")
-            {
-                Debug.WriteLine($"[Direct2D] GIF detected - using native LibVLC rendering (bypassing composition)");
-                await ApplyGifWithLibVLCAsync(wallpaper, monitorIndex);
-                return;
-            }
-            */
-
-            // Check if file is supported for composition pipeline (images, videos, AND GIFs)
-            bool isSupportedFile = extension switch
-            {
-                ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv" or ".gif"
-                or ".jpg" or ".jpeg" or ".png" or ".bmp" => true,
-                _ => false
-            };
-
-            if (!isSupportedFile)
-            {
-                Debug.WriteLine($"[Direct2D] File '{wallpaper.FilePath}' is not supported. Extension: {extension}");
-                return;
-            }
-
-            // Get screen bounds for this monitor
-            var screen = screens[monitorIndex];
-
-            Debug.WriteLine($"[Direct2D] Selected monitor {monitorIndex}: Position=({screen.Bounds.X},{screen.Bounds.Y}), Size={screen.Bounds.Width}x{screen.Bounds.Height}");
-            Debug.WriteLine($"[Direct2D] IsPrimary={screen.IsPrimary}, DeviceName={screen.DeviceName}");
-
-            // Create screen configuration for the virtual canvas manager
-            var screenConfig = new WaBiBaBuSy.WallpaperEngine.Composition.ScreenConfiguration
-            {
-                ClientId = $"LOCAL_MACHINE_MONITOR_{monitorIndex}",
-                Order = monitorIndex, // Use actual monitor index, not always 0
-                Width = screen.Bounds.Width,
-                Height = screen.Bounds.Height,
-                PhysicalDistanceCm = 0
-            };
-
-            // Create canvas manager for single screen
-            var canvasManager = new VirtualCanvasManager(
-                AppLogger.CreateLogger<VirtualCanvasManager>());
-            canvasManager.CalculateLayout(new WaBiBaBuSy.WallpaperEngine.Composition.ScreenConfiguration[] { screenConfig });
-
-            // Create background configuration (use auto-detected or user-specified color)
-            var backgroundConfig = new BackgroundLayerConfig
-            {
-                Mode = BackgroundMode.SolidColor,
-                ColorHex = D2dBackgroundColor
-            };
-
-            // Create animation configuration
-            // SIMPLE PLAYBACK MODE: Center the content and keep it stationary
-            var animationConfig = new AnimationLayerConfig
-            {
-                AnimationPath = wallpaper.FilePath,
-                TargetHeight = screen.Bounds.Height,
-                Loop = true,
-                VerticalAlign = VerticalAlignment.Center,
-                CenterInitialPosition = true,  // Start centered, not off-screen
-                FitMode = (ContentFitMode)SelectedFitModeIndex
-            };
-
-            // Create composition renderer
-            // Create D2D composition service (metadata-based, no frame composition in main process)
-            var d2dService = new D2DCompositionService(
-                AppLogger.CreateLogger<D2DCompositionService>(),
-                AppLogger.Factory,
-                _desktopManager);
-
-            Debug.WriteLine($"[Direct2D] Initializing D2D composition service for monitor {monitorIndex} (metadata-based)");
-
-            // Pass actual monitor bounds from Windows
-            var actualBounds = new System.Drawing.Rectangle(
-                screen.Bounds.X,
-                screen.Bounds.Y,
-                screen.Bounds.Width,
-                screen.Bounds.Height);
-
-            Debug.WriteLine($"[Direct2D] Passing actualBounds to service: X={actualBounds.X}, Y={actualBounds.Y}, W={actualBounds.Width}, H={actualBounds.Height}");
-
-            // Initialize: sends LOAD_ANIMATION command with metadata to player
-            await d2dService.InitializeAsync(canvasManager, backgroundConfig, animationConfig, actualBounds, monitorIndex);
-
-            // Small delay to ensure player has loaded animation
-            await Task.Delay(100);
-
-            // Start playback (works for both static images and animations)
-            // SIMPLE PLAYBACK MODE: pixelsPerSecond = 0 means STATIONARY (centered, no movement)
-            // Animation mode would use pixelsPerSecond > 0 for cross-screen movement
-            Debug.WriteLine($"[Direct2D] Starting animation playback (metadata-based, players render locally)");
-            await d2dService.StartAsync(startTimestampMs: 0, pixelsPerSecond: 0);
-
-            // Store the service for later cleanup
-            _d2dCompositionServices[monitorIndex] = d2dService;
-            ClearAllWallpapersCommand.NotifyCanExecuteChanged();
-            OnPropertyChanged(nameof(HasActiveRenderer));
-            StartFullscreenDetectionIfNeeded();
-
-            // Set up thumbnail capture for live preview
-            SetupThumbnailCapture(monitorIndex, d2dService.PlayerHwnd, wallpaper.Name);
-
-            // Update UI
-            var localClient = Clients.FirstOrDefault(c => c.ClientId == $"LOCAL_MACHINE_MONITOR_{monitorIndex}");
-            if (localClient != null)
-            {
-                localClient.CurrentWallpaper = $"{wallpaper.Name} (D2D)";
-            }
-
-            Debug.WriteLine($"[Direct2D] Successfully started D2D rendering for '{wallpaper.Name}' on monitor {monitorIndex}");
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[Direct2D] Error: {ex.Message}");
-            Debug.WriteLine($"[Direct2D] Stack trace: {ex.StackTrace}");
-        }
-    }
-
-    /// <summary>
-    /// Apply GIF using native LibVLC rendering (bypasses composition pipeline for performance).
-    /// LibVLC renders directly to a desktop window - no frame extraction needed.
-    /// This eliminates the TakeSnapshot() overhead and memory leaks.
-    /// </summary>
-    private async Task ApplyGifWithLibVLCAsync(WallpaperItemViewModel wallpaper, int monitorIndex = 0)
-    {
-        try
-        {
-            Debug.WriteLine($"[LibVLC-GIF] Applying GIF '{wallpaper.Name}' to monitor {monitorIndex} via native LibVLC");
-
-            // Dispose previous renderer for this monitor if exists
-            if (_localWallpaperRenderers.TryRemove(monitorIndex, out var existingRenderer))
-            {
-                Debug.WriteLine($"[LibVLC-GIF] Disposing existing renderer for monitor {monitorIndex}");
-                try
-                {
-                    await existingRenderer.StopAsync();
-                    existingRenderer.Dispose();
-                    await Task.Delay(200);  // Give it time to clean up
-                }
-                catch (Exception disposeEx)
-                {
-                    Debug.WriteLine($"[LibVLC-GIF] Error disposing existing renderer: {disposeEx.Message}");
-                }
-            }
-
-            // Create VideoWallpaperRenderer in NON-headless mode
-            // This creates a real visible window on the desktop that LibVLC renders to
-            var renderer = new VideoWallpaperRenderer(
-                AppLogger.CreateLogger<VideoWallpaperRenderer>(),
-                _desktopManager);
-
-            var config = new WallpaperConfig
-            {
-                FilePath = wallpaper.FilePath,
-                Type = WaBiBaBuSy.Models.WallpaperType.Video,  // LibVLC treats GIFs as videos
-                Loop = true,  // Enable looping
-                HardwareAcceleration = true,
-                MonitorIndex = monitorIndex,
-                HeadlessMode = false  // CRITICAL: Create visible window for LibVLC rendering
-            };
-
-            Debug.WriteLine($"[LibVLC-GIF] Initializing renderer for monitor {monitorIndex}");
-            await renderer.InitializeAsync(config);
-
-            Debug.WriteLine($"[LibVLC-GIF] Starting playback");
-            await renderer.StartAsync();
-
-            // Store renderer
-            _localWallpaperRenderers[monitorIndex] = renderer;
-            ClearAllWallpapersCommand.NotifyCanExecuteChanged();
-            OnPropertyChanged(nameof(HasActiveRenderer));
-
-            // Set up thumbnail capture for live preview
-            SetupThumbnailCapture(monitorIndex, renderer.WindowHandle, wallpaper.Name);
-
-            // Update UI
-            var localClient = Clients.FirstOrDefault(c => c.ClientId == $"LOCAL_MACHINE_MONITOR_{monitorIndex}");
-            if (localClient != null)
-            {
-                localClient.CurrentWallpaper = $"{wallpaper.Name} (LibVLC)";
-            }
-
-            Debug.WriteLine($"[LibVLC-GIF] Successfully applied GIF to monitor {monitorIndex}");
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[LibVLC-GIF] Error: {ex.Message}");
-            Debug.WriteLine($"[LibVLC-GIF] Stack trace: {ex.StackTrace}");
         }
     }
 
@@ -2663,6 +2113,8 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         // Ensure UI updates happen on the UI thread
         Dispatcher.UIThread.Post(() =>
         {
+            if (_detached) return;   // a refresh that was in flight when the window closed
+
             // Remove clients that are no longer connected
             var clientIds = connectedClients.Select(c => c.ClientId).ToHashSet();
             var toRemove = Clients.Where(c => !clientIds.Contains(c.ClientId)).ToList();
@@ -2807,6 +2259,14 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             }
 
             AssignGroupColors();
+            SyncRoom();
+
+            // A scene or show item already playing when this window opened: mark its nodes once.
+            if (!_liveMarksRestored && Clients.Count > 0)
+            {
+                _liveMarksRestored = true;
+                if (_server.ActiveScene is { } live) MarkAnimationTargets(live);
+            }
 
             OnPropertyChanged(nameof(ShowHealthSummary));
             NotifyClientSelectionCommands();
@@ -2879,12 +2339,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             if (client.ClientId.StartsWith("LOCAL_MACHINE_MONITOR_"))
             {
                 // Local monitor: capture thumbnail directly
-                var monitorIndexStr = client.ClientId.Replace("LOCAL_MACHINE_MONITOR_", "");
-                if (int.TryParse(monitorIndexStr, out var monitorIndex) &&
-                    _thumbnailCaptureServices.TryGetValue(monitorIndex, out var captureService))
-                {
-                    jpegBytes = captureService.CaptureCurrentThumbnail();
-                }
+                jpegBytes = _server.CaptureLocalThumbnail(GetMonitorIndex(client.ClientId));
             }
             else
             {
@@ -2903,35 +2358,6 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         catch (Exception ex)
         {
             Debug.WriteLine($"[UpdateClientThumbnail] Error for {client.ClientId}: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// Set up thumbnail capture for a local monitor after a wallpaper is applied.
-    /// </summary>
-    private void SetupThumbnailCapture(int monitorIndex, IntPtr hwnd, string wallpaperName)
-    {
-        if (hwnd == IntPtr.Zero)
-        {
-            Debug.WriteLine($"[Thumbnail] No HWND available for monitor {monitorIndex}, skipping thumbnail setup");
-            return;
-        }
-
-        var captureService = _thumbnailCaptureServices.GetOrAdd(monitorIndex, _ =>
-            new ThumbnailCaptureService(AppLogger.CreateLogger<ThumbnailCaptureService>()));
-
-        captureService.SetWallpaperHwnd(hwnd, wallpaperName);
-        Debug.WriteLine($"[Thumbnail] Set up capture for monitor {monitorIndex}: HWND={hwnd}, wallpaper={wallpaperName}");
-    }
-
-    /// <summary>
-    /// Clear thumbnail capture for a local monitor when wallpaper is removed.
-    /// </summary>
-    private void ClearThumbnailCapture(int monitorIndex)
-    {
-        if (_thumbnailCaptureServices.TryGetValue(monitorIndex, out var captureService))
-        {
-            captureService.ClearWallpaperHwnd();
         }
     }
 
@@ -3001,640 +2427,36 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         });
     }
 
-    /// <summary>
-    /// Cleanup method called when application is closing.
-    /// Disposes all wallpaper renderers and their associated player processes.
-    /// </summary>
-    public void Cleanup()
-    {
-        Debug.WriteLine("[Cleanup] Disposing all wallpaper renderers");
-
-        // Dispose all local wallpaper renderers (which will kill player processes)
-        foreach (var kvp in _localWallpaperRenderers.ToList())
-        {
-            try
-            {
-                Debug.WriteLine($"[Cleanup] Disposing renderer for monitor {kvp.Key}");
-                kvp.Value.Dispose();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[Cleanup] Error disposing renderer for monitor {kvp.Key}: {ex.Message}");
-            }
-        }
-
-        _localWallpaperRenderers.Clear();
-
-        // Clear all thumbnail capture services
-        foreach (var kvp in _thumbnailCaptureServices)
-        {
-            kvp.Value.ClearWallpaperHwnd();
-        }
-        _thumbnailCaptureServices.Clear();
-
-        Debug.WriteLine("[Cleanup] All renderers disposed");
-    }
-
     #region Cross-Screen Commands
 
+    /// <summary>Toolbar Start: replay the last scene, or open the Scene editor when there is none.</summary>
     [RelayCommand(CanExecute = nameof(CanStartCrossScreen))]
     private async Task StartCrossScreen()
     {
-        if (IsCrossScreenRunning)
-        {
-            Debug.WriteLine("[CrossScreen] Already running");
-            return;
-        }
-
-        if (_crossScreenConfig == null || string.IsNullOrEmpty(_crossScreenConfig.Animation.AnimationPath))
+        var scene = _server.LastScene;
+        if (scene == null || string.IsNullOrEmpty(scene.Animation.AnimationPath))
         {
             Debug.WriteLine("[CrossScreen] No configuration — opening the Scene editor");
             OpenSceneEditor();
             return;
         }
-
-        try
-        {
-            Debug.WriteLine("[CrossScreen] Starting cross-screen animation via D2D...");
-
-            await ApplyCrossScreenConfigAsync(_crossScreenConfig);
-
-            IsCrossScreenRunning = true;
-            HasAnimationConfig = true;
-            ClearAllWallpapersCommand.NotifyCanExecuteChanged();
-
-            // Set animation indicators on participating clients
-            MarkAnimationTargets(_crossScreenConfig);
-
-            Debug.WriteLine("[CrossScreen] D2D animation started successfully on all monitors");
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[CrossScreen] Error starting: {ex.Message}\n{ex.StackTrace}");
-            IsCrossScreenRunning = false;
-        }
+        SyncRoom();
+        await _server.StartSceneAsync(scene);
     }
 
-    /// <summary>
-    /// Applies a cross-screen configuration: builds the virtual canvas, initializes local
-    /// D2D players, starts them with a shared timestamp, broadcasts to remote clients, and
-    /// wires up fullscreen detection + thumbnail capture for the freshly spawned players.
-    /// Shared by the manual Start button and the playlist orchestrator. Does NOT toggle
-    /// one-time "session started" UI state (IsCrossScreenRunning / HasAnimationConfig /
-    /// per-client indicators) — that stays in the caller so items can be applied repeatedly.
-    /// The applied config comes from the <paramref name="config"/> parameter.
-    /// </summary>
-    public async Task<CrossScreenApplyResult> ApplyCrossScreenConfigAsync(CrossScreenConfig config)
-    {
-        // Targets, local start order, per-node size/DPI, seat-map layout and cm→px (pure, CrossScreenPlanner).
-        // Remote clients without a reported DPI are assumed to have the first local monitor's.
-        var nativeMonitors = WaBiBaBuSy.WallpaperEngine.Native.NativeMonitorInfo.GetAllMonitors();
-        var plan = CrossScreenPlanner.Plan(config, RoomNodes(), _seatMap, ReferencePixelsPerCm,
-            nativeMonitors.Select(m => m.PixelsPerCm).ToList());
-        if (plan.IsEmpty)
-        {
-            Debug.WriteLine("[CrossScreen] No monitors selected");
-            return new CrossScreenApplyResult();
-        }
+    /// <summary>Toolbar ■: stop the show and the running scene.</summary>
+    [RelayCommand]
+    private Task StopCrossScreen() => _server.StopAsync();
 
-        var localClients = plan.Local;
-        var remoteClients = plan.Remote;
-        var layout = plan.Layout;
-        var effMovement = plan.EffectiveMovement;
-        var effAnimation = plan.EffectiveAnimation;
-        Debug.WriteLine($"[CrossScreen] Starting D2D animation on {localClients.Count} local + {remoteClients.Count} remote node(s)");
-        Debug.WriteLine($"[CrossScreen] Virtual canvas: {layout.CanvasWidth}x{layout.CanvasHeight} ({_seatMap.Traversal}, {_seatMap.Rows.Count} row(s), wraps={layout.Wraps})");
-
-        // Get actual monitor bounds from Windows
-        var screens = System.Windows.Forms.Screen.AllScreens;
-
-        // Sequential + IconZone: compute one global A* path across the full virtual canvas
-        // so all local monitors share the same coordinated corridor path.
-        var perMonitor = plan.PerMonitor;
-        var animationConfig = effAnimation;
-        if (!perMonitor && config.Background.Mode == BackgroundMode.IconZone && localClients.Count > 0)
-        {
-            try
-            {
-                var iconService = new WaBiBaBuSy.Core.Services.Desktop.DesktopIconService();
-                var (cellW, cellH) = iconService.GetGridCellSize();
-                var allIcons = iconService.GetIconPositions(); // positions in virtual-desktop (absolute) coords
-
-                int firstMonitorIdx = GetMonitorIndex(localClients[0].Node.Id);
-                var firstScreen = firstMonitorIdx < screens.Length ? screens[firstMonitorIdx] : screens[0];
-                int virtualH = firstScreen.Bounds.Height;
-
-                // Effective animation height depends on FitMode. Using the actual rendered height
-                // keeps the server-side path padding in sync with what Player.D2D will compute
-                // locally (pathPaddingPx = _animHeight / 2 + optional wave amplitude).
-                int effectiveHeight = ComputeEffectiveAnimationHeight(
-                    config.Animation, firstScreen.Bounds.Width, virtualH);
-                int pathPaddingPx = effectiveHeight / 2;
-                if (effMovement.Type == MovementType.SineWave)
-                    pathPaddingPx += (int)Math.Ceiling(effMovement.WaveAmplitudePixels);
-                var globalLayout = WaBiBaBuSy.WallpaperEngine.Desktop.ZonePlanner.Compute(
-                    allIcons.Select(i => (i.PixelX, i.PixelY)),
-                    cellW, cellH,
-                    layout.CanvasWidth, virtualH,
-                    config.Background.IconZonePaletteHexes,
-                    config.Background.IconCorridorColorHex,
-                    paddingPx: pathPaddingPx,
-                    visualPaddingPx: Math.Max(4, cellW / 10));
-
-                // Clone animation config with global path attached
-                animationConfig = new AnimationLayerConfig
-                {
-                    AnimationPath             = effAnimation.AnimationPath,
-                    AdditionalAnimationPaths  = effAnimation.AdditionalAnimationPaths,
-                    TargetHeight              = effAnimation.TargetHeight,
-                    Loop                      = effAnimation.Loop,
-                    VerticalAlign             = effAnimation.VerticalAlign,
-                    CenterInitialPosition     = effAnimation.CenterInitialPosition,
-                    SpeedMultiplier           = effAnimation.SpeedMultiplier,
-                    FitMode                   = effAnimation.FitMode,
-                    RotateWithPath            = effAnimation.RotateWithPath,
-                    PrecomputedPath           = globalLayout.Path,
-                    ColorGrading              = effAnimation.ColorGrading,
-                    Pattern                   = effAnimation.Pattern,
-                    MultiImageSpread          = effAnimation.MultiImageSpread,
-                    MultiImagePhaseJitterMs   = effAnimation.MultiImagePhaseJitterMs
-                };
-
-                Debug.WriteLine($"[CrossScreen] IconZone sequential: computed global path with {globalLayout.Path.Count} waypoints across {layout.CanvasWidth}px virtual canvas");
-
-                // Save params for per-lap recompute
-                _seqCellW              = cellW;
-                _seqCellH              = cellH;
-                _seqVirtualCanvasWidth = layout.CanvasWidth;
-                _seqVirtualH           = virtualH;
-                _seqPathPaddingPx      = pathPaddingPx;
-                _seqVisualPaddingPx    = Math.Max(4, cellW / 10);
-                _seqPaletteHexes       = config.Background.IconZonePaletteHexes.ToList();
-                _seqCorridorColorHex   = config.Background.IconCorridorColorHex;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[CrossScreen] Global icon path failed, players will compute locally: {ex.Message}");
-            }
-        }
-
-        // Phase 1: Initialize all D2D players (load animation, extract GIF frames)
-        var newServices = new List<(int monitorIndex, D2DCompositionService service)>();
-        var phase1Timer = System.Diagnostics.Stopwatch.StartNew();
-
-        foreach (var planned in localClients)
-        {
-            var monitorIndex = GetMonitorIndex(planned.Node.Id);
-
-            // Clean up existing D2D service for this monitor if any
-            if (_d2dCompositionServices.TryRemove(monitorIndex, out var existingService))
-            {
-                try { await existingService.StopAsync(); } catch { }
-                existingService.Dispose();
-            }
-
-            // Find actual screen bounds
-            var screen = monitorIndex < screens.Length ? screens[monitorIndex] : screens[0];
-            var actualBounds = new System.Drawing.Rectangle(
-                screen.Bounds.X, screen.Bounds.Y,
-                screen.Bounds.Width, screen.Bounds.Height);
-
-            Debug.WriteLine($"[CrossScreen] Monitor {monitorIndex}: {actualBounds.Width}x{actualBounds.Height} at ({actualBounds.X},{actualBounds.Y})");
-
-            // Build a single-screen canvas for this monitor's service.
-            // D2DCompositionService.InitializeAsync loops over ScreenMappings and spawns one
-            // player per entry — passing the full multi-screen layout would cause it to
-            // spawn N players per service (N² total), all positioned at the same actualBounds.
-            // Each service must own exactly ONE player for its own monitor.
-            var thisCfg = new WallpaperEngine.Composition.ScreenConfiguration
-            {
-                ClientId = planned.Node.Id,
-                Width = planned.WidthPx,
-                Height = planned.HeightPx,
-                Order = planned.Node.Order,
-                PhysicalDistanceCm = planned.Node.GapBeforeCm,
-                Hostname = planned.Node.Hostname,
-                MonitorIndex = planned.Node.MonitorIndex,
-                PixelsPerCm = planned.PixelsPerCm
-            };
-            var singleCanvas = new VirtualCanvasManager(AppLogger.CreateLogger<VirtualCanvasManager>());
-            singleCanvas.CalculateLayout(new[] { thisCfg });
-
-            // In sequential mode the player needs the full virtual canvas width and this
-            // monitor's X offset within it; derive both from the seat-map layout.
-            var nodeLayout = layout.Get(planned.Node.Id);
-            int virtualOffsetX = nodeLayout?.OffsetX ?? 0;
-            int virtualOffsetY = nodeLayout?.OffsetY ?? 0;
-            int nodeOrder = nodeLayout?.Order ?? 0;
-
-            // Create D2D service
-            var d2dService = new D2DCompositionService(
-                AppLogger.CreateLogger<D2DCompositionService>(),
-                AppLogger.Factory,
-                _desktopManager);
-
-            // Initialize: singleCanvas → exactly 1 player spawned for this monitor.
-            // Pass explicit virtual-canvas width + offset so the player computes
-            // movement correctly in sequential (spanning) mode.
-            await d2dService.InitializeAsync(
-                singleCanvas,
-                config.Background,
-                animationConfig,
-                actualBounds,
-                monitorIndex,
-                effMovement,
-                perMonitorMode: perMonitor,
-                explicitVirtualCanvasWidth: perMonitor ? null : layout.CanvasWidth,
-                explicitMonitorOffsetX: perMonitor ? null : virtualOffsetX,
-                explicitVirtualCanvasHeight: perMonitor ? null : layout.CanvasHeight,
-                explicitMonitorOffsetY: perMonitor ? null : virtualOffsetY,
-                nodeOrder: nodeOrder,
-                layout: perMonitor ? null : nodeLayout);
-
-            // Subscribe for lap-completion recompute in sequential IconZone mode
-            if (!perMonitor && config.Background.Mode == BackgroundMode.IconZone)
-                d2dService.GlobalLapCompleted += OnSequentialLapCompleted;
-
-            newServices.Add((monitorIndex, d2dService));
-            Debug.WriteLine($"[CrossScreen] Monitor {monitorIndex} initialized (virtualOffsetX={virtualOffsetX}, vcw={layout.CanvasWidth})");
-        }
-
-        // Brief pause to let all players finish loading
-        await Task.Delay(200);
-
-        // Phase 2: Start ALL players with same shared timestamp.
-        // Background always renders on all monitors simultaneously.
-        // DistributionMode controls animation positioning:
-        //   - Sequential: animation spans across virtual canvas (multi-monitor spanning)
-        //   - Simultaneous: animation plays independently on each monitor
-        // Tier 0.4: place the shared start in the future so remotes have received the command,
-        // downloaded, spawned and decoded before the first frame — every node then starts on the
-        // same frame instead of popping in mid-lap. Lead = 3×worst RTT + the local load time we
-        // just measured, clamped to [800, 4000] ms.
-        double maxRttMs = plan.MaxRemoteRttMs;
-        int startLeadMs = SyncTiming.ComputeStartLeadMs(maxRttMs, (int)phase1Timer.ElapsedMilliseconds);
-        var sharedStartTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + startLeadMs;
-        var pixelsPerSecond = effMovement.Type == MovementType.Static
-            ? 0
-            : (int)effMovement.SpeedPixelsPerSecond;
-        Debug.WriteLine($"[CrossScreen] Shared start scheduled {startLeadMs}ms ahead (maxRtt={maxRttMs:F0}ms, load={phase1Timer.ElapsedMilliseconds}ms)");
-
-        var isSequential = config.DistributionMode == AnimationDistributionMode.Sequential;
-        Debug.WriteLine($"[CrossScreen] Starting {(isSequential ? "SEQUENTIAL (spanning)" : "SIMULTANEOUS (per-monitor)")} animation on {newServices.Count} monitors, timestamp={sharedStartTimestamp}ms, speed={pixelsPerSecond}px/s");
-
-        foreach (var (monitorIndex, d2dService) in newServices)
-        {
-            await d2dService.StartAsync(startTimestampMs: sharedStartTimestamp, pixelsPerSecond: pixelsPerSecond);
-            _d2dCompositionServices[monitorIndex] = d2dService;
-        }
-
-        // Phase 3: Send cross-screen D2D commands to remote clients
-        if (remoteClients.Count > 0 && _service.SyncCoordinator != null)
-        {
-            // Tier 1.3: ids identify bytes (name + hash) so renamed/re-exported files are never served stale.
-            var contentId = ContentIdentity.ComputeId(effAnimation.AnimationPath);
-            var sceneAssets = BuildAssetRefs(config);
-            _crossScreenContentId = contentId;
-            var bgColor = config.Background.ColorHex ?? "#000000";
-            var movementTypeInt = (int)effMovement.Type;
-
-            foreach (var remote in remoteClients)
-            {
-                var remoteClient = remote.Node;
-                var remoteLayout = layout.Get(remoteClient.Id);
-                var remoteOffsetX = remoteLayout?.OffsetX ?? 0;
-
-                Debug.WriteLine($"[CrossScreen] Sending cross-screen D2D to remote {remoteClient.Hostname} ({remoteClient.Id}): offset={remoteOffsetX}px, canvas={layout.CanvasWidth}px");
-
-                await _service.SyncCoordinator.StartCrossScreenD2DOnClientAsync(
-                    clientId: remoteClient.Id,
-                    contentId: contentId,
-                    filePath: effAnimation.AnimationPath,
-                    backgroundColor: bgColor,
-                    fitMode: (int)(effAnimation.FitMode),
-                    virtualCanvasWidth: layout.CanvasWidth,
-                    monitorOffsetX: remoteOffsetX,
-                    sharedStartTimestampMs: sharedStartTimestamp,
-                    pixelsPerSecond: pixelsPerSecond,
-                    perMonitorMode: !isSequential,
-                    movementType: movementTypeInt,
-                    pattern: effAnimation.Pattern,
-                    colorGrading: effAnimation.ColorGrading,
-                    // Full configs so the remote computes identical deterministic math.
-                    // animationConfig is the (possibly IconZone-cloned) config, so the
-                    // precomputed global A* path now reaches remote machines too.
-                    movement: effMovement,
-                    animation: animationConfig,
-                    background: config.Background,
-                    // MonitorIndex is -1 for whole-machine nodes → render on primary.
-                    targetMonitorIndex: Math.Max(0, remoteClient.MonitorIndex),
-                    virtualCanvasHeight: layout.CanvasHeight,
-                    monitorOffsetY: remoteLayout?.OffsetY ?? 0,
-                    nodeOrder: remoteLayout?.Order ?? 0,
-                    layout: isSequential ? remoteLayout : null,
-                    assets: sceneAssets);
-            }
-        }
-        else if (remoteClients.Count > 0)
-        {
-            Debug.WriteLine("[CrossScreen] WARNING: Remote clients selected but server not running - cannot send cross-screen commands");
-        }
-
-        StartFullscreenDetectionIfNeeded();
-
-        // Set up thumbnail capture for live preview in topology nodes
-        var animName = Path.GetFileName(effAnimation.AnimationPath) ?? "Animation";
-        foreach (var (monitorIndex, d2dService) in newServices)
-        {
-            SetupThumbnailCapture(monitorIndex, d2dService.PlayerHwnd, animName);
-        }
-
-        // Feed the live preview: same layout, same config, same shared epoch as the players.
-        // Epoch and layout first so the room never paints the new scene on a stale clock/layout.
-        ActiveSharedStartMs = sharedStartTimestamp;
-        ActiveStartLeadMs = startLeadMs;
-        ActiveEffectiveMovement = effMovement;
-        ActiveLayout = layout;
-        ActiveSpriteImagePath = ResolveSpriteImagePath(effAnimation.AnimationPath);
-        ActiveScene = config;
-
-        return new CrossScreenApplyResult
-        {
-            VirtualCanvasWidth = layout.CanvasWidth,
-            ContentWidthPx = 0, // best-effort; wire a real value later if a service exposes it
-            EffectiveSpeedPx = effMovement.SpeedPixelsPerSecond,
-            StartLeadMs = startLeadMs,
-            SharedStartTimestampMs = sharedStartTimestamp
-        };
-    }
-
-    /// <summary>Start rotating the given playlist across all nodes.</summary>
+    /// <summary>Start rotating the given playlist across all nodes (Playlist tab ▶).</summary>
     public void StartPlaylist(WaBiBaBuSy.Models.Wallpaper.Playlist playlist)
     {
-        if (IsStartingScene)
-        {
-            AppLogger.CreateLogger<MainWindowViewModel>()
-                .LogWarning("StartPlaylist ignored: a scene is already starting (Play button in flight)");
-            return;
-        }
-
-        if (_playlistOrchestrator == null)
-        {
-            _playlistOrchestrator = new WaBiBaBuSy.Core.Services.Animation.PlaylistOrchestrator(
-                AppLogger.CreateLogger<WaBiBaBuSy.Core.Services.Animation.PlaylistOrchestrator>(),
-                apply: config => Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
-                {
-                    var r = await ApplyCrossScreenConfigAsync(config);
-                    MarkAnimationTargets(config);   // the room paints the live sprite on animating tiles only
-                    return new WaBiBaBuSy.Core.Services.Animation.ApplyMetrics(r.VirtualCanvasWidth, r.ContentWidthPx, r.StartLeadMs, r.EffectiveSpeedPx);
-                }),
-                seedProvider: () => Environment.TickCount,
-                prefetch: PrefetchShowAssetsAsync,
-                waitUntilNodesReady: WaitUntilRemotesPrefetchedAsync);
-            // Highlight the playing row in the Playlist tab. Guard against a stale post landing after
-            // the show already stopped (or a new one started) and re-marking a row as playing.
-            _playlistOrchestrator.ItemChanged += (_, index) =>
-                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                {
-                    if (_playlistOrchestrator?.IsRunning == true) PlaylistEditor.MarkPlaying(index);
-                });
-        }
-
-        _playlistOrchestrator.Start(playlist);
+        SyncRoom();
+        _server.StartShow(playlist);
     }
 
-    /// <summary>Stop the running playlist (if any).</summary>
-    public async Task StopPlaylistAsync()
-    {
-        if (_playlistOrchestrator != null)
-            await _playlistOrchestrator.StopAsync();
-        PlaylistEditor.IsShowRunning = false;
-        PlaylistEditor.MarkPlaying(-1);
-    }
-
-    /// <summary>
-    /// Convert Wallpaper.BackgroundLayerConfig to Animation.BackgroundLayerConfig
-    /// </summary>
-    private Models.Animation.BackgroundLayerConfig ConvertToAnimationBackground(Models.Wallpaper.BackgroundLayerConfig wallpaperConfig)
-    {
-        // Simple direct mapping since both models have the same properties
-        var animationConfig = new Models.Animation.BackgroundLayerConfig
-        {
-            ColorHex = wallpaperConfig.ColorHex ?? "#000000",
-            ImagePath = wallpaperConfig.ImagePath ?? string.Empty
-        };
-
-        return animationConfig;
-    }
-
-    /// <summary>
-    /// Start sequential animation using Phase 3 orchestrator
-    /// </summary>
-    private async Task StartOrchestrationAnimation(List<WallpaperEngine.Composition.ScreenConfiguration> screenConfigs)
-    {
-        try
-        {
-            if (_crossScreenConfig?.Animation.AnimationPath == null)
-            {
-                Debug.WriteLine("[Orchestration] No animation path configured");
-                return;
-            }
-
-            // Create animation metadata
-            var metadata = new Models.Animation.AnimationMetadata
-            {
-                AnimationId = Guid.NewGuid().ToString(),
-                ContentPath = _crossScreenConfig.Animation.AnimationPath,
-                TargetHeightPx = _crossScreenConfig.Animation.TargetHeight,  // Use TargetHeight not TargetHeightPx
-                AnimationSpeedPxSec = _crossScreenConfig.AnimationSpeedPxPerSecond,  // Use CrossScreenConfig's speed
-                DurationMs = 5000,  // Default animation duration (5 seconds)
-                StartTimestampUtc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                Background = ConvertToAnimationBackground(_crossScreenConfig.Background),  // Convert background config
-                Loop = _crossScreenConfig.Animation.Loop,  // Use animation loop setting
-                TargetMonitorIndex = 0
-            };
-
-            // Extract selected client IDs
-            var selectedClientIds = screenConfigs.Select(s => s.ClientId).ToList();
-
-            // Determine distribution mode from config
-            var isSequential = _crossScreenConfig.DistributionMode == WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Sequential;
-            Debug.WriteLine($"[Orchestration] Starting {(isSequential ? "sequential" : "simultaneous")} animation with {selectedClientIds.Count} clients");
-
-            // Start animation via orchestrator based on configured distribution mode
-            if (isSequential)
-            {
-                _currentAnimationScheduleId = await _service.StartSequentialAnimationAsync(metadata, selectedClientIds, loop: false);
-            }
-            else
-            {
-                _currentAnimationScheduleId = await _service.StartSimultaneousAnimationAsync(metadata, selectedClientIds);
-            }
-
-            Debug.WriteLine($"[Orchestration] Animation started with schedule ID: {_currentAnimationScheduleId}");
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[Orchestration] Error starting animation: {ex.Message}");
-            throw;
-        }
-    }
-
-    [RelayCommand]
-    private async Task StopCrossScreen()
-    {
-        // Stop the playlist rotation loop first so it can't respawn D2D players after teardown.
-        // Runs before the early-return because a playlist does not set IsCrossScreenRunning.
-        if (_playlistOrchestrator != null)
-            await StopPlaylistAsync();
-
-        if (!IsCrossScreenRunning)
-        {
-            Debug.WriteLine("[CrossScreen] Not running");
-            return;
-        }
-
-        try
-        {
-            Debug.WriteLine("[CrossScreen] Stopping cross-screen animation...");
-
-            // Stop orchestrator animation if active
-            if (!string.IsNullOrEmpty(_currentAnimationScheduleId) && _service.IsServerMode)
-            {
-                Debug.WriteLine($"[Orchestration] Stopping animation schedule: {_currentAnimationScheduleId}");
-                _service.StopAnimation(_currentAnimationScheduleId);
-                _currentAnimationScheduleId = null;
-            }
-
-            // Stop and dispose all D2D composition services
-            foreach (var kvp in _d2dCompositionServices)
-            {
-                kvp.Value.GlobalLapCompleted -= OnSequentialLapCompleted;
-                try { await kvp.Value.StopAsync(); } catch { }
-                try { kvp.Value.Dispose(); } catch { }
-            }
-            _d2dCompositionServices.Clear();
-            _lastGlobalLap = -1;
-
-            // Send stop command to remote clients that were part of this session
-            if (_service.SyncCoordinator != null && _crossScreenConfig != null && !string.IsNullOrEmpty(_crossScreenContentId))
-            {
-                var selectedIds = new HashSet<string>(_crossScreenConfig.SelectedMonitorIds);
-                var remoteToStop = Clients
-                    .Where(c => !IsLocalMonitor(c.ClientId) && (selectedIds.Count == 0 || selectedIds.Contains(c.ClientId)))
-                    .ToList();
-
-                foreach (var remote in remoteToStop)
-                {
-                    try
-                    {
-                        await _service.SyncCoordinator.StopCrossScreenOnClientAsync(remote.ClientId, _crossScreenContentId);
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"[CrossScreen] Failed to send stop to remote {remote.ClientId}: {ex.Message}");
-                    }
-                }
-            }
-            _crossScreenContentId = null;
-
-            IsCrossScreenRunning = false;
-            ClearAllWallpapersCommand.NotifyCanExecuteChanged();
-            StopFullscreenDetectionIfIdle();
-
-            // Reset animation indicators on all clients
-            foreach (var client in Clients)
-            {
-                client.IsAnimating = false;
-                client.IsCurrentAnimationTarget = false;
-                client.ActiveAnimationName = null;
-            }
-
-            Debug.WriteLine("[CrossScreen] Animation stopped");
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[CrossScreen] Error stopping: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// Handle animation rendering for distributed animation system (Phase 1-3).
-    /// This is called when a client animation needs to be rendered.
-    /// In distributed mode, this would compose and display frames locally.
-    /// </summary>
-    private Task OnDistributedAnimationRender(Models.Animation.AnimationMetadata metadata)
-    {
-        try
-        {
-            var logger = AppLogger.CreateLogger<MainWindowViewModel>();
-            logger.LogInformation(
-                "[DistributedAnimation] Starting frame composition: Animation={AnimationId}, Duration={DurationMs}ms, Monitor={MonitorIndex}",
-                metadata.AnimationId, metadata.DurationMs, metadata.TargetMonitorIndex);
-
-            // Rendering is handled by the metadata-based D2D player pipeline;
-            // this handler only logs that the animation was dispatched.
-
-            logger.LogInformation(
-                "[DistributedAnimation] Animation render handler invoked. Actual rendering would start here.");
-
-            return Task.CompletedTask;
-        }
-        catch (Exception ex)
-        {
-            AppLogger.CreateLogger<MainWindowViewModel>()
-                .LogError(ex, "[DistributedAnimation] Error in OnDistributedAnimationRender");
-            throw;
-        }
-    }
-
-    /// <summary>
-    /// Called by each D2DCompositionService when a global lap completes in sequential IconZone mode.
-    /// Recomputes the A* path with a new variation seed and broadcasts it to all players.
-    /// </summary>
-    private void OnSequentialLapCompleted(object? sender, int lapNum)
-    {
-        lock (_seqLapLock)
-        {
-            if (lapNum <= _lastGlobalLap) return;
-            _lastGlobalLap = lapNum;
-        }
-
-        // F3a: when pattern + IconZone are combined, the pattern fills the desktop and zones
-        // are used as a clip mask only — no A* path is needed, so skip the recompute/broadcast.
-        if (_crossScreenConfig?.Animation.Pattern != null
-            && _crossScreenConfig.Background.Mode == BackgroundMode.IconZone)
-        {
-            return;
-        }
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                var iconService = new WaBiBaBuSy.Core.Services.Desktop.DesktopIconService();
-                // GetIconPositions uses only P/Invoke (no STA COM) — safe on thread pool threads.
-                var allIcons = iconService.GetIconPositions();
-                var newLayout = WaBiBaBuSy.WallpaperEngine.Desktop.ZonePlanner.Compute(
-                    allIcons.Select(i => (i.PixelX, i.PixelY)),
-                    _seqCellW, _seqCellH,
-                    _seqVirtualCanvasWidth, _seqVirtualH,
-                    _seqPaletteHexes, _seqCorridorColorHex,
-                    paddingPx: _seqPathPaddingPx,
-                    visualPaddingPx: _seqVisualPaddingPx,
-                    pathVariationSeed: lapNum);
-
-                foreach (var (_, svc) in _d2dCompositionServices)
-                    await svc.BroadcastNewPathAsync(newLayout.Path);
-
-                Debug.WriteLine($"[SeqPath] Lap {lapNum}: broadcast {newLayout.Path.Count} waypoints");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[SeqPath] Recompute failed for lap {lapNum}: {ex.Message}");
-            }
-        });
-    }
+    /// <summary>Stop the running show (if any).</summary>
+    public Task StopPlaylistAsync() => _server.StopShowAsync();
 
     #endregion
 
@@ -3651,20 +2473,4 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     }
 
     #endregion
-}
-
-/// <summary>
-/// Metrics returned by applying a cross-screen config, used by the playlist orchestrator
-/// to compute lap-snap timing. ContentWidthPx is best-effort (0 when unknown).
-/// </summary>
-public sealed class CrossScreenApplyResult
-{
-    public int VirtualCanvasWidth { get; init; }
-    public int ContentWidthPx { get; init; }
-    /// <summary>How far in the future the shared start was scheduled (Tier 0.4).</summary>
-    public int StartLeadMs { get; init; }
-    /// <summary>Canvas speed in px/s after cm→px resolution (Tier 1.2); drives playlist lap timing.</summary>
-    public float EffectiveSpeedPx { get; init; }
-    /// <summary>The shared UTC start timestamp all nodes were given.</summary>
-    public long SharedStartTimestampMs { get; init; }
 }

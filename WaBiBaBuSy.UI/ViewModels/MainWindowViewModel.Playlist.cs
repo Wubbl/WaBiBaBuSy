@@ -1,7 +1,7 @@
 using System;
 using System.Linq;
+using System.Text.Json;
 using CommunityToolkit.Mvvm.Input;
-using WaBiBaBuSy.Core.Services.Animation;
 
 namespace WaBiBaBuSy.UI.ViewModels;
 
@@ -27,24 +27,19 @@ public partial class MainWindowViewModel
             else if (e.PropertyName == nameof(PlaylistViewModel.IsShowRunning))
                 OnPropertyChanged(nameof(IsAnythingPlaying));
         };
-        _ = PlaylistEditor.InitializeAsync();
-    }
-
-    /// <summary>Where the running show is (playlist, item, cycle order), or null when no show runs. UI thread.</summary>
-    internal PlaylistResumePoint? ShowResumePoint => _playlistOrchestrator?.CaptureResumePoint();
-
-    /// <summary>
-    /// Start a show again at a captured point and mark the Playlist tab as running, like its ▶: the item
-    /// restarts from its beginning, a shuffled cycle keeps its order. UI thread; the caller tears down what
-    /// plays and handles <see cref="IsStartingScene"/>. False when the show did not start.
-    /// </summary>
-    internal bool ResumePlaylist(PlaylistResumePoint point)
-    {
-        // The point came from this orchestrator (ShowResumePoint), so it exists.
-        if (_playlistOrchestrator == null) return false;
-        _playlistOrchestrator.Resume(point);
-        PlaylistEditor.IsShowRunning = _playlistOrchestrator.IsRunning;
-        return PlaylistEditor.IsShowRunning;
+        if (_server.ShowResumePoint is { } show)
+        {
+            // A show that kept running while the window was closed: the tab shows its playlist, running, on
+            // its current row. A copy, so editing rows never touches the running show.
+            var running = JsonSerializer.Deserialize<WaBiBaBuSy.Models.Wallpaper.Playlist>(JsonSerializer.Serialize(show.Playlist))!;
+            PlaylistEditor.RefreshSavedPlaylists(select: running.Name);
+            PlaylistEditor.LoadFrom(running);
+            OnShowChanged();
+        }
+        else
+        {
+            _ = PlaylistEditor.InitializeAsync();
+        }
     }
 
     /// <summary>True while a show or a manual scene is running (shows the toolbar ■).</summary>
@@ -52,7 +47,7 @@ public partial class MainWindowViewModel
 
     /// <summary>Toolbar ⏭: advance the running show to its next item.</summary>
     [RelayCommand]
-    private void SkipShowItem() => _playlistOrchestrator?.Skip();
+    private void SkipShowItem() => _server.SkipShowItem();
 
     /// <summary>Editor footer: append the draft to the playlist as a new item.</summary>
     [RelayCommand]

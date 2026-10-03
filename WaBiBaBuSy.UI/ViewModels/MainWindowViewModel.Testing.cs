@@ -19,7 +19,12 @@ namespace WaBiBaBuSy.UI.ViewModels;
 /// <summary>Automated test mode (2026-09-30 design): hooks for <see cref="Services.Testing.TestHostAdapter"/> and the menu.</summary>
 public partial class MainWindowViewModel
 {
-    [ObservableProperty] private string? _testRunStatusText;
+    /// <summary>Test-run progress / result line; kept by the playback host so it survives the window.</summary>
+    public string? TestRunStatusText
+    {
+        get => _server.TestRunStatusText;
+        set => _server.TestRunStatusText = value;
+    }
     [ObservableProperty] private bool _isTestRunning;
 
     private bool? _isTestModeEnabled;
@@ -35,116 +40,6 @@ public partial class MainWindowViewModel
         _isTestModeEnabled = enabled;
         OnPropertyChanged(nameof(IsTestModeEnabled));
     }
-
-    internal Task<IReadOnlyList<TestNodeInfo>> TestNodesAsync() => Dispatcher.UIThread.InvokeAsync(() =>
-    {
-        var versions = _service.GetConnectedClients().GroupBy(c => c.ClientId).ToDictionary(g => g.Key, g => g.First().AppVersion);
-        return TestNodeList.Build(RoomNodes(), versions, AppVersionInfo.AppVersion);
-    }).GetTask();
-
-    /// <summary>
-    /// Same teardown + start as ▶ Play (PlayDraftAsync), without touching the editor draft. Holds the
-    /// <see cref="IsStartingScene"/> guard so a Play / show click cannot interleave across the awaits.
-    /// </summary>
-    internal Task<SceneStartInfo> PlaySceneForTestAsync(CrossScreenConfig config, IReadOnlyList<string> targetNodeIds) =>
-        Dispatcher.UIThread.InvokeAsync(async () =>
-        {
-            if (IsStartingScene)
-                throw new InvalidOperationException("a scene is already starting — try again when the current start has finished");
-            IsStartingScene = true;
-            try
-            {
-                config.SelectedMonitorIds = targetNodeIds.ToList();
-                var previousStart = ActiveSharedStartMs;
-                if (_playlistOrchestrator?.IsRunning == true)
-                {
-                    await StopPlaylistAsync();
-                    await ClearNodesAsync(Clients.Select(c => c.ClientId).Distinct().ToList());
-                }
-                if (IsCrossScreenRunning) await StopCrossScreen();
-
-                _crossScreenConfig = config;
-                HasAnimationConfig = true;
-                await StartCrossScreen();
-                // A fresh start always moves the shared epoch; the reference check alone would pass when
-                // the very same config object was left running after a failed stop.
-                if (!ReferenceEquals(ActiveScene, config) || ActiveSharedStartMs == previousStart)
-                    throw new InvalidOperationException("the scene did not start (see the server log)");
-
-                return new SceneStartInfo
-                {
-                    SharedStartServerUtcMs = ActiveSharedStartMs,
-                    StartLeadMs = ActiveStartLeadMs,
-                    Layout = ActiveLayout,
-                    PerMonitor = config.DistributionMode == AnimationDistributionMode.Simultaneous,
-                    EffectiveMovement = ActiveEffectiveMovement ?? config.Movement,
-                };
-            }
-            finally
-            {
-                IsStartingScene = false;
-            }
-        });
-
-    internal Task StopAllForTestAsync() => Dispatcher.UIThread.InvokeAsync(async () =>
-    {
-        if (IsStartingScene)
-            throw new InvalidOperationException("a scene is already starting — try again when the current start has finished");
-        IsStartingScene = true;
-        try
-        {
-            // Unconditional: it stops a running show first (which never sets IsCrossScreenRunning) and
-            // returns early when no scene runs.
-            await StopCrossScreen();
-            await ClearNodesAsync(Clients.Select(c => c.ClientId).Distinct().ToList());
-        }
-        finally
-        {
-            IsStartingScene = false;
-        }
-    });
-
-    /// <summary>
-    /// What to restore after a run: the running show (playlist + item), else the running scene, else nothing.
-    /// Read by the runner off the UI thread, so everything is read together on it.
-    /// </summary>
-    internal TestRestorePoint CaptureTestRestorePoint() => Dispatcher.UIThread.Invoke(() =>
-    {
-        if (ShowResumePoint is { } show) return new TestRestorePoint { Show = show };
-        return IsCrossScreenRunning && ActiveScene is { } scene ? new TestRestorePoint { Scene = scene } : TestRestorePoint.Nothing;
-    });
-
-    /// <summary>
-    /// After a run: tear down the run's last scene like <see cref="StopAllForTestAsync"/>, then start the show
-    /// again at the item it was on, as ▶ on that playlist would (prefetch, Playlist tab state, toolbar show
-    /// controls). Holds the <see cref="IsStartingScene"/> guard throughout, so no Play click lands in between.
-    /// </summary>
-    internal Task ResumeShowForTestAsync(PlaylistResumePoint show) => Dispatcher.UIThread.InvokeAsync(async () =>
-    {
-        if (IsStartingScene)
-            throw new InvalidOperationException("a scene is already starting — try again when the current start has finished");
-        IsStartingScene = true;
-        try
-        {
-            await StopCrossScreen();   // unconditional: also stops a show, returns early when no scene runs
-            await ClearNodesAsync(Clients.Select(c => c.ClientId).Distinct().ToList());
-            if (!ResumePlaylist(show))
-                throw new InvalidOperationException("the show could not be started again (see the server log)");
-        }
-        finally
-        {
-            IsStartingScene = false;
-        }
-    });
-
-    internal async Task<bool> PrefetchForTestAsync(IReadOnlyList<CrossScreenConfig> scenes, TimeSpan timeout)
-    {
-        await PrefetchShowAssetsAsync(scenes);
-        return await WaitUntilRemotesPrefetchedAsync(timeout);
-    }
-
-    internal IReadOnlyList<ITestProbeTarget> LocalProbeTargetsForTest() =>
-        _d2dCompositionServices.Values.Where(s => s.IsRunning).Cast<ITestProbeTarget>().ToList();
 
     // Set before the picker opens: IsTestRunning only turns true once a run started, so a double-click
     // would otherwise open a second picker.

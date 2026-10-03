@@ -1,7 +1,5 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 
 namespace WaBiBaBuSy.UI.Services;
 
@@ -13,10 +11,10 @@ public static class PlayerProcesses
     /// <summary>
     /// Kill player processes and return how many were killed. <paramref name="priorSessionOnly"/>: only those
     /// that started before this app instance (left behind by a crashed or killed session) — players this
-    /// instance launched always start later, so they survive. Otherwise every player process except
-    /// <paramref name="keep"/> (e.g. the client-mode players of <see cref="RemotePlaybackHost"/>).
+    /// instance launched always start later, so they survive. Otherwise every player process (Clear all,
+    /// after <see cref="ServerPlaybackHost"/> and <see cref="RemotePlaybackHost"/> stopped theirs).
     /// </summary>
-    public static int Kill(bool priorSessionOnly, IReadOnlyCollection<int>? keep = null)
+    public static int Kill(bool priorSessionOnly)
     {
         int killed = 0;
         try
@@ -27,7 +25,6 @@ public static class PlayerProcesses
                 try
                 {
                     if (priorSessionOnly && proc.StartTime >= appStart) continue;
-                    if (keep != null && keep.Contains(proc.Id)) continue;
                     proc.Kill(entireProcessTree: true);
                     proc.WaitForExit(2000);
                     killed++;

@@ -47,16 +47,6 @@ public class D2DPlayerHost : IDisposable
     /// </summary>
     public bool IsRunning => _playerProcess != null && !_playerProcess.HasExited && _isInitialized;
 
-    /// <summary>The player process id, or null before it started.</summary>
-    public int? ProcessId
-    {
-        get
-        {
-            try { return _playerProcess?.Id; }
-            catch (InvalidOperationException) { return null; }   // process object not associated with a process
-        }
-    }
-
     /// <summary>
     /// Gets the HWND of the player window.
     /// </summary>
