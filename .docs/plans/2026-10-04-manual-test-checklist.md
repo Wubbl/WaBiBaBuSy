@@ -100,7 +100,9 @@ Connect the clients first (§5.1). Attach each `report.html` path to the results
 ### 5.1 Connect & identity
 - [ ] Client: type the server IP → Connect connects directly (no discovery override)
 - [ ] Client: empty IP → Connect / Find discovers the server via mDNS
-- [ ] **Client connected from the tray only** (main window never opened on that client): Play a Sequential scene on all → does it cross screens in sync with the others? Suspected bug: it falls back to plain D2D (client log: `D2DCrossScreenApplyDelegate is NULL`). Result: ______
+- [ ] **Client connected from the tray only** (main window never opened on that client): Play a Sequential scene on all → it crosses screens in sync with the others; the client log has no `D2DCrossScreenApplyDelegate is NULL` (fixed 10-03, `a434e43`, build-verified only)
+- [ ] On that client, open the main window while the scene plays → the wallpaper keeps playing (the window no longer kills the client's players); close it again → still playing
+- [ ] Server: play a scene, close the main window, reopen it, press Play again → one player per monitor (Task Manager: `WaBiBaBuSy.Player.D2D` count = monitors), no stacked or flickering sprites
 - [ ] All clients appear as tiles within ~5 s with correct name, resolution, refresh rate, status dot
 - [ ] Arrange: 2 rows (server + client 1 in row 1, clients 2–3 in row 2), facing, Ring; set gaps
 - [ ] **Restart a client app** → same tile, same seat / order (persistent ClientId)
