@@ -1,0 +1,15 @@
+{
+  // A logo comet: rainbow trail, gentle pulse, a ripple where it enters a machine, a glow where it leaves.
+  "Background": { "Mode": "SolidColor", "ColorHex": "#05060A" },
+  "Animation": {
+    "AnimationPath": "../assets/bibabu-logo.png", "FitMode": "TargetHeight", "TargetHeight": 180,
+    "ColorGrading": { "Mode": "Rainbow", "CyclesPerSecond": 0.5 },
+    "Effects": {
+      "Trail": { "Count": 8, "SpacingMs": 70, "StartOpacity": 0.55, "ScaleFalloff": 0.9, "UseGradingColor": true },
+      "Pulse": { "Amplitude": 0.08, "FrequencyHz": 1.2 },
+      "Entry": "Ripple", "Exit": "Glow", "BezelColorHex": "#7FDBFF", "BezelDurationMs": 600
+    }
+  },
+  "Movement": { "Type": "Linear", "SpeedPixelsPerSecond": 900 },
+  "DistributionMode": "Sequential"
+}

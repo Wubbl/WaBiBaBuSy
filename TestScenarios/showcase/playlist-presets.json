@@ -11,6 +11,7 @@
         { "name": "La Ola", "scene": "scenes/04-la-ola.json", "durationMs": 30000 },
         { "name": "Cat parade", "scene": "scenes/05-cat-parade.json" },
         { "name": "Sine serpent", "scene": "scenes/03-sine-serpent.json" },
+        { "name": "Comet", "scene": "scenes/13-comet.json" },
         { "name": "Confetti drift", "scene": "scenes/08-confetti-drift.json" },
         { "name": "Fireflies", "scene": "scenes/07-fireflies.json" },
         { "name": "Endless stripes", "scene": "scenes/11-stripes-endless.json" }
