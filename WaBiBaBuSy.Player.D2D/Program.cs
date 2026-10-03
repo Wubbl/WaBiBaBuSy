@@ -41,7 +41,7 @@ namespace WaBiBaBuSy.Player.D2D;
 ///   - "READY" - Command completed
 ///   - "ERROR:<message>" - Error occurred
 /// </summary>
-class Program
+partial class Program
 {
     // Win32 constants
     private const int CS_HREDRAW = 0x0002;
@@ -2844,14 +2844,7 @@ class Program
                 _animY = vy - _canvasOffsetY;
 
                 // Clamp Y to corridor when ThreeZone background is active
-                // (corridor values are device px; convert to canvas units on a physical canvas)
-                if (_hasCorridorConstraint && _corridorHeightPx > 0)
-                {
-                    float minY = _corridorTopPx / Scale;
-                    float maxY = (_corridorTopPx + _corridorHeightPx) / Scale - _animHeight;
-                    if (maxY < minY) maxY = minY;
-                    _animY = Math.Clamp(_animY, minY, maxY);
-                }
+                _animY = ClampToCorridor(_animY);
             }
         }
         else if (_pixelsPerSecond > 0)
@@ -3700,6 +3693,12 @@ class Program
             _prevFacingX = _animX;
             _hasPrevFacingX = true;
 
+            // Roadmap 2.4: trail behind the sprite, pulse + spin on it (pure functions of elapsed).
+            var fx = SpriteEffects.Supported(_animationConfig, _movementConfig, _backgroundMode) ? _animationConfig.Effects : null;
+            if (fx != null) DrawTrail(fx, bmp, elapsedMs, gradingActive && !isTraveling);
+            float spriteScale = fx != null ? SpriteEffects.PulseScale(fx.Pulse, elapsedMs) : 1f;
+            if (fx != null) rotDeg += SpriteEffects.SpinDegrees(fx.SpinDegPerSecond, elapsedMs);
+
             // Ring seam: a sprite straddling the end of the perimeter is drawn at x and x − P,
             // so it leaves the last seat and enters seat 0 in the same frame.
             Span<float> copies = stackalloc float[2];
@@ -3708,7 +3707,7 @@ class Program
             {
                 float lx = NodeMapping.ToLocalX(copies[c], _animWidth, _layout);
                 if (!NodeMapping.IsVisible(lx, _animWidth, _layout)) continue;
-                DrawCellWithOptionalGrading(bmp, lx, _animY, _animWidth, _animHeight, rotDeg, gradingActive && !isTraveling, flipX: flipX);
+                DrawCellWithOptionalGrading(bmp, lx, _animY, _animWidth, _animHeight, rotDeg, gradingActive && !isTraveling, flipX: flipX, spriteScale: spriteScale);
             }
         }
 
@@ -3783,23 +3782,25 @@ class Program
     /// </summary>
     private static void DrawCellWithOptionalGrading(
         ID2D1Bitmap bmp, float x, float y, int w, int h,
-        float rotationDeg, bool gradingActive, float alpha = 1f, bool flipX = false)
+        float rotationDeg, bool gradingActive, float alpha = 1f, bool flipX = false, float spriteScale = 1f)
     {
         if (_d2dContext == null) return;
 
         bool needsRotation = MathF.Abs(rotationDeg) > 0.01f;
+        bool needsSpriteScale = MathF.Abs(spriteScale - 1f) > 0.0005f;
         float scale = Scale;
         bool needsScale = MathF.Abs(scale - 1f) > 0.0005f;
-        bool needsTransform = needsRotation || flipX || needsScale;
+        bool needsTransform = needsRotation || flipX || needsScale || needsSpriteScale;
         Matrix3x2 prior = Matrix3x2.Identity;
         if (needsTransform)
         {
-            // x/y/w/h are canvas units; flip + rotate about the sprite center in canvas space,
-            // then scale canvas → device pixels (physical canvas, Tier 1.2).
+            // x/y/w/h are canvas units; flip, scale (pulse / trail) and rotate about the sprite center in canvas
+            // space, then scale canvas → device pixels (physical canvas, Tier 1.2).
             var center = new Vector2(x + w / 2f, y + h / 2f);
             prior = _d2dContext.Transform;
             var t = Matrix3x2.Identity;
             if (flipX) t = Matrix3x2.CreateScale(-1f, 1f, center);           // mirror about the sprite center
+            if (needsSpriteScale) t *= Matrix3x2.CreateScale(spriteScale, spriteScale, center);
             if (needsRotation) t *= Matrix3x2.CreateRotation(rotationDeg * MathF.PI / 180f, center);
             if (needsScale) t *= Matrix3x2.CreateScale(scale, scale);
             _d2dContext.Transform = t * prior;
