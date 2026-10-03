@@ -14,6 +14,17 @@ namespace WaBiBaBuSy.Core.Services.Animation;
 public readonly record struct ApplyMetrics(int VirtualCanvasWidth, int ContentWidthPx, int StartLeadMs = 0, float SpeedPxPerSecond = 0f);
 
 /// <summary>
+/// Where a running show is: the playlist it runs, the item order of its current cycle (shuffled or not) and
+/// the position of the current item in that order. <see cref="PlaylistOrchestrator.Resume"/> starts the show
+/// again there (used to bring a show back after an automated test run).
+/// </summary>
+public sealed record PlaylistResumePoint(Playlist Playlist, IReadOnlyList<int> CycleOrder, int CyclePosition)
+{
+    /// <summary>Index of the current item in <see cref="Playlist.Items"/>.</summary>
+    public int ItemIndex => CycleOrder[CyclePosition];
+}
+
+/// <summary>
 /// Drives playlist rotation: applies each item's config via a caller-supplied delegate (the same
 /// broadcast path the manual Start button uses), waits the resolved dwell, then advances.
 /// Server-authority-only. Timing decisions come from PlaylistScheduler (pure, tested).
@@ -53,6 +64,9 @@ public class PlaylistOrchestrator
     /// <summary>True while a show is running.</summary>
     public bool IsRunning => _loopTask is { IsCompleted: false };
 
+    /// <summary>Published as one immutable value so a reader on another thread never sees a torn position.</summary>
+    private volatile PlaylistResumePoint? _position;
+
     /// <summary>Raised (item, index) whenever a new item becomes current — for UI highlight.</summary>
     public event Action<PlaylistItem, int>? ItemChanged;
 
@@ -75,13 +89,42 @@ public class PlaylistOrchestrator
     }
 
     /// <summary>Start rotating the given playlist. No-op if already running or the list is empty.</summary>
-    public void Start(Playlist playlist)
+    public void Start(Playlist playlist) => StartCore(playlist, firstOrder: null, firstPosition: 0, "Start");
+
+    /// <summary>
+    /// Where the running show is (playlist, cycle order, current position), or null when no show runs.
+    /// Before the first item is on screen (prefetch) the position is the first item of the first cycle.
+    /// </summary>
+    public PlaylistResumePoint? CaptureResumePoint() => IsRunning ? _position : null;
+
+    /// <summary>
+    /// Start the show at a point captured by <see cref="CaptureResumePoint"/>: the item at that position starts
+    /// from its beginning (full dwell), the rest of that cycle keeps the captured order (a shuffled show keeps
+    /// its shuffle), later cycles are built as usual. A point whose order does not fit the playlist starts the
+    /// show from the top. Runs the prefetch first, like <see cref="Start"/>. No-op if already running.
+    /// </summary>
+    public void Resume(PlaylistResumePoint point)
     {
-        if (IsRunning) { _logger.LogWarning("Playlist already running; ignoring Start"); return; }
+        var playlist = point.Playlist;
+        var order = point.CycleOrder.ToArray();
+        bool fits = order.Length == playlist.Items.Count
+                 && order.Order().SequenceEqual(Enumerable.Range(0, order.Length))
+                 && point.CyclePosition >= 0 && point.CyclePosition < order.Length;
+        if (!fits)
+            _logger.LogWarning("Playlist resume point does not fit '{Name}'; starting from the top", playlist.Name);
+        StartCore(playlist, fits ? order : null, fits ? point.CyclePosition : 0, "Resume");
+    }
+
+    private void StartCore(Playlist playlist, int[]? firstOrder, int firstPosition, string caller)
+    {
+        if (IsRunning) { _logger.LogWarning("Playlist already running; ignoring {Caller}", caller); return; }
         if (playlist.Items.Count == 0) { _logger.LogWarning("Playlist has no items; not starting"); return; }
 
+        // Built before the loop starts so a capture during the prefetch already has a position.
+        var order = firstOrder ?? PlaylistScheduler.BuildCycleOrder(playlist.Items.Count, playlist.Shuffle, _seedProvider());
+        _position = new PlaylistResumePoint(playlist, order, firstPosition);
         _cts = new CancellationTokenSource();
-        _loopTask = RunLoopAsync(playlist, _cts.Token);
+        _loopTask = RunLoopAsync(playlist, order, firstPosition, _cts.Token);
     }
 
     /// <summary>Stop the show. Safe to call when already stopped.</summary>
@@ -99,6 +142,7 @@ public class PlaylistOrchestrator
         CurrentItemIndex = -1;
         NextItem = null;
         NextSwitchUtcMs = 0;
+        _position = null;
     }
 
     /// <summary>Advance to the next item now (ends the current dwell). No-op when no show is running.</summary>
@@ -108,7 +152,9 @@ public class PlaylistOrchestrator
         catch (ObjectDisposedException) { /* the dwell ended at the same moment */ }
     }
 
-    private async Task RunLoopAsync(Playlist playlist, CancellationToken ct)
+    /// <param name="order">Item order of the first cycle.</param>
+    /// <param name="startPosition">Position in <paramref name="order"/> the first cycle starts at (0 = the top).</param>
+    private async Task RunLoopAsync(Playlist playlist, int[] order, int startPosition, CancellationToken ct)
     {
         try
         {
@@ -131,21 +177,21 @@ public class PlaylistOrchestrator
                 catch (Exception ex) { _logger.LogWarning(ex, "Prefetch failed; starting without it"); }
             }
 
-            do
+            while (true)
             {
-                var order = PlaylistScheduler.BuildCycleOrder(
-                    playlist.Items.Count, playlist.Shuffle, _seedProvider());
-
-                for (int k = 0; k < order.Length; k++)
+                for (int k = startPosition; k < order.Length; k++)
                 {
                     var index = order[k];
                     ct.ThrowIfCancellationRequested();
                     var item = playlist.Items[index];
+                    // Across a cycle boundary the next cycle's order is not built yet: with shuffle on, its
+                    // first item may differ from this guess (unchanged behaviour).
                     NextItem = k + 1 < order.Length ? playlist.Items[order[k + 1]]
                              : playlist.Loop && order.Length > 0 ? playlist.Items[order[0]] : null;
 
                     CurrentItem = item;
                     CurrentItemIndex = index;
+                    _position = new PlaylistResumePoint(playlist, order, k);
                     ItemChanged?.Invoke(item, index);
 
                     ApplyMetrics metrics;
@@ -190,8 +236,11 @@ public class PlaylistOrchestrator
                         }
                     }
                 }
+
+                if (!playlist.Loop || ct.IsCancellationRequested) break;
+                startPosition = 0;
+                order = PlaylistScheduler.BuildCycleOrder(playlist.Items.Count, playlist.Shuffle, _seedProvider());
             }
-            while (playlist.Loop && !ct.IsCancellationRequested);
         }
         catch (OperationCanceledException)
         {

@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using CommunityToolkit.Mvvm.Input;
+using WaBiBaBuSy.Core.Services.Animation;
 
 namespace WaBiBaBuSy.UI.ViewModels;
 
@@ -27,6 +28,23 @@ public partial class MainWindowViewModel
                 OnPropertyChanged(nameof(IsAnythingPlaying));
         };
         _ = PlaylistEditor.InitializeAsync();
+    }
+
+    /// <summary>Where the running show is (playlist, item, cycle order), or null when no show runs. UI thread.</summary>
+    internal PlaylistResumePoint? ShowResumePoint => _playlistOrchestrator?.CaptureResumePoint();
+
+    /// <summary>
+    /// Start a show again at a captured point and mark the Playlist tab as running, like its ▶: the item
+    /// restarts from its beginning, a shuffled cycle keeps its order. UI thread; the caller tears down what
+    /// plays and handles <see cref="IsStartingScene"/>. False when the show did not start.
+    /// </summary>
+    internal bool ResumePlaylist(PlaylistResumePoint point)
+    {
+        // The point came from this orchestrator (ShowResumePoint), so it exists.
+        if (_playlistOrchestrator == null) return false;
+        _playlistOrchestrator.Resume(point);
+        PlaylistEditor.IsShowRunning = _playlistOrchestrator.IsRunning;
+        return PlaylistEditor.IsShowRunning;
     }
 
     /// <summary>True while a show or a manual scene is running (shows the toolbar ■).</summary>

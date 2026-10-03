@@ -1,3 +1,4 @@
+using WaBiBaBuSy.Core.Services.Animation;
 using WaBiBaBuSy.Models.Testing;
 using WaBiBaBuSy.Models.Topology;
 using WaBiBaBuSy.Models.Wallpaper;
@@ -15,11 +16,14 @@ public interface ITestHost
 
     Task StopAllAsync();
 
-    /// <summary>What was playing before the run (restored afterwards); null = nothing.</summary>
-    CrossScreenConfig? CurrentScene { get; }
+    /// <summary>What plays now (a scene, a running show, or nothing); captured before the run, restored after it.</summary>
+    TestRestorePoint CaptureRestorePoint();
 
-    /// <summary>Play <paramref name="scene"/> on all nodes again, or stop everything when null.</summary>
-    Task RestoreSceneAsync(CrossScreenConfig? scene);
+    /// <summary>
+    /// Bring back what <paramref name="restorePoint"/> captured: the show at its item (like ▶ on that playlist),
+    /// else the scene on its nodes, else stop everything.
+    /// </summary>
+    Task RestoreAsync(TestRestorePoint restorePoint);
 
     /// <summary>Cache every asset of the scenes on all remote nodes; true when all report cached in time.</summary>
     Task<bool> PrefetchAsync(IReadOnlyList<CrossScreenConfig> scenes, TimeSpan timeout, CancellationToken ct);
@@ -29,6 +33,19 @@ public interface ITestHost
 
     /// <summary>One-line progress for the toolbar.</summary>
     void ReportProgress(string text);
+}
+
+/// <summary>What played before a test run. At most one of <see cref="Show"/> / <see cref="Scene"/> is set in practice; a show wins.</summary>
+public sealed record TestRestorePoint
+{
+    /// <summary>Nothing was playing: restoring stops everything.</summary>
+    public static TestRestorePoint Nothing { get; } = new();
+
+    /// <summary>The manual scene that was running, or null.</summary>
+    public CrossScreenConfig? Scene { get; init; }
+
+    /// <summary>The playlist show that was running and where it was, or null.</summary>
+    public PlaylistResumePoint? Show { get; init; }
 }
 
 /// <summary>What a started scene means for the checks.</summary>

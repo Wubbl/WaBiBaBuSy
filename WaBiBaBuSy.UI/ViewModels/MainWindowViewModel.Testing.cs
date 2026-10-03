@@ -8,6 +8,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using WaBiBaBuSy.Core.Services.Animation;
 using WaBiBaBuSy.Core.Services.Testing;
 using WaBiBaBuSy.Models.Testing;
 using WaBiBaBuSy.Models.Wallpaper;
@@ -122,10 +123,37 @@ public partial class MainWindowViewModel
     });
 
     /// <summary>
-    /// What to restore after a run: the running scene, or null when nothing plays. Read by the runner off the
-    /// UI thread, so both properties are read together on it. A running show is not restored (see the design doc).
+    /// What to restore after a run: the running show (playlist + item), else the running scene, else nothing.
+    /// Read by the runner off the UI thread, so everything is read together on it.
     /// </summary>
-    internal CrossScreenConfig? SceneForTestRestore => Dispatcher.UIThread.Invoke(() => IsCrossScreenRunning ? ActiveScene : null);
+    internal TestRestorePoint CaptureTestRestorePoint() => Dispatcher.UIThread.Invoke(() =>
+    {
+        if (ShowResumePoint is { } show) return new TestRestorePoint { Show = show };
+        return IsCrossScreenRunning && ActiveScene is { } scene ? new TestRestorePoint { Scene = scene } : TestRestorePoint.Nothing;
+    });
+
+    /// <summary>
+    /// After a run: tear down the run's last scene like <see cref="StopAllForTestAsync"/>, then start the show
+    /// again at the item it was on, as ▶ on that playlist would (prefetch, Playlist tab state, toolbar show
+    /// controls). Holds the <see cref="IsStartingScene"/> guard throughout, so no Play click lands in between.
+    /// </summary>
+    internal Task ResumeShowForTestAsync(PlaylistResumePoint show) => Dispatcher.UIThread.InvokeAsync(async () =>
+    {
+        if (IsStartingScene)
+            throw new InvalidOperationException("a scene is already starting — try again when the current start has finished");
+        IsStartingScene = true;
+        try
+        {
+            await StopCrossScreen();   // unconditional: also stops a show, returns early when no scene runs
+            await ClearNodesAsync(Clients.Select(c => c.ClientId).Distinct().ToList());
+            if (!ResumePlaylist(show))
+                throw new InvalidOperationException("the show could not be started again (see the server log)");
+        }
+        finally
+        {
+            IsStartingScene = false;
+        }
+    });
 
     internal async Task<bool> PrefetchForTestAsync(IReadOnlyList<CrossScreenConfig> scenes, TimeSpan timeout)
     {

@@ -26,8 +26,8 @@ public class TestRunCoordinatorTests : IDisposable
         public Task<IReadOnlyList<TestNodeInfo>> GetNodesAsync() => Task.FromResult<IReadOnlyList<TestNodeInfo>>(Array.Empty<TestNodeInfo>());
         public Task<SceneStartInfo> PlaySceneAsync(CrossScreenConfig s, IReadOnlyList<string> t, CancellationToken ct) => Task.FromResult(new SceneStartInfo());
         public Task StopAllAsync() => Task.CompletedTask;
-        public CrossScreenConfig? CurrentScene => null;
-        public Task RestoreSceneAsync(CrossScreenConfig? scene) => Task.CompletedTask;
+        public TestRestorePoint CaptureRestorePoint() => TestRestorePoint.Nothing;
+        public Task RestoreAsync(TestRestorePoint restorePoint) => Task.CompletedTask;
         public Task<bool> PrefetchAsync(IReadOnlyList<CrossScreenConfig> s, TimeSpan t, CancellationToken ct) => Task.FromResult(true);
         public IReadOnlyList<ITestProbeTarget> LocalProbeTargets() => Array.Empty<ITestProbeTarget>();
         public void ReportProgress(string text) { }

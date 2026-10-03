@@ -25,10 +25,12 @@ public sealed class TestHostAdapter : ITestHost
 
     public Task StopAllAsync() => _vm.StopAllForTestAsync();
 
-    public CrossScreenConfig? CurrentScene => _vm.SceneForTestRestore;
+    public TestRestorePoint CaptureRestorePoint() => _vm.CaptureTestRestorePoint();
 
-    public Task RestoreSceneAsync(CrossScreenConfig? scene) =>
-        scene == null ? _vm.StopAllForTestAsync() : _vm.PlaySceneForTestAsync(scene, scene.SelectedMonitorIds.ToList());
+    public Task RestoreAsync(TestRestorePoint restorePoint) =>
+        restorePoint.Show is { } show ? _vm.ResumeShowForTestAsync(show)
+        : restorePoint.Scene is { } scene ? _vm.PlaySceneForTestAsync(scene, scene.SelectedMonitorIds.ToList())
+        : _vm.StopAllForTestAsync();
 
     public Task<bool> PrefetchAsync(IReadOnlyList<CrossScreenConfig> scenes, TimeSpan timeout, CancellationToken ct) =>
         _vm.PrefetchForTestAsync(scenes, timeout);
