@@ -120,6 +120,63 @@ public class DriftAnalyzerTests
     }
 
     [Fact]
+    public void DwmEstimatedSamples_CountAsPresentTimes_AndAreNamed()
+    {
+        var a = Node("a");
+        var b = Node("b");
+        b.MonitorIndex = 1;
+        b.PresentEstimated = true;
+        b.PresentSource = PresentSources.Dwm;
+        var c = Node("c");
+        c.PresentEstimated = true;
+        c.PresentSource = PresentSources.Nominal;
+
+        var r = DriftAnalyzer.Analyze(new[] { a, b, c }, Start, T);
+
+        Assert.Equal(0, r.SpreadMs, 3);
+        Assert.All(r.Errors, e => Assert.False(e.UsedRenderTime));
+        Assert.Equal(PresentSources.Dwm, r.Errors[1].PresentSource);
+        Assert.Contains("estimated present time: b#1 (dwm), c (nominal)", r.Message);
+    }
+
+    [Fact]
+    public void DxgiSamples_NoEstimateMention()
+    {
+        var a = Node("a");
+        a.PresentSource = PresentSources.Dxgi;
+        var b = Node("b");
+        b.PresentSource = PresentSources.DxgiStepBack;
+        b.PresentEstimated = true;
+
+        var r = DriftAnalyzer.Analyze(new[] { a, b }, Start, T);
+
+        Assert.DoesNotContain("estimated present", r.Message);
+    }
+
+    [Fact]
+    public void FromReply_CarriesPresentSourceAndNote()
+    {
+        var reply = new PlayerProbeReply
+        {
+            PresentLocalUtcMs = 5, PresentEstimated = true,
+            PresentSource = PresentSources.Dwm, PresentNote = "DXGI frame statistics all zero",
+        };
+        var s = NodeProbeSample.FromReply(reply, "n", "n", isLocal: true, clockOffsetMs: 0, rttMs: 0);
+        Assert.Equal(PresentSources.Dwm, s.PresentSource);
+        Assert.Equal("DXGI frame statistics all zero", s.PresentNote);
+    }
+
+    [Fact]
+    public void OldReplyJson_WithoutPresentSource_StillParses()
+    {
+        const string old = "{\"ProbeId\":\"p\",\"RenderLocalUtcMs\":10,\"PresentLocalUtcMs\":26,\"PresentEstimated\":false}";
+        var viaStj = System.Text.Json.JsonSerializer.Deserialize<PlayerProbeReply>(old)!;
+        Assert.Null(viaStj.PresentSource);
+        Assert.Null(viaStj.PresentNote);
+        Assert.Equal(26, viaStj.PresentLocalUtcMs);
+    }
+
+    [Fact]
     public void MissingNode_ExcludedFromSpread_AtLeastWarn()
     {
         var gone = NodeProbeSample.MissingFor("c", "pc-03", 0, isLocal: false, reason: "no reply within 2 s");

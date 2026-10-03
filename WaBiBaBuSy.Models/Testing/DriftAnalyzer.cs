@@ -12,6 +12,8 @@ public sealed class NodeTimingError
     public double ClockBoundMs { get; set; }
     /// <summary>No present time was available; render time was used.</summary>
     public bool UsedRenderTime { get; set; }
+    /// <inheritdoc cref="PlayerProbeReply.PresentSource"/>
+    public string? PresentSource { get; set; }
 }
 
 /// <summary>Timing verdict for one probe across all nodes.</summary>
@@ -62,6 +64,7 @@ public static class DriftAnalyzer
             ErrorMs = ErrorMs(s, sharedStartServerUtcMs),
             ClockBoundMs = Math.Max(0, s.RttMs) / 2.0,
             UsedRenderTime = s.PresentLocalUtcMs == null,
+            PresentSource = s.PresentLocalUtcMs == null ? null : s.PresentSource,
         }).ToList();
 
         // A render-time error lacks the present latency (6–17 ms) a present-time error carries, so mixing
@@ -90,6 +93,10 @@ public static class DriftAnalyzer
                 : $", fewer than 2 present times: all samples mixed (render-time fallback: {string.Join(", ", fallbackNames)})";
             message += $", render-time spread {renderSpread:F1} ms";
         }
+        // DXGI statistics were unusable on these monitors: present time estimated from DWM timing / refresh rate.
+        var estimated = errors.Where(e => PresentSources.IsNonDxgiEstimate(e.PresentSource))
+            .Select(e => $"{(e.MonitorIndex > 0 ? $"{e.NodeName}#{e.MonitorIndex}" : e.NodeName)} ({e.PresentSource})").ToList();
+        if (estimated.Count > 0) message += $", estimated present time: {string.Join(", ", estimated)}";
         if (missing.Count > 0) message += $", missing: {string.Join(", ", missing)}";
 
         return new DriftResult

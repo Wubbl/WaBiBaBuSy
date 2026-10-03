@@ -590,8 +590,12 @@ class Program
     {
         public required PlayerProbeReply Reply { get; init; }
         public required uint PresentCount { get; init; }
+        /// <summary>QPC right after the frame's Present returned; 0 when Present threw (no DWM estimate then).</summary>
+        public required long PresentQpc { get; init; }
         public required long DeadlineTick { get; init; }
         public required Task<string?> Capture { get; init; }
+        /// <summary>Consecutive polls whose DXGI statistics were unusable (failed, or S_OK with PresentCount 0).</summary>
+        public int UnusablePolls { get; set; }
     }
 
     /// <summary>UTC now as this node sees it: the real clock plus the simulated test skew (0 outside tests).</summary>
@@ -1358,16 +1362,18 @@ class Program
                     // presented (GPU-ordered, non-blocking); the blocking Map happens after Present.
                     var probe = TakeDueLiveProbe();
                     var staging = probe != null ? BeginCapture(backBuffer, probe) : null;
+                    long presentQpc = 0;   // stays 0 when Present throws
                     try
                     {
                         _d2dContext.Target = null;
                         _swapChain.Present(1, PresentFlags.None);
-                        _frameTracker.Record(Stopwatch.GetTimestamp());
+                        presentQpc = Stopwatch.GetTimestamp();
+                        _frameTracker.Record(presentQpc);
                     }
                     finally
                     {
                         // Also when Present throws (device lost): the staging texture is released and the probe still answered.
-                        if (probe != null) QueueForPresentStats(probe, FinishCapture(staging, probe));
+                        if (probe != null) QueueForPresentStats(probe, presentQpc, FinishCapture(staging, probe));
                     }
                     PollPresentStats();
 
@@ -2107,7 +2113,8 @@ class Program
     /// Test mode: answer probes the normal end-of-frame path never reaches — swap-chain TEST MODE frames, every
     /// frame failing, no swap chain yet, or the render loop stopping. A pending probe still waiting
     /// <see cref="StrandedProbeGraceMs"/> after its instant gets an error reply; queued replies past their
-    /// present-stats deadline (plus the same grace) go out with render time only. Render thread only; once per loop iteration
+    /// present-stats deadline (plus the same grace) go out with a DWM-estimated present time (<see cref="ResolveFromDwm"/>),
+    /// or render time only when no estimate is possible. Render thread only; once per loop iteration
     /// (one uncontended lock and a count check when nothing is pending).
     /// </summary>
     private static void AnswerStrandedProbes(bool stopping)
@@ -2140,6 +2147,8 @@ class Program
             // Normal frames flush at DeadlineTick (PollPresentStats); only entries no frame has polled since are stranded.
             if (!stopping && Environment.TickCount64 < p.DeadlineTick + StrandedProbeGraceMs) continue;
             _awaitingPresent.RemoveAt(i);
+            if (p.Reply.PresentLocalUtcMs == null)
+                ResolveFromDwm(p, stopping ? "render loop stopped before DXGI statistics arrived" : "no frame polled DXGI statistics since the probe");
             _ = EmitProbeReplyAsync(p.Reply, p.Capture);
         }
     }
@@ -2275,70 +2284,171 @@ class Program
         }
     }
 
-    private static void QueueForPresentStats(PlayerProbeReply reply, Task<string?> capture)
+    /// <summary>How long a probe waits for DXGI statistics that are usable but have not reached its frame yet.</summary>
+    private const long PresentStatsTimeoutMs = 500;
+
+    /// <summary>
+    /// Consecutive polls (one per rendered frame) with unusable DXGI statistics — the call failed, or S_OK with
+    /// PresentCount 0 (seen 2026-10-02: all-zero statistics on both monitors in some desktop states) — after which
+    /// a probe is resolved from DWM timing instead of waiting out <see cref="PresentStatsTimeoutMs"/>. A healthy
+    /// composed swap chain reports a nonzero PresentCount from its first frames on, so a zero is never mere lag;
+    /// three frames ride out a one-off failure such as DXGI_ERROR_FRAME_STATISTICS_DISJOINT after a mode change.
+    /// </summary>
+    private const int UnusableStatsPollLimit = 3;
+
+    private static void QueueForPresentStats(PlayerProbeReply reply, long presentQpc, Task<string?> capture)
     {
         uint presentCount = 0;
-        try { presentCount = _swapChain!.LastPresentCount; } catch { /* statistics unsupported → fallback below */ }
+        try { presentCount = _swapChain!.LastPresentCount; } catch { /* statistics unsupported → DWM fallback */ }
         _awaitingPresent.Add(new PendingPresentProbe
         {
             Reply = reply,
             PresentCount = presentCount,
-            DeadlineTick = Environment.TickCount64 + 500,
+            PresentQpc = presentQpc,
+            DeadlineTick = Environment.TickCount64 + PresentStatsTimeoutMs,
             Capture = capture,
         });
     }
 
     /// <summary>
-    /// Resolve queued probes once DXGI reports when their frame reached the screen; after 500 ms
-    /// without statistics the probe is sent with PresentLocalUtcMs = null (the report then uses render time).
+    /// Resolve queued probes. First choice: DXGI frame statistics once they cover the probe's frame
+    /// (<see cref="PresentSources.Dxgi"/> / <see cref="PresentSources.DxgiStepBack"/>). Fallback to
+    /// <see cref="ResolveFromDwm"/> when the statistics were unusable for <see cref="UnusableStatsPollLimit"/>
+    /// consecutive polls, when the frame has no DXGI present count, or when usable statistics have not reached the
+    /// frame within <see cref="PresentStatsTimeoutMs"/>. One GetFrameStatistics call per frame while probes are queued;
+    /// the DWM query only when a probe is resolved.
     /// </summary>
     private static void PollPresentStats()
     {
         if (_awaitingPresent.Count == 0 || _swapChain == null) return;
         FrameStatistics stats = default;
-        bool haveStats;
+        bool statsOk;
         int statsHr = 0;
-        try { var hr = _swapChain.GetFrameStatistics(out stats); statsHr = hr.Code; haveStats = hr.Success && stats.PresentCount != 0; }
-        catch (Exception ex) { statsHr = ex.HResult; haveStats = false; }
+        try { var hr = _swapChain.GetFrameStatistics(out stats); statsHr = hr.Code; statsOk = hr.Success; }
+        catch (Exception ex) { statsHr = ex.HResult; statsOk = false; }
+        bool usable = statsOk && stats.PresentCount != 0;
 
         for (int i = _awaitingPresent.Count - 1; i >= 0; i--)
         {
             var p = _awaitingPresent[i];
-            bool resolved = haveStats && p.PresentCount != 0 && stats.PresentCount >= p.PresentCount;
-            if (!resolved && Environment.TickCount64 < p.DeadlineTick) continue;
-            if (!resolved)
+            if (usable && p.PresentCount != 0 && stats.PresentCount >= p.PresentCount)
             {
+                ResolveFromDxgi(p, stats);
+            }
+            else
+            {
+                string? why = null;
+                if (!usable)
+                {
+                    p.UnusablePolls++;
+                    if (p.UnusablePolls >= UnusableStatsPollLimit)
+                        why = !statsOk ? $"GetFrameStatistics failed (hr 0x{statsHr:X8}) for {p.UnusablePolls} frames"
+                            : stats.SyncRefreshCount == 0 && stats.SyncQPCTime == 0 ? $"DXGI frame statistics all zero for {p.UnusablePolls} frames"
+                            : $"DXGI frame statistics PresentCount 0 for {p.UnusablePolls} frames";
+                }
+                else
+                {
+                    p.UnusablePolls = 0;
+                    if (p.PresentCount == 0) why = "no DXGI present count for the frame";
+                }
+                if (why == null && Environment.TickCount64 >= p.DeadlineTick)
+                    why = $"DXGI statistics did not reach the frame within {PresentStatsTimeoutMs} ms";
+                if (why == null) continue;
+
                 uint lastNow = 0;
                 try { lastNow = _swapChain.LastPresentCount; } catch { }
-                _logger?.LogWarning("[Probe] {Id}: no present statistics after 500 ms (hr 0x{Hr:X8}, stats.PresentCount {Stats}, probe PresentCount {Probe}, LastPresentCount now {Last}, stats.SyncRefreshCount {Refresh})",
-                    p.Reply.ProbeId, statsHr, stats.PresentCount, p.PresentCount, lastNow, stats.SyncRefreshCount);
-            }
-
-            if (resolved)
-            {
-                long syncQpc = stats.SyncQPCTime;
-                uint behind = stats.PresentCount - p.PresentCount;
-                bool canResolve = true;
-                if (behind > 0)
-                {
-                    // Earlier frame: step back by the measured frame interval. The nominal refresh rate is
-                    // wrong when DWM composes faster than the panel (165 fps on a 75 Hz monitor).
-                    double intervalMs = _frameTracker.MeanIntervalMs is > 0 and var meanMs ? meanMs
-                        : _refreshHz > 0 ? 1000.0 / _refreshHz : 0;
-                    if (intervalMs > 0) syncQpc -= (long)(behind * intervalMs * Stopwatch.Frequency / 1000.0);
-                    else canResolve = false;   // no usable interval: leave PresentLocalUtcMs null (report uses render time)
-                }
-                if (canResolve)
-                {
-                    double ageMs = (Stopwatch.GetTimestamp() - syncQpc) * 1000.0 / Stopwatch.Frequency;
-                    long presentMs = NowUtcMs - (long)Math.Round(ageMs);
-                    p.Reply.PresentLocalUtcMs = Math.Max(presentMs, p.Reply.RenderLocalUtcMs);   // a frame cannot reach the screen before it was rendered
-                    p.Reply.PresentEstimated = behind > 0;
-                }
+                _logger?.LogWarning("[Probe] {Id}: {Why} (hr 0x{Hr:X8}, stats.PresentCount {Stats}, probe PresentCount {Probe}, LastPresentCount now {Last}, stats.SyncRefreshCount {Refresh}) → DWM fallback",
+                    p.Reply.ProbeId, why, statsHr, stats.PresentCount, p.PresentCount, lastNow, stats.SyncRefreshCount);
+                ResolveFromDwm(p, why);
             }
             _awaitingPresent.RemoveAt(i);
             _ = EmitProbeReplyAsync(p.Reply, p.Capture);
         }
+    }
+
+    /// <summary>Present time from DXGI statistics that cover the probe's frame (stepping back when they describe a later frame).</summary>
+    private static void ResolveFromDxgi(PendingPresentProbe p, in FrameStatistics stats)
+    {
+        long syncQpc = stats.SyncQPCTime;
+        uint behind = stats.PresentCount - p.PresentCount;
+        if (behind > 0)
+        {
+            // Earlier frame: step back by the measured frame interval. The nominal refresh rate is
+            // wrong when DWM composes faster than the panel (165 fps on a 75 Hz monitor).
+            double intervalMs = _frameTracker.MeanIntervalMs is > 0 and var meanMs ? meanMs
+                : _refreshHz > 0 ? 1000.0 / _refreshHz : 0;
+            if (intervalMs <= 0)
+            {
+                ResolveFromDwm(p, $"DXGI statistics are {behind} frame(s) later and no frame interval to step back");
+                return;
+            }
+            syncQpc -= (long)(behind * intervalMs * Stopwatch.Frequency / 1000.0);
+            SetPresentTime(p.Reply, syncQpc, PresentSources.DxgiStepBack, null);
+            return;
+        }
+
+        SetPresentTime(p.Reply, syncQpc, PresentSources.Dxgi, null);
+
+        // Calibration of the fallback model: what DWM timing would have estimated for this very frame. Compare in
+        // the log to judge the "dwm" samples of runs where DXGI is unusable. One DWM call per probe, not per frame.
+        if (p.PresentQpc != 0)
+        {
+            var est = DwmPresentEstimator.Estimate(p.PresentQpc, DwmTiming.TryQuery(out _), Stopwatch.Frequency, _refreshHz);
+            double dxgiMs = (syncQpc - p.PresentQpc) * 1000.0 / Stopwatch.Frequency;
+            if (est.ScanoutQpc is long q)
+            {
+                double estMs = (q - p.PresentQpc) * 1000.0 / Stopwatch.Frequency;
+                _logger?.LogInformation("[Probe] {Id}: DXGI present {Dxgi:F2} ms after Present; {Source} model {Est:F2} ms (diff {Diff:+0.00;-0.00} ms; {Note})",
+                    p.Reply.ProbeId, dxgiMs, est.Source, estMs, estMs - dxgiMs, est.Note);
+            }
+            else
+            {
+                _logger?.LogInformation("[Probe] {Id}: DXGI present {Dxgi:F2} ms after Present; no DWM estimate ({Note})",
+                    p.Reply.ProbeId, dxgiMs, est.Note);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Fallback: estimate the present time from DWM composition timing (<see cref="DwmPresentEstimator"/>), marked
+    /// <see cref="PlayerProbeReply.PresentEstimated"/> with <see cref="PlayerProbeReply.PresentSource"/> and the reason in
+    /// <see cref="PlayerProbeReply.PresentNote"/>. Without an estimate PresentLocalUtcMs stays null (the report uses render time).
+    /// </summary>
+    private static void ResolveFromDwm(PendingPresentProbe p, string why)
+    {
+        if (p.PresentQpc == 0)
+        {
+            p.Reply.PresentNote = why + "; Present failed for the frame, no estimate";
+            _logger?.LogWarning("[Probe] {Id}: no present time ({Note})", p.Reply.ProbeId, p.Reply.PresentNote);
+            return;
+        }
+        var timing = DwmTiming.TryQuery(out int dwmHr);
+        var est = DwmPresentEstimator.Estimate(p.PresentQpc, timing, Stopwatch.Frequency, _refreshHz);
+        string note = timing == null
+            ? $"{why}; DwmGetCompositionTimingInfo hr 0x{dwmHr:X8}; {est.Note}"
+            : $"{why}; {est.Note}";
+        if (est.ScanoutQpc is long q && est.Source != null)
+        {
+            SetPresentTime(p.Reply, q, est.Source, note);
+            _logger?.LogInformation("[Probe] {Id}: present via {Source}, {Ms:F2} ms after Present ({Note})",
+                p.Reply.ProbeId, est.Source, (q - p.PresentQpc) * 1000.0 / Stopwatch.Frequency, note);
+        }
+        else
+        {
+            p.Reply.PresentNote = note;
+            _logger?.LogWarning("[Probe] {Id}: no present time ({Note})", p.Reply.ProbeId, note);
+        }
+    }
+
+    /// <summary>QPC → player-local UTC ms, never before the render time (a frame cannot reach the screen before it was rendered).</summary>
+    private static void SetPresentTime(PlayerProbeReply reply, long presentQpc, string source, string? note)
+    {
+        double ageMs = (Stopwatch.GetTimestamp() - presentQpc) * 1000.0 / Stopwatch.Frequency;   // negative for a vblank still ahead
+        long presentMs = NowUtcMs - (long)Math.Round(ageMs);
+        reply.PresentLocalUtcMs = Math.Max(presentMs, reply.RenderLocalUtcMs);
+        reply.PresentEstimated = source != PresentSources.Dxgi;
+        reply.PresentSource = source;
+        reply.PresentNote = note;
     }
 
     /// <summary>Wait for the PNG (if any), then send the reply on stderr.</summary>
