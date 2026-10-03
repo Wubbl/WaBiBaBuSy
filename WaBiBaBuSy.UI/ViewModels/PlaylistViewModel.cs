@@ -11,6 +11,7 @@ using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WaBiBaBuSy.Core.Services.Animation;
+using WaBiBaBuSy.Models.Show;
 using WaBiBaBuSy.Models.Wallpaper;
 
 namespace WaBiBaBuSy.UI.ViewModels;
@@ -42,6 +43,14 @@ public partial class PlaylistViewModel : ViewModelBase
     public Func<Task>? StopShow { get; set; }
 
     [ObservableProperty] private string _playlistName = "Party";
+
+    // One timed show event (the model keeps a list for later).
+    [ObservableProperty] private bool _interruptEnabled;
+    [ObservableProperty] private int _interruptEveryMinutes = 30;
+    [ObservableProperty] private ShowEventType _interruptType = ShowEventType.Traversal;
+
+    /// <summary>Event types offered for the timed interrupt.</summary>
+    public ShowEventType[] InterruptTypes { get; } = { ShowEventType.Traversal, ShowEventType.Celebration, ShowEventType.Blackout };
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(StartPlaylistShowCommand))]
@@ -308,6 +317,9 @@ public partial class PlaylistViewModel : ViewModelBase
             Shuffle = Shuffle,
             DefaultItemDurationMs = DefaultDurationMs,
             Items = Items.Select(r => r.Model).ToList(),
+            Interrupts = InterruptEnabled
+                ? new List<PlaylistInterrupt> { new() { EveryMs = Math.Clamp(InterruptEveryMinutes, 1, 24 * 60) * 60_000, Type = InterruptType } }
+                : new List<PlaylistInterrupt>(),
         };
     }
 
@@ -340,6 +352,10 @@ public partial class PlaylistViewModel : ViewModelBase
         Loop = playlist.Loop;
         Shuffle = playlist.Shuffle;
         DefaultDurationMs = playlist.DefaultItemDurationMs;
+        var interrupt = playlist.Interrupts.FirstOrDefault();
+        InterruptEnabled = interrupt?.Enabled == true;
+        InterruptEveryMinutes = Math.Max(1, (interrupt?.EveryMs ?? 1_800_000) / 60_000);
+        InterruptType = interrupt?.Type ?? ShowEventType.Traversal;
         LoadedItem = null;
         SelectedItem = null;
         // Clear() raises a Reset without OldItems, so detach row handlers explicitly.

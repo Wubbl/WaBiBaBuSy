@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using WaBiBaBuSy.Models.Show;
 
 namespace WaBiBaBuSy.Models.Wallpaper;
 
@@ -22,6 +23,22 @@ public class Playlist
 
     /// <summary>Items in author order.</summary>
     public List<PlaylistItem> Items { get; set; } = new();
+
+    /// <summary>Show events fired on a timer while the show runs (roadmap 2.4); they never advance the item.</summary>
+    public List<PlaylistInterrupt> Interrupts { get; set; } = new();
+}
+
+/// <summary>A show event the running show fires every <see cref="EveryMs"/> (e.g. the logo swims the ring every 30 min).</summary>
+public class PlaylistInterrupt
+{
+    /// <summary>Disabled interrupts are kept in the file but never fire.</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Interval between two firings in ms.</summary>
+    public int EveryMs { get; set; } = 1_800_000;
+
+    /// <summary>The event to fire.</summary>
+    public ShowEventType Type { get; set; } = ShowEventType.Traversal;
 }
 
 /// <summary>A single playlist entry: one animation config plus its dwell/rotation settings.</summary>

@@ -28,6 +28,11 @@
                            ToolTip.Tip="Dwell time for every item whose own duration is empty"/>
                 <NumericUpDown Value="{Binding DefaultDurationSeconds}" Minimum="1" Maximum="86400" Increment="5" Width="110"/>
                 <TextBlock Text="s" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                <CheckBox Content="Every" IsChecked="{Binding InterruptEnabled}" Margin="12,0,6,0"
+                          ToolTip.Tip="Fire a show event on a timer while the show runs (does not change the item)"/>
+                <NumericUpDown Value="{Binding InterruptEveryMinutes}" Minimum="1" Maximum="1440" Width="90" IsEnabled="{Binding InterruptEnabled}"/>
+                <TextBlock Text="min" VerticalAlignment="Center" Margin="4,0,6,0"/>
+                <ComboBox ItemsSource="{Binding InterruptTypes}" SelectedItem="{Binding InterruptType}" IsEnabled="{Binding InterruptEnabled}"/>
             </WrapPanel>
             <TextBlock Text="{Binding ShowSummary}" Opacity="0.75" FontSize="11" TextWrapping="Wrap"/>
         </StackPanel>

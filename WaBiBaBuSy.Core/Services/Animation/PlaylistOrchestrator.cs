@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using WaBiBaBuSy.Models.Show;
 using WaBiBaBuSy.Models.Wallpaper;
 
 using System.Collections.Generic;
@@ -36,6 +37,11 @@ public class PlaylistOrchestrator
     private readonly Func<int> _seedProvider;
     private readonly Func<IReadOnlyList<CrossScreenConfig>, Task>? _prefetch;
     private readonly Func<TimeSpan, Task<bool>>? _waitUntilNodesReady;
+    private readonly Func<ShowEventType, Task>? _fireEvent;
+    private Task? _interruptTask;
+
+    /// <summary>Interrupts more frequent than this are ignored (a typo must not fire an event every few ms).</summary>
+    public int MinInterruptEveryMs { get; set; } = 10_000;
 
     /// <summary>How long Start waits for every node to report its prefetch complete before going anyway.</summary>
     public TimeSpan PrefetchTimeout { get; set; } = TimeSpan.FromSeconds(15);
@@ -74,18 +80,21 @@ public class PlaylistOrchestrator
     /// <param name="seedProvider">Supplies a fresh shuffle seed per cycle (e.g. () => Environment.TickCount).</param>
     /// <param name="prefetch">Optional: ask every node to cache the assets of all given configs (Tier 1.3).</param>
     /// <param name="waitUntilNodesReady">Optional: wait (bounded) until every node reports its prefetch complete.</param>
+    /// <param name="fireEvent">Optional: fires a show event for the playlist's timed interrupts.</param>
     public PlaylistOrchestrator(
         ILogger<PlaylistOrchestrator> logger,
         Func<CrossScreenConfig, Task<ApplyMetrics>> apply,
         Func<int> seedProvider,
         Func<IReadOnlyList<CrossScreenConfig>, Task>? prefetch = null,
-        Func<TimeSpan, Task<bool>>? waitUntilNodesReady = null)
+        Func<TimeSpan, Task<bool>>? waitUntilNodesReady = null,
+        Func<ShowEventType, Task>? fireEvent = null)
     {
         _logger = logger;
         _apply = apply;
         _seedProvider = seedProvider;
         _prefetch = prefetch;
         _waitUntilNodesReady = waitUntilNodesReady;
+        _fireEvent = fireEvent;
     }
 
     /// <summary>Start rotating the given playlist. No-op if already running or the list is empty.</summary>
@@ -125,6 +134,30 @@ public class PlaylistOrchestrator
         _position = new PlaylistResumePoint(playlist, order, firstPosition);
         _cts = new CancellationTokenSource();
         _loopTask = RunLoopAsync(playlist, order, firstPosition, _cts.Token);
+        _interruptTask = RunInterruptsAsync(playlist.Interrupts, _cts.Token);
+    }
+
+    /// <summary>One timer per enabled interrupt, independent of item switches; cancelled with the show.</summary>
+    private Task RunInterruptsAsync(IReadOnlyList<PlaylistInterrupt>? interrupts, CancellationToken ct)
+    {
+        var active = (interrupts ?? Array.Empty<PlaylistInterrupt>())
+            .Where(i => i.Enabled && i.EveryMs > 0 && i.EveryMs >= MinInterruptEveryMs).ToList();
+        if (_fireEvent == null || active.Count == 0) return Task.CompletedTask;
+        return Task.WhenAll(active.Select(i => RepeatInterruptAsync(i, ct)));
+    }
+
+    private async Task RepeatInterruptAsync(PlaylistInterrupt interrupt, CancellationToken ct)
+    {
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(interrupt.EveryMs, ct);
+                try { await _fireEvent!(interrupt.Type); }
+                catch (Exception ex) { _logger.LogWarning(ex, "Playlist interrupt {Type} failed", interrupt.Type); }
+            }
+        }
+        catch (OperationCanceledException) { /* show stopped */ }
     }
 
     /// <summary>Stop the show. Safe to call when already stopped.</summary>
@@ -136,6 +169,11 @@ public class PlaylistOrchestrator
             try { await _loopTask; } catch (OperationCanceledException) { }
         }
         _loopTask = null;
+        if (_interruptTask != null)
+        {
+            try { await _interruptTask; } catch (OperationCanceledException) { }
+            _interruptTask = null;
+        }
         _cts?.Dispose();
         _cts = null;
         CurrentItem = null;

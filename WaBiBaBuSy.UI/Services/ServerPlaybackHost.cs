@@ -621,7 +621,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
                 }),
                 seedProvider: () => Environment.TickCount,
                 prefetch: PrefetchShowAssetsAsync,
-                waitUntilNodesReady: WaitUntilRemotesPrefetchedAsync);
+                waitUntilNodesReady: WaitUntilRemotesPrefetchedAsync,
+                fireEvent: type => Dispatcher.UIThread.InvokeAsync(() => FireEventAsync(type, EventSettings.LastTargetSeatId)));
             _playlistOrchestrator.ItemChanged += (_, _) => Dispatcher.UIThread.Post(RaiseShowChanged);
         }
 
