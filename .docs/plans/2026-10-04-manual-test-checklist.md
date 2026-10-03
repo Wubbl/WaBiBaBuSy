@@ -135,7 +135,12 @@ Connect the clients first (§5.1). Attach each `report.html` path to the results
 - [ ] Step a client's clock *during* a scene → server log warns "Clock offset … jumped" once; Resync all realigns it
 - [ ] Close the server window → client thumbnail uploads stop within ~5 s; reopen → back within ~6 s
 - [ ] Prefetch a large video to all clients → server upload stays at the Upload Limit (default 20 MB/s, Task Manager → Ethernet)
-- [ ] **Show + test run:** start a show, then a test run → after the run the show is **not** restored (known limitation, follow-ups "Remaining" #2) — confirm nothing worse happens (no stuck players, ▶ works)
+- [ ] **Show + test run** (restore added 10-03, build-verified only): start a looping show, ⏭ to item 2 or 3, run `smoke-local` → afterwards the show is back on that item from its start; toolbar now/next, ■ / ⏭ and the ▶ row in the Playlist tab show it; remotes play it. Blank time before it appears: ___ s
+- [ ] Same with **shuffle** on → the following items keep the interrupted cycle's order
+- [ ] Test run while a **plain scene** plays → the scene comes back; while **nothing** plays → everything stays stopped
+- [ ] **Cancel** a run mid-way while a show was running → the show still comes back
+- [ ] Press ▶ / Play while the restore is in progress → refused or waits, no double start
+- [ ] A **non-looping** show resumed on its last item plays it and ends normally
 
 ## 7. Failure & recovery (carried over from 09-28 §5)
 
