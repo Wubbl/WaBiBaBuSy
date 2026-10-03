@@ -1,6 +1,6 @@
 # One-Shot Show Events (Roadmap 2.4, slice 2) — Design
 
-**Created:** 2026-10-03 · **Status:** approved design, plan pending
+**Created:** 2026-10-03 · **Status:** approved design · **Plan:** [`2026-10-03-show-events-plan.md`](2026-10-03-show-events-plan.md)
 **Parent spec:** [`2026-09-17-crossing-effects-and-events-design.md`](2026-09-17-crossing-effects-and-events-design.md) §5 (model, transport, event types, triggers) and §7 (determinism checklist). This document records the decisions made for the implementation; where it differs from the parent (Traversal image instead of `SceneLayer`, `TargetOrder` instead of `TargetSeatId`) this document wins.
 **Slice 1 (shipped 2026-10-03):** sprite and bezel effects — [`2026-10-03-sprite-and-bezel-effects-plan.md`](2026-10-03-sprite-and-bezel-effects-plan.md). Same split: pure math in `WaBiBaBuSy.Models`, drawn by the D2D player and the room preview (`ScenePainter`).
 
@@ -42,6 +42,7 @@ public sealed class ShowEvent
     public float TargetCenterX { get; set; }        // target slice center on the canvas (chevron direction)
     // Traversal
     public string? ImagePath { get; set; }          // rewritten to the client's cache on receipt
+    public float SpriteAspect { get; set; } = 1f;   // width / height of the Traversal image or Announce text, measured once on the server
     public float HeightFraction { get; set; } = 0.5f; // sprite height / canvas height
     public bool Reverse { get; set; }
     // Announce
@@ -89,9 +90,11 @@ Seeded closed-form ballistic burst over the whole canvas. Particle count
 The particle math takes a caller-provided `Span` (no per-frame allocation in the player).
 
 ### 3.4 Traversal
-`p = localMs / DurationMs`; sprite size from `HeightFraction × CanvasH` and the image aspect;
-`x = −w + p × (CanvasW + w)` (non-wrapping) or `x = p × CanvasW` (Ring), mirrored by `Reverse`;
-vertically centered. Drawn through `NodeMapping.WrapCopies/ToLocalX` like the scene sprite.
+`p = localMs / DurationMs`; sprite height `HeightFraction × CanvasH` (clamped 0.05…1), width
+`height × SpriteAspect` (the event's aspect, not the decoded bitmap's — identical on every node);
+`x = −w + p × (CanvasW + w)` (non-wrapping) or `x = −w + p × CanvasW` (Ring, wrapped by
+`NodeMapping.WrapCopies`), mirrored by `Reverse` (`x' = CanvasW − w − x`); vertically centered; opacity
+× envelope (hides the Ring pop-in). Drawn through `NodeMapping.WrapCopies/ToLocalX` like the scene sprite.
 `TraversalDurationMs(canvasW, spriteW, wraps, pxPerSecond)` gives exactly one lap, clamped to
 2 s … 120 s. In Simultaneous mode each node uses its own canvas width; all finish at `T0 + Duration`.
 
@@ -99,8 +102,11 @@ vertically centered. Drawn through `NodeMapping.WrapCopies/ToLocalX` like the sc
 Full-node fill in `ColorHex` at opacity `envelope`.
 
 ### 3.6 Announce (if time allows)
-Text in `ColorHex` that scrolls one lap like Traversal; the pose takes the measured text width as a
-parameter (DirectWrite in the player, `FormattedText` in the preview).
+Text in `ColorHex` that scrolls one lap exactly like Traversal (same pose function). The player has no
+DirectWrite, so the text is rendered once into a GDI+ bitmap (`TextSprite`, WallpaperEngine) and drawn
+like the Traversal image. The server measures the text's aspect with the same `TextSprite` and sends it
+as `SpriteAspect`; every node draws the bitmap into the box `SpriteAspect × height`, so positions agree
+even if a node's font metrics differ slightly. The preview draws `FormattedText` into the same box.
 
 ### 3.7 `ShowEventLog`
 Add (dedupe by `EventId`, cap 16 — oldest dropped), `Active(nowUtc)` (events not yet ended, including
@@ -179,8 +185,9 @@ loaded as an Avalonia bitmap and cached by path.
   ■ Blackout (+ Announce with a text box), a seat picker (defaults to the node selected in the room
   view), the Traversal image picker. Enabled only while a scene plays. `ShowEventsViewModel`;
   settings persisted in `ShowEventSettings`.
-- **Global hotkeys** (`GlobalHotkeyService`, app-lifetime, owned by the tray): Win32 message-only
-  window on its own thread, `RegisterHotKey` Ctrl+Alt+1 Spotlight (picked seat), 2 Celebration,
+- **Global hotkeys** (`GlobalHotkeyService`, app-lifetime, owned by the tray): a dedicated thread with
+  its own message queue (`RegisterHotKey(NULL, …)` posts `WM_HOTKEY` to that thread — no window
+  needed), Ctrl+Alt+1 Spotlight (picked seat), 2 Celebration,
   3 Traversal, 4 Blackout, 5 Announce. Active in server mode only. A key taken by another app is
   logged and shown as a status line — no crash.
 - **Scheduled interrupts** (optional): `Playlist.Interrupts: List<{ EveryMs, Event template }>` driven
