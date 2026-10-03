@@ -191,7 +191,23 @@ Connect the clients first (§5.1). Attach each `report.html` path to the results
 - [ ] Stop the server while clients play → clients keep their wallpaper and reconnect when the server is back
 - [ ] File logging: log files at `%LOCALAPPDATA%\WaBiBaBuSy\Logs\` on every machine, rolling daily
 
-## 8. Optional
+## 8. Show events (roadmap 2.4 slice 2, build-verified only)
+
+- [ ] **Showcase exact frames:** Developer tools → Run test suite… → `TestScenarios/showcase/events.json` → report shows confetti rising/falling, the spotlight border on seat 1 (others dimmed with a chevron), the cat mid-lap, blackout half / full, the announce text.
+- [ ] **Celebration on 2+ machines:** confetti crosses the bezel continuously (a piece leaving one screen appears on the next at the same height).
+- [ ] **Spotlight:** pick a seat in the strip (or select its tile) → its border pulses gold for 8 s; every other seat dims and its chevron points toward it (mirrored row: still toward it; Ring: the shorter way).
+- [ ] **Traversal:** default (scene sprite) and a picked image (club logo) each lap the room exactly once and vanish; on a client that never had the image it still appears (download), at most late — never at the wrong place. With a video scene and no picked image the strip refuses with a status message.
+- [ ] **Blackout / Announce:** blackout fades in and out over 3 s on all seats; the announce text laps once, readable, same position on all seats.
+- [ ] **Playlist item switch during an event:** fire a Celebration 1 s before an item switch → the burst continues across the switch without restarting.
+- [ ] **Stop clears events:** fire a 10 s Spotlight, press Play / Quick start (or Clear nodes) → no stale event on any seat afterwards.
+- [ ] **Late join:** fire a 10 s Spotlight, then connect a client 3 s later and start a scene → no stale event after it ended; during it, Resync shows it at the right position.
+- [ ] **Hotkeys:** with the server running, Ctrl+Alt+1..5 fire the events with the main window closed (tray only); on a client machine the keys do nothing (not registered); a key held by another app shows "Hotkey(s) taken by another app" in the strip.
+- [ ] **Old client:** a client on the previous build stays on its scene when an event is fired (its log shows "Unknown command type: 12").
+- [ ] **Room preview (Live):** the tiles show the same events at the same moments.
+- [ ] **Performance:** Celebration on a 4K seat stays at the monitor's refresh rate; player CPU stays under 15 %.
+- [ ] **Interrupts:** a playlist with "Every 1 min Traversal" laps the logo once a minute without changing the item; stopping the show (or a non-looping show ending) stops the interrupts.
+
+## 9. Optional
 
 - [ ] Installer on a clean Windows 10/11 machine (Inno Setup, `/Installer/`); fallback version 2.6.3
 - [ ] Auto-update a client from an older build (SHA-256 check, rollback on failure)
@@ -207,4 +223,5 @@ Connect the clients first (§5.1). Attach each `report.html` path to the results
 | 5 Multi-client manual | | | |
 | 6 Show & sync | | | |
 | 7 Failure & recovery | | | |
-| 8 Optional | | | |
+| 8 Show events | | | |
+| 9 Optional | | | |

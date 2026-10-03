@@ -1,6 +1,6 @@
 # Crossing Effects, Sprite Effects & One-Shot Events — Design
 
-**Created:** 2026-09-17 · **Status:** Slice 1 implemented 2026-10-03 (trail, pulse, spin, bezel Glow/Flash/Ripple — plan: [`2026-10-03-sprite-and-bezel-effects-plan.md`](2026-10-03-sprite-and-bezel-effects-plan.md)); Portal, one-shot events (§5) and transitions (§6) open · **Roadmap:** Tier 2.4 (+ 0.5, 0.7, 2.5)
+**Created:** 2026-09-17 · **Status:** Slice 1 implemented 2026-10-03 (trail, pulse, spin, bezel Glow/Flash/Ripple — plan: [`2026-10-03-sprite-and-bezel-effects-plan.md`](2026-10-03-sprite-and-bezel-effects-plan.md)); one-shot events (§5) implemented 2026-10-03 (slice 2 — [`2026-10-03-show-events-design.md`](2026-10-03-show-events-design.md)); Portal and transitions (§6) open · **Roadmap:** Tier 2.4 (+ 0.5, 0.7, 2.5)
 **Solves:** F6 in [`2026-09-17-lan-party-roadmap.md`](2026-09-17-lan-party-roadmap.md)
 **Depends on:** seat map (ring), show-reliability (pre-announced timestamps) for events/transitions
 

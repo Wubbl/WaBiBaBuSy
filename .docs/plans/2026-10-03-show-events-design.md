@@ -1,6 +1,6 @@
 # One-Shot Show Events (Roadmap 2.4, slice 2) — Design
 
-**Created:** 2026-10-03 · **Status:** approved design · **Plan:** [`2026-10-03-show-events-plan.md`](2026-10-03-show-events-plan.md)
+**Created:** 2026-10-03 · **Status:** implemented 2026-10-03 (Tasks 1–17, incl. playlist interrupts); multi-machine validation pending · **Plan:** [`2026-10-03-show-events-plan.md`](2026-10-03-show-events-plan.md)
 **Parent spec:** [`2026-09-17-crossing-effects-and-events-design.md`](2026-09-17-crossing-effects-and-events-design.md) §5 (model, transport, event types, triggers) and §7 (determinism checklist). This document records the decisions made for the implementation; where it differs from the parent (Traversal image instead of `SceneLayer`, `TargetOrder` instead of `TargetSeatId`) this document wins.
 **Slice 1 (shipped 2026-10-03):** sprite and bezel effects — [`2026-10-03-sprite-and-bezel-effects-plan.md`](2026-10-03-sprite-and-bezel-effects-plan.md). Same split: pure math in `WaBiBaBuSy.Models`, drawn by the D2D player and the room preview (`ScenePainter`).
 

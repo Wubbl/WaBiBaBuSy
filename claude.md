@@ -18,6 +18,7 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 - Multi-monitor support: Sequential (spanning) and Simultaneous (per-monitor) modes
 - 6 movement types (Static, Linear, Bounce, SineWave, Circular, RandomWalk) with Reversed/Endless options
 - Sprite effects: trail, pulse, spin and bezel-crossing Glow/Flash/Ripple — pure functions of the shared clock (`SpriteEffects`), drawn by the players and the room preview (Effects tab)
+- One-shot show events: Spotlight a seat, Celebration burst, Traversal (an image laps the ring once), Blackout, Announce text lap — shared T0 + duration, drawn above the scene by every player and the room preview (`WaBiBaBuSy.Models/Show`), fired from the Events strip, Ctrl+Alt+1..5 (server only) or playlist interrupts; `SyncCommand` EVENT
 - Pattern grid multiplier: tile the animation into an infinite deterministic world-space grid (spacing, jitter, rotation, multi-image)
 - Color grading: 8 modes — time-based (Rainbow, RandomColors, Gradient, CycleColorList) and per-cell Traveling Colors (Rainbow/List/Random)
 - Backgrounds: SolidColor, StretchedImage, TiledImage, ThreeZone corridor, IconZone (A* pathfinding around real desktop icons)
@@ -140,7 +141,7 @@ dotnet run --project WaBiBaBuSy.UI
 
 1. **E2E Multi-Client Testing** — run `TestScenarios/sync-basic`, `parity-matrix`, `clock-skew` on 2+ machines, then the hands-on checklist `.docs/plans/2026-09-28-gui-and-e2e-test-checklist.md` (Tier 1 July work, Tier 0, ring, physical canvas, show reliability, UI redesign GUI checks, reconnection <5s)
 2. **VALIDATE: File logging + Installer** — LogToFile at `%LOCALAPPDATA%\WaBiBaBuSy\Logs\`; clean Windows 10/11 install
-3. **Roadmap Tier 2** — 2.4 crossing effects + events (rest) → 2.3 scene layers (see `.docs/plans/2026-09-17-lan-party-roadmap.md`)
+3. **Roadmap Tier 2** — 2.4 Portal + transitions (events done) → 2.3 scene layers (see `.docs/plans/2026-09-17-lan-party-roadmap.md`)
 
 Full list: `.docs/2026.07_OPEN_ITEMS.md` (refreshed 2026-10-02).
 
