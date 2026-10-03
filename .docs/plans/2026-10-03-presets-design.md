@@ -57,9 +57,9 @@ gets `<stem>-<hash8><ext>` (hash from `ContentIdentity`). A missing asset is an 
 ## 4. Starter presets
 
 Source: `TestScenarios/showcase/` — new manifest `starter-presets.json`, the listed `scenes/*.json` and `assets/`.
-The UI csproj links them into the build and publish output under `Presets\` (scenes in `Presets\scenes\`, assets in
-`Presets\assets\`, so `../assets/` still resolves); the installer ships `publish\*` recursively. No duplicate copies
-in the repo. `12-lunar-tears` is excluded (absolute path to a 70 MB video outside the repo).
+The UI csproj already ships `TestScenarios\**` next to the exe (test mode), so the seeder reads
+`<AppBase>\TestScenarios\showcase\starter-presets.json` directly — no second copy; the installer ships `publish\*`
+recursively. `12-lunar-tears` is excluded (absolute path to a 70 MB video outside the repo).
 
 Mapping of the authoring design's list:
 

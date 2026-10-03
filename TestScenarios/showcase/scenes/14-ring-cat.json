@@ -1,0 +1,12 @@
+{
+  // "Ring Fish" from the authoring design: a cat runs the wall facing where it goes, a short trail behind it.
+  // Set the room's Path to Ring for a closed loop around both tables.
+  "Background": { "Mode": "SolidColor", "ColorHex": "#06233A" },
+  "Animation": {
+    "AnimationPath": "../assets/cat.gif", "FitMode": "TargetHeight", "TargetHeight": 200,
+    "FaceTravelDirection": true,
+    "Effects": { "Trail": { "Count": 6, "SpacingMs": 90, "StartOpacity": 0.5, "ScaleFalloff": 0.92, "UseGradingColor": false } }
+  },
+  "Movement": { "Type": "Linear", "SpeedPixelsPerSecond": 600 },
+  "DistributionMode": "Sequential"
+}

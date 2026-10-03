@@ -1,0 +1,21 @@
+{
+  // Starter presets seeded into %APPDATA%\WaBiBaBuSy\presets\ when that folder is empty (PresetSeeder).
+  // Names are what the editor, the playlist and the tray's Quick start menu show.
+  // 12-lunar-tears is left out: it points at a 70 MB video outside the repo.
+  "presets": [
+    { "name": "Logo Conveyor", "scene": "scenes/01-rainbow-conveyor.json" },
+    { "name": "DVD Bounce", "scene": "scenes/02-dvd-bounce.json" },
+    { "name": "Sine Serpent", "scene": "scenes/03-sine-serpent.json" },
+    { "name": "Mexican Wave", "scene": "scenes/04-la-ola.json" },
+    { "name": "Cat Parade", "scene": "scenes/05-cat-parade.json" },
+    { "name": "Orbit", "scene": "scenes/06-cat-orbit-wave.json" },
+    { "name": "Fireflies", "scene": "scenes/07-fireflies.json" },
+    { "name": "Confetti Drift", "scene": "scenes/08-confetti-drift.json" },
+    { "name": "Neon Corridor", "scene": "scenes/09-neon-corridor.json" },
+    { "name": "Pulse Grid", "scene": "scenes/10-pulse-grid.json" },
+    { "name": "Endless Stripes", "scene": "scenes/11-stripes-endless.json" },
+    { "name": "Comet", "scene": "scenes/13-comet.json" },
+    { "name": "Ring Cat", "scene": "scenes/14-ring-cat.json" },
+    { "name": "Party Colors", "scene": "scenes/15-party-colors.json" }
+  ]
+}
