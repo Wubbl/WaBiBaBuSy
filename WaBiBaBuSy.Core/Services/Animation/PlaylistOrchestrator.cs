@@ -39,6 +39,7 @@ public class PlaylistOrchestrator
     private readonly Func<TimeSpan, Task<bool>>? _waitUntilNodesReady;
     private readonly Func<ShowEventType, Task>? _fireEvent;
     private Task? _interruptTask;
+    private CancellationTokenSource? _interruptCts;
 
     /// <summary>Interrupts more frequent than this are ignored (a typo must not fire an event every few ms).</summary>
     public int MinInterruptEveryMs { get; set; } = 10_000;
@@ -132,9 +133,16 @@ public class PlaylistOrchestrator
         // Built before the loop starts so a capture during the prefetch already has a position.
         var order = firstOrder ?? PlaylistScheduler.BuildCycleOrder(playlist.Items.Count, playlist.Shuffle, _seedProvider());
         _position = new PlaylistResumePoint(playlist, order, firstPosition);
+        // A previous non-looping show that ended on its own never went through StopAsync: nothing of it may survive.
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _interruptCts?.Cancel();
+        _interruptCts?.Dispose();
         _cts = new CancellationTokenSource();
-        _loopTask = RunLoopAsync(playlist, order, firstPosition, _cts.Token);
-        _interruptTask = RunInterruptsAsync(playlist.Interrupts, _cts.Token);
+        // The interrupts live exactly as long as the loop: the loop cancels this source when it ends (finally).
+        var interruptCts = _interruptCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        _interruptTask = RunInterruptsAsync(playlist.Interrupts, interruptCts.Token);
+        _loopTask = RunLoopAsync(playlist, order, firstPosition, _cts.Token, interruptCts);
     }
 
     /// <summary>One timer per enabled interrupt, independent of item switches; cancelled with the show.</summary>
@@ -174,6 +182,8 @@ public class PlaylistOrchestrator
             try { await _interruptTask; } catch (OperationCanceledException) { }
             _interruptTask = null;
         }
+        _interruptCts?.Dispose();
+        _interruptCts = null;
         _cts?.Dispose();
         _cts = null;
         CurrentItem = null;
@@ -192,7 +202,9 @@ public class PlaylistOrchestrator
 
     /// <param name="order">Item order of the first cycle.</param>
     /// <param name="startPosition">Position in <paramref name="order"/> the first cycle starts at (0 = the top).</param>
-    private async Task RunLoopAsync(Playlist playlist, int[] order, int startPosition, CancellationToken ct)
+    /// <param name="interruptCts">Cancelled when the loop ends for any reason (natural end, fault, stop).</param>
+    private async Task RunLoopAsync(Playlist playlist, int[] order, int startPosition, CancellationToken ct,
+        CancellationTokenSource interruptCts)
     {
         try
         {
@@ -283,6 +295,11 @@ public class PlaylistOrchestrator
         catch (OperationCanceledException)
         {
             _logger.LogInformation("Playlist rotation cancelled");
+        }
+        finally
+        {
+            try { interruptCts.Cancel(); }
+            catch (ObjectDisposedException) { /* a newer Start already disposed it */ }
         }
     }
 }

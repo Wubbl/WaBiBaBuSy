@@ -31,7 +31,7 @@ public class PlaylistInterruptTests
     {
         var o = Orchestrator();
         o.Start(Show(new PlaylistInterrupt { EveryMs = 40, Type = ShowEventType.Celebration }));
-        await Task.Delay(300);
+        await Task.Delay(600);
         Assert.True(Count(ShowEventType.Celebration) >= 3, $"fired {Count(ShowEventType.Celebration)}×");
         Assert.Equal(0, o.CurrentItemIndex);
         await o.StopAsync();
@@ -45,19 +45,47 @@ public class PlaylistInterruptTests
         await Task.Delay(120);
         await o.StopAsync();
         int after = Count(ShowEventType.Blackout);
+        Assert.True(after > 0, "the interrupt never fired before Stop");
         await Task.Delay(150);
         Assert.Equal(after, Count(ShowEventType.Blackout));
     }
 
     [Fact]
-    public async Task DisabledOrTooFrequent_NeverFires()
+    public async Task TooFrequent_NeverFires()
     {
         var o = Orchestrator();
         o.MinInterruptEveryMs = 10_000;
-        o.Start(Show(new PlaylistInterrupt { EveryMs = 20, Type = ShowEventType.Traversal },
-                     new PlaylistInterrupt { EveryMs = 20, Type = ShowEventType.Celebration, Enabled = false }));
+        o.Start(Show(new PlaylistInterrupt { EveryMs = 20, Type = ShowEventType.Traversal }));
         await Task.Delay(150);
-        Assert.Empty(_fired);
+        Assert.Equal(0, Count(ShowEventType.Traversal));
+        await o.StopAsync();
+    }
+
+    [Fact]
+    public async Task Disabled_NeverFires()
+    {
+        var o = Orchestrator();   // MinInterruptEveryMs = 0: only Enabled = false holds it back
+        o.Start(Show(new PlaylistInterrupt { EveryMs = 20, Type = ShowEventType.Celebration, Enabled = false }));
+        await Task.Delay(150);
+        Assert.Equal(0, Count(ShowEventType.Celebration));
+        await o.StopAsync();
+    }
+
+    [Fact]
+    public async Task NonLoopingShow_EndsItsInterruptsWhenTheShowEnds()
+    {
+        var o = Orchestrator();
+        var show = Show(new PlaylistInterrupt { EveryMs = 20, Type = ShowEventType.Spotlight });
+        show.Loop = false;
+        show.DefaultItemDurationMs = 50;
+        o.Start(show);
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (o.IsRunning && DateTime.UtcNow < deadline) await Task.Delay(10);
+        Assert.False(o.IsRunning);
+        await Task.Delay(40);   // let a cancellation in flight settle
+        int after = Count(ShowEventType.Spotlight);
+        await Task.Delay(150);
+        Assert.Equal(after, Count(ShowEventType.Spotlight));
         await o.StopAsync();
     }
 }

@@ -352,7 +352,7 @@ public partial class PlaylistViewModel : ViewModelBase
         Loop = playlist.Loop;
         Shuffle = playlist.Shuffle;
         DefaultDurationMs = playlist.DefaultItemDurationMs;
-        var interrupt = playlist.Interrupts.FirstOrDefault();
+        var interrupt = playlist.Interrupts?.FirstOrDefault();
         InterruptEnabled = interrupt?.Enabled == true;
         InterruptEveryMinutes = Math.Max(1, (interrupt?.EveryMs ?? 1_800_000) / 60_000);
         InterruptType = interrupt?.Type ?? ShowEventType.Traversal;
