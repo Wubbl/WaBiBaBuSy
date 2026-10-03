@@ -3709,6 +3709,7 @@ partial class Program
                 if (!NodeMapping.IsVisible(lx, _animWidth, _layout)) continue;
                 DrawCellWithOptionalGrading(bmp, lx, _animY, _animWidth, _animHeight, rotDeg, gradingActive && !isTraveling, flipX: flipX, spriteScale: spriteScale);
             }
+            if (fx != null) DrawBezelEffect(fx, elapsedMs);
         }
 
         // F3a: cover icon-zone rectangles so user icons remain visible.
@@ -4154,6 +4155,7 @@ partial class Program
     /// </summary>
     private static void DisposeNativeD2DResources()
     {
+        DisposeEffectBrushes();
         if (_d2dGifFrames != null)
         {
             for (int i = 0; i < _d2dGifFrames.Length; i++)
