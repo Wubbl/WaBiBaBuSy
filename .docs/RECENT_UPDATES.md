@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-10-09 — Fix: desktop kept the last frame after the players stopped
+
+- **Symptom**: after a test run (or Stop / Clear all / exit) the desktop still showed the last animation frame instead of the user's wallpaper; opening Windows' wallpaper settings brought it back.
+- **Cause**: the player window was destroyed, but nothing told Explorer to repaint the wallpaper. The only refresh (`DesktopWindowManager.RefreshDesktop`) sits on a path the D2D players never use, and `RestoreDesktop()` on exit only closes a WorkerW the main process never tracks.
+- **Fix**: `D2DPlayerHost` counts live player processes app-wide; when the last one is disposed it calls `DesktopWindowManager.RefreshUserWallpaper()` (`SPI_SETDESKWALLPAPER`, null, `SPIF_UPDATEINIFILE` — what Lively does after closing a wallpaper). Covers Stop, Clear all, clear nodes, shutdown, remote stop and the test-run restore, which all end in `Dispose`. `PlayerProcesses.Kill` (orphans from a crashed session, Clear all) refreshes too. Scene switches replace players monitor by monitor, so with 2+ monitors nothing flashes; a single-monitor machine shows its own wallpaper during the start gap.
+- **Verified**: `smoke-local` on the raised desktop (Win11 build 26200, slideshow wallpaper): repaint logged at both full stops, wallpaper file and registry entry unchanged, no player left. 867 unit tests green.
+
 ## 2026-10-09 — Pre-flight for the first multi-machine session
 
 - **What**: the server machine alone, on `da7215e`, before the first real network run. `dotnet build` 0 errors / 0 warnings; 867 / 867 unit tests green; `smoke-local` pass (CLI, exit 0); `parity-matrix` as a temporary copy with `minRemoteNodes: 0` pass (18/18 steps on 3 local monitors); `showcase/events` exit 0, every event visible in its exact frames (confetti, spotlight, traversal, whiteout covering the full frame, announce).

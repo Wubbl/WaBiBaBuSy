@@ -76,6 +76,8 @@ Build the 3-item "E2E" playlist first (different content incl. a large GIF / vid
 
 Cable pull ~10 s → **time the reconnect** (target < 5 s after the link is back) · client power-off → tile gone within ~40 s · server stop/start · log files present on every machine.
 
+**Wallpaper restore (fix from 2026-10-09):** after ■ Stop, Clear all, a test run and app exit, every machine shows its own Windows wallpaper again, not the last animation frame (log: "Last player exited, user wallpaper repainted").
+
 ## If time is short
 
 Do in this order and stop anywhere: **§2 rows 1, 3, 5** → §8 Celebration + Reconnect → §7 cable pull timing → §6 prefetch. These cover the four claims nothing but a real network can verify: pixel parity, drift, event sync, reconnection.

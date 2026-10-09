@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using WaBiBaBuSy.WallpaperEngine.Native;
 
 namespace WaBiBaBuSy.UI.Services;
 
@@ -43,6 +44,9 @@ public static class PlayerProcesses
         {
             Debug.WriteLine($"[KillPlayers] Enumeration failed: {ex.Message}");
         }
+        // A killed player never runs its cleanup; repaint the user's wallpaper over its last frame.
+        if (killed > 0)
+            DesktopWindowManager.RefreshUserWallpaper();
         return killed;
     }
 }

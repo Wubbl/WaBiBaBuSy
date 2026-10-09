@@ -31,6 +31,10 @@ public class D2DPlayerHost : IDisposable
     private bool _disposed;
     private bool _isInitialized;
 
+    // Player processes started by any host in this app; the last one to go repaints the user's wallpaper.
+    private static int s_livePlayers;
+    private bool _counted;
+
     public D2DPlayerHost(
         ScreenMapping screen,
         ILogger<D2DPlayerHost> logger,
@@ -120,6 +124,8 @@ public class D2DPlayerHost : IDisposable
 
             _logger.LogInformation("Starting player process...");
             _playerProcess.Start();
+            Interlocked.Increment(ref s_livePlayers);
+            _counted = true;
             _playerProcess.BeginErrorReadLine();
 
             _playerStdin = _playerProcess.StandardInput;
@@ -821,6 +827,16 @@ public class D2DPlayerHost : IDisposable
 
             _playerStdin?.Dispose();
             _playerProcess?.Dispose();
+
+            // Last player gone (Stop, Clear all, exit, test restore): the desktop would keep its last frame.
+            // A scene switch replaces players monitor by monitor, so with 2+ monitors the count stays above 0;
+            // a single-monitor machine shows its own wallpaper for the start gap instead of a frozen frame.
+            if (_counted && Interlocked.Decrement(ref s_livePlayers) == 0)
+            {
+                DesktopWindowManager.RefreshUserWallpaper();
+                _logger.LogInformation("Last player exited, user wallpaper repainted");
+            }
+            _counted = false;
         }
         catch (Exception ex)
         {

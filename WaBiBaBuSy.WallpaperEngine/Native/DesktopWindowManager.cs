@@ -595,6 +595,17 @@ public class DesktopWindowManager
     }
 
     /// <summary>
+    /// Makes Explorer repaint the user's own wallpaper (Lively does the same after closing a wallpaper).
+    /// Without it the desktop keeps the last frame of a destroyed player window until something else
+    /// repaints it (e.g. opening Windows' wallpaper settings). Call only when no player window is attached:
+    /// on the raised (layered) desktop it recreates the WorkerW.
+    /// </summary>
+    public static void RefreshUserWallpaper()
+    {
+        Win32Interop.SystemParametersInfo(Win32Interop.SPI_SETDESKWALLPAPER, 0, null, Win32Interop.SPIF_UPDATEINIFILE);
+    }
+
+    /// <summary>
     /// Restores the Windows desktop to its original state by closing the WorkerW window.
     /// This should be called when the application exits to reset the wallpaper.
     /// </summary>
