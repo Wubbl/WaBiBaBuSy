@@ -2,7 +2,7 @@
 
 **Project Name:** WallpaperBiBaBuSync (BiBaBu = our club name)
 **Version:** 2.6.3 | **Framework:** .NET 9.0 | **Status:** MVP complete + post-MVP visual features + LAN-party Tier 0 / 1.1 / 2.1
-**Last Updated:** 2026-10-03 | **Next:** E2E Multi-Client Testing (test-mode scenarios + checklist), then roadmap Tier 2.4 Portal + transitions (events done) / 2.3 scene layers
+**Last Updated:** 2026-10-09 | **Next:** E2E Multi-Client Testing (first session 2026-10-09 evening, runbook below), then roadmap Tier 2.4 Portal + transitions (events done) / 2.3 scene layers
 
 WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5% server CPU, ±50ms drift tolerance, and distributed client-side rendering. Supports images (JPG/PNG/BMP), videos (MP4/AVI/MKV), and GIFs across multi-monitor setups.
 
@@ -41,7 +41,7 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 - **[Animation Movement System](.docs/ANIMATION_MOVEMENT_SYSTEM.md)** — Deterministic position calculation
 
 ### Project Tracking
-- **[Open Items / Session Handoff](.docs/2026.07_OPEN_ITEMS.md)** — Consolidated validation list, code follow-ups, limitations, roadmap pointer (start here, refreshed 2026-10-02)
+- **[Open Items / Session Handoff](.docs/2026.07_OPEN_ITEMS.md)** — Consolidated validation list, code follow-ups, limitations, roadmap pointer (start here, refreshed 2026-10-09)
 - **[Feature Overview & Roadmap](.docs/2026.07_FEATURE_OVERVIEW.md)** — Verified inventory of all animation features + feature-completeness roadmap (2026-07 audit)
 - **[Open Issues](.docs/2025.12_OpenIssues.md)** — Active bugs and items needing validation
 - **[Missing Features](.docs/2025.12_MissingFeatures.md)** — Feature roadmap and TODO tracking
@@ -55,6 +55,7 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 - **[LAN-Party Roadmap (2026-09-17)](.docs/plans/2026-09-17-lan-party-roadmap.md)** — Analysis for the 2×10-machine scenario: findings F1–F8, Tier 0–3 plan, links to the six design docs below (**start here for animation/config work**)
   - [Seat Map & Ring Topology](.docs/plans/2026-09-17-seat-map-and-ring-topology-design.md) · [Physical Canvas](.docs/plans/2026-09-17-physical-canvas-design.md) · [Scene Layers](.docs/plans/2026-09-17-scene-layers-design.md) · [Authoring UX & Preview](.docs/plans/2026-09-17-authoring-ux-and-preview-design.md) · [Crossing Effects & Events](.docs/plans/2026-09-17-crossing-effects-and-events-design.md) · [Show Reliability](.docs/plans/2026-09-17-show-reliability-design.md)
   - [Seat Choreography (2026-09-27)](.docs/plans/2026-09-27-seat-choreography-design.md) — Hop movement + seeded random seat hopping, seat light, speed profiles, convoy, row mosaic, tempo grid, motion segments (roadmap Tier 2.6, proposal)
+- **[Remote Session Runbook (2026-10-09)](.docs/plans/2026-10-09-remote-session-runbook.md)** — order, commands and time budget for the first multi-machine session; pre-flight results (single machine, all green); tick-boxes stay in the [2026-10-04 checklist](.docs/plans/2026-10-04-manual-test-checklist.md)
 - **[Automated Test Mode (2026-09-30)](.docs/plans/2026-09-30-automated-test-mode-design.md)** — scenario-driven multi-machine test runs: timing probes (present-time drift), marker position checks, exact-frame pixel parity, screenshots + logs → `report.json` / `report.html` (spec 1 implemented, multi-machine validation pending; spec 2 = show reliability + failure injection)
 - **[Corridor Animation System](.docs/plans/corridor-animation-system.md)** — ThreeZone background + corridor-constrained animation (implemented 2026-04)
 - **[IconZone Path Variation](.docs/plans/2026-04-24-iconzone-path-variation-plan.md)** / **[Variation Rotation](.docs/plans/2026-04-24-iconzone-variation-rotation-design.md)** — IconZone A* path design
@@ -139,11 +140,11 @@ dotnet run --project WaBiBaBuSy.UI
 
 ## Current Work (Priority Order)
 
-1. **E2E Multi-Client Testing** — run `TestScenarios/sync-basic`, `parity-matrix`, `clock-skew` on 2+ machines, then the hands-on checklist `.docs/plans/2026-09-28-gui-and-e2e-test-checklist.md` (Tier 1 July work, Tier 0, ring, physical canvas, show reliability, UI redesign GUI checks, reconnection <5s)
+1. **E2E Multi-Client Testing** — follow `.docs/plans/2026-10-09-remote-session-runbook.md`: `TestScenarios/parity-matrix`, `clock-skew`, `showcase/events`, `sync-basic` on 2+ machines, then the hands-on checklist `.docs/plans/2026-10-04-manual-test-checklist.md` §5–§8 (ring, physical canvas, show events, show reliability, reconnection <5s); server-alone GUI checks §1–§3 any other day
 2. **VALIDATE: File logging + Installer** — LogToFile at `%LOCALAPPDATA%\WaBiBaBuSy\Logs\`; clean Windows 10/11 install
 3. **Roadmap Tier 2** — 2.4 Portal + transitions (events done) → 2.3 scene layers (see `.docs/plans/2026-09-17-lan-party-roadmap.md`)
 
-Full list: `.docs/2026.07_OPEN_ITEMS.md` (refreshed 2026-10-02).
+Full list: `.docs/2026.07_OPEN_ITEMS.md` (refreshed 2026-10-09).
 
 ## MVP Success Criteria (6/6 Implemented, E2E validation pending)
 

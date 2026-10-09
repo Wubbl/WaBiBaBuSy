@@ -26,6 +26,8 @@ The bundled files are copied next to the exe (`TestScenarios\` in the build/inst
 | `showcase/showcase.json` | server only | Not a pass/fail check: plays 12 showcase scenes and renders exact frames at 1/4/9/20 s as a contact sheet for tuning animation settings |
 | `showcase/events.json` | server only | Not a pass/fail check: fires the five one-shot show events (Celebration, Spotlight, Traversal, Blackout — in white, so the frame differs from the dark scene —, Announce) at fixed scene times and renders exact frames inside each event; waits 3 s after the Traversal so remote clients have its image |
 
+Without remotes, a copy of `parity-matrix.json` with `"minRemoteNodes": 0` (saved next to the original so the relative scene paths resolve) runs every step on the server's own monitors. That is a quick regression check before a multi-machine session; it does not test the network.
+
 Room settings (Ring / Snake, facing rows, Physical units) come from the room, not from the scene. Set them before
 `parity-matrix.json`, and run it twice to cover both pixel mode and Physical units.
 In `clock-skew.json` replace `REMOTE-HOSTNAME-1` / `-2` with the client names shown on the room tiles.

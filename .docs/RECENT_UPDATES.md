@@ -1,8 +1,14 @@
 # WaBiBaBuSy - Recent Updates & Changelog
 
-**Last Updated:** 2026-10-03
+**Last Updated:** 2026-10-09
 
 ---
+
+## 2026-10-09 — Pre-flight for the first multi-machine session
+
+- **What**: the server machine alone, on `da7215e`, before the first real network run. `dotnet build` 0 errors / 0 warnings; 867 / 867 unit tests green; `smoke-local` pass (CLI, exit 0); `parity-matrix` as a temporary copy with `minRemoteNodes: 0` pass (18/18 steps on 3 local monitors); `showcase/events` exit 0, every event visible in its exact frames (confetti, spotlight, traversal, whiteout covering the full frame, announce).
+- **Docs**: new `.docs/plans/2026-10-09-remote-session-runbook.md` (session order, commands, firewall / network notes, time budget, "if time is short" cut; tick-boxes stay in the 2026-10-04 checklist). `.docs/2026.07_OPEN_ITEMS.md` refreshed (test count, the 10-03 test-mode follow-ups and the tray-client fix were still listed as open), `CLAUDE.md` Current Work points at the runbook.
+- **No code change.**
 
 ## 2026-10-03 — One-shot show events (roadmap 2.4 slice 2)
 

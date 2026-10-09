@@ -9,6 +9,8 @@ re-checks the four `[n]` findings from 09-29, and adds what the 2026-10-02/03 wo
 `.docs/2025.12_OpenIssues.md` (what you did, what you saw, which machine, log excerpt). Order matters: the
 automated runs (§4) are quick and cover timing + pixel parity, so §5 only needs eyes for what software cannot judge.
 
+**First multi-machine session (2026-10-09):** order, commands and pre-flight results in [`2026-10-09-remote-session-runbook.md`](2026-10-09-remote-session-runbook.md).
+
 **Time budget:** §0–§2 ≈ 1 h (server alone) · §3–§4 ≈ 1 h · §5–§6 ≈ 1.5 h · §7 ≈ 30 min · §8 ≈ 45 min · §9 ≈ 1 h (optional).
 
 ---
