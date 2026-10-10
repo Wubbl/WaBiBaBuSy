@@ -37,6 +37,32 @@ public class SyncStreamLifecycleTests : IDisposable
     }
 
     [Fact]
+    public async Task OldStreamEndingBetweenReRegisterAndNewStream_KeepsTheClient()
+    {
+        Assert.True((await _h.RegisterAsync("c1")).Success);
+        var oldStream = _h.Connect("c1", _ => { });
+        Assert.True((await _h.RegisterAsync("c1")).Success);   // reconnected; its new stream is not open yet
+
+        oldStream.Cancel();
+        await Task.Delay(300);
+
+        Assert.True(Listed("c1"));
+    }
+
+    [Fact]
+    public async Task ReRegister_CommandsWaitForTheNewStream_NotTheDeadOne()
+    {
+        Assert.True((await _h.RegisterAsync("c1")).Success);
+        var oldCommands = new List<SyncCommand>();
+        _h.Connect("c1", oldCommands.Add);
+        Assert.True((await _h.RegisterAsync("c1")).Success);
+
+        // Session resume retries until the new stream is there; a write into the old one would be lost.
+        Assert.False(await _h.Service.SendCommandToClientAsync("c1", new SyncCommand { Type = CommandType.Play }));
+        Assert.Empty(oldCommands);
+    }
+
+    [Fact]
     public async Task CurrentStreamEnding_RemovesTheClient()
     {
         Assert.True((await _h.RegisterAsync("c1")).Success);

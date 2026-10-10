@@ -230,6 +230,11 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                 AppVersion = request.AppVersion
             };
 
+            // A (re-)registering client opens a new SyncStream next. Forget any old one: commands written into a
+            // dead stream would be lost (session resume retries until the new stream exists), and its late end
+            // must not remove this new session.
+            _clientCommandStreams.TryRemove(clientId, out _);
+
             // Add or update client
             _connectedClients.AddOrUpdate(clientId, connectedClient,
                 (key, existing) => connectedClient);
