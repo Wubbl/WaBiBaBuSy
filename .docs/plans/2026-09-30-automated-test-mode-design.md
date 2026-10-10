@@ -15,7 +15,7 @@ the same instant, collects all logs, and writes a results folder (`report.json` 
 that a human reads in a browser and Claude reads from disk.
 
 **Spec 1 (this document):** test harness, *Sync & timing*, *Visual parity*.
-**Spec 2 (later, reuses the harness):** *Show reliability* (prefetch timing, item-switch gap, skip latency,
+**Spec 2 (later, reuses the harness; first slice = §12 Spec 2a, fault injection):** *Show reliability* (prefetch timing, item-switch gap, skip latency,
 resync) and *Failure & recovery* (simulated disconnect, client restart, server restart, reconnect timing).
 
 **Non-goals.**
@@ -272,3 +272,59 @@ GPU < 10 %, memory < 200 MB per client.
 | `sync-basic.json` | §3 clean start, §4 10-minute run with perf |
 | `parity-matrix.json` | §3: Linear Sequential across machines, SineWave + Reversed, Simultaneous + Wave, Pattern + Traveling Colors (exact frame), IconZone global path, multi-image / background asset, Ring seam, facing rows, mixed resolutions (pixel mode), physical units, face travel direction |
 | `clock-skew.json` | §4 skew ±2 s (simulated) |
+
+## 12. Spec 2a — fault injection (2026-10-10)
+
+**Goal.** Measure reconnection (target < 5 s) and the dead-client sweep (≈ 40 s) in a scenario instead of pulling
+cables by hand. First slice of spec 2: two faults, `drop` and `silent`. Out of scope: client app restart (needs a
+`--connect` switch + self-relaunch; `AutoConnect` defaults to off), server-side faults, backoff tuning (follow-up if
+the measurement misses the target).
+
+**Findings that shape it.**
+- Backoff is 1 / 2 / 4 / 8 / 16 / 30 s (`ReconnectBackoff`): after a 10 s outage the next attempt is ≈ 15 s in,
+  ≈ 5 s after the link is back — right at the target.
+- The sweep (`WallpaperSyncService.SweepDeadClients`) removes a client 30 s after its last heartbeat and runs every
+  10 s; heartbeats come every 5 s → removal 30–45 s after the client went quiet.
+- **Bug (fixed in this slice):** a swept client that is still alive gets `HeartbeatResponse.Acknowledged = false`
+  and ignores it — it believes it is connected while the server no longer lists it, until the app restarts.
+  Fix: an unacknowledged heartbeat calls `TriggerReconnect("server no longer knows this client")`.
+
+**Protocol.** `CommandType.TEST_FAULT = 13`; `SyncParameters.test_fault_kind = 36` (`"drop"` / `"silent"`),
+`test_fault_ms = 37`. Old clients log "unknown" and ignore it. Only sent while the server runs in test mode; a client
+with "Answer automated test runs" off ignores it.
+
+**Client** (`WallpaperSyncClient`, handled in the sync stream loop like TEST_MODE, no playback service involvement):
+- `drop N`: set `_faultUntilUtc = now + N`, then `TriggerReconnect("simulated link loss")` (tears the channel down
+  through the real path). `ConnectAsync` throws "unreachable (simulated)" while `now < _faultUntilUtc`, so the
+  reconnect runs through the real backoff and session resume.
+- `silent N`: for N ms send no heartbeats, no sync responses, no thumbnails; the TCP stream stays open (what the
+  server sees from a powered-off client). Afterwards everything resumes; with the bug fix a swept client re-registers.
+- Values are clamped to 1 s … 120 s.
+
+**Scenario step** `fault` (`FaultStep`):
+
+```json
+{ "type": "fault", "label": "10 s link loss", "node": "CLIENT-1", "kind": "drop", "ms": 10000, "maxReconnectMs": 5000 }
+{ "type": "fault", "label": "power-off stand-in", "node": "CLIENT-1", "kind": "silent", "ms": 45000, "maxSweepMs": 45000 }
+```
+
+`node` is the tile name (as in `simulatedClockSkewMs`). The runner sends the fault, then polls `GetNodesAsync` every
+250 ms — until the node is back after the fault (and, for `silent`, after it was swept), at most `ms` + 2 × `maxReconnectMs` (drop) or `max(ms, 2 × maxSweepMs)` + 10 s (silent) — and records, in UTC ms:
+`sentAt`, `lostAt` (server no longer lists the node as connected), `backAt` (connected again).
+
+| Kind | Measured | Pass | Warn | Fail |
+|---|---|---|---|---|
+| `drop` | `reconnectMs = backAt − (sentAt + ms)` | ≤ `maxReconnectMs` | ≤ 2 × `maxReconnectMs` | later or never back |
+| `silent` | `sweepMs = lostAt − sentAt`; back after the silence (yes / no) | swept ≤ `maxSweepMs` and back | swept late | never swept, or never back |
+
+When the node is back, the runner re-sends the current test mode (a reconnect clears it on the client) and the node
+is removed from `Lost` — the fault was expected, it is not a node failure. A `probe` after the step checks the rejoin
+position with the existing checks. The report gets a **Faults** table (node, kind, ms, lost after, back after,
+reconnect / sweep ms, verdict).
+
+**Scenario** `TestScenarios/recovery.json` (1+ remote, ≈ 3 min): play a Linear scene, probe, drop 10 s, probe,
+silent 45 s, probe, stop. Replace `REMOTE-HOSTNAME-1` with a tile name, like `clock-skew.json`.
+
+**Testing.** Unit: scenario JSON round-trip for `fault`; the runner's fault step against the fake transport / host
+(timeline → `reconnectMs` / `sweepMs`, verdicts, test mode re-sent, node not counted as lost, unknown node → fail);
+the client's unacknowledged-heartbeat rule. Multi-machine: `recovery.json` in the 2026-10-09 session.
