@@ -16,6 +16,7 @@ public class ClientFaultTests : IAsyncLifetime
     private readonly string _cacheDir = Path.Combine(Path.GetTempPath(), $"wbbs-fault-{Guid.NewGuid():N}");
     private WallpaperSyncServerHost _host = null!;
     private WallpaperSyncClient? _client;
+    private readonly ListLogger _clientLog = new();
 
     private static int FreePort()
     {
@@ -42,7 +43,7 @@ public class ClientFaultTests : IAsyncLifetime
 
     private async Task<string> ConnectAsync(bool allowTestRuns = true)
     {
-        _client = new WallpaperSyncClient(NullLogger<WallpaperSyncClient>.Instance,
+        _client = new WallpaperSyncClient(_clientLog,
             new ClientConfiguration { CacheDirectory = Path.Combine(_cacheDir, "client"), HeartbeatIntervalSeconds = 1, AllowTestRuns = allowTestRuns });
         Assert.True(await _client.ConnectAsync("127.0.0.1", _port));
         Assert.True(await Eventually(() => Registered(_client.ClientId!), 3000));
@@ -103,6 +104,20 @@ public class ClientFaultTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Drop_RunsOneTeardown_OnTheReconnectLoop()
+    {
+        var id = await ConnectAsync();
+
+        Assert.True(await SendFaultAsync(id, TestFaults.Drop, 1500));
+        Assert.True(await Eventually(() => !Registered(id), 3000), "the server never lost the client");
+        Assert.True(await Eventually(() => Registered(id), 10000), "the client never came back");
+
+        // The fault starts the reconnect itself; the stream it tears down must not start a second one.
+        var lost = _clientLog.Lines.Where(l => l.StartsWith("Connection lost")).ToList();
+        Assert.Equal(new[] { "Connection lost (simulated link loss)" }, lost.Select(l => l[..l.IndexOf(')')] + ")"));
+    }
+
+    [Fact]
     public async Task Silent_StopsHeartbeats_ThenResumes()
     {
         var id = await ConnectAsync();
@@ -127,5 +142,18 @@ public class ClientFaultTests : IAsyncLifetime
 
         Assert.True(Registered(id));
         Assert.True(_client!.IsConnected);
+    }
+
+    /// <summary>Keeps the client's formatted log lines (warnings and up) for assertions.</summary>
+    private sealed class ListLogger : Microsoft.Extensions.Logging.ILogger<WallpaperSyncClient>
+    {
+        private readonly List<string> _lines = new();
+        public IReadOnlyList<string> Lines { get { lock (_lines) return _lines.ToList(); } }
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel level) => level >= Microsoft.Extensions.Logging.LogLevel.Warning;
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel level, Microsoft.Extensions.Logging.EventId id, TState state, Exception? ex, Func<TState, Exception?, string> format)
+        {
+            if (IsEnabled(level)) lock (_lines) _lines.Add(format(state, ex));
+        }
     }
 }

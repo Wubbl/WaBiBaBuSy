@@ -250,8 +250,10 @@ public class WallpaperSyncClient : IDisposable
     /// <summary>
     /// Begin auto-reconnection after an unexpected connection loss.
     /// No-op if the user disconnected intentionally or a reconnect is already in flight.
+    /// <paramref name="teardownNow"/>: tear the channel down at once instead of after the first backoff delay
+    /// (a simulated link loss must cut the link immediately, and from this one loop only).
     /// </summary>
-    private void TriggerReconnect(string reason)
+    private void TriggerReconnect(string reason, bool teardownNow = false)
     {
         if (_userDisconnected) return;
         if (Interlocked.Exchange(ref _reconnecting, 1) == 1) return;
@@ -262,7 +264,7 @@ public class WallpaperSyncClient : IDisposable
         ConnectionStatusChanged?.Invoke(this,
             new ConnectionStatusChangedEventArgs(false, _serverAddress ?? string.Empty, _serverPort));
 
-        _ = Task.Run(ReconnectLoopAsync);
+        _ = Task.Run(() => ReconnectLoopAsync(teardownNow));
     }
 
     /// <summary>
@@ -270,16 +272,23 @@ public class WallpaperSyncClient : IDisposable
     /// until connected or the user disconnects. _clientId is preserved across
     /// attempts so the server can resume our session.
     /// </summary>
-    private async Task ReconnectLoopAsync()
+    private async Task ReconnectLoopAsync(bool teardownNow = false)
     {
         try
         {
             while (!_userDisconnected && !string.IsNullOrEmpty(_serverAddress))
             {
-                var delay = _backoff.NextDelay();
-                _logger.LogInformation("Reconnecting to {Address}:{Port} in {Delay}s...",
-                    _serverAddress, _serverPort, delay.TotalSeconds);
-                await Task.Delay(delay);
+                if (teardownNow)
+                {
+                    teardownNow = false;   // first pass only; the connect attempt below still runs (and may fail)
+                }
+                else
+                {
+                    var delay = _backoff.NextDelay();
+                    _logger.LogInformation("Reconnecting to {Address}:{Port} in {Delay}s...",
+                        _serverAddress, _serverPort, delay.TotalSeconds);
+                    await Task.Delay(delay);
+                }
                 if (_userDisconnected) return;
 
                 await TeardownChannelAsync();
@@ -941,12 +950,9 @@ public class WallpaperSyncClient : IDisposable
         {
             Interlocked.Exchange(ref _faultUntilUtcMs, until);
             _logger.LogWarning("[Test] Simulated link loss for {Ms} ms", ms);
-            // Off the stream loop: the teardown cancels and waits for this very loop.
-            _ = Task.Run(async () =>
-            {
-                await TeardownChannelAsync();
-                TriggerReconnect("simulated link loss");
-            });
+            // The reconnect loop tears the link down at once; every teardown runs on that one loop, and the
+            // stream it cancels finds a reconnect already in flight.
+            TriggerReconnect("simulated link loss", teardownNow: true);
         }
         else
         {
