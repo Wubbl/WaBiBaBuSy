@@ -8,14 +8,12 @@ namespace WaBiBaBuSy.Models.Configuration;
 /// </summary>
 public class ConfigurationManager
 {
-    private static readonly string ConfigDirectory = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "WaBiBaBuSy");
+    private static string ConfigDirectory => AppDataPaths.Root;
 
-    private static readonly string ServerConfigPath = Path.Combine(ConfigDirectory, "server-config.json");
-    private static readonly string ClientConfigPath = Path.Combine(ConfigDirectory, "client-config.json");
-    private static readonly string WallpaperGalleryPath = Path.Combine(ConfigDirectory, "wallpaper-gallery.json");
-    private static readonly string LoggingConfigPath = Path.Combine(ConfigDirectory, "logging-config.json");
+    private static string ServerConfigPath => Path.Combine(ConfigDirectory, "server-config.json");
+    private static string ClientConfigPath => Path.Combine(ConfigDirectory, "client-config.json");
+    private static string WallpaperGalleryPath => Path.Combine(ConfigDirectory, "wallpaper-gallery.json");
+    private static string LoggingConfigPath => Path.Combine(ConfigDirectory, "logging-config.json");
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {

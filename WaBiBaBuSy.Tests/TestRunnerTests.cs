@@ -633,6 +633,23 @@ public class TestRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task DropFault_TestModeReachesTheNode_EvenIfItsStreamOpensLate()
+    {
+        SimulateOutage(goneAfterMs: 20, backAfterMs: 250);
+        var onFault = _transport.OnFault!;
+        _transport.OnFault = (id, kind, ms) => { _transport.FailNextTestModeSends = 2; onFault(id, kind, ms); };
+        var report = await FaultRunner().RunAsync(Scenario($$"""
+            { "type": "testMode", "timecode": true, "simulatedClockSkewMs": { "pc-02": 2000 } },
+            {{PlayMarker}},
+            { "type": "fault", "label": "drop", "node": "pc-02", "fault": "drop", "ms": 200, "maxReconnectMs": 500 },
+            { "type": "stop" }
+            """), "unit.json", CancellationToken.None);
+
+        Assert.DoesNotContain("not re-sent", report.Steps[2].Message);
+        Assert.Equal(2, _transport.Modes.Count(m => m == (true, 2000)));   // the skew is back on the node
+    }
+
+    [Fact]
     public async Task SilentFault_MeasuresTheSweep()
     {
         SimulateOutage(goneAfterMs: 150, backAfterMs: 300);
@@ -851,8 +868,12 @@ public class TestRunnerTests : IDisposable
             lock (Unregistered) return !Unregistered.Contains(clientId);
         }
 
+        /// <summary>The next N test-mode sends find no command stream (it opens just after re-registration).</summary>
+        public int FailNextTestModeSends;
+
         public Task<bool> SendTestModeAsync(string clientId, bool timecode, int clockSkewMs)
         {
+            if (FailNextTestModeSends > 0) { FailNextTestModeSends--; return Task.FromResult(false); }
             Modes.Add((timecode, clockSkewMs));
             if (!IgnoreSkew) _skewMs = clockSkewMs;
             return Task.FromResult(true);

@@ -506,18 +506,30 @@ public sealed class TestRunner
         if (r.BackAtUtcMs == null) return;   // the post-step connection check records it as lost
 
         ctx.Lost.TryRemove(node.NodeId, out _);
-        if (ctx.Mode != null && !await _transport.SendTestModeAsync(node.NodeId, ctx.Mode.Timecode, SkewFor(ctx.Mode, node)))
-            sr.Message += "; test mode not re-sent (no command stream yet)";
+        long syncDeadline = _o.NowUtcMs() + _o.FaultHostSyncMs;
 
         // Wait for the room to list the node again, else CheckConnectionsAsync would count it as lost.
-        long hostDeadline = _o.NowUtcMs() + _o.FaultHostSyncMs;
-        while (_o.NowUtcMs() < hostDeadline)
+        bool inRoom = false;
+        while (!inRoom && _o.NowUtcMs() < syncDeadline)
         {
-            var nodes = await _host.GetNodesAsync();
-            if (nodes.Any(n => n.NodeId == node.NodeId && n.Connected)) return;
+            inRoom = (await _host.GetNodesAsync()).Any(n => n.NodeId == node.NodeId && n.Connected);
+            if (!inRoom) await Task.Delay(_o.FaultPollMs, ct);
+        }
+        if (!inRoom) sr.Message += $"; the room still showed {node.Name} as offline {_o.FaultHostSyncMs} ms later";
+
+        // A reconnect clears test mode on the client. Its command stream opens just after it re-registered,
+        // so retry: a node left without its simulated skew would make later probes pass for the wrong reason.
+        if (ctx.Mode == null) return;
+        while (!await _transport.SendTestModeAsync(node.NodeId, ctx.Mode.Timecode, SkewFor(ctx.Mode, node)))
+        {
+            if (_o.NowUtcMs() >= syncDeadline)
+            {
+                sr.Verdict = Verdicts.Worst(sr.Verdict, Verdict.Warn);
+                sr.Message += "; test mode not re-sent (no command stream)";
+                return;
+            }
             await Task.Delay(_o.FaultPollMs, ct);
         }
-        sr.Message += $"; the room still showed {node.Name} as offline {_o.FaultHostSyncMs} ms later";
     }
 
     private async Task<ProbeReport> ProbeOnceAsync(RunContext ctx, StepReport sr, long atServerUtcMs, bool capture, long? exactElapsedMs, bool perf, CancellationToken ct)

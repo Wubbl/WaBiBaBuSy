@@ -29,9 +29,7 @@ public class TopologyStore
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    public static string DefaultPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "WaBiBaBuSy", "topology.json");
+    public static string DefaultPath => Path.Combine(AppDataPaths.Root, "topology.json");
 
     private readonly string _path;
     private readonly List<TopologyEntry> _entries;
