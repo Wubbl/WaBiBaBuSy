@@ -26,6 +26,16 @@ public sealed class ServerTestChannel : ITestTransport, IDisposable
             Params = new SyncParameters { TestTimecode = timecode, TestClockSkewMs = clockSkewMs },
         });
 
+    public Task<bool> SendFaultAsync(string clientId, string kind, int ms) =>
+        _sync.SendCommandToClientAsync(clientId, new SyncCommand
+        {
+            Type = CommandType.TestFault,
+            TimestampUtc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Params = new SyncParameters { TestFaultKind = kind, TestFaultMs = ms },
+        });
+
+    public bool IsRegistered(string clientId) => _sync.GetConnectedClients().Any(c => c.ClientId == clientId);
+
     /// <summary>
     /// Send TEST_PROBE and wait for the client's upload. Null on timeout; a cancelled
     /// <paramref name="ct"/> throws <see cref="OperationCanceledException"/> (not a timeout).

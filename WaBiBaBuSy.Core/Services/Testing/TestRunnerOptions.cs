@@ -13,6 +13,10 @@ public sealed class TestRunnerOptions
     public TimeSpan PrefetchTimeout { get; set; } = TimeSpan.FromSeconds(120);
     public TimeSpan LogFetchTimeout { get; set; } = TimeSpan.FromSeconds(10);
     public int DefaultStepTimeoutMs { get; set; } = 30000;
+    /// <summary>How often a fault step checks whether the server lists the node.</summary>
+    public int FaultPollMs { get; set; } = 250;
+    /// <summary>After a fault, how long to wait for the room (the node list) to show the node again.</summary>
+    public int FaultHostSyncMs { get; set; } = 10000;
     public string ResultsRoot { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WaBiBaBuSy", "TestRuns");
     /// <summary>This machine's log folder; null = from the logging configuration.</summary>

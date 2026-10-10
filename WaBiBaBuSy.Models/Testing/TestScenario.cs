@@ -48,6 +48,7 @@ public sealed class ScenarioThresholds
 [JsonDerivedType(typeof(ProbeSeriesStep), "probeSeries")]
 [JsonDerivedType(typeof(ExactFrameStep), "exactFrame")]
 [JsonDerivedType(typeof(ShowEventStep), "showEvent")]
+[JsonDerivedType(typeof(FaultStep), "fault")]
 [JsonDerivedType(typeof(WaitStep), "wait")]
 [JsonDerivedType(typeof(StopStep), "stop")]
 public abstract class TestStep
@@ -115,6 +116,21 @@ public sealed class ShowEventStep : TestStep
     public ShowEvent Event { get; set; } = new();
     public long AtElapsedMs { get; set; }
     public override string Kind => "showEvent";
+}
+
+/// <summary>Inject a fault on one remote and measure the recovery (design §12).</summary>
+public sealed class FaultStep : TestStep
+{
+    /// <summary>Tile name (case-insensitive) or client id of a remote node.</summary>
+    public string Node { get; set; } = string.Empty;
+    /// <summary><c>drop</c> or <c>silent</c> (<see cref="TestFaults"/>).</summary>
+    public string Fault { get; set; } = TestFaults.Drop;
+    public int Ms { get; set; } = 10000;
+    public int MaxReconnectMs { get; set; } = 5000;
+    public int MaxSweepMs { get; set; } = 45000;
+    /// <summary>How long the runner watches the node before giving up.</summary>
+    [JsonIgnore] public int WatchMs => Fault == TestFaults.Silent ? Math.Max(Ms, 2 * MaxSweepMs) + 10000 : Ms + 2 * MaxReconnectMs + 10000;
+    public override string Kind => "fault";
 }
 
 /// <summary>Plain delay.</summary>

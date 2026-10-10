@@ -39,6 +39,8 @@ public class TestRunCoordinatorTests : IDisposable
         public Task<bool> SendTestModeAsync(string c, bool t, int s) => Task.FromResult(true);
         public Task<RemoteProbeResult?> ProbeAsync(string c, ProbeRequest r, TimeSpan t, CancellationToken ct) => Task.FromResult<RemoteProbeResult?>(null);
         public Task<string?> FetchLogsAsync(string c, long f, long t, TimeSpan to) => Task.FromResult<string?>(null);
+        public Task<bool> SendFaultAsync(string c, string k, int ms) => Task.FromResult(true);
+        public bool IsRegistered(string c) => true;
     }
 
     private TestRunCoordinator Coordinator(bool withHost = true) => new(

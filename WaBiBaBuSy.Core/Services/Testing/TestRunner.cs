@@ -411,6 +411,10 @@ public sealed class TestRunner
                 sr.Message = $"{evt.Type} at elapsed {ev.AtElapsedMs} ms for {evt.DurationMs} ms";
                 break;
 
+            case FaultStep fault:
+                await RunFaultAsync(ctx, sr, fault, ct);
+                break;
+
             case WaitStep wait:
                 await Task.Delay(wait.Ms, ct);
                 sr.Verdict = Verdict.Pass;
@@ -460,6 +464,61 @@ public sealed class TestRunner
     }
 
     // ── one probe across all nodes ──────────────────────────────────────────
+
+    /// <summary>
+    /// Design §12: send the fault, then watch the server's registry until the node was lost and is back (or the
+    /// watch time is up). The node's outage is expected: it is not a node failure, and its test mode is re-sent
+    /// (a reconnect clears it on the client). Ends once the room shows the node again, so the post-step check agrees.
+    /// </summary>
+    private async Task RunFaultAsync(RunContext ctx, StepReport sr, FaultStep fault, CancellationToken ct)
+    {
+        var node = ctx.Remotes.FirstOrDefault(n => SkewKeyMatches(fault.Node, n));
+        if (node == null)
+        {
+            sr.Verdict = Verdict.Fail;
+            sr.Message = $"fault node '{fault.Node}' matches no connected remote";
+            return;
+        }
+        var r = new FaultReport { NodeId = node.NodeId, Name = node.Name, Kind = fault.Fault, Ms = fault.Ms, SentAtUtcMs = _o.NowUtcMs() };
+        sr.Fault = r;
+        if (!await _transport.SendFaultAsync(node.NodeId, fault.Fault, fault.Ms))
+        {
+            sr.Verdict = Verdict.Fail;
+            sr.Message = $"fault not delivered: {TestModeErrors.NoCommandStream}";
+            RecordNodeFailure(ctx, node, sr.Message);
+            return;
+        }
+
+        long deadline = r.SentAtUtcMs + fault.WatchMs;
+        while (_o.NowUtcMs() < deadline)
+        {
+            bool registered = _transport.IsRegistered(node.NodeId);
+            long now = _o.NowUtcMs();
+            if (!registered && r.LostAtUtcMs == null) r.LostAtUtcMs = now;
+            if (registered && r.LostAtUtcMs != null) { r.BackAtUtcMs = now; break; }
+            await Task.Delay(_o.FaultPollMs, ct);
+        }
+
+        FaultEvaluation.Evaluate(r, fault.MaxReconnectMs, fault.MaxSweepMs);
+        sr.Verdict = r.Verdict;
+        sr.Message = $"{node.Name} {fault.Fault} {fault.Ms} ms: {r.Message}";
+
+        if (r.BackAtUtcMs == null) return;   // the post-step connection check records it as lost
+
+        ctx.Lost.TryRemove(node.NodeId, out _);
+        if (ctx.Mode != null && !await _transport.SendTestModeAsync(node.NodeId, ctx.Mode.Timecode, SkewFor(ctx.Mode, node)))
+            sr.Message += "; test mode not re-sent (no command stream yet)";
+
+        // Wait for the room to list the node again, else CheckConnectionsAsync would count it as lost.
+        long hostDeadline = _o.NowUtcMs() + _o.FaultHostSyncMs;
+        while (_o.NowUtcMs() < hostDeadline)
+        {
+            var nodes = await _host.GetNodesAsync();
+            if (nodes.Any(n => n.NodeId == node.NodeId && n.Connected)) return;
+            await Task.Delay(_o.FaultPollMs, ct);
+        }
+        sr.Message += $"; the room still showed {node.Name} as offline {_o.FaultHostSyncMs} ms later";
+    }
 
     private async Task<ProbeReport> ProbeOnceAsync(RunContext ctx, StepReport sr, long atServerUtcMs, bool capture, long? exactElapsedMs, bool perf, CancellationToken ct)
     {
@@ -814,6 +873,7 @@ public sealed class TestRunner
         WaitStep w => w.Ms + 30000,
         PlaySceneStep => 120000,   // includes downloads on remotes
         ProbeStep p => ProbeLeadMs(ctx, p) + _o.DefaultStepTimeoutMs,   // the default budget starts at the probe instant
+        FaultStep f => f.WatchMs + _o.FaultHostSyncMs + _o.DefaultStepTimeoutMs,
         _ => _o.DefaultStepTimeoutMs,
     };
 

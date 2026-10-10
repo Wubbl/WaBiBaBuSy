@@ -126,6 +126,13 @@ public static class ScenarioLoader
                     }
                     RequireScene(scenePlaying, at, errors);
                     break;
+                case FaultStep fault:
+                    if (string.IsNullOrWhiteSpace(fault.Node)) errors.Add($"{at}: node is empty");
+                    if (!TestFaults.IsKnown(fault.Fault)) errors.Add($"{at}: fault \"{fault.Fault}\" is not {TestFaults.Drop} or {TestFaults.Silent}");
+                    if (fault.Ms <= 0) errors.Add($"{at}: ms must be > 0");
+                    if (fault.MaxReconnectMs <= 0) errors.Add($"{at}: maxReconnectMs must be > 0");
+                    if (fault.MaxSweepMs <= 0) errors.Add($"{at}: maxSweepMs must be > 0");
+                    break;
                 case WaitStep wait:
                     if (wait.Ms < 0) errors.Add($"{at}: ms must be >= 0");
                     break;

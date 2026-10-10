@@ -592,6 +592,100 @@ public class TestRunnerTests : IDisposable
 
     private static long Now() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
+    private void SimulateOutage(int goneAfterMs, int? backAfterMs, int roomLagMs = 0)
+    {
+        _transport.OnFault = (id, _, _) => _ = Task.Run(async () =>
+        {
+            await Task.Delay(goneAfterMs);
+            lock (_transport.Unregistered) _transport.Unregistered.Add(id);
+            _host.SetConnected(id, false);
+            if (backAfterMs == null) return;
+            await Task.Delay(backAfterMs.Value - goneAfterMs);
+            lock (_transport.Unregistered) _transport.Unregistered.Remove(id);
+            await Task.Delay(roomLagMs);
+            _host.SetConnected(id, true);
+        });
+    }
+
+    private TestRunner FaultRunner() => Runner(o => { o.FaultPollMs = 10; o.FaultHostSyncMs = 1000; });
+
+    [Fact]
+    public async Task DropFault_MeasuresReconnect_AndNodeIsNotCountedAsLost()
+    {
+        SimulateOutage(goneAfterMs: 20, backAfterMs: 250, roomLagMs: 100);   // fault 200 ms → back ≈ 50 ms after it
+        var report = await FaultRunner().RunAsync(Scenario($$"""
+            { "type": "testMode", "timecode": true },
+            {{PlayMarker}},
+            { "type": "fault", "label": "drop", "node": "PC-02", "fault": "drop", "ms": 200, "maxReconnectMs": 500 },
+            { "type": "probe", "label": "after", "at": "now+30ms", "capture": false },
+            { "type": "stop" }
+            """), "unit.json", CancellationToken.None);
+
+        var step = report.Steps[2];
+        Assert.Equal(Verdict.Pass, step.Verdict);
+        Assert.NotNull(step.Fault);
+        Assert.Equal("client-1", step.Fault!.NodeId);
+        Assert.InRange(step.Fault.ReconnectMs!.Value, 0, 500);
+        Assert.Equal(("client-1", "drop", 200), _transport.Faults.Single());
+        Assert.Empty(report.NodeFailures);                                   // expected outage, not a node failure
+        Assert.Equal(2, _transport.Modes.Count(m => m.Item1));               // test mode re-sent after the reconnect
+        Assert.Contains(report.Steps[3].Probes[0].Samples, s => s.NodeId == "client-1");   // probed again afterwards
+    }
+
+    [Fact]
+    public async Task SilentFault_MeasuresTheSweep()
+    {
+        SimulateOutage(goneAfterMs: 150, backAfterMs: 300);
+        var report = await FaultRunner().RunAsync(Scenario($$"""
+            {{PlayMarker}},
+            { "type": "fault", "label": "silent", "node": "client-1", "fault": "silent", "ms": 200, "maxSweepMs": 400 },
+            { "type": "stop" }
+            """), "unit.json", CancellationToken.None);
+
+        var fault = report.Steps[1].Fault!;
+        Assert.Equal(Verdict.Pass, fault.Verdict);
+        Assert.InRange(fault.SweepMs!.Value, 100, 400);
+        Assert.Empty(report.NodeFailures);
+    }
+
+    [Fact]
+    public async Task NodeNeverBack_FailsTheStep_AndIsRecordedAsLost()
+    {
+        SimulateOutage(goneAfterMs: 20, backAfterMs: null);
+        var report = await FaultRunner().RunAsync(Scenario($$"""
+            {{PlayMarker}},
+            { "type": "fault", "label": "drop", "node": "pc-02", "fault": "drop", "ms": 100, "maxReconnectMs": 100 },
+            { "type": "stop" }
+            """), "unit.json", CancellationToken.None);
+
+        Assert.Equal(Verdict.Fail, report.Steps[1].Verdict);
+        Assert.Contains("never came back", report.Steps[1].Message);
+        Assert.Single(report.NodeFailures);
+    }
+
+    [Fact]
+    public async Task FaultOnUnknownNode_FailsTheStep()
+    {
+        var report = await FaultRunner().RunAsync(Scenario("""
+            { "type": "fault", "node": "REMOTE-HOSTNAME-1", "fault": "drop", "ms": 100 }
+            """), "unit.json", CancellationToken.None);
+
+        Assert.Equal(Verdict.Fail, report.Steps[0].Verdict);
+        Assert.Contains("REMOTE-HOSTNAME-1", report.Steps[0].Message);
+        Assert.Empty(_transport.Faults);
+    }
+
+    [Theory]
+    [InlineData("""{ "type": "fault", "node": "pc-02", "fault": "unplug", "ms": 100 }""", "unplug")]
+    [InlineData("""{ "type": "fault", "node": "", "fault": "drop", "ms": 100 }""", "node")]
+    [InlineData("""{ "type": "fault", "node": "pc-02", "fault": "drop", "ms": 0 }""", "ms")]
+    [InlineData("""{ "type": "fault", "node": "pc-02", "fault": "drop", "ms": 100, "maxReconnectMs": 0 }""", "maxReconnectMs")]
+    public void BadFaultStep_IsRejectedWhenTheScenarioLoads(string step, string mentions)
+    {
+        var ex = Assert.Throws<ScenarioException>(() => Scenario(step));
+        Assert.Contains(mentions, ex.Message);
+    }
+
     private sealed class FakeTarget : ITestProbeTarget
     {
         public int MonitorIndex { get; init; }
@@ -670,6 +764,7 @@ public class TestRunnerTests : IDisposable
         public TestRestorePoint? RestoredTo { get; private set; }
         public bool Restored => RestoredTo != null;
         public FakeTarget Target(int monitor) => _targets.Single(t => t.MonitorIndex == monitor);
+        public void SetConnected(string nodeId, bool connected) => _nodes.Single(n => n.NodeId == nodeId).Connected = connected;
 
         public void AddLocalMonitor(int index)
         {
@@ -739,6 +834,22 @@ public class TestRunnerTests : IDisposable
         public Func<string, ProbeRequest, CancellationToken, Task<RemoteProbeResult?>>? ProbeOverride { get; set; }
         public int ProbeCount;
         private int _skewMs;
+        public List<(string ClientId, string Kind, int Ms)> Faults { get; } = new();
+        /// <summary>Called on SendFaultAsync (the test simulates the client's reaction).</summary>
+        public Action<string, string, int>? OnFault { get; set; }
+        public HashSet<string> Unregistered { get; } = new();
+
+        public Task<bool> SendFaultAsync(string clientId, string kind, int ms)
+        {
+            Faults.Add((clientId, kind, ms));
+            OnFault?.Invoke(clientId, kind, ms);
+            return Task.FromResult(true);
+        }
+
+        public bool IsRegistered(string clientId)
+        {
+            lock (Unregistered) return !Unregistered.Contains(clientId);
+        }
 
         public Task<bool> SendTestModeAsync(string clientId, bool timecode, int clockSkewMs)
         {

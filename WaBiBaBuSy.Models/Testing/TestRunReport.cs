@@ -69,6 +69,8 @@ public sealed class StepReport
     public long StartedUtcMs { get; set; }
     public long DurationMs { get; set; }
     public List<ProbeReport> Probes { get; set; } = new();
+    /// <summary>The fault a <c>fault</c> step injected and what the server saw.</summary>
+    public FaultReport? Fault { get; set; }
 }
 
 public sealed class ProbeReport

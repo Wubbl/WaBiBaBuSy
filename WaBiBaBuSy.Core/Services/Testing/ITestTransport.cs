@@ -13,4 +13,10 @@ public interface ITestTransport
 
     /// <summary>Log lines between the two UTC instants, or null on timeout.</summary>
     Task<string?> FetchLogsAsync(string clientId, long fromUtcMs, long toUtcMs, TimeSpan timeout);
+
+    /// <summary>Send TEST_FAULT; false when the client has no command stream.</summary>
+    Task<bool> SendFaultAsync(string clientId, string kind, int ms);
+
+    /// <summary>Whether the server's registry lists the client right now (no UI refresh in between).</summary>
+    bool IsRegistered(string clientId);
 }
