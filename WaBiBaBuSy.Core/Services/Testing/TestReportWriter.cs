@@ -81,6 +81,17 @@ public static class TestReportWriter
                   .Append(" · ").Append(E(f.Name)).Append(": ").Append(E(f.Reason)).Append("</li>");
             sb.Append("</ul>");
         }
+        var faults = r.Steps.Where(s => s.Fault != null).Select(s => s.Fault!).ToList();
+        if (faults.Count > 0)
+        {
+            sb.Append("<h3>Faults</h3><table><tr><th>Node</th><th>Fault</th><th>Server lost it after</th><th>Back after</th><th>Result</th><th></th></tr>");
+            foreach (var f in faults)
+                sb.Append("<tr><td>").Append(E(f.Name)).Append("</td><td>").Append(E(f.Kind)).Append(' ').Append(f.Ms).Append(" ms</td><td>")
+                  .Append(f.LostAtUtcMs is long lost ? $"{lost - f.SentAtUtcMs} ms" : "—").Append("</td><td>")
+                  .Append(f.BackAtUtcMs is long back ? $"{back - f.SentAtUtcMs} ms" : "—").Append("</td><td>")
+                  .Append(E(f.Message)).Append("</td><td>").Append(Badge(f.Verdict)).Append("</td></tr>");
+            sb.Append("</table>");
+        }
         sb.Append("<p class=\"note\">").Append(E(r.ClockNote)).Append("</p></section>");
 
         foreach (var step in r.Steps) RenderStep(sb, step, r.Thresholds);

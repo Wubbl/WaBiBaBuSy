@@ -65,6 +65,27 @@ public class TestReportWriterTests : IDisposable
     }
 
     [Fact]
+    public void Html_ListsFaults()
+    {
+        var report = Report();
+        report.Steps.Add(new StepReport
+        {
+            Index = 9, Kind = "fault", Label = "drop", Verdict = Verdict.Warn,
+            Fault = new FaultReport
+            {
+                Name = "pc-02", Kind = TestFaults.Drop, Ms = 10000, SentAtUtcMs = 1000, LostAtUtcMs = 1200, BackAtUtcMs = 18000,
+                ReconnectMs = 7000, Verdict = Verdict.Warn, Message = "reconnected 7000 ms after the link came back (limit 5000 ms)",
+            },
+        });
+
+        var html = TestReportWriter.RenderHtml(report);
+
+        Assert.Contains("<h3>Faults</h3>", html);
+        Assert.Contains("pc-02", html);
+        Assert.Contains("reconnected 7000 ms after the link came back", html);
+    }
+
+    [Fact]
     public void Html_ChartUsesTheScenarioThresholds_AndListsNodeFailures()
     {
         var report = Report();

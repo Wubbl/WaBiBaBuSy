@@ -275,6 +275,8 @@ GPU < 10 %, memory < 200 MB per client.
 
 ## 12. Spec 2a — fault injection (2026-10-10)
 
+**Status:** implemented 2026-10-10 (plan `2026-10-10-test-mode-fault-injection-plan.md`); unit + loopback integration tests green, multi-machine run pending.
+
 **Goal.** Measure reconnection (target < 5 s) and the dead-client sweep (≈ 40 s) in a scenario instead of pulling
 cables by hand. First slice of spec 2: two faults, `drop` and `silent`. Out of scope: client app restart (needs a
 `--connect` switch + self-relaunch; `AutoConnect` defaults to off), server-side faults, backoff tuning (follow-up if
@@ -287,7 +289,10 @@ the measurement misses the target).
   10 s; heartbeats come every 5 s → removal 30–45 s after the client went quiet.
 - **Bug (fixed in this slice):** a swept client that is still alive gets `HeartbeatResponse.Acknowledged = false`
   and ignores it — it believes it is connected while the server no longer lists it, until the app restarts.
-  Fix: an unacknowledged heartbeat calls `TriggerReconnect("server no longer knows this client")`.
+  Fix: an unacknowledged heartbeat calls `TriggerReconnect("server no longer lists this client")`.
+- **Bug (fixed in this slice):** `SyncStream`'s `finally` removed the client whenever *a* stream of it ended — also an
+  old stream that dies after the client already reconnected (a pulled cable is noticed late), dropping the new session.
+  Fix: only the stream still registered for the client ends its session.
 
 **Protocol.** `CommandType.TEST_FAULT = 13`; `SyncParameters.test_fault_kind = 36` (`"drop"` / `"silent"`),
 `test_fault_ms = 37`. Old clients log "unknown" and ignore it. Only sent while the server runs in test mode; a client
@@ -304,12 +309,13 @@ with "Answer automated test runs" off ignores it.
 **Scenario step** `fault` (`FaultStep`):
 
 ```json
-{ "type": "fault", "label": "10 s link loss", "node": "CLIENT-1", "kind": "drop", "ms": 10000, "maxReconnectMs": 5000 }
-{ "type": "fault", "label": "power-off stand-in", "node": "CLIENT-1", "kind": "silent", "ms": 45000, "maxSweepMs": 45000 }
+{ "type": "fault", "label": "10 s link loss", "node": "CLIENT-1", "fault": "drop", "ms": 10000, "maxReconnectMs": 5000 }
+{ "type": "fault", "label": "power-off stand-in", "node": "CLIENT-1", "fault": "silent", "ms": 45000, "maxSweepMs": 45000 }
 ```
 
-`node` is the tile name (as in `simulatedClockSkewMs`). The runner sends the fault, then polls `GetNodesAsync` every
-250 ms — until the node is back after the fault (and, for `silent`, after it was swept), at most `ms` + 2 × `maxReconnectMs` (drop) or `max(ms, 2 × maxSweepMs)` + 10 s (silent) — and records, in UTC ms:
+`node` is the tile name (as in `simulatedClockSkewMs`); the fault kind is the property `fault` (`kind` is already every
+step's type name). The runner sends the fault, then polls the server's client registry (`ITestTransport.IsRegistered`,
+no UI refresh in between) every 250 ms — until the node is back after the fault (and, for `silent`, after it was swept), at most `ms` + 2 × `maxReconnectMs` (drop) or `max(ms, 2 × maxSweepMs)` + 10 s (silent) — and records, in UTC ms:
 `sentAt`, `lostAt` (server no longer lists the node as connected), `backAt` (connected again).
 
 | Kind | Measured | Pass | Warn | Fail |
@@ -318,7 +324,8 @@ with "Answer automated test runs" off ignores it.
 | `silent` | `sweepMs = lostAt − sentAt`; back after the silence (yes / no) | swept ≤ `maxSweepMs` and back | swept late | never swept, or never back |
 
 When the node is back, the runner re-sends the current test mode (a reconnect clears it on the client) and the node
-is removed from `Lost` — the fault was expected, it is not a node failure. A `probe` after the step checks the rejoin
+is removed from `Lost` — the fault was expected, it is not a node failure. The step then waits up to 10 s for the room
+(`GetNodesAsync`) to show the node again, so the post-step connection check agrees. A `probe` after the step checks the rejoin
 position with the existing checks. The report gets a **Faults** table (node, kind, ms, lost after, back after,
 reconnect / sweep ms, verdict).
 

@@ -1,8 +1,17 @@
 # WaBiBaBuSy - Recent Updates & Changelog
 
-**Last Updated:** 2026-10-09
+**Last Updated:** 2026-10-10
 
 ---
+
+## 2026-10-10 — Test mode spec 2a: fault injection (+ two session-recovery fixes)
+
+- **What**: scenario step `fault` — `drop` (the client tears its link down as if the cable came out and cannot reach the server for `ms`, then reconnects through its real backoff and session resume) and `silent` (no heartbeats, sync responses or thumbnails for `ms` while the connection stays open: a powered-off client as the server sees it). The runner watches the server's client registry and reports the reconnect time after the link is back (limit 5 s) or the time until the dead-client sweep dropped the node (limit 45 s), per step and in a **Faults** table in `report.html`. New `TestScenarios/recovery.json` (~3 min). Transport: `CommandType.TEST_FAULT = 13`, `SyncParameters.test_fault_kind = 36`, `test_fault_ms = 37` (**proto change**; old clients ignore it). Gated by test mode on the server and "Answer automated test runs" on the client; the client clamps faults to 1–120 s.
+- **Fix — swept client stayed invisible**: a client the sweep removed while its connection survived (sleep, Wi-Fi hiccup > 30 s) kept getting unacknowledged heartbeats and ignored them — it believed it was connected while the server no longer listed it, until the app restarted. An unacknowledged heartbeat now triggers the normal reconnect (also covers a server restart).
+- **Fix — stale stream removed the new session**: `SyncStream`'s `finally` removed the client whenever any of its streams ended, also an old stream that dies after the client already reconnected (a pulled cable is noticed late by the server). Only the stream still registered for the client ends its session now.
+- **Expect**: with backoff 1/2/4/8/16/30 s, a 10 s outage reconnects ≈ 5 s after the link is back — right at the target; `recovery.json` measures it. Tuning the backoff is a follow-up if it misses.
+- **Verified**: build 0 errors; 892 unit tests green, incl. loopback gRPC integration tests (real server host + real client: drop, silent, swept client, test runs disabled), stream lifecycle tests, fault verdict tests and runner fault-step tests. Multi-machine run pending (runbook §2 row 5). Design: `.docs/plans/2026-09-30-automated-test-mode-design.md` §12.
+
 
 ## 2026-10-09 — Fix: desktop kept the last frame after the players stopped
 

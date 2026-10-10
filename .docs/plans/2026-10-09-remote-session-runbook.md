@@ -54,7 +54,8 @@ Or Developer tools → Run test suite… in the main window. Exit code 0 = pass,
 | 2 | `parity-matrix.json` with Room ⚙ → Physical units on | ~2 min | turn Physical units off afterwards |
 | 3 | `clock-skew.json` | ~1.5 min | first replace `REMOTE-HOSTNAME-1/-2` in the exe folder's copy with the tile names (the repo file stays untouched) |
 | 4 | `showcase/events.json` | ~15 s | now with remotes: confetti / spotlight / traversal / whiteout / announce in the remotes' frames too |
-| 5 | `sync-basic.json` | ~11 min | do §5.2 eyes checks meanwhile; or run the **lost node** variant (§4: pull a cable after ~1 min) |
+| 5 | `recovery.json` | ~3 min | fault injection: 10 s link loss (reconnect time, limit 5 s) + 45 s silence (sweep time); replace `REMOTE-HOSTNAME-1` in the exe folder's copy. Covers the timing of checklist §7 — the manual cable pull in §6 becomes a cross-check |
+| 6 | `sync-basic.json` | ~11 min | do §5.2 eyes checks meanwhile; or run the **lost node** variant (§4: pull a cable after ~1 min) |
 
 After each run: note verdict + worst spread, open `report.html` (results in `%LOCALAPPDATA%\WaBiBaBuSy\TestRuns\`).
 Zip the whole `TestRuns` folder at the end of the session; it is the evidence for the docs update.
@@ -80,7 +81,7 @@ Cable pull ~10 s → **time the reconnect** (target < 5 s after the link is back
 
 ## If time is short
 
-Do in this order and stop anywhere: **§2 rows 1, 3, 5** → §8 Celebration + Reconnect → §7 cable pull timing → §6 prefetch. These cover the four claims nothing but a real network can verify: pixel parity, drift, event sync, reconnection.
+Do in this order and stop anywhere: **§2 rows 1, 3, 5, 6** → §8 Celebration + Reconnect → §7 cable pull timing → §6 prefetch. These cover the four claims nothing but a real network can verify: pixel parity, drift, event sync, reconnection.
 
 ## After the session
 

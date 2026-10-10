@@ -357,6 +357,7 @@ public class ScenarioLoaderTests : IDisposable
     [InlineData("sync-basic.json")]
     [InlineData("parity-matrix.json")]
     [InlineData("clock-skew.json")]
+    [InlineData("recovery.json")]
     [InlineData("showcase/events.json")]
     public void BundledScenario_IsValid(string file)
     {
