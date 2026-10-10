@@ -304,12 +304,14 @@ with "Answer automated test runs" off ignores it.
   reconnect runs through the real backoff and session resume.
 - `silent N`: for N ms send no heartbeats, no sync responses, no thumbnails; the TCP stream stays open (what the
   server sees from a powered-off client). Afterwards everything resumes; with the bug fix a swept client re-registers.
-- Values are clamped to 1 s … 120 s.
+- Values are clamped to 1 s … 120 s; the scenario loader rejects `ms` outside that range (the measured times would be off).
+- `drop` goes through the reconnect loop (first pass tears down at once): one teardown, one reconnect in flight.
+- `RegisterClient` forgets the client's old command stream, so commands (session resume) wait for the new one.
 
 **Scenario step** `fault` (`FaultStep`):
 
 ```json
-{ "type": "fault", "label": "10 s link loss", "node": "CLIENT-1", "fault": "drop", "ms": 10000, "maxReconnectMs": 5000 }
+{ "type": "fault", "label": "6 s link loss", "node": "CLIENT-1", "fault": "drop", "ms": 6000, "maxReconnectMs": 5000 }
 { "type": "fault", "label": "power-off stand-in", "node": "CLIENT-1", "fault": "silent", "ms": 45000, "maxSweepMs": 45000 }
 ```
 
@@ -329,7 +331,8 @@ is removed from `Lost` — the fault was expected, it is not a node failure. The
 position with the existing checks. The report gets a **Faults** table (node, kind, ms, lost after, back after,
 reconnect / sweep ms, verdict).
 
-**Scenario** `TestScenarios/recovery.json` (1+ remote, ≈ 3 min): play a Linear scene, probe, drop 10 s, probe,
+**Scenario** `TestScenarios/recovery.json` (1+ remote, ≈ 3 min): play a Linear scene, probe, drop 6 s (a stable verdict:
+the 7 s attempt lands ≈ 1 s after the link is back; 10 s would sit on the 5 s limit), probe,
 silent 45 s, probe, stop. Replace `REMOTE-HOSTNAME-1` with a tile name, like `clock-skew.json`.
 
 **Testing.** Unit: scenario JSON round-trip for `fault`; the runner's fault step against the fake transport / host

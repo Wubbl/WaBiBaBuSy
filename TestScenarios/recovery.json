@@ -5,7 +5,7 @@
     { "type": "testMode", "timecode": true },
     { "type": "playScene", "scene": "scenes/linear-sequential.json", "marker": true },
     { "type": "probe", "label": "before", "at": "start+1000ms", "capture": true },
-    { "type": "fault", "label": "10 s link loss", "node": "REMOTE-HOSTNAME-1", "fault": "drop", "ms": 10000, "maxReconnectMs": 5000 },
+    { "type": "fault", "label": "6 s link loss", "node": "REMOTE-HOSTNAME-1", "fault": "drop", "ms": 6000, "maxReconnectMs": 5000 },
     { "type": "wait", "label": "scene resumes on the node", "ms": 3000 },
     { "type": "probe", "label": "after link loss", "at": "now+1000ms", "capture": true },
     { "type": "fault", "label": "power-off stand-in", "node": "REMOTE-HOSTNAME-1", "fault": "silent", "ms": 45000, "maxSweepMs": 45000 },

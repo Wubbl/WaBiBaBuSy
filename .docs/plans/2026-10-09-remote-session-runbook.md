@@ -54,7 +54,7 @@ Or Developer tools → Run test suite… in the main window. Exit code 0 = pass,
 | 2 | `parity-matrix.json` with Room ⚙ → Physical units on | ~2 min | turn Physical units off afterwards |
 | 3 | `clock-skew.json` | ~1.5 min | first replace `REMOTE-HOSTNAME-1/-2` in the exe folder's copy with the tile names (the repo file stays untouched) |
 | 4 | `showcase/events.json` | ~15 s | now with remotes: confetti / spotlight / traversal / whiteout / announce in the remotes' frames too |
-| 5 | `recovery.json` | ~3 min | fault injection: 10 s link loss (reconnect time, limit 5 s) + 45 s silence (sweep time); replace `REMOTE-HOSTNAME-1` in the exe folder's copy. Covers the timing of checklist §7 — the manual cable pull in §6 becomes a cross-check |
+| 5 | `recovery.json` | ~3 min | fault injection: 6 s link loss (reconnect time, limit 5 s) + 45 s silence (sweep time); replace `REMOTE-HOSTNAME-1` in the exe folder's copy. Covers the timing of checklist §7 — the manual cable pull in §6 becomes a cross-check |
 | 6 | `sync-basic.json` | ~11 min | do §5.2 eyes checks meanwhile; or run the **lost node** variant (§4: pull a cable after ~1 min) |
 
 After each run: note verdict + worst spread, open `report.html` (results in `%LOCALAPPDATA%\WaBiBaBuSy\TestRuns\`).

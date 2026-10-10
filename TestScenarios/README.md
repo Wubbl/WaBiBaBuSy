@@ -23,7 +23,7 @@ The bundled files are copied next to the exe (`TestScenarios\` in the build/inst
 | `sync-basic.json` | 1+ client | Clean start, bezel crossing, 10 minute drift/CPU/GPU/memory series |
 | `parity-matrix.json` | 1+ client | Linear, SineWave, Static, Bounce wave, pattern + traveling colors, face direction, IconZone: marker positions and exact-frame pixel parity |
 | `clock-skew.json` | 1+ client | Simulated client clock skew: start and drift stay within tolerance |
-| `recovery.json` | 1+ client | Fault injection (~3 min): a 10 s link loss (reconnect time after the link is back, limit 5 s) and a 45 s silence (time until the server drops the node, limit 45 s); a probe after each checks the node rejoined at the right position |
+| `recovery.json` | 1+ client | Fault injection (~3 min): a 6 s link loss (reconnect time after the link is back, limit 5 s) and a 45 s silence (time until the server drops the node, limit 45 s); a probe after each checks the node rejoined at the right position |
 | `showcase/showcase.json` | server only | Not a pass/fail check: plays 12 showcase scenes and renders exact frames at 1/4/9/20 s as a contact sheet for tuning animation settings |
 | `showcase/events.json` | server only | Not a pass/fail check: fires the five one-shot show events (Celebration, Spotlight, Traversal, Blackout — in white, so the frame differs from the dark scene —, Announce) at fixed scene times and renders exact frames inside each event; waits 3 s after the Traversal so remote clients have its image |
 
@@ -57,10 +57,11 @@ Injects a fault on one remote client and measures the recovery from the server's
 { "type": "fault", "label": "power-off stand-in", "node": "PC-02", "fault": "silent", "ms": 45000, "maxSweepMs": 45000 }
 ```
 
-- `node`: tile name (case-insensitive) or client id. `fault`: `drop` (the client tears its link down and cannot reach the server for `ms`, then reconnects through its real backoff) or `silent` (no heartbeats, responses or thumbnails for `ms`; the connection stays open, as with a powered-off machine). The client clamps `ms` to 1–120 s and ignores faults when "Answer automated test runs" is off.
-- The runner watches the server's client registry every 250 ms. drop: `reconnectMs` = back − (sent + `ms`); pass ≤ `maxReconnectMs`, warn ≤ 2×, fail later or never. silent: `sweepMs` = dropped − sent; pass ≤ `maxSweepMs` and back afterwards, warn if dropped late, fail if never dropped or never back.
+- `node`: tile name (case-insensitive) or client id; a name shared by two tiles fails the step (use the client id), and a node lost earlier in the run cannot be faulted. `fault`: `drop` (the client tears its link down and cannot reach the server for `ms`, then reconnects through its real backoff) or `silent` (no heartbeats, responses or thumbnails for `ms`; the connection stays open, as with a powered-off machine). `ms` must be 1 000–120 000 (checked when the scenario loads). The client ignores faults when "Answer automated test runs" is off.
+- The runner watches the server's client registry every 250 ms. drop: `reconnectMs` = back − (sent + `ms`); pass ≤ `maxReconnectMs`, warn ≤ 2×, fail later or never. silent: `sweepMs` = dropped − sent; pass ≤ `maxSweepMs` and back afterwards, warn if dropped late, fail if never dropped or never back (a node still listed 15 s after its silence ended fails right then).
 - The outage is expected: the node is not listed under "Node failures", its test mode is re-sent after the reconnect, and later probes include it again. Put a `wait` of a few seconds before the next probe so the scene has restarted on the node.
 - `report.html` lists every fault in a **Faults** table.
+- Reconnect attempts come 0 / 1 / 3 / 7 / 15 / 31 s after the link is lost (backoff 1, 2, 4, 8, 16, 30 s), so the reconnect time depends on where the outage ends: `recovery.json` uses 6 s (next attempt at 7 s → about 1 s after the link is back, a stable verdict). An outage of 8–15 s waits up to 7 s for the 15 s attempt; edit `ms` to measure such a gap.
 
 ## Results
 
