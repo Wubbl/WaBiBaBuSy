@@ -128,8 +128,8 @@ public sealed class FaultStep : TestStep
     public int Ms { get; set; } = 10000;
     public int MaxReconnectMs { get; set; } = 5000;
     public int MaxSweepMs { get; set; } = 45000;
-    /// <summary>How long the runner watches the node before giving up.</summary>
-    [JsonIgnore] public int WatchMs => Fault == TestFaults.Silent ? Math.Max(Ms, 2 * MaxSweepMs) + 10000 : Ms + 2 * MaxReconnectMs + 10000;
+    /// <summary>How long the runner watches the node before giving up (<paramref name="slackMs"/> on top).</summary>
+    public int WatchMs(int slackMs) => (Fault == TestFaults.Silent ? Math.Max(Ms, 2 * MaxSweepMs) : Ms + 2 * MaxReconnectMs) + slackMs;
     public override string Kind => "fault";
 }
 

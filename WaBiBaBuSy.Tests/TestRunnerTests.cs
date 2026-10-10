@@ -607,16 +607,16 @@ public class TestRunnerTests : IDisposable
         });
     }
 
-    private TestRunner FaultRunner() => Runner(o => { o.FaultPollMs = 10; o.FaultHostSyncMs = 1000; });
+    private TestRunner FaultRunner() => Runner(o => { o.FaultPollMs = 10; o.FaultHostSyncMs = 1000; o.FaultWatchSlackMs = 300; o.FaultSilenceGraceMs = 300; });
 
     [Fact]
     public async Task DropFault_MeasuresReconnect_AndNodeIsNotCountedAsLost()
     {
-        SimulateOutage(goneAfterMs: 20, backAfterMs: 250, roomLagMs: 100);   // fault 200 ms → back ≈ 50 ms after it
+        SimulateOutage(goneAfterMs: 20, backAfterMs: 1050, roomLagMs: 100);   // fault 1000 ms → back ≈ 50 ms after it
         var report = await FaultRunner().RunAsync(Scenario($$"""
             { "type": "testMode", "timecode": true },
             {{PlayMarker}},
-            { "type": "fault", "label": "drop", "node": "PC-02", "fault": "drop", "ms": 200, "maxReconnectMs": 500 },
+            { "type": "fault", "label": "drop", "node": "PC-02", "fault": "drop", "ms": 1000, "maxReconnectMs": 500 },
             { "type": "probe", "label": "after", "at": "now+30ms", "capture": false },
             { "type": "stop" }
             """), "unit.json", CancellationToken.None);
@@ -626,7 +626,7 @@ public class TestRunnerTests : IDisposable
         Assert.NotNull(step.Fault);
         Assert.Equal("client-1", step.Fault!.NodeId);
         Assert.InRange(step.Fault.ReconnectMs!.Value, 0, 500);
-        Assert.Equal(("client-1", "drop", 200), _transport.Faults.Single());
+        Assert.Equal(("client-1", "drop", 1000), _transport.Faults.Single());
         Assert.Empty(report.NodeFailures);                                   // expected outage, not a node failure
         Assert.Equal(2, _transport.Modes.Count(m => m.Item1));               // test mode re-sent after the reconnect
         Assert.Contains(report.Steps[3].Probes[0].Samples, s => s.NodeId == "client-1");   // probed again afterwards
@@ -635,13 +635,13 @@ public class TestRunnerTests : IDisposable
     [Fact]
     public async Task DropFault_TestModeReachesTheNode_EvenIfItsStreamOpensLate()
     {
-        SimulateOutage(goneAfterMs: 20, backAfterMs: 250);
+        SimulateOutage(goneAfterMs: 20, backAfterMs: 1050);
         var onFault = _transport.OnFault!;
         _transport.OnFault = (id, kind, ms) => { _transport.FailNextTestModeSends = 2; onFault(id, kind, ms); };
         var report = await FaultRunner().RunAsync(Scenario($$"""
             { "type": "testMode", "timecode": true, "simulatedClockSkewMs": { "pc-02": 2000 } },
             {{PlayMarker}},
-            { "type": "fault", "label": "drop", "node": "pc-02", "fault": "drop", "ms": 200, "maxReconnectMs": 500 },
+            { "type": "fault", "label": "drop", "node": "pc-02", "fault": "drop", "ms": 1000, "maxReconnectMs": 500 },
             { "type": "stop" }
             """), "unit.json", CancellationToken.None);
 
@@ -655,7 +655,7 @@ public class TestRunnerTests : IDisposable
         SimulateOutage(goneAfterMs: 150, backAfterMs: 300);
         var report = await FaultRunner().RunAsync(Scenario($$"""
             {{PlayMarker}},
-            { "type": "fault", "label": "silent", "node": "client-1", "fault": "silent", "ms": 200, "maxSweepMs": 400 },
+            { "type": "fault", "label": "silent", "node": "client-1", "fault": "silent", "ms": 1000, "maxSweepMs": 400 },
             { "type": "stop" }
             """), "unit.json", CancellationToken.None);
 
@@ -671,7 +671,7 @@ public class TestRunnerTests : IDisposable
         SimulateOutage(goneAfterMs: 20, backAfterMs: null);
         var report = await FaultRunner().RunAsync(Scenario($$"""
             {{PlayMarker}},
-            { "type": "fault", "label": "drop", "node": "pc-02", "fault": "drop", "ms": 100, "maxReconnectMs": 100 },
+            { "type": "fault", "label": "drop", "node": "pc-02", "fault": "drop", "ms": 1000, "maxReconnectMs": 100 },
             { "type": "stop" }
             """), "unit.json", CancellationToken.None);
 
@@ -681,10 +681,51 @@ public class TestRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task SilentNodeNeverDropped_FailsSoonAfterTheSilence_NotAfterTheWholeWatch()
+    {
+        var report = await Runner(o => { o.FaultPollMs = 10; o.FaultSilenceGraceMs = 300; }).RunAsync(Scenario($$"""
+            {{PlayMarker}},
+            { "type": "fault", "node": "pc-02", "fault": "silent", "ms": 1000, "maxSweepMs": 45000 },
+            { "type": "stop" }
+            """), "unit.json", CancellationToken.None);
+
+        Assert.Equal(Verdict.Fail, report.Steps[1].Verdict);
+        Assert.Contains("never dropped", report.Steps[1].Message);
+        Assert.InRange(report.Steps[1].DurationMs, 1000, 5000);   // the watch alone would be 100 s
+    }
+
+    [Fact]
+    public async Task FaultOnADuplicateTileName_FailsTheStep()
+    {
+        _host.AddRemote("client-2", "PC-02");
+        var report = await FaultRunner().RunAsync(Scenario("""
+            { "type": "fault", "node": "pc-02", "fault": "drop", "ms": 1000 }
+            """), "unit.json", CancellationToken.None);
+
+        Assert.Equal(Verdict.Fail, report.Steps[0].Verdict);
+        Assert.Contains("2 remotes", report.Steps[0].Message);
+        Assert.Empty(_transport.Faults);
+    }
+
+    [Fact]
+    public async Task FaultOnANodeLostEarlier_FailsTheStep()
+    {
+        _host.DisconnectOnPlay = "client-1";
+        var report = await FaultRunner().RunAsync(Scenario($$"""
+            {{PlayMarker}},
+            { "type": "fault", "node": "pc-02", "fault": "drop", "ms": 1000 }
+            """), "unit.json", CancellationToken.None);
+
+        Assert.Equal(Verdict.Fail, report.Steps[1].Verdict);
+        Assert.Contains("no connected remote", report.Steps[1].Message);
+        Assert.Empty(_transport.Faults);
+    }
+
+    [Fact]
     public async Task FaultOnUnknownNode_FailsTheStep()
     {
         var report = await FaultRunner().RunAsync(Scenario("""
-            { "type": "fault", "node": "REMOTE-HOSTNAME-1", "fault": "drop", "ms": 100 }
+            { "type": "fault", "node": "REMOTE-HOSTNAME-1", "fault": "drop", "ms": 1000 }
             """), "unit.json", CancellationToken.None);
 
         Assert.Equal(Verdict.Fail, report.Steps[0].Verdict);
@@ -693,10 +734,12 @@ public class TestRunnerTests : IDisposable
     }
 
     [Theory]
-    [InlineData("""{ "type": "fault", "node": "pc-02", "fault": "unplug", "ms": 100 }""", "unplug")]
-    [InlineData("""{ "type": "fault", "node": "", "fault": "drop", "ms": 100 }""", "node")]
+    [InlineData("""{ "type": "fault", "node": "pc-02", "fault": "unplug", "ms": 1000 }""", "unplug")]
+    [InlineData("""{ "type": "fault", "node": "", "fault": "drop", "ms": 1000 }""", "node")]
     [InlineData("""{ "type": "fault", "node": "pc-02", "fault": "drop", "ms": 0 }""", "ms")]
-    [InlineData("""{ "type": "fault", "node": "pc-02", "fault": "drop", "ms": 100, "maxReconnectMs": 0 }""", "maxReconnectMs")]
+    [InlineData("""{ "type": "fault", "node": "pc-02", "fault": "drop", "ms": 500 }""", "1000")]       // the client would apply 1 s
+    [InlineData("""{ "type": "fault", "node": "pc-02", "fault": "drop", "ms": 150000 }""", "120000")]  // ... or 120 s
+    [InlineData("""{ "type": "fault", "node": "pc-02", "fault": "drop", "ms": 1000, "maxReconnectMs": 0 }""", "maxReconnectMs")]
     public void BadFaultStep_IsRejectedWhenTheScenarioLoads(string step, string mentions)
     {
         var ex = Assert.Throws<ScenarioException>(() => Scenario(step));

@@ -17,6 +17,13 @@ public sealed class TestRunnerOptions
     public int FaultPollMs { get; set; } = 250;
     /// <summary>After a fault, how long to wait for the room (the node list) to show the node again.</summary>
     public int FaultHostSyncMs { get; set; } = 10000;
+    /// <summary>Watch time a fault step adds beyond its fault length and allowed recovery.</summary>
+    public int FaultWatchSlackMs { get; set; } = 10000;
+    /// <summary>
+    /// A silent node not dropped this long after its silence ended will not be: its heartbeats are back
+    /// (≤ 5 s) and the sweep runs every 10 s.
+    /// </summary>
+    public int FaultSilenceGraceMs { get; set; } = 15000;
     public string ResultsRoot { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WaBiBaBuSy", "TestRuns");
     /// <summary>This machine's log folder; null = from the logging configuration.</summary>

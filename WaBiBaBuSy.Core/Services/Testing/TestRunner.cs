@@ -472,13 +472,19 @@ public sealed class TestRunner
     /// </summary>
     private async Task RunFaultAsync(RunContext ctx, StepReport sr, FaultStep fault, CancellationToken ct)
     {
-        var node = ctx.Remotes.FirstOrDefault(n => SkewKeyMatches(fault.Node, n));
-        if (node == null)
+        // A client id matches exactly; a tile name must be unique (two machines can share a hostname).
+        var live = ctx.LiveRemotes.ToList();
+        var matches = live.Where(n => n.NodeId == fault.Node).ToList();
+        if (matches.Count == 0) matches = live.Where(n => SkewKeyMatches(fault.Node, n)).ToList();
+        if (matches.Count != 1)
         {
             sr.Verdict = Verdict.Fail;
-            sr.Message = $"fault node '{fault.Node}' matches no connected remote";
+            sr.Message = matches.Count == 0
+                ? $"fault node '{fault.Node}' matches no connected remote"
+                : $"fault node '{fault.Node}' matches {matches.Count} remotes ({string.Join(", ", matches.Select(n => n.NodeId))}); use the client id";
             return;
         }
+        var node = matches[0];
         var r = new FaultReport { NodeId = node.NodeId, Name = node.Name, Kind = fault.Fault, Ms = fault.Ms, SentAtUtcMs = _o.NowUtcMs() };
         sr.Fault = r;
         if (!await _transport.SendFaultAsync(node.NodeId, fault.Fault, fault.Ms))
@@ -489,13 +495,16 @@ public sealed class TestRunner
             return;
         }
 
-        long deadline = r.SentAtUtcMs + fault.WatchMs;
+        long deadline = r.SentAtUtcMs + fault.WatchMs(_o.FaultWatchSlackMs);
+        // A silent node still listed this long after its silence ended will not be dropped any more.
+        long silentGiveUp = r.SentAtUtcMs + fault.Ms + _o.FaultSilenceGraceMs;
         while (_o.NowUtcMs() < deadline)
         {
             bool registered = _transport.IsRegistered(node.NodeId);
             long now = _o.NowUtcMs();
             if (!registered && r.LostAtUtcMs == null) r.LostAtUtcMs = now;
             if (registered && r.LostAtUtcMs != null) { r.BackAtUtcMs = now; break; }
+            if (r.LostAtUtcMs == null && fault.Fault == TestFaults.Silent && now > silentGiveUp) break;
             await Task.Delay(_o.FaultPollMs, ct);
         }
 
@@ -505,7 +514,6 @@ public sealed class TestRunner
 
         if (r.BackAtUtcMs == null) return;   // the post-step connection check records it as lost
 
-        ctx.Lost.TryRemove(node.NodeId, out _);
         long syncDeadline = _o.NowUtcMs() + _o.FaultHostSyncMs;
 
         // Wait for the room to list the node again, else CheckConnectionsAsync would count it as lost.
@@ -885,7 +893,7 @@ public sealed class TestRunner
         WaitStep w => w.Ms + 30000,
         PlaySceneStep => 120000,   // includes downloads on remotes
         ProbeStep p => ProbeLeadMs(ctx, p) + _o.DefaultStepTimeoutMs,   // the default budget starts at the probe instant
-        FaultStep f => f.WatchMs + _o.FaultHostSyncMs + _o.DefaultStepTimeoutMs,
+        FaultStep f => f.WatchMs(_o.FaultWatchSlackMs) + _o.FaultHostSyncMs + _o.DefaultStepTimeoutMs,
         _ => _o.DefaultStepTimeoutMs,
     };
 

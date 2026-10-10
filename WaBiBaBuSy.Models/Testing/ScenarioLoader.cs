@@ -129,7 +129,8 @@ public static class ScenarioLoader
                 case FaultStep fault:
                     if (string.IsNullOrWhiteSpace(fault.Node)) errors.Add($"{at}: node is empty");
                     if (!TestFaults.IsKnown(fault.Fault)) errors.Add($"{at}: fault \"{fault.Fault}\" is not {TestFaults.Drop} or {TestFaults.Silent}");
-                    if (fault.Ms <= 0) errors.Add($"{at}: ms must be > 0");
+                    if (fault.Ms < TestFaults.MinMs || fault.Ms > TestFaults.MaxMs)
+                        errors.Add($"{at}: ms must be {TestFaults.MinMs}–{TestFaults.MaxMs} (what the client applies)");
                     if (fault.MaxReconnectMs <= 0) errors.Add($"{at}: maxReconnectMs must be > 0");
                     if (fault.MaxSweepMs <= 0) errors.Add($"{at}: maxSweepMs must be > 0");
                     break;
