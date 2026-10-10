@@ -69,6 +69,14 @@ public class WallpaperSyncClient : IDisposable
     /// <summary>This machine's clock as the sync sees it (real UTC + simulated test skew).</summary>
     public long NowUtcMs => NowMs();
     private readonly ReconnectBackoff _backoff = new();
+
+    // TEST_FAULT (automated test mode §12): real UTC ms until which the server is "unreachable" (drop) or this
+    // client stays quiet (silent). 0 = no fault. Real time, not NowMs(): the simulated clock skew must not shift it.
+    private long _faultUntilUtcMs;
+    private long _silentUntilUtcMs;
+
+    private long RealNowMs() => TimeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+    private bool InSilence() => RealNowMs() < Interlocked.Read(ref _silentUntilUtcMs);
     private string? _serverAddress;
     private int _serverPort;
     private volatile bool _userDisconnected;
@@ -127,6 +135,12 @@ public class WallpaperSyncClient : IDisposable
         {
             _logger.LogWarning("Already connected to server");
             return true;
+        }
+
+        if (RealNowMs() < Interlocked.Read(ref _faultUntilUtcMs))
+        {
+            _logger.LogInformation("[Test] Server unreachable (simulated link loss)");
+            return false;
         }
 
         try
@@ -443,6 +457,7 @@ public class WallpaperSyncClient : IDisposable
     /// </summary>
     private async Task SendHeartbeatAsync()
     {
+        if (InSilence()) return;   // TEST_FAULT silent: what the server sees from a powered-off client
         if (_client == null || string.IsNullOrEmpty(_clientId))
         {
             return;
@@ -474,6 +489,14 @@ public class WallpaperSyncClient : IDisposable
         }
 
         var response = await _client.HeartbeatAsync(request);
+        if (!response.Acknowledged)
+        {
+            // The server no longer lists us (dead-client sweep after a sleep / Wi-Fi hiccup, or a server restart)
+            // while our connection survived: without a new registration we would stay invisible until restarted.
+            _logger.LogWarning("Server no longer lists this client — re-registering");
+            TriggerReconnect("server no longer lists this client");
+            return;
+        }
         var receiveMs = NowMs();
 
         // NTP-style clock sync: every heartbeat is a free offset/RTT sample.
@@ -895,6 +918,44 @@ public class WallpaperSyncClient : IDisposable
     }
 
     /// <summary>
+    /// TEST_FAULT: drop = tear the link down as if the cable came out and refuse to reach the server for the fault
+    /// length, so the reconnect runs through the real backoff and session resume; silent = no heartbeats, sync
+    /// responses or thumbnails for the fault length while the connection stays open.
+    /// </summary>
+    private void ApplyTestFault(SyncParameters p)
+    {
+        if (!_configuration.AllowTestRuns)
+        {
+            _logger.LogWarning("Ignoring TEST_FAULT: test runs are disabled on this client");
+            return;
+        }
+        if (!TestFaults.IsKnown(p.TestFaultKind))
+        {
+            _logger.LogWarning("Ignoring TEST_FAULT: unknown kind '{Kind}'", p.TestFaultKind);
+            return;
+        }
+
+        int ms = TestFaults.ClampMs(p.TestFaultMs);
+        long until = RealNowMs() + ms;
+        if (p.TestFaultKind == TestFaults.Drop)
+        {
+            Interlocked.Exchange(ref _faultUntilUtcMs, until);
+            _logger.LogWarning("[Test] Simulated link loss for {Ms} ms", ms);
+            // Off the stream loop: the teardown cancels and waits for this very loop.
+            _ = Task.Run(async () =>
+            {
+                await TeardownChannelAsync();
+                TriggerReconnect("simulated link loss");
+            });
+        }
+        else
+        {
+            Interlocked.Exchange(ref _silentUntilUtcMs, until);
+            _logger.LogWarning("[Test] Simulated silence for {Ms} ms (no heartbeats, responses or thumbnails)", ms);
+        }
+    }
+
+    /// <summary>
     /// Leave test mode when the server can no longer switch it off (stream lost, disconnect): drop the simulated
     /// skew (re-measuring the clock offset if it was set) and turn the timecode strip off on the running players.
     /// </summary>
@@ -1103,6 +1164,11 @@ public class WallpaperSyncClient : IDisposable
                         _ = Task.Run(() => HandleTestProbeAsync(probeCommand));
                         continue;
                     }
+                    if (command.Type == CommandType.TestFault)
+                    {
+                        ApplyTestFault(command.Params ?? new SyncParameters());
+                        continue;
+                    }
 
                     // Raise event for command processing
                     var hasSubscribers = SyncCommandReceived != null;
@@ -1154,6 +1220,7 @@ public class WallpaperSyncClient : IDisposable
     /// </summary>
     private async Task SendSyncResponseAsync(int sequenceNumber, WallpaperStateEnum state)
     {
+        if (InSilence()) return;   // TEST_FAULT silent: what the server sees from a powered-off client
         if (_syncStreamCall == null || string.IsNullOrEmpty(_clientId))
         {
             return;
@@ -1335,6 +1402,7 @@ public class WallpaperSyncClient : IDisposable
     /// </summary>
     private async Task SendThumbnailIfDueAsync()
     {
+        if (InSilence()) return;   // TEST_FAULT silent: what the server sees from a powered-off client
         if (_client == null || string.IsNullOrEmpty(_clientId) || _thumbnailCaptureService == null)
         {
             return;

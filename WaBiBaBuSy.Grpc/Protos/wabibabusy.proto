@@ -161,6 +161,7 @@ enum CommandType {
   TEST_MODE = 10;         // Automated test run: timecode strip on/off, simulated clock skew (params.test_*)
   TEST_PROBE = 11;        // Automated test run: report the frame shown at timestamp_utc (params.test_*)
   EVENT = 12;             // One-shot show event (Spotlight, Celebration, …): ShowEvent JSON in event_json, T0 = timestamp_utc. Old clients log "unknown" and ignore it.
+  TEST_FAULT = 13;        // Automated test run: simulate a fault on this client (params.test_fault_*). Old clients log "unknown" and ignore it.
 }
 
 // Sync parameters
@@ -201,6 +202,8 @@ message SyncParameters {
   bool test_has_exact_elapsed = 33;    // TEST_PROBE: exact-frame probe (offscreen render)
   int64 test_exact_elapsed_ms = 34;    // TEST_PROBE: the exact effective elapsed to render
   string log_request_id = 35;          // FETCH_LOGS: echoed in ClientLogData.request_id so a late reply cannot complete the next fetch
+  string test_fault_kind = 36;         // TEST_FAULT: "drop" (link lost for test_fault_ms, then the real reconnect) or "silent" (no heartbeats / responses / thumbnails, connection kept)
+  int32 test_fault_ms = 37;            // TEST_FAULT: fault length in ms (the client clamps to 1 000 … 120 000)
 }
 
 // One transferable file of a scene (Tier 1.3 show reliability)
