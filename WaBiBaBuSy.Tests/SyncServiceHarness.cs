@@ -25,8 +25,8 @@ internal sealed class SyncServiceHarness : IDisposable
             new ServerConfiguration { ContentDirectory = _contentDir });
     }
 
-    /// <summary>Register a command stream for <paramref name="clientId"/>; every command the server sends goes to <paramref name="onCommand"/>.</summary>
-    public void Connect(string clientId, Action<SyncCommand> onCommand)
+    /// <summary>Register a command stream for <paramref name="clientId"/>; every command the server sends goes to <paramref name="onCommand"/>. Cancel the returned source to end that stream.</summary>
+    public CancellationTokenSource Connect(string clientId, Action<SyncCommand> onCommand)
     {
         var cts = new CancellationTokenSource();
         _streams.Add(cts);
@@ -34,7 +34,13 @@ internal sealed class SyncServiceHarness : IDisposable
         _ = Service.SyncStream(new BlockingReader<SyncResponse>(),
             new CallbackWriter<SyncCommand>(onCommand),
             new FakeServerCallContext(new Metadata { { "client-id", clientId } }, cts.Token));
+        return cts;
     }
+
+    /// <summary>The RegisterClient RPC, as a client with a persistent id sends it.</summary>
+    public Task<RegistrationResponse> RegisterAsync(string clientId) =>
+        Service.RegisterClient(new ClientInfo { ClientId = clientId, Hostname = clientId, ScreenConfig = new ScreenConfiguration(), AppVersion = WaBiBaBuSy.Common.Version.VersionInfo.AppVersion, BuildNumber = WaBiBaBuSy.Common.Version.VersionInfo.BuildNumber },
+            new FakeServerCallContext(new Metadata(), CancellationToken.None));
 
     /// <summary>
     /// A client's FETCH_LOGS reply (SendClientLogs RPC). <paramref name="requestId"/> is the fetch's

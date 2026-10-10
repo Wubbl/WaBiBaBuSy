@@ -375,9 +375,18 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         }
         finally
         {
-            // Remove client completely on disconnect
-            RemoveClient(clientId);
-            _logger.LogInformation("Client {ClientId} removed from topology after disconnect", clientId);
+            // Only the stream still registered for this client ends its session. An old stream that dies after
+            // the client already reconnected (a pulled cable is noticed late), or after the sweep removed the
+            // client, must not remove the new session.
+            if (_clientCommandStreams.TryGetValue(clientId, out var current) && ReferenceEquals(current, responseStream))
+            {
+                RemoveClient(clientId);
+                _logger.LogInformation("Client {ClientId} removed from topology after disconnect", clientId);
+            }
+            else
+            {
+                _logger.LogInformation("Stale sync stream of client {ClientId} ended; its current session stays", clientId);
+            }
         }
     }
 
