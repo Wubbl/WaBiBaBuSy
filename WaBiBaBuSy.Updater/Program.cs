@@ -174,6 +174,9 @@ class Program
             if (!replaceSuccess)
             {
                 Log("ERROR: File replacement failed. Update aborted.");
+                // The app already exited for the update: bring the rolled-back version back up.
+                var oldExe = Path.Combine(installDir, "WaBiBaBuSy.UI.exe");
+                if (!noLaunch && File.Exists(oldExe)) processMonitor.LaunchApplication(oldExe, installDir);
                 return 1;
             }
 

@@ -9,12 +9,17 @@ public class FileReplacer
 {
     private readonly string _installDirectory;
     private readonly string _backupDirectory;
-    private readonly List<FileReplacement> _replacements = new();
+    // Review 2026-10-13 E4: this run's backup holds exactly the files the package overwrites (relative paths kept),
+    // and _created the ones it adds — rollback restores the first and deletes the second. The old backup covered only
+    // top-level WaBiBaBuSy.* files, so a failure left new dependencies next to old app code.
+    private readonly string _runBackupDirectory;
+    private readonly List<string> _created = new();
 
     public FileReplacer(string installDirectory, string backupDirectory)
     {
         _installDirectory = installDirectory;
         _backupDirectory = backupDirectory;
+        _runBackupDirectory = Path.Combine(backupDirectory, $"run-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}");
     }
 
     /// <summary>
@@ -46,7 +51,7 @@ public class FileReplacer
             if (createBackup)
             {
                 Console.WriteLine($"[FileReplacer] Creating backup...");
-                if (!await CreateBackupAsync())
+                if (!await CreateBackupAsync(binariesDir, filesToReplace))
                 {
                     Console.WriteLine($"[FileReplacer] ERROR: Failed to create backup");
                     return false;
@@ -126,12 +131,6 @@ public class FileReplacer
                 return false;
             }
 
-            _replacements.Add(new FileReplacement
-            {
-                TargetPath = targetFile,
-                Succeeded = true
-            });
-
             Console.WriteLine($"[FileReplacer] Replaced: {Path.GetFileName(targetFile)}");
             return true;
         }
@@ -143,26 +142,30 @@ public class FileReplacer
     }
 
     /// <summary>
-    /// Create backup of files about to be replaced
+    /// Back up every install file the package overwrites (keeping its relative path) and note the ones it adds.
     /// </summary>
-    private async Task<bool> CreateBackupAsync()
+    private async Task<bool> CreateBackupAsync(string binariesDir, IEnumerable<string> packageFiles)
     {
         try
         {
-            Directory.CreateDirectory(_backupDirectory);
-
-            var filesToBackup = Directory.GetFiles(_installDirectory, "WaBiBaBuSy.*", SearchOption.TopDirectoryOnly);
-
-            foreach (var file in filesToBackup)
+            Directory.CreateDirectory(_runBackupDirectory);
+            int count = 0;
+            foreach (var sourceFile in packageFiles)
             {
-                var fileName = Path.GetFileName(file);
-                var backupPath = Path.Combine(_backupDirectory, fileName);
-
-                await Task.Run(() => File.Copy(file, backupPath, overwrite: true));
-                Console.WriteLine($"[FileReplacer] Backed up: {fileName}");
+                var relativePath = Path.GetRelativePath(binariesDir, sourceFile);
+                var target = Path.Combine(_installDirectory, relativePath);
+                if (!File.Exists(target))
+                {
+                    _created.Add(target);
+                    continue;
+                }
+                var backupPath = Path.Combine(_runBackupDirectory, relativePath);
+                Directory.CreateDirectory(Path.GetDirectoryName(backupPath)!);
+                await Task.Run(() => File.Copy(target, backupPath, overwrite: true));
+                count++;
             }
 
-            Console.WriteLine($"[FileReplacer] Backup created successfully ({filesToBackup.Length} files)");
+            Console.WriteLine($"[FileReplacer] Backup created in {_runBackupDirectory} ({count} files, {_created.Count} new)");
             return true;
         }
         catch (Exception ex)
@@ -173,40 +176,43 @@ public class FileReplacer
     }
 
     /// <summary>
-    /// Rollback changes by restoring from backup
+    /// Rollback: restore this run's backup and delete the files the update added. Every file is tried even when one fails.
     /// </summary>
     public async Task<bool> RollbackAsync()
     {
         Console.WriteLine($"[FileReplacer] Rolling back changes...");
+        bool ok = true;
 
-        if (!Directory.Exists(_backupDirectory))
+        if (Directory.Exists(_runBackupDirectory))
         {
-            Console.WriteLine($"[FileReplacer] ERROR: Backup directory not found: {_backupDirectory}");
-            return false;
-        }
-
-        try
-        {
-            var backupFiles = Directory.GetFiles(_backupDirectory, "*.*", SearchOption.AllDirectories);
-            Console.WriteLine($"[FileReplacer] Restoring {backupFiles.Length} files from backup...");
-
-            foreach (var backupFile in backupFiles)
+            foreach (var backupFile in Directory.GetFiles(_runBackupDirectory, "*", SearchOption.AllDirectories))
             {
-                var relativePath = Path.GetRelativePath(_backupDirectory, backupFile);
-                var targetFile = Path.Combine(_installDirectory, relativePath);
-
-                await Task.Run(() => File.Copy(backupFile, targetFile, overwrite: true));
-                Console.WriteLine($"[FileReplacer] Restored: {Path.GetFileName(targetFile)}");
+                var targetFile = Path.Combine(_installDirectory, Path.GetRelativePath(_runBackupDirectory, backupFile));
+                try
+                {
+                    await Task.Run(() => File.Copy(backupFile, targetFile, overwrite: true));
+                    Console.WriteLine($"[FileReplacer] Restored: {Path.GetFileName(targetFile)}");
+                }
+                catch (Exception ex)
+                {
+                    ok = false;
+                    Console.WriteLine($"[FileReplacer] ERROR restoring {targetFile}: {ex.Message}");
+                }
             }
+        }
 
-            Console.WriteLine($"[FileReplacer] Rollback completed successfully");
-            return true;
-        }
-        catch (Exception ex)
+        foreach (var added in _created)
         {
-            Console.WriteLine($"[FileReplacer] ERROR during rollback: {ex.Message}");
-            return false;
+            try { if (File.Exists(added)) File.Delete(added); }
+            catch (Exception ex)
+            {
+                ok = false;
+                Console.WriteLine($"[FileReplacer] ERROR removing added file {added}: {ex.Message}");
+            }
         }
+
+        Console.WriteLine(ok ? "[FileReplacer] Rollback completed successfully" : "[FileReplacer] Rollback finished with errors");
+        return ok;
     }
 
     /// <summary>
@@ -238,30 +244,5 @@ public class FileReplacer
         using var sha256 = SHA256.Create();
         var hashBytes = await sha256.ComputeHashAsync(fileStream);
         return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
-    }
-
-    /// <summary>
-    /// Clean up backup directory
-    /// </summary>
-    public void CleanupBackup()
-    {
-        try
-        {
-            if (Directory.Exists(_backupDirectory))
-            {
-                Directory.Delete(_backupDirectory, recursive: true);
-                Console.WriteLine($"[FileReplacer] Backup directory cleaned up");
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[FileReplacer] WARNING: Failed to cleanup backup: {ex.Message}");
-        }
-    }
-
-    private class FileReplacement
-    {
-        public string TargetPath { get; set; } = string.Empty;
-        public bool Succeeded { get; set; }
     }
 }

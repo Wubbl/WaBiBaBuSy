@@ -21,6 +21,7 @@
     <ProjectReference Include="..\WaBiBaBuSy.Common\WaBiBaBuSy.Common.csproj" />
     <ProjectReference Include="..\WaBiBaBuSy.Core\WaBiBaBuSy.Core.csproj" />
     <ProjectReference Include="..\WaBiBaBuSy.Models\WaBiBaBuSy.Models.csproj" />
+    <ProjectReference Include="..\WaBiBaBuSy.Updater\WaBiBaBuSy.Updater.csproj" />
   </ItemGroup>
 
 </Project>
