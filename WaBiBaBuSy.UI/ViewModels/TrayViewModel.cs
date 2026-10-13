@@ -194,7 +194,12 @@ public partial class TrayViewModel : ObservableObject
     private void Connect()
     {
         // Render delegates are registered once (RemotePlaybackHost), so this connects like the main window does.
-        _ = _service.DiscoverAndConnectAsync("localhost", 50051);
+        // When mDNS finds nothing (switches / VLANs often block it), fall back to the server saved in Settings,
+        // not localhost (review 2026-10-13 E15).
+        var saved = ConfigurationManager.LoadClientConfiguration();
+        var address = string.IsNullOrWhiteSpace(saved.ServerAddress) ? "localhost" : saved.ServerAddress;
+        var port = saved.ServerPort > 0 ? saved.ServerPort : 50051;
+        _ = _service.DiscoverAndConnectAsync(address, port);
     }
 
     [RelayCommand]
@@ -247,8 +252,12 @@ public partial class TrayViewModel : ObservableObject
         }
     }
 
+    private bool _exiting;
+
     private async Task ExitAsync(int exitCode)
     {
+        if (_exiting) return;   // a second Exit click would run the whole shutdown twice
+        _exiting = true;
         _hotkeys.Dispose();
 
         // An active test run: let it write the partial report and switch test mode off on every node
@@ -264,12 +273,16 @@ public partial class TrayViewModel : ObservableObject
         try { await _remotePlayback.StopAllAsync(); }
         catch (Exception ex) { Console.WriteLine($"[Exit] Stopping remote players failed: {ex.Message}"); }
 
-        // Cleanup: Stop server/client if running
-        await _service.StopServerAsync();
-        await _service.DisconnectFromServerAsync();
+        // Cleanup: Stop server/client if running. Guarded like the steps above: a throw here used to skip
+        // Shutdown, so Exit did nothing and --exit never exited (review 2026-10-13, part 6).
+        try { await _service.StopServerAsync(); }
+        catch (Exception ex) { Console.WriteLine($"[Exit] Stopping the server failed: {ex.Message}"); }
+        try { await _service.DisconnectFromServerAsync(); }
+        catch (Exception ex) { Console.WriteLine($"[Exit] Disconnecting failed: {ex.Message}"); }
 
         // Close main window if open
-        _mainWindow?.Close();
+        try { _mainWindow?.Close(); }
+        catch (Exception ex) { Console.WriteLine($"[Exit] Closing the window failed: {ex.Message}"); }
 
         // Shutdown the application
         _desktop.Shutdown(exitCode);
