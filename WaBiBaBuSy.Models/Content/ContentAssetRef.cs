@@ -54,7 +54,10 @@ public static class SceneAssets
 
     /// <summary>
     /// Rewrite a scene's file references to local paths. Unknown paths are kept when the file exists
-    /// locally (same machine) and dropped otherwise; a missing background image degrades to solid color.
+    /// locally (same machine); an additional image that is missing here is replaced by the primary image —
+    /// never dropped, because the per-cell image pick is <c>hash % imageCount</c> and one image less would
+    /// shuffle every cell on this machine only (review 2026-10-13 E8). A missing background image degrades to
+    /// solid color.
     /// Returns clones — the input is not modified.
     /// </summary>
     public static (AnimationLayerConfig Animation, BackgroundLayerConfig Background) RewriteToLocal(
@@ -72,7 +75,9 @@ public static class SceneAssets
         if (!string.IsNullOrEmpty(primaryLocalPath)) anim.AnimationPath = primaryLocalPath;
         else anim.AnimationPath = Map(anim.AnimationPath) ?? anim.AnimationPath;
         anim.AdditionalAnimationPaths = anim.AdditionalAnimationPaths
-            .Select(Map).Where(p => p != null).Select(p => p!).ToList();
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(p => Map(p) ?? anim.AnimationPath)
+            .ToList();
 
         var bg = System.Text.Json.JsonSerializer.Deserialize<BackgroundLayerConfig>(System.Text.Json.JsonSerializer.Serialize(background))!;
         if (bg.Mode is BackgroundMode.StretchedImage or BackgroundMode.TiledImage)

@@ -133,7 +133,7 @@ public class SceneAssetsTests : IDisposable
     }
 
     [Fact]
-    public void RewriteToLocal_MapsKnown_KeepsExistingLocal_DropsMissing_DegradesBackground()
+    public void RewriteToLocal_MapsKnown_KeepsExistingLocal_ReplacesMissingWithPrimary_DegradesBackground()
     {
         var localB = Path.Combine(_dir, "b.png"); File.WriteAllText(localB, "b");
         var localExisting = Path.Combine(_dir, "here.png"); File.WriteAllText(localExisting, "h");
@@ -149,7 +149,8 @@ public class SceneAssetsTests : IDisposable
         var (a2, bg2) = SceneAssets.RewriteToLocal(anim, bg, map, primaryLocalPath: Path.Combine(_dir, "fish.gif"));
 
         Assert.Equal(Path.Combine(_dir, "fish.gif"), a2.AnimationPath);
-        Assert.Equal(new[] { localB, localExisting }, a2.AdditionalAnimationPaths);
+        // The missing one keeps its slot (primary image instead): the cell→image hash needs the same count everywhere.
+        Assert.Equal(new[] { localB, localExisting, a2.AnimationPath }, a2.AdditionalAnimationPaths);
         Assert.Equal(333, a2.TargetHeight);
         Assert.Equal(BackgroundMode.SolidColor, bg2.Mode);      // bg.jpg unknown + missing → solid
         Assert.Equal("#123456", bg2.ColorHex);
