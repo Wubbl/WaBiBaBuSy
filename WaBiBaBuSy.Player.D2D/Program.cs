@@ -470,6 +470,11 @@ partial class Program
     private static volatile bool _videoFrameReady;
     private static ID2D1Bitmap? _currentVideoD2DBitmap;
     private static int _videoNativeWidth, _videoNativeHeight;
+    /// <summary>Clip length from the parse; ≤ 0 = unknown, then the video cannot follow the shared clock.</summary>
+    private static long _videoDurationMs;
+    /// <summary>Keeps the video on the shared clock (<see cref="SyncVideoToClock"/>), every 500 ms.</summary>
+    private static System.Threading.Timer? _videoSyncTimer;
+    private static float _videoRate = 1f;
     private static volatile bool _useNativeD2DVideo;
 
     // Stage 3: Native D2D background
@@ -1584,6 +1589,9 @@ partial class Program
         using var media = new Media(_libVLC, filePath, FromType.FromPath);
         media.Parse(MediaParseOptions.ParseLocal).Wait();
 
+        _videoDurationMs = media.Duration;
+        if (_videoDurationMs <= 0)
+            _logger?.LogWarning("[VIDEO-INIT] Unknown duration: this video cannot follow the shared clock");
         var videoTracks = media.Tracks.Where(t => t.TrackType == TrackType.Video).ToArray();
         if (videoTracks.Length > 0)
         {
@@ -1627,39 +1635,68 @@ partial class Program
             IntPtr.Zero, 0,
             bitmapProps);
 
-        // Wire looping via EndReached (proven pattern from VideoWallpaperRenderer)
-        _vlcPlayer.EndReached += (s, e) =>
-        {
-            if (_animationConfig?.Loop == true)
-            {
-                ThreadPool.QueueUserWorkItem(_ =>
-                {
-                    try
-                    {
-                        Thread.Sleep(50);
-                        _vlcPlayer?.Stop();
-                        Thread.Sleep(50);
-                        using var loopMedia = new Media(_libVLC!, filePath, FromType.FromPath);
-                        if (_vlcPlayer != null)
-                        {
-                            _vlcPlayer.Media = loopMedia;
-                            _vlcPlayer.Play();
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger?.LogError(ex, "[VIDEO-LOOP] Error restarting video");
-                    }
-                });
-            }
-        };
-
-        // Start playback immediately (LibVLC decodes frames in the background)
-        var playMedia = new Media(_libVLC, filePath, FromType.FromPath);
+        // LibVLC loops internally (no EndReached stop/restart, whose gap differed per machine); the sync
+        // timer then holds every node's position to the shared clock, across the loop seam too.
+        using var playMedia = new Media(_libVLC, filePath, FromType.FromPath);
+        if (_animationConfig?.Loop == true) playMedia.AddOption(":input-repeat=65535");
         _vlcPlayer.Media = playMedia;
-        _vlcPlayer.Play();
+        _vlcPlayer.Play();   // decode ahead; SyncVideoToClock pauses / seeks once START sets the shared start
+        _videoRate = 1f;
+        _videoSyncTimer = new System.Threading.Timer(_ => SyncVideoToClock(), null, 500, 500);
 
-        _logger?.LogInformation("[VIDEO-INIT] LibVLC native video initialized, playback started");
+        _logger?.LogInformation("[VIDEO-INIT] LibVLC native video initialized, {Duration} ms, synced to the shared clock", _videoDurationMs);
+    }
+
+    /// <summary>
+    /// Video on the shared clock (review 2026-10-13 A9): paused on frame 0 before the start, then the
+    /// position follows <c>elapsed % duration</c> — a seek for a big drift, a ±10 % rate nudge for a small one.
+    /// Runs on a timer thread, never inside a LibVLC callback.
+    /// </summary>
+    // ponytail: corrects against LibVLC's reported Time (frame-accurate at best, updates in steps), so the
+    // floor is about one frame; a present-time-based correction would be the upgrade if probes show more.
+    private static void SyncVideoToClock()
+    {
+        try
+        {
+            lock (_compositionLock)
+            {
+                var player = _vlcPlayer;
+                if (!_running || player == null || !_isPlaying || _videoDurationMs <= 0) return;
+                bool loop = _animationConfig?.Loop == true;
+                long elapsed = SyncTiming.ApplyNodePhase((long)(NowUtc - _renderLoopStart).TotalMilliseconds,
+                    _nodeOrder, _movementConfig?.NodePhaseDelayMs ?? 0, _perMonitorMode);
+
+                if (elapsed < 0)
+                {
+                    if (player.IsPlaying) player.SetPause(true);
+                    if (player.Time > 0) player.Time = 0;
+                    return;
+                }
+                if (!loop && elapsed >= _videoDurationMs) return;   // held on the last frame
+                if (!player.IsPlaying) player.Play();
+                long now = player.Time;
+                if (now < 0) return;   // not decoding yet
+
+                long target = SyncTiming.VideoTargetMs(elapsed, _videoDurationMs, loop);
+                long drift = SyncTiming.VideoDriftMs(now, target, _videoDurationMs, loop);
+                float rate = 1f;
+                if (Math.Abs(drift) > SyncTiming.VideoSeekThresholdMs)
+                {
+                    player.Time = target;
+                    _logger?.LogDebug("[VIDEO-SYNC] drift {Drift} ms: seek to {Target} ms", drift, target);
+                }
+                else rate = SyncTiming.VideoCorrectionRate(drift);
+                if (rate != _videoRate)
+                {
+                    player.SetRate(rate);
+                    _videoRate = rate;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "[VIDEO-SYNC] sync step failed");
+        }
     }
 
     /// <summary>
@@ -4217,7 +4254,10 @@ partial class Program
         _iconZoneBands.Clear();
         _animPath.Clear();
 
-        // Dispose native video resources
+        // Dispose native video resources (the sync timer first: its callback re-checks _vlcPlayer under the lock)
+        _videoSyncTimer?.Dispose();
+        _videoSyncTimer = null;
+        _videoDurationMs = 0;
         try { _vlcPlayer?.Stop(); } catch { }
         _vlcPlayer?.Dispose();
         _vlcPlayer = null;

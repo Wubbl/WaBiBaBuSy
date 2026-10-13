@@ -56,6 +56,43 @@ public static class SyncTiming
         return m < 0 ? m + period : m;
     }
 
+    // ── video on the shared clock ───────────────────────────────────────────
+
+    /// <summary>Drift beyond this is corrected with a seek; below it the playback rate is nudged instead.</summary>
+    public const int VideoSeekThresholdMs = 200;
+
+    /// <summary>Drift within this is left alone (LibVLC's reported time is only frame-accurate).</summary>
+    public const int VideoRateDeadbandMs = 20;
+
+    /// <summary>
+    /// Video position (ms) the shared clock asks for: the elapsed time folded into the clip when it loops,
+    /// held on the last frame when it does not. 0 before the start or for an unknown duration.
+    /// </summary>
+    public static long VideoTargetMs(long elapsedMs, long durationMs, bool loop)
+    {
+        if (durationMs <= 0 || elapsedMs <= 0) return 0;
+        return loop ? PositiveModulo(elapsedMs, durationMs) : Math.Min(elapsedMs, durationMs);
+    }
+
+    /// <summary>
+    /// Signed drift of the video against the clock (positive = video ahead). A looping clip takes the shorter
+    /// way around, so 9.9 s against 0.1 s in a 10 s loop is −200 ms, not +9.8 s.
+    /// </summary>
+    public static long VideoDriftMs(long videoMs, long targetMs, long durationMs, bool loop)
+    {
+        long drift = videoMs - targetMs;
+        if (!loop || durationMs <= 0) return drift;
+        long half = durationMs / 2;
+        return PositiveModulo(drift + half, durationMs) - half;
+    }
+
+    /// <summary>
+    /// Playback rate that closes a small drift within about a second: behind → faster, ahead → slower,
+    /// clamped to ±10 % so the change stays invisible. 1 inside the deadband.
+    /// </summary>
+    public static float VideoCorrectionRate(long driftMs) =>
+        Math.Abs(driftMs) <= VideoRateDeadbandMs ? 1f : Math.Clamp(1f - driftMs / 1000f, 0.9f, 1.1f);
+
     /// <summary>Screen-space horizontal motion below this magnitude does not change facing.</summary>
     public const float FacingHysteresisPx = 0.5f;
 

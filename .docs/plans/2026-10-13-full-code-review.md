@@ -21,6 +21,8 @@ Output: one findings list per part (severity, file:line, failure scenario), cons
 
 ### Batch A — before the multi-machine session (test results must be trustworthy)
 
+**Status 2026-10-13: A1–A10 fixed on `fix/review-batch-a`** (934 tests green). Open: A5's mixed-resolution parity warning has no unit test; A9 (video on the shared clock: seek > 200 ms drift, ±10 % rate nudge below, LibVLC-internal loop) is build- and math-tested only — test-mode probes report clock time, not the video position, so check by eye in the session: one video scene on 2+ machines, frames line up, still aligned after a loop and after 10 min.
+
 | # | Sev | Finding | Where |
 |---|---|---|---|
 | A1 ✔ | HIGH | `Main` is `void` → process exit code always 0; `--test-run --exit` can never report 1/2 [P6] | `UI/Program.cs:13` |

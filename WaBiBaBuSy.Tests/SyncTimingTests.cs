@@ -75,4 +75,31 @@ public class SyncTimingTests
     {
         Assert.Equal(expected, SyncTiming.ResolveFacingLeft(dx, previous));
     }
+
+    // Review 2026-10-13 A9: video follows the shared clock.
+    [Theory]
+    [InlineData(-500, 10_000, true, 0)]         // before the start
+    [InlineData(2_500, 10_000, true, 2_500)]
+    [InlineData(32_500, 10_000, true, 2_500)]   // third lap
+    [InlineData(32_500, 10_000, false, 10_000)] // no loop: held on the last frame
+    [InlineData(5_000, 0, true, 0)]             // duration unknown
+    public void VideoTargetMs_FoldsOrHolds(long elapsed, long duration, bool loop, long expected) =>
+        Assert.Equal(expected, SyncTiming.VideoTargetMs(elapsed, duration, loop));
+
+    [Theory]
+    [InlineData(2_600, 2_500, 10_000, true, 100)]
+    [InlineData(9_900, 100, 10_000, true, -200)]   // across the loop seam: the short way round
+    [InlineData(100, 9_900, 10_000, true, 200)]
+    [InlineData(9_900, 100, 10_000, false, 9_800)]
+    public void VideoDriftMs_TakesTheShortWayRound(long video, long target, long duration, bool loop, long expected) =>
+        Assert.Equal(expected, SyncTiming.VideoDriftMs(video, target, duration, loop));
+
+    [Theory]
+    [InlineData(0, 1f)]
+    [InlineData(15, 1f)]       // deadband
+    [InlineData(100, 0.9f)]    // ahead → slower
+    [InlineData(-50, 1.05f)]   // behind → faster
+    [InlineData(-190, 1.1f)]   // clamped
+    public void VideoCorrectionRate_NudgesTowardsTheClock(long drift, float expected) =>
+        Assert.Equal(expected, SyncTiming.VideoCorrectionRate(drift), 3);
 }
