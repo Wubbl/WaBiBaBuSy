@@ -197,7 +197,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
             int distanceCm = 0;
             lock (_topologyLock)
             {
-                var seat = _topology.Resolve(clientId, request.Hostname);
+                var seat = _topology.Resolve(clientId, request.Hostname, id => _connectedClients.ContainsKey(id));
                 if (seat != null)
                 {
                     orderPosition = seat.OrderPosition;

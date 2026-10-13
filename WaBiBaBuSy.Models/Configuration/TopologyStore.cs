@@ -82,16 +82,19 @@ public class TopologyStore
     /// <summary>
     /// Find the entry for a registering client. Exact <paramref name="clientId"/> match first;
     /// otherwise the first entry with the same hostname (case-insensitive) is re-bound to the new
-    /// id and returned. Null when the machine is unknown.
+    /// id and returned — unless that entry's id is still connected (<paramref name="isConnected"/>): two machines
+    /// with one hostname (cloned image, "gaming-pc") must not take each other's seat (review 2026-10-13 E13).
+    /// Null when the machine is unknown.
     /// </summary>
-    public TopologyEntry? Resolve(string clientId, string? hostname)
+    public TopologyEntry? Resolve(string clientId, string? hostname, Func<string, bool>? isConnected = null)
     {
         var byId = _entries.FirstOrDefault(e => e.ClientId == clientId);
         if (byId != null) return byId;
 
         if (string.IsNullOrWhiteSpace(hostname)) return null;
         var byHost = _entries.FirstOrDefault(e =>
-            string.Equals(e.Hostname, hostname, StringComparison.OrdinalIgnoreCase));
+            string.Equals(e.Hostname, hostname, StringComparison.OrdinalIgnoreCase)
+            && isConnected?.Invoke(e.ClientId) != true);
         if (byHost == null) return null;
 
         byHost.ClientId = clientId;

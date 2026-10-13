@@ -66,6 +66,17 @@ public class TopologyStoreTests : IDisposable
     }
 
     [Fact]
+    public void Resolve_SameHostnameAsAConnectedMachine_DoesNotStealItsSeat()
+    {
+        // Review 2026-10-13 E13: two cloned machines both called PC-A.
+        var store = TopologyStore.Load(_path);
+        store.Upsert(new TopologyEntry { ClientId = "first", Hostname = "PC-A", OrderPosition = 4 });
+
+        Assert.Null(store.Resolve("clone", "PC-A", isConnected: id => id == "first"));
+        Assert.Equal(4, store.Resolve("first", "PC-A")!.OrderPosition);   // still bound to the first machine
+    }
+
+    [Fact]
     public void Resolve_HostnameFallback_IsCaseInsensitive_AndSkipsWhenNoHostname()
     {
         var store = TopologyStore.Load(_path);
