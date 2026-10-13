@@ -42,7 +42,7 @@ public class PlaylistStore
     {
         EnsureDirectory();
         var json = JsonSerializer.Serialize(playlist, Options);
-        await File.WriteAllTextAsync(PathFor(playlist.Name), json);
+        await WaBiBaBuSy.Models.AtomicFile.WriteAllTextAsync(PathFor(playlist.Name), json);
     }
 
     /// <summary>Load a playlist from an absolute file path.</summary>

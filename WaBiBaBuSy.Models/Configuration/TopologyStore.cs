@@ -71,7 +71,7 @@ public class TopologyStore
         {
             var dir = Path.GetDirectoryName(_path);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-            File.WriteAllText(_path, JsonSerializer.Serialize(_entries, JsonOptions));
+            AtomicFile.WriteAllText(_path, JsonSerializer.Serialize(_entries, JsonOptions));
         }
         catch (Exception ex)
         {

@@ -43,7 +43,7 @@ public static class ShowEventSettingsStore
         {
             var dir = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-            File.WriteAllText(path, JsonSerializer.Serialize(settings, JsonOptions));
+            AtomicFile.WriteAllText(path, JsonSerializer.Serialize(settings, JsonOptions));
         }
         catch (Exception ex)
         {

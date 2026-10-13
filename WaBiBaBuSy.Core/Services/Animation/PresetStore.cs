@@ -112,7 +112,7 @@ public sealed class PresetStore
         copy.SelectedMonitorIds = new List<string>();
         var full = Path.GetFullPath(targetFile);
         await PresetBundle.BundleAssetsAsync(copy, Path.GetDirectoryName(full)!);
-        await File.WriteAllTextAsync(full, SceneFile.ToJson(copy));
+        await WaBiBaBuSy.Models.AtomicFile.WriteAllTextAsync(full, SceneFile.ToJson(copy));
     }
 
     /// <summary>Delete a preset (its assets stay: other presets may share them). No-op if missing.</summary>
@@ -128,7 +128,7 @@ public sealed class PresetStore
     {
         System.IO.Directory.CreateDirectory(Directory);
         var stem = Sanitize(name);
-        await File.WriteAllTextAsync(PathFor(stem), SceneFile.ToJson(config));
+        await WaBiBaBuSy.Models.AtomicFile.WriteAllTextAsync(PathFor(stem), SceneFile.ToJson(config));
         Changed?.Invoke(this, EventArgs.Empty);
         return stem;
     }

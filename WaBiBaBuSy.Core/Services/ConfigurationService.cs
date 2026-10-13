@@ -71,7 +71,7 @@ public class ConfigurationService
             _logger.LogInformation("Saving configuration to {ConfigPath}", _configPath);
             var json = JsonSerializer.Serialize(_configuration,
                 new JsonSerializerOptions { WriteIndented = true });
-            await File.WriteAllTextAsync(_configPath, json);
+            await AtomicFile.WriteAllTextAsync(_configPath, json);
         }
         catch (Exception ex)
         {

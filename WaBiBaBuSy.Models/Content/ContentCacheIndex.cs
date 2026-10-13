@@ -41,7 +41,7 @@ public static class ContentCacheIndex
         {
             Directory.CreateDirectory(cacheDirectory);
             var path = Path.Combine(cacheDirectory, FileName);
-            File.WriteAllText(path, JsonSerializer.Serialize(entries, JsonOptions));
+            AtomicFile.WriteAllText(path, JsonSerializer.Serialize(entries, JsonOptions));
         }
         catch (Exception ex)
         {

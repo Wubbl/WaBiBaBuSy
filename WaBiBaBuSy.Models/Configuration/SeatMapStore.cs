@@ -46,7 +46,7 @@ public static class SeatMapStore
         {
             var dir = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-            File.WriteAllText(path, JsonSerializer.Serialize(map, JsonOptions));
+            AtomicFile.WriteAllText(path, JsonSerializer.Serialize(map, JsonOptions));
         }
         catch (Exception ex)
         {

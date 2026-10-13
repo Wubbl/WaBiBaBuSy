@@ -94,7 +94,7 @@ public class ConfigurationManager
         try
         {
             var json = JsonSerializer.Serialize(config, JsonOptions);
-            File.WriteAllText(ServerConfigPath, json);
+            AtomicFile.WriteAllText(ServerConfigPath, json);
         }
         catch (Exception ex)
         {
@@ -113,7 +113,7 @@ public class ConfigurationManager
         try
         {
             var json = JsonSerializer.Serialize(config, JsonOptions);
-            File.WriteAllText(ClientConfigPath, json);
+            AtomicFile.WriteAllText(ClientConfigPath, json);
         }
         catch (Exception ex)
         {
@@ -191,7 +191,7 @@ public class ConfigurationManager
             }
 
             edit(config);
-            File.WriteAllText(path, JsonSerializer.Serialize(config, JsonOptions));
+            AtomicFile.WriteAllText(path, JsonSerializer.Serialize(config, JsonOptions));
             return config;
         }
     }
@@ -249,7 +249,7 @@ public class ConfigurationManager
         try
         {
             var json = JsonSerializer.Serialize(gallery, JsonOptions);
-            File.WriteAllText(WallpaperGalleryPath, json);
+            AtomicFile.WriteAllText(WallpaperGalleryPath, json);
             Console.WriteLine($"Wallpaper gallery saved to: {WallpaperGalleryPath}");
         }
         catch (Exception ex)
@@ -347,7 +347,7 @@ public class ConfigurationManager
         try
         {
             var json = JsonSerializer.Serialize(config, JsonOptions);
-            File.WriteAllText(LoggingConfigPath, json);
+            AtomicFile.WriteAllText(LoggingConfigPath, json);
         }
         catch (Exception ex)
         {
