@@ -2,7 +2,7 @@
 
 **Project Name:** WallpaperBiBaBuSync (BiBaBu = our club name)
 **Version:** 2.6.3 | **Framework:** .NET 9.0 | **Status:** MVP complete + post-MVP visual features + LAN-party Tier 0 / 1.1 / 2.1
-**Last Updated:** 2026-10-09 | **Next:** E2E Multi-Client Testing (first session 2026-10-09 evening, runbook below), then roadmap Tier 2.4 Portal + transitions (events done) / 2.3 scene layers
+**Last Updated:** 2026-10-13 | **Next:** E2E Multi-Client Testing (first session 2026-10-09 evening, runbook below), then roadmap Tier 2.4 Portal + transitions (events done) / 2.3 scene layers
 
 WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5% server CPU, ±50ms drift tolerance, and distributed client-side rendering. Supports images (JPG/PNG/BMP), videos (MP4/AVI/MKV), and GIFs across multi-monitor setups.
 
@@ -28,6 +28,25 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 - Show reliability: hashed content ids, persistent client cache, every scene asset transferred, playlist prefetch with per-node readiness, server download throttle, health strip + Resync all
 - Auto-update system with SHA-256 verification and rollback
 - System tray operation with minimal UI footprint
+
+## Project Map
+
+| Project | Role |
+|---|---|
+| `WaBiBaBuSy.Models` | Pure data + deterministic math (`MovementCalculator`, `ColorGrader`, `PatternLayout`, `PhysicalUnits`, `SpriteEffects`), topology, show events, test-mode models. No I/O |
+| `WaBiBaBuSy.Core` | Services: networking client/server host, mDNS, animation/playlist orchestration, presets, content cache, update, logging, test runner |
+| `WaBiBaBuSy.Grpc` | `wabibabusy.proto` + `WallpaperSyncService` (server side of the sync stream) |
+| `WaBiBaBuSy.WallpaperEngine` | Desktop/WorkerW integration, Win32 interop, `D2DPlayerHost` (spawns players), LibVLC renderers |
+| `WaBiBaBuSy.Player.D2D` | Separate render process (`Program*.cs`, Vortice Direct2D) — metadata IPC in, frames out |
+| `WaBiBaBuSy.Player.Common` | IPC message types + `ProcessCommunicator` |
+| `WaBiBaBuSy.UI` | Avalonia 11 + CommunityToolkit.Mvvm app (tray, room view, docked Scene editor, `ServerPlaybackHost` / `RemotePlaybackHost`) |
+| `WaBiBaBuSy.Updater` | Standalone updater exe (file replace + rollback) |
+| `WaBiBaBuSy.Common` | Small shared helpers (paths, IO, version, update) |
+| `WaBiBaBuSy.Tests` | xUnit tests incl. determinism guards |
+| `WaBiBaBuSy.Player.Image` | Legacy WPF image player — built and copied by the UI csproj, but not launched anywhere (not in the `.sln`) |
+| `WaBiBaBuSy.D2DTest` | Scratch D2D console test |
+
+Other: `TestScenarios/` (test-mode scenarios), `Installer/` (Inno Setup), `tools/`, `_archive/` (removed legacy GDI+ stack). Git-ignored: `publish/`, `packages/`, `Lively-reference/`, `.worktrees/`.
 
 ## Documentation Map
 
@@ -133,6 +152,9 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 ```bash
 dotnet restore && dotnet build
 dotnet run --project WaBiBaBuSy.UI
+dotnet test WaBiBaBuSy.Tests
+# test mode (exit 0 = pass, 1 = step failed, 2 = aborted / not enough clients)
+.\WaBiBaBuSy.UI.exe --test-run TestScenarios\smoke-local.json --exit
 ```
 
 **Server:** Tray icon → Start Server → Open Server Control Panel
@@ -140,7 +162,7 @@ dotnet run --project WaBiBaBuSy.UI
 
 ## Current Work (Priority Order)
 
-1. **E2E Multi-Client Testing** — follow `.docs/plans/2026-10-09-remote-session-runbook.md`: `TestScenarios/parity-matrix`, `clock-skew`, `showcase/events`, `sync-basic` on 2+ machines, then the hands-on checklist `.docs/plans/2026-10-04-manual-test-checklist.md` §5–§8 (ring, physical canvas, show events, show reliability, reconnection <5s); server-alone GUI checks §1–§3 any other day
+1. **E2E Multi-Client Testing** — follow `.docs/plans/2026-10-09-remote-session-runbook.md`: `TestScenarios/parity-matrix`, `clock-skew`, `showcase/events`, `sync-basic`, `recovery` (fault injection, added 2026-10-10) on 2+ machines, then the hands-on checklist `.docs/plans/2026-10-04-manual-test-checklist.md` §5–§8 (ring, physical canvas, show events, show reliability, reconnection <5s); server-alone GUI checks §1–§3 any other day
 2. **VALIDATE: File logging + Installer** — LogToFile at `%LOCALAPPDATA%\WaBiBaBuSy\Logs\`; clean Windows 10/11 install
 3. **Roadmap Tier 2** — 2.4 Portal + transitions (events done) → 2.3 scene layers (see `.docs/plans/2026-09-17-lan-party-roadmap.md`)
 
