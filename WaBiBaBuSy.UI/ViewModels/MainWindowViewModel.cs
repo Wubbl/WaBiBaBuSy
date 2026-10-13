@@ -753,6 +753,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                 break;
             case nameof(ServerPlaybackHost.IsStartingScene):
                 OnPropertyChanged(nameof(IsStartingScene));
+                StartCrossScreenCommand.NotifyCanExecuteChanged();
                 PlayOnSelectionCommand.NotifyCanExecuteChanged();
                 PlayOnAllCommand.NotifyCanExecuteChanged();
                 PlayPlainOnSelectionCommand.NotifyCanExecuteChanged();
@@ -1071,7 +1072,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         SelectedWallpaper != null && Clients.Any(c => c.IsSelected);
 
     private bool CanStartCrossScreen() =>
-        HasAnimationConfig && !IsCrossScreenRunning;
+        HasAnimationConfig && !IsCrossScreenRunning && !IsStartingScene;
 
     /// <summary>
     /// Toggles the debug overlay on/off via the ViewModel so the UI checkbox stays in sync.
@@ -1092,7 +1093,11 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
 
     /// <summary>Toolbar "Clear all": stop the show and the scene and every player on this machine.</summary>
     [RelayCommand]
-    private Task ClearAllWallpapers() => _server.ClearAllAsync();
+    private async Task ClearAllWallpapers()
+    {
+        await _server.WaitForStartAsync();   // a start in flight would otherwise come up after the clear
+        await _server.ClearAllAsync();
+    }
 
     [RelayCommand]
     private void SelectWallpaper(WallpaperItemViewModel wallpaper)
@@ -2271,13 +2276,26 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             OpenSceneEditor();
             return;
         }
-        SyncRoom();
-        await _server.StartSceneAsync(scene);
+        // Same Play guard as ▶ Play: a double click, or Start during a Play, would run two applies at once.
+        if (!_server.TryBeginStart()) return;
+        try
+        {
+            SyncRoom();
+            await _server.StartSceneAsync(scene);
+        }
+        finally
+        {
+            _server.EndStart();
+        }
     }
 
     /// <summary>Toolbar ■: stop the show and the running scene.</summary>
     [RelayCommand]
-    private Task StopCrossScreen() => _server.StopAsync();
+    private async Task StopCrossScreen()
+    {
+        await _server.WaitForStartAsync();   // stopping before the start registered its players would miss them
+        await _server.StopAsync();
+    }
 
     /// <summary>Start rotating the given playlist across all nodes (Playlist tab ▶).</summary>
     public void StartPlaylist(WaBiBaBuSy.Models.Wallpaper.Playlist playlist)

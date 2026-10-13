@@ -359,6 +359,19 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     public void EndStart() => IsStartingScene = false;
 
     /// <summary>
+    /// Stop / Clear all / Exit pressed while a start is in flight: wait for it (at most <paramref name="maxWait"/>), so
+    /// they act on its players instead of finding none and letting the scene start anyway. UI thread; never call
+    /// while holding the guard (it would wait for itself).
+    /// </summary>
+    // ponytail: 50 ms polling of a UI-thread flag; a TaskCompletionSource per start if this ever shows up in a profile.
+    public async Task WaitForStartAsync(TimeSpan? maxWait = null)
+    {
+        var deadline = DateTime.UtcNow + (maxWait ?? TimeSpan.FromSeconds(30));
+        while (IsStartingScene && DateTime.UtcNow < deadline)
+            await Task.Delay(50);
+    }
+
+    /// <summary>
     /// Play a scene: tears down a running show (its loop and its current item's players / remote nodes) or a
     /// running scene, then starts <paramref name="config"/> on its targets. The caller holds the Play guard.
     /// </summary>
@@ -574,6 +587,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     /// <summary>Exit: stop the show and every local player (no remote commands; the server stops next).</summary>
     public async Task ShutdownAsync()
     {
+        await WaitForStartAsync(TimeSpan.FromSeconds(10));   // a start finishing after this would orphan its players
+
         if (_playlistOrchestrator != null)
         {
             try { await _playlistOrchestrator.StopAsync(); }
@@ -1096,6 +1111,9 @@ public sealed partial class ServerPlaybackHost : ObservableObject
 
         var localClients = plan.Local;
         var remoteClients = plan.Remote;
+        await StopNodesOutsideAsync(localClients.Select(c => NodeIds.MonitorIndex(c.Node.Id)).ToHashSet(),
+            remoteClients.Select(c => c.Node.Id).ToHashSet());
+        lock (_seqLapLock) _lastGlobalLap = -1;   // a new scene counts its laps from the start
         var layout = plan.Layout;
         var effMovement = plan.EffectiveMovement;
         var effAnimation = plan.EffectiveAnimation;
@@ -1179,6 +1197,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         var newServices = new List<(int monitorIndex, D2DCompositionService service)>();
         var phase1Timer = System.Diagnostics.Stopwatch.StartNew();
 
+        try
+        {
         foreach (var planned in localClients)
         {
             var monitorIndex = NodeIds.MonitorIndex(planned.Node.Id);
@@ -1255,6 +1275,12 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             newServices.Add((monitorIndex, d2dService));
             Debug.WriteLine($"[CrossScreen] Monitor {monitorIndex} initialized (virtualOffsetX={virtualOffsetX}, vcw={layout.CanvasWidth})");
         }
+        }
+        catch
+        {
+            await DisposeUnstartedAsync(newServices);
+            throw;
+        }
 
         // Brief pause to let all players finish loading
         await Task.Delay(200);
@@ -1280,10 +1306,18 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         var isSequential = config.DistributionMode == AnimationDistributionMode.Sequential;
         Debug.WriteLine($"[CrossScreen] Starting {(isSequential ? "SEQUENTIAL (spanning)" : "SIMULTANEOUS (per-monitor)")} animation on {newServices.Count} monitors, timestamp={sharedStartTimestamp}ms, speed={pixelsPerSecond}px/s");
 
-        foreach (var (monitorIndex, d2dService) in newServices)
+        try
         {
-            await d2dService.StartAsync(startTimestampMs: sharedStartTimestamp, pixelsPerSecond: pixelsPerSecond);
-            _players[monitorIndex] = d2dService;
+            foreach (var (monitorIndex, d2dService) in newServices)
+            {
+                await d2dService.StartAsync(startTimestampMs: sharedStartTimestamp, pixelsPerSecond: pixelsPerSecond);
+                _players[monitorIndex] = d2dService;
+            }
+        }
+        catch
+        {
+            await DisposeUnstartedAsync(newServices);
+            throw;
         }
 
         // An event still running (e.g. across a playlist item switch) continues on the new players at its position.
@@ -1367,6 +1401,45 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             StartLeadMs = startLeadMs,
             SharedStartTimestampMs = sharedStartTimestamp
         };
+    }
+
+    /// <summary>
+    /// A failed apply: stop and dispose every player it created (registered or not), so no player process
+    /// is left running untracked; the scene then counts as not running.
+    /// </summary>
+    private async Task DisposeUnstartedAsync(List<(int monitorIndex, D2DCompositionService service)> created)
+    {
+        foreach (var (monitorIndex, service) in created)
+        {
+            _players.TryRemove(new KeyValuePair<int, D2DCompositionService>(monitorIndex, service));
+            service.GlobalLapCompleted -= OnSequentialLapCompleted;
+            try { await service.StopAsync(); } catch { /* never started */ }
+            try { service.Dispose(); } catch (Exception ex) { Debug.WriteLine($"[CrossScreen] Dispose after failed apply: {ex.Message}"); }
+        }
+    }
+
+    /// <summary>
+    /// Before an apply: stop what plays on nodes the new scene does not cover — local players on other
+    /// monitors, remote seats of the scene before it. A show item on fewer seats than the last one would
+    /// otherwise leave the old item running there while the room shows those seats as idle.
+    /// </summary>
+    private async Task StopNodesOutsideAsync(HashSet<int> localMonitors, HashSet<string> remoteIds)
+    {
+        foreach (var kvp in _players.ToArray())
+        {
+            if (localMonitors.Contains(kvp.Key) || !_players.TryRemove(kvp)) continue;
+            kvp.Value.GlobalLapCompleted -= OnSequentialLapCompleted;
+            try { await kvp.Value.StopAsync(); } catch (Exception ex) { Debug.WriteLine($"[CrossScreen] Stop monitor {kvp.Key}: {ex.Message}"); }
+            try { kvp.Value.Dispose(); } catch (Exception ex) { Debug.WriteLine($"[CrossScreen] Dispose monitor {kvp.Key}: {ex.Message}"); }
+        }
+
+        var previous = ActiveScene ?? LastScene;
+        if (previous == null || _service.SyncCoordinator == null || string.IsNullOrEmpty(_crossScreenContentId)) return;
+        foreach (var id in RemoteTargetIds(previous).Where(id => !remoteIds.Contains(id)))
+        {
+            try { await _service.SyncCoordinator.StopCrossScreenOnClientAsync(id, _crossScreenContentId); }
+            catch (Exception ex) { Debug.WriteLine($"[CrossScreen] Remote stop {id}: {ex.Message}"); }
+        }
     }
 
     /// <summary>
