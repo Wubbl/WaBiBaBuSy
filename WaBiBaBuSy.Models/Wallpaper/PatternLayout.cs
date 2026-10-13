@@ -118,15 +118,20 @@ public static class PatternLayout
         int monitorOffsetX, int srcCount,
         int cellLogicalOffsetI = 0)
     {
-        // Per-cell jitter uses the grid position (i, j) — stable regardless of scroll offset.
+        // LogicalI = i + offset — grows indefinitely in endless mode, so each cell keeps its identity (color,
+        // source image, jitter) while the grid scrolls. Equal to i whenever there is no offset.
+        int logicalI = i + cellLogicalOffsetI;
+
+        // Per-cell jitter follows the cell's identity (logicalI, j). Hashing the reset grid index i made every
+        // cell take its neighbour's jitter at each Endless step: the whole grid popped (review 2026-10-13 E6).
         float jitterX = 0f, jitterY = 0f, jitterRot = 0f;
         if (config.RandomOffsetMaxPx > 0f || config.RandomRotationMaxDeg > 0f)
         {
-            int hash = Hash3(config.Seed, i, j);
+            int hash = Hash3(config.Seed, logicalI, j);
             // Two independent uniform values in [-1, 1] from the hash bits
             float rx = (((hash & 0xFFFF) / 65535f) * 2f) - 1f;
             float ry = ((((hash >> 16) & 0xFFFF) / 65535f) * 2f) - 1f;
-            float rrot = (((Hash3(config.Seed ^ 0x55555555, i, j) & 0xFFFF) / 65535f) * 2f) - 1f;
+            float rrot = (((Hash3(config.Seed ^ 0x55555555, logicalI, j) & 0xFFFF) / 65535f) * 2f) - 1f;
             jitterX = rx * config.RandomOffsetMaxPx;
             jitterY = ry * config.RandomOffsetMaxPx;
             jitterRot = rrot * config.RandomRotationMaxDeg;
@@ -138,9 +143,6 @@ public static class PatternLayout
         float screenX = worldX - anchorX - monitorOffsetX + jitterX;
         float screenY = worldY - anchorY + jitterY;
 
-        // LogicalI = i + offset for color hashing — grows indefinitely in endless mode,
-        // ensuring each cell gets a unique color and never repeats on loop.
-        int logicalI = i + cellLogicalOffsetI;
         int sourceIdx = (int)((uint)Hash3(config.Seed, logicalI, j) % (uint)Math.Max(1, srcCount));
 
         result.Add(new PatternCell(screenX, screenY, jitterRot, sourceIdx, logicalI, j));
