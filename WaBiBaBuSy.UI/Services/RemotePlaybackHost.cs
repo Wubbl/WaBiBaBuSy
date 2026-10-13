@@ -32,6 +32,9 @@ public sealed class RemotePlaybackHost
     private readonly DesktopWindowManager _desktopManager;
     private readonly ConcurrentDictionary<int, D2DCompositionService> _players = new();
     private readonly ShowEventLog _showEvents = new();
+    // Apply / stop run on separate command tasks: one at a time, so two applies for one monitor cannot both
+    // create a player (one orphaned) and a stop cannot slip in before a running apply registers its player.
+    private readonly System.Threading.SemaphoreSlim _gate = new(1, 1);
 
     public RemotePlaybackHost(WaBiBaBuSyService service, DesktopWindowManager desktopManager)
     {
@@ -93,7 +96,40 @@ public sealed class RemotePlaybackHost
     /// Creates a D2D player on this client with the server-provided virtual canvas parameters
     /// so all nodes share the same coordinate space and start timestamp.
     /// </summary>
-    public async Task ApplyCrossScreenAsync(CrossScreenApplyRequest req)
+    public Task ApplyCrossScreenAsync(CrossScreenApplyRequest req) => SerializedAsync(() => ApplyCrossScreenCoreAsync(req));
+
+    /// <summary>
+    /// Stop delegate invoked when the server sends a Stop command for cross-screen D2D.
+    /// Tears down every player started by ApplyCrossScreenAsync / ApplyPlainAsync.
+    /// </summary>
+    public Task StopAllAsync() => SerializedAsync(StopAllCoreAsync);
+
+    /// <summary>
+    /// D2D apply delegate called when the server sends a D2D LOAD command to this client.
+    /// Creates a local D2DCompositionService and renders on this machine's desktop.
+    /// </summary>
+    public Task ApplyPlainAsync(string filePath, int monitorIndex, string backgroundColor, int fitMode) =>
+        SerializedAsync(() => ApplyPlainCoreAsync(filePath, monitorIndex, backgroundColor, fitMode));
+
+    private async Task SerializedAsync(Func<Task> action)
+    {
+        await _gate.WaitAsync();
+        try { await action(); }
+        finally { _gate.Release(); }
+    }
+
+    /// <summary>Initialize and start a new player; on failure it is disposed (its process would be orphaned otherwise).</summary>
+    private static async Task StartOrDisposeAsync(D2DCompositionService player, Func<Task> initAndStart)
+    {
+        try { await initAndStart(); }
+        catch
+        {
+            try { player.Dispose(); } catch { /* already broken */ }
+            throw;
+        }
+    }
+
+    private async Task ApplyCrossScreenCoreAsync(CrossScreenApplyRequest req)
     {
         var monitorIndex = req.MonitorIndex;
         Debug.WriteLine($"[D2D-CrossScreen] Received: file={req.FilePath}, monitor={monitorIndex}, canvas={req.VirtualCanvasWidth}px, offset={req.MonitorOffsetX}px, ts={req.SharedStartTimestampMs}ms, speed={req.PixelsPerSecond}px/s, perMonitor={req.PerMonitorMode}, movType={req.MovementType}");
@@ -185,36 +221,40 @@ public sealed class RemotePlaybackHost
             AppLogger.Factory,
             _desktopManager);
 
-        // Simultaneous (per-monitor) mode must NOT receive the spanning canvas
-        // overrides — the service derives canvas = this monitor's width, offset = 0,
-        // exactly like the local path does (see StartCrossScreenAnimation).
-        await d2dService.InitializeAsync(
-            canvasManager, backgroundConfig, animationConfig, actualBounds,
-            monitorIndex, movementConfig,
-            perMonitorMode: req.PerMonitorMode,
-            explicitVirtualCanvasWidth: req.PerMonitorMode ? null : req.VirtualCanvasWidth,
-            explicitMonitorOffsetX: req.PerMonitorMode ? null : req.MonitorOffsetX,
-            // 0 = older server that did not send a canvas height → fall back to this monitor's.
-            explicitVirtualCanvasHeight: req.PerMonitorMode || req.VirtualCanvasHeight <= 0 ? null : req.VirtualCanvasHeight,
-            explicitMonitorOffsetY: req.PerMonitorMode ? null : req.MonitorOffsetY,
-            nodeOrder: req.NodeOrder,
-            layout: req.PerMonitorMode ? null : remoteNodeLayout);
-
-        await Task.Delay(100);
-
         // Test mode (timecode / simulated skew) must reach a new player before its start command:
         // the skew shifts the player's clock, and the start is converted with the skewed offset.
         var testMode = _service.Client?.TestModeState ?? default;
-        if (testMode.Timecode || testMode.ClockSkewMs != 0)
-            await d2dService.SetTestModeAsync(testMode.Timecode, testMode.ClockSkewMs);
 
         // Same speed convention as the local start path: Static → 0.
         var pixelsPerSecond = movementConfig == null || movementConfig.Type == MovementType.Static
             ? 0
             : (int)movementConfig.SpeedPixelsPerSecond;
 
-        Debug.WriteLine($"[D2D-CrossScreen] Starting playback at ts={req.SharedStartTimestampMs}ms, speed={pixelsPerSecond}px/s");
-        await d2dService.StartAsync(startTimestampMs: req.SharedStartTimestampMs, pixelsPerSecond: pixelsPerSecond);
+        await StartOrDisposeAsync(d2dService, async () =>
+        {
+            // Simultaneous (per-monitor) mode must NOT receive the spanning canvas
+            // overrides — the service derives canvas = this monitor's width, offset = 0,
+            // exactly like the local path does (see StartCrossScreenAnimation).
+            await d2dService.InitializeAsync(
+                canvasManager, backgroundConfig, animationConfig, actualBounds,
+                monitorIndex, movementConfig,
+                perMonitorMode: req.PerMonitorMode,
+                explicitVirtualCanvasWidth: req.PerMonitorMode ? null : req.VirtualCanvasWidth,
+                explicitMonitorOffsetX: req.PerMonitorMode ? null : req.MonitorOffsetX,
+                // 0 = older server that did not send a canvas height → fall back to this monitor's.
+                explicitVirtualCanvasHeight: req.PerMonitorMode || req.VirtualCanvasHeight <= 0 ? null : req.VirtualCanvasHeight,
+                explicitMonitorOffsetY: req.PerMonitorMode ? null : req.MonitorOffsetY,
+                nodeOrder: req.NodeOrder,
+                layout: req.PerMonitorMode ? null : remoteNodeLayout);
+
+            await Task.Delay(100);
+
+            if (testMode.Timecode || testMode.ClockSkewMs != 0)
+                await d2dService.SetTestModeAsync(testMode.Timecode, testMode.ClockSkewMs);
+
+            Debug.WriteLine($"[D2D-CrossScreen] Starting playback at ts={req.SharedStartTimestampMs}ms, speed={pixelsPerSecond}px/s");
+            await d2dService.StartAsync(startTimestampMs: req.SharedStartTimestampMs, pixelsPerSecond: pixelsPerSecond);
+        });
 
         _players[monitorIndex] = d2dService;
         await ReplayEventsAsync(d2dService);
@@ -260,11 +300,7 @@ public sealed class RemotePlaybackHost
         }
     }
 
-    /// <summary>
-    /// Stop delegate invoked when the server sends a Stop command for cross-screen D2D.
-    /// Tears down every player started by ApplyCrossScreenAsync / ApplyPlainAsync.
-    /// </summary>
-    public async Task StopAllAsync()
+    private async Task StopAllCoreAsync()
     {
         Debug.WriteLine($"[D2D-CrossScreen] Stopping {_players.Count} remote D2D service(s)");
         foreach (var kvp in _players)
@@ -278,11 +314,7 @@ public sealed class RemotePlaybackHost
         Debug.WriteLine("[D2D-CrossScreen] All remote D2D services stopped");
     }
 
-    /// <summary>
-    /// D2D apply delegate called when the server sends a D2D LOAD command to this client.
-    /// Creates a local D2DCompositionService and renders on this machine's desktop.
-    /// </summary>
-    public async Task ApplyPlainAsync(string filePath, int monitorIndex, string backgroundColor, int fitMode)
+    private async Task ApplyPlainCoreAsync(string filePath, int monitorIndex, string backgroundColor, int fitMode)
     {
         Debug.WriteLine($"[D2D-Remote] ApplyD2DFromRemoteAsync called: file={filePath}, monitor={monitorIndex}, bg={backgroundColor}, fit={fitMode}");
 
@@ -345,17 +377,18 @@ public sealed class RemotePlaybackHost
             screen.Bounds.X, screen.Bounds.Y,
             screen.Bounds.Width, screen.Bounds.Height);
 
-        Debug.WriteLine($"[D2D-Remote] Initializing D2D service with bounds {actualBounds}");
-        await d2dService.InitializeAsync(canvasManager, backgroundConfig, animationConfig, actualBounds, monitorIndex);
-        await Task.Delay(100);
-
         // Same test-mode handling as the cross-screen path: state before the start, catch-up after registering.
         var testMode = _service.Client?.TestModeState ?? default;
-        if (testMode.Timecode || testMode.ClockSkewMs != 0)
-            await d2dService.SetTestModeAsync(testMode.Timecode, testMode.ClockSkewMs);
-
-        Debug.WriteLine($"[D2D-Remote] Starting D2D playback");
-        await d2dService.StartAsync(startTimestampMs: 0, pixelsPerSecond: 0);
+        await StartOrDisposeAsync(d2dService, async () =>
+        {
+            Debug.WriteLine($"[D2D-Remote] Initializing D2D service with bounds {actualBounds}");
+            await d2dService.InitializeAsync(canvasManager, backgroundConfig, animationConfig, actualBounds, monitorIndex);
+            await Task.Delay(100);
+            if (testMode.Timecode || testMode.ClockSkewMs != 0)
+                await d2dService.SetTestModeAsync(testMode.Timecode, testMode.ClockSkewMs);
+            Debug.WriteLine($"[D2D-Remote] Starting D2D playback");
+            await d2dService.StartAsync(startTimestampMs: 0, pixelsPerSecond: 0);
+        });
 
         _players[monitorIndex] = d2dService;
         await ReplayEventsAsync(d2dService);
