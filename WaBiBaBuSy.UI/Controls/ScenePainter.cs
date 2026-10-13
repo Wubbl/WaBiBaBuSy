@@ -152,15 +152,29 @@ public sealed partial class ScenePainter
         var (animW, animH) = SpriteSizeFor(scene, node);
         if (animW <= 0 || animH <= 0) return false;
 
-        var (vx, vy) = MovementCalculator.Calculate(scene.Movement, e, animW, animH, eff.CanvasWidth, eff.CanvasHeight,
-            tileAlignStepX: 0f, canvasWraps: eff.Wraps);
+        var grading = scene.Animation.ColorGrading;
+        bool traveling = grading != null && grading.Mode is ColorGradingMode.TravelingRainbow or ColorGradingMode.TravelingList or ColorGradingMode.TravelingRandom;
+
+        // Same position math as the players for Traveling + pattern: whole-cell loop snap, and in Endless mode the
+        // phase + cell offset split (review 2026-10-13 E10). The preview has one source, so the step is animW + spacing.
+        float tileStep = traveling && scene.Animation.Pattern != null ? animW + scene.Animation.Pattern.SpacingX : 0f;
+        int cellOffsetI = 0;
+        float vx, vy;
+        if (MovementCalculator.EndlessTravelingScroll(scene.Movement, e, tileStep) is { } endless)
+        {
+            vx = endless.X;
+            vy = scene.Movement.StartY ?? (eff.CanvasHeight - animH) / 2f;
+            cellOffsetI = endless.CellOffsetI;
+        }
+        else
+        {
+            (vx, vy) = MovementCalculator.Calculate(scene.Movement, e, animW, animH, eff.CanvasWidth, eff.CanvasHeight,
+                tileAlignStepX: tileStep, canvasWraps: eff.Wraps);
+        }
         float ly = NodeMapping.ToLocalY(vy, eff);
 
         var bg = scene.Background;
         ly = ClampCorridor(ly, bg, animH);
-
-        var grading = scene.Animation.ColorGrading;
-        bool traveling = grading != null && grading.Mode is ColorGradingMode.TravelingRainbow or ColorGradingMode.TravelingList or ColorGradingMode.TravelingRandom;
         Color? tint = null;
         if (grading != null && grading.Mode != ColorGradingMode.None && !traveling)
         {
@@ -171,7 +185,7 @@ public sealed partial class ScenePainter
         if (scene.Animation.Pattern != null)
         {
             var cells = PatternLayout.Compute(scene.Animation.Pattern, vx, ly, animW, animH,
-                eff.CanvasWidth, eff.CanvasHeight, eff.OffsetX, eff.Width, eff.Height, 1);
+                eff.CanvasWidth, eff.CanvasHeight, eff.OffsetX, eff.Width, eff.Height, 1, cellLogicalOffsetI: cellOffsetI);
             int stride = Math.Max(1, cells.Count / MaxPreviewCellsPerNode);
             double cw = Math.Max(2, animW * s), ch = Math.Max(2, animH * s);
             for (int i = 0; i < cells.Count; i += stride)

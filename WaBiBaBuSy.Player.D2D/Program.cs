@@ -2903,14 +2903,10 @@ partial class Program
             // Endless mode: separate motion into a small float phase + a growing integer cell offset.
             // phaseX stays in [0, stepX) so float precision is always perfect regardless of runtime.
             // LogicalI grows unboundedly → every new cell has a unique color, no loop reset ever visible.
-            if (_isTravelingMode && _tileAlignStepX > 0f
-                && _movementConfig.Endless && _movementConfig.Type == MovementType.Linear)
+            if (_isTravelingMode && MovementCalculator.EndlessTravelingScroll(_movementConfig, elapsedMs, _tileAlignStepX) is { } endless)
             {
-                double scrolledD = (double)elapsedMs * _movementConfig.SpeedPixelsPerSecond / 1000.0;
-                long scrolledCells = (long)(scrolledD / _tileAlignStepX);
-                float phaseX = (float)(scrolledD - (double)scrolledCells * _tileAlignStepX);
-                _endlessCellOffsetI = _movementConfig.Reversed ? -(int)scrolledCells : (int)scrolledCells;
-                float vx = _movementConfig.Reversed ? -phaseX : phaseX;
+                _endlessCellOffsetI = endless.CellOffsetI;
+                float vx = endless.X;
                 _animVirtualX = vx;
                 _animX = NodeMapping.ToLocalX(vx, _animWidth, _layout);
                 _animY = (_movementConfig.StartY ?? (_virtualCanvasHeight - _animHeight) / 2f) - _canvasOffsetY;

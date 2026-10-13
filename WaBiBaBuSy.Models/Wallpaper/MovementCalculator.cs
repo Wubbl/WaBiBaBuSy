@@ -18,6 +18,21 @@ public static class MovementCalculator
         => backgroundMode == BackgroundMode.IconZone && movement?.Type != MovementType.Static;
 
     /// <summary>
+    /// Endless Linear with a Traveling color pattern: the grid scrolls forever, so the position is split into a
+    /// small phase in [0, tileStepX) (float-exact at any runtime) and a growing whole-cell offset that keeps every
+    /// cell's identity (color, image, jitter). Null when that mode does not apply. Shared by the players and the
+    /// room preview so both draw the same cells (review 2026-10-13 E10).
+    /// </summary>
+    public static (float X, int CellOffsetI)? EndlessTravelingScroll(MovementConfig config, long elapsedMs, float tileStepX)
+    {
+        if (tileStepX <= 0f || !config.Endless || config.Type != MovementType.Linear) return null;
+        double scrolledD = (double)elapsedMs * config.SpeedPixelsPerSecond / 1000.0;
+        long scrolledCells = (long)(scrolledD / tileStepX);
+        float phaseX = (float)(scrolledD - (double)scrolledCells * tileStepX);
+        return config.Reversed ? (-phaseX, -(int)scrolledCells) : (phaseX, (int)scrolledCells);
+    }
+
+    /// <summary>
     /// Calculate animation position in virtual canvas coordinates.
     /// </summary>
     /// <param name="config">Movement configuration</param>
