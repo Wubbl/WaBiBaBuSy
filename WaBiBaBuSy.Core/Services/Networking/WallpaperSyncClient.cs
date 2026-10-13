@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Common.IO;
 using WaBiBaBuSy.Grpc;
 using WaBiBaBuSy.Models.Configuration;
+using WaBiBaBuSy.Models.Content;
 using WaBiBaBuSy.Models.Networking;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -626,93 +627,6 @@ public class WallpaperSyncClient : IDisposable
     }
 
     /// <summary>
-    /// Transfer a content file to the server
-    /// </summary>
-    public async Task<bool> TransferContentAsync(string filePath, string contentId, int chunkSizeBytes = 1024 * 1024)
-    {
-        if (_client == null || !IsConnected)
-        {
-            _logger.LogWarning("Cannot transfer content - not connected");
-            return false;
-        }
-
-        if (!File.Exists(filePath))
-        {
-            _logger.LogError("File not found: {FilePath}", filePath);
-            return false;
-        }
-
-        try
-        {
-            var fileInfo = new FileInfo(filePath);
-            var filename = fileInfo.Name;
-            var fileSize = fileInfo.Length;
-            var totalChunks = (int)Math.Ceiling((double)fileSize / chunkSizeBytes);
-
-            _logger.LogInformation("Starting content transfer: {Filename} ({FileSize} bytes, {TotalChunks} chunks)",
-                filename, fileSize, totalChunks);
-
-            // Compute file hash
-            var fileHash = await ComputeFileHashAsync(filePath);
-
-            // Start streaming call
-            using var call = _client.TransferContent();
-
-            // Read and send chunks
-            await using var fileStream = File.OpenRead(filePath);
-            var buffer = new byte[chunkSizeBytes];
-            int chunkIndex = 0;
-
-            while (true)
-            {
-                var bytesRead = await fileStream.ReadAsync(buffer);
-                if (bytesRead == 0)
-                    break;
-
-                var chunk = new ContentChunk
-                {
-                    ContentId = contentId,
-                    Filename = filename,
-                    TotalSize = fileSize,
-                    ChunkIndex = chunkIndex,
-                    TotalChunks = totalChunks,
-                    Data = ByteString.CopyFrom(buffer, 0, bytesRead),
-                    Hash = fileHash
-                };
-
-                await call.RequestStream.WriteAsync(chunk);
-
-                _logger.LogDebug("Sent chunk {ChunkIndex}/{TotalChunks} ({BytesRead} bytes)",
-                    chunkIndex, totalChunks, bytesRead);
-
-                chunkIndex++;
-            }
-
-            // Complete the request
-            await call.RequestStream.CompleteAsync();
-
-            // Get response
-            var response = await call.ResponseAsync;
-
-            if (response.Success)
-            {
-                _logger.LogInformation("Content transfer completed successfully: {Filename}", filename);
-                return true;
-            }
-            else
-            {
-                _logger.LogError("Content transfer failed: {Message}", response.Message);
-                return false;
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error transferring content");
-            return false;
-        }
-    }
-
-    /// <summary>
     /// Download content from server by content ID.
     /// Saves to the specified cache directory and returns the local file path.
     /// </summary>
@@ -733,53 +647,63 @@ public class WallpaperSyncClient : IDisposable
             var request = new ContentDownloadRequest { ContentId = contentId };
             using var call = _client.DownloadContent(request);
 
-            string? filename = null;
+            // Chunks stream straight into a temp file (no whole-video buffer in memory); the server sends them
+            // in order. The file only reaches its cache path after the hash matched, so a half-written or
+            // corrupt download is never seen by a cache lookup.
+            string? filePath = null;
             string? fileHash = null;
-            var chunks = new List<ContentChunk>();
-
-            await foreach (var chunk in call.ResponseStream.ReadAllAsync())
+            string tempPath = Path.Combine(cacheDirectory, $".download-{Guid.NewGuid():N}.part");
+            int expectedChunk = 0;
+            try
             {
-                filename ??= chunk.Filename;
-                fileHash ??= chunk.Hash;
-                chunks.Add(chunk);
-
-                _logger.LogDebug("Received chunk {ChunkIndex}/{TotalChunks} for {ContentId}",
-                    chunk.ChunkIndex, chunk.TotalChunks, contentId);
-            }
-
-            if (chunks.Count == 0 || filename == null)
-            {
-                _logger.LogError("No data received for content {ContentId}", contentId);
-                return null;
-            }
-
-            // Sort chunks and write to file
-            var sortedChunks = chunks.OrderBy(c => c.ChunkIndex).ToList();
-            var filePath = Path.Combine(cacheDirectory, filename);
-
-            await using (var fileStream = File.Create(filePath))
-            {
-                foreach (var chunk in sortedChunks)
+                await using (var tempStream = File.Create(tempPath))
                 {
-                    await fileStream.WriteAsync(chunk.Data.ToByteArray());
+                    await foreach (var chunk in call.ResponseStream.ReadAllAsync())
+                    {
+                        if (filePath == null)
+                        {
+                            fileHash = chunk.Hash;
+                            filePath = ContentIdentity.CachePath(cacheDirectory, chunk.Filename, fileHash);
+                            if (filePath == null)
+                            {
+                                _logger.LogError("Content {ContentId} rejected: unusable file name {Name} or hash {Hash}", contentId, chunk.Filename, chunk.Hash);
+                                return null;
+                            }
+                        }
+                        if (chunk.ChunkIndex != expectedChunk++)
+                        {
+                            _logger.LogError("Content {ContentId}: chunk {Index} out of order", contentId, chunk.ChunkIndex);
+                            return null;
+                        }
+                        chunk.Data.WriteTo(tempStream);
+                    }
                 }
-            }
 
-            // Verify hash
-            if (!string.IsNullOrEmpty(fileHash))
-            {
-                var actualHash = await ComputeFileHashAsync(filePath);
+                if (filePath == null)
+                {
+                    _logger.LogError("No data received for content {ContentId}", contentId);
+                    return null;
+                }
+
+                var actualHash = await ComputeFileHashAsync(tempPath);
                 if (!actualHash.Equals(fileHash, StringComparison.OrdinalIgnoreCase))
                 {
                     _logger.LogError("Hash mismatch for content {ContentId}. Expected: {Expected}, Actual: {Actual}",
                         contentId, fileHash, actualHash);
-                    File.Delete(filePath);
                     return null;
                 }
+
+                // Same hash folder + name = same bytes: a file already there (maybe open in a player) is kept.
+                Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+                if (!File.Exists(filePath)) File.Move(tempPath, filePath);
+            }
+            finally
+            {
+                try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { /* best effort */ }
             }
 
             _logger.LogInformation("Content {ContentId} downloaded successfully: {FilePath} ({Chunks} chunks)",
-                contentId, filePath, chunks.Count);
+                contentId, filePath, expectedChunk);
 
             // Add to local wallpaper gallery so it appears in the UI
             try

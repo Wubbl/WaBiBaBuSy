@@ -12,6 +12,27 @@ public class ContentIdentityTests : IDisposable
     public ContentIdentityTests() => Directory.CreateDirectory(_dir);
     public void Dispose() { try { Directory.Delete(_dir, true); } catch { } }
 
+    private static readonly string Hash = new string('a', 32) + new string('b', 32);
+
+    [Theory]   // review 2026-10-13 B2 / E2: the server-sent name can never leave the cache, same names never collide
+    [InlineData("bg.png", @"C:\cache\aaaaaaaaaaaaaaaa\bg.png")]
+    [InlineData(@"..\..\Startup\x.exe", @"C:\cache\aaaaaaaaaaaaaaaa\x.exe")]
+    [InlineData("../../x.exe", @"C:\cache\aaaaaaaaaaaaaaaa\x.exe")]
+    [InlineData(@"C:\Windows\evil.dll", @"C:\cache\aaaaaaaaaaaaaaaa\evil.dll")]
+    [InlineData("..", null)]
+    [InlineData(@"dir\", null)]
+    [InlineData("", null)]
+    public void CachePath_KeepsOnlyTheBareName_UnderTheHashFolder(string serverName, string? expected) =>
+        Assert.Equal(expected, ContentIdentity.CachePath(@"C:\cache", serverName, Hash));
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(null)]
+    [InlineData("abc")]                                                                   // too short
+    [InlineData("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")]      // not hex
+    public void CachePath_RejectsAMissingOrMalformedHash(string? hash) =>
+        Assert.Null(ContentIdentity.CachePath(@"C:\cache", "bg.png", hash));
+
     [Fact]
     public void Format_IsNamePlus16HexLower()
     {

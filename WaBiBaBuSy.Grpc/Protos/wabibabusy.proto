@@ -16,9 +16,6 @@ service WallpaperSync {
   // Client sends responses/status, server sends commands
   rpc SyncStream(stream SyncResponse) returns (stream SyncCommand);
 
-  // Content transfer (chunked file streaming)
-  rpc TransferContent(stream ContentChunk) returns (TransferStatus);
-
   // Network topology
   rpc GetTopology(TopologyRequest) returns (TopologyResponse);
   rpc UpdateClientOrder(ClientOrderUpdate) returns (OrderUpdateResponse);
@@ -223,7 +220,7 @@ message SyncResponse {
   WallpaperStateEnum state = 6;
 }
 
-// Content chunk for file transfer
+// Content chunk: DownloadContent streams these server → client
 message ContentChunk {
   string content_id = 1;
   string filename = 2;
@@ -232,14 +229,6 @@ message ContentChunk {
   int32 total_chunks = 5;
   bytes data = 6;
   string hash = 7; // SHA-256 hash of complete file
-}
-
-// Transfer status response
-message TransferStatus {
-  bool success = 1;
-  string message = 2;
-  int32 chunks_received = 3;
-  int32 total_chunks = 4;
 }
 
 // Topology request

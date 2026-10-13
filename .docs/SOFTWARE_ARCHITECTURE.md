@@ -260,7 +260,10 @@ Main Process (WaBiBaBuSy.UI)              Player Process (Player.D2D)
 | `RegisterClient` | Client → Server | Registration with version info |
 | `Heartbeat` | Bidirectional | 5s health checks |
 | `SyncStream` | Server → Client | LOAD, PLAY, PAUSE, SEEK, STOP commands |
-| `TransferContent` | Server → Client | Chunked file transfer + SHA-256 |
+| `DownloadContent` | Server → Client | Scene assets by content id, chunked + SHA-256 (client stores `{cache}\{hash16}\{name}`) |
+| `SendThumbnail` | Client → Server | Wallpaper thumbnail for the room view |
+| `SendClientLogs` | Client → Server | Log upload on FETCH_LOGS |
+| `SubmitProbeResult` | Client → Server | Test-mode probe replies + captures |
 | `GetTopology` | Client → Server | Network topology query |
 | `UpdateClientOrder` | Client → Server | Topology reordering |
 | `CheckForUpdates` | Client → Server | Version check |

@@ -31,7 +31,7 @@ public class LoggingConfiguration
     /// <summary>Animation system (AnimationDistributor, Orchestrator)</summary>
     public bool LogAnimation { get; set; } = false;
 
-    /// <summary>File transfer (UpdateDownloader, UpdateVerifier, TransferContent)</summary>
+    /// <summary>File transfer (UpdateDownloader, UpdateVerifier, DownloadContent)</summary>
     public bool LogFileTransfer { get; set; } = false;
 
     // ── Advanced ─────────────────────────────────────────────────────────────

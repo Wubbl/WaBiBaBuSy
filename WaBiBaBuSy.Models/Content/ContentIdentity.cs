@@ -47,6 +47,22 @@ public static class ContentIdentity
         return $"{fileName}-{hex[..Math.Min(HashPrefixLength, hex.Length)].ToLowerInvariant()}";
     }
 
+    /// <summary>
+    /// Where a downloaded file goes in the client cache: <c>{cache}\{first 16 hex of its SHA-256}\{bare file name}</c>.
+    /// The hash folder keeps two same-named files of different content apart; the bare name keeps the
+    /// extension (player type) and a readable gallery entry. Null when the server's name or hash is unusable:
+    /// the name is reduced to its last segment, so <c>..\..\x.exe</c> or an absolute path can never leave the cache.
+    /// </summary>
+    public static string? CachePath(string cacheDirectory, string? serverFileName, string? sha256Hex)
+    {
+        if (string.IsNullOrEmpty(sha256Hex) || sha256Hex.Length != 64) return null;
+        foreach (var c in sha256Hex)
+            if (!Uri.IsHexDigit(c)) return null;
+        var name = Path.GetFileName((serverFileName ?? string.Empty).Replace('/', '\\'));
+        if (name.Length == 0 || name is "." or ".." || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return null;
+        return Path.Combine(cacheDirectory, sha256Hex[..HashPrefixLength].ToLowerInvariant(), name);
+    }
+
     /// <summary>True when the id carries a hash suffix (i.e. was produced by <see cref="ComputeId"/>).</summary>
     public static bool HasHash(string contentId)
     {

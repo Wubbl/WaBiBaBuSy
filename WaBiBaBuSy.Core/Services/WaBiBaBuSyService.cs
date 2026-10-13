@@ -567,20 +567,6 @@ public class WaBiBaBuSyService : IDisposable
     }
 
     /// <summary>
-    /// Transfer content file to server (when in client mode)
-    /// </summary>
-    public async Task<bool> TransferContentToServerAsync(string filePath, string contentId)
-    {
-        if (_client == null || !IsClientConnected)
-        {
-            _logger.LogWarning("Cannot transfer content - not connected to server");
-            return false;
-        }
-
-        return await _client.TransferContentAsync(filePath, contentId);
-    }
-
-    /// <summary>
     /// Register content for wallpaper playback (when in client mode)
     /// </summary>
     public void RegisterWallpaperContent(string contentId, string localFilePath)
