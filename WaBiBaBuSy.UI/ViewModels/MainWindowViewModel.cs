@@ -1868,7 +1868,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     {
         // Don't overwrite order while a reorder operation is in flight
         if (_isReorderingInProgress) return;
-        if (Interlocked.CompareExchange(ref _refreshRunning, 1, 0) != 0) return;
+        if (System.Threading.Interlocked.CompareExchange(ref _refreshRunning, 1, 0) != 0) return;
 
         try
         {
@@ -1963,7 +1963,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         }
         finally
         {
-            Interlocked.Exchange(ref _refreshRunning, 0);
+            System.Threading.Interlocked.Exchange(ref _refreshRunning, 0);
         }
     }
 
