@@ -177,6 +177,11 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     // amplitude) are carried through from here, so editing a scene never resets them.
     private SpriteEffectsForm _loadedEffects = SpriteEffectsForm.From(null);
 
+    // Fields of a loaded scene the editor has no control for (explicit start / end / orbit points, centered start):
+    // carried through BuildConfig so "Update loaded item" / save as preset keeps them (review 2026-10-13 E9).
+    private MovementConfig? _loadedMovement;
+    private bool _loadedCenterInitialPosition;
+
     /// <summary>The Effects tab as a config; null when nothing is enabled (keeps saved scenes unchanged).</summary>
     private SpriteEffectsConfig? BuildEffects()
     {
@@ -496,6 +501,9 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         SpeedMultiplier = config.Animation.SpeedMultiplier;
         FaceTravelDirection = config.Animation.FaceTravelDirection;
 
+        _loadedMovement = config.Movement;
+        _loadedCenterInitialPosition = config.Animation.CenterInitialPosition;
+
         var fx = _loadedEffects = SpriteEffectsForm.From(config.Animation.Effects);
         TrailEnabled = fx.TrailEnabled;
         TrailCount = fx.TrailCount;
@@ -664,9 +672,16 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                 IterationStepCount = RandomWalkIterationSteps,
                 Reversed = IsMovementReversed,
                 Endless = IsMovementEndless,
-                NodePhaseDelayMs = Math.Max(0, NodePhaseDelayMs)
+                NodePhaseDelayMs = Math.Max(0, NodePhaseDelayMs),
+                StartX = _loadedMovement?.StartX,
+                StartY = _loadedMovement?.StartY,
+                EndX = _loadedMovement?.EndX,
+                EndY = _loadedMovement?.EndY,
+                OrbitCenterX = _loadedMovement?.OrbitCenterX,
+                OrbitCenterY = _loadedMovement?.OrbitCenterY,
             }
         };
+        config.Animation.CenterInitialPosition = _loadedCenterInitialPosition;
         PhysicalUnits.ApplyRoomUnits(config, UsePhysicalUnits);
         return config;
     }
