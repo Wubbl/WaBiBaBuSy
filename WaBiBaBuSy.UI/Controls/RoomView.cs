@@ -230,7 +230,9 @@ public partial class RoomView : Control
         _timer ??= new DispatcherTimer(TimeSpan.FromMilliseconds(33), DispatcherPriority.Render, (_, _) =>
         {
             if (_gesture == Gesture.DraggingTile) AutoScrollTick();
-            if (IsEffectivelyVisible && (_gesture != Gesture.None || (ScenePainter.HasSprite(Scene) && AnyTileAnimating())))
+            // A minimized window still reports IsEffectivelyVisible: skip the 30 fps repaint then (review 2026-10-13 E17).
+            bool minimized = TopLevel.GetTopLevel(this) is Window { WindowState: WindowState.Minimized };
+            if (IsEffectivelyVisible && !minimized && (_gesture != Gesture.None || (ScenePainter.HasSprite(Scene) && AnyTileAnimating())))
                 InvalidateVisual();
         });
         _timer.Start();
