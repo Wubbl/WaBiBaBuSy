@@ -1114,6 +1114,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         await StopNodesOutsideAsync(localClients.Select(c => NodeIds.MonitorIndex(c.Node.Id)).ToHashSet(),
             remoteClients.Select(c => c.Node.Id).ToHashSet());
         lock (_seqLapLock) _lastGlobalLap = -1;   // a new scene counts its laps from the start
+        _activeSceneHasRemotes = remoteClients.Count > 0;
         var layout = plan.Layout;
         var effMovement = plan.EffectiveMovement;
         var effAnimation = plan.EffectiveAnimation;
@@ -1485,6 +1486,9 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     /// Called by each D2DCompositionService when a global lap completes in sequential IconZone mode.
     /// Recomputes the A* path with a new variation seed and broadcasts it to all players.
     /// </summary>
+    /// <summary>The running scene also plays on remote clients (set per apply).</summary>
+    private volatile bool _activeSceneHasRemotes;
+
     private void OnSequentialLapCompleted(object? sender, int lapNum)
     {
         lock (_seqLapLock)
@@ -1498,6 +1502,16 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         if (LastScene?.Animation.Pattern != null
             && LastScene.Background.Mode == BackgroundMode.IconZone)
         {
+            return;
+        }
+
+        // Review 2026-10-13 E5: the new path only reaches this machine's players (remotes keep the path they got
+        // with the scene), and each player switches when its message arrives — the wall would split into two
+        // routes. With remote seats in the scene, keep the one shared path for the whole show.
+        // ponytail: per-lap variation with remotes needs the path in a timed command (lap boundary as T0).
+        if (_activeSceneHasRemotes)
+        {
+            Debug.WriteLine($"[SeqPath] Lap {lapNum}: remote seats in the scene — keeping the shared path");
             return;
         }
 
