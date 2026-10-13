@@ -52,6 +52,8 @@ Trust model: anything that can answer as "the server" (rogue LAN host, MITM) is 
 
 ### Batch C — command ordering & lifecycle races (one recurring pattern: start/stop/apply not serialized)
 
+**Status 2026-10-13: C1–C11 fixed** on `fix/review-batch-a` (951 tests green). Unit-tested: C1 (newest LOAD/STOP wins), C5 (Stop vs new Start), C8 (stalled client write timeout), C11. Build-verified only (need the real app / 2 machines): C2, C3, C6 (server host), C4 (client host), C7 (sweep compare-and-remove), C8 keep-alive + parallel sends, C9 (disconnect while reconnecting), C10 (single instance: a second launch prints a message and exits 2).
+
 | # | Sev | Finding | Where |
 |---|---|---|---|
 | C1 | HIGH | Client runs each sync command in its own `Task.Run`; STOP during a LOAD download, or two LOADs, finish out of order → stopped/old scene comes back [P2,P4] | `WallpaperPlaybackService.cs:210-225` |

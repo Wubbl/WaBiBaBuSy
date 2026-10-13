@@ -13,12 +13,23 @@ sealed class Program
     public static int Main(string[] args)
     {
         CliConsole.Initialize();
+        // One instance per user session: a second one would kill the first one's players at startup
+        // (orphan cleanup), fight over the server port and the hotkeys, and repaint the desktop.
+        using var instance = new System.Threading.Mutex(initiallyOwned: true, SingleInstanceMutexName, out bool firstInstance);
+        if (!firstInstance)
+        {
+            CliConsole.WriteLine("WaBiBaBuSy is already running (tray icon). Close it first, or run tests from its Developer tools.", error: true);
+            return 2;   // = "could not run" for --test-run --exit
+        }
         var options = StartupOptions.Parse(args);
         foreach (var warning in options.Warnings)
             CliConsole.WriteLine($"WaBiBaBuSy: {warning} ({StartupOptions.Usage})", error: true);
         // The lifetime returns the code passed to Shutdown(): --test-run --exit relies on it (0 / 1 / 2).
         return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }
+
+    /// <summary>Per-session (Local\) name; also usable as the installer's AppMutex.</summary>
+    public const string SingleInstanceMutexName = @"Local\WaBiBaBuSy.UI";
 
     // Avalonia configuration, don't remove; also used by visual designer.
     public static AppBuilder BuildAvaloniaApp()
