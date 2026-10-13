@@ -326,6 +326,10 @@ public class WaBiBaBuSyService : IDisposable
             _logger.LogWarning("Client is already connected");
             return true;
         }
+        // A client that is reconnecting (not "connected" right now) still exists: end it first, or a second
+        // client with the same persistent id would register and the two would keep kicking each other off.
+        if (_client != null || _playbackService != null)
+            await DisconnectFromServerAsync();
 
         try
         {
@@ -367,6 +371,14 @@ public class WaBiBaBuSyService : IDisposable
                 IsClientMode = true;
                 _logger.LogInformation("Client mode started successfully");
             }
+            else
+            {
+                // Nothing to keep from a failed connect (its channel would otherwise leak until the next attempt).
+                _client.ConnectionStatusChanged -= OnClientConnectionStatusChanged;
+                _client.UpdateAvailable -= OnUpdateAvailable;
+                _client.Dispose();
+                _client = null;
+            }
 
             return connected;
         }
@@ -382,7 +394,9 @@ public class WaBiBaBuSyService : IDisposable
     /// </summary>
     public async Task DisconnectFromServerAsync()
     {
-        if (!IsClientConnected)
+        // Not "if not connected": during a reconnect the client is not connected but its loop runs, and a
+        // Disconnect then must stop it (it used to be ignored and the client came back on its own).
+        if (_client == null && _playbackService == null)
         {
             return;
         }

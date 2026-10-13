@@ -231,6 +231,9 @@ public class WallpaperSyncClient : IDisposable
 
         if (!IsConnected)
         {
+            // Between reconnect attempts (or after a failed connect) a channel may still exist: close it, so
+            // a later ConnectAsync never finds the old loop's state alive.
+            await TeardownChannelAsync();
             return;
         }
 
