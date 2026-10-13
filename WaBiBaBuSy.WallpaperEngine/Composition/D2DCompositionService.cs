@@ -28,7 +28,15 @@ public class D2DCompositionService : IDisposable, ITestProbeTarget
     private BackgroundLayerConfig? _backgroundConfig;
     private AnimationLayerConfig? _animationConfig;
     private MovementConfig? _movementConfig;
-    private readonly Dictionary<int, D2DPlayerHost> _playerHosts = new();
+    // Concurrent: a respawn (thread pool) replaces a host while the owner's thread enumerates them.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, D2DPlayerHost> _playerHosts = new();
+    // What a respawned player needs to come back exactly where it was (review D3): the shared start makes it
+    // compute the same position as before, so it rejoins the wall in step.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, (ScreenMapping Screen, Rectangle Bounds, PlayerCommandLoadAnimation Load)> _hostSetup = new();
+    private (long StartTimestampMs, int PixelsPerSecond)? _lastStart;
+    private (bool Timecode, int ClockSkewMs) _lastTestMode;
+    private readonly Queue<DateTime> _respawns = new();
+    private volatile bool _disposing;
     private bool _disposed;
     private bool _isRunning;
     private int _monitorIndex;
@@ -56,6 +64,7 @@ public class D2DCompositionService : IDisposable, ITestProbeTarget
     /// <inheritdoc />
     public async Task SetTestModeAsync(bool timecode, int clockSkewMs)
     {
+        _lastTestMode = (timecode, clockSkewMs);
         foreach (var host in _playerHosts.Values)
         {
             if (!host.IsRunning) continue;
@@ -150,37 +159,6 @@ public class D2DCompositionService : IDisposable, ITestProbeTarget
         // Create D2D player hosts for each screen
         foreach (var screen in canvasManager.ScreenMappings)
         {
-            _logger.LogInformation("Creating D2D player host for screen {Order}", screen.Order);
-
-            var playerHost = new D2DPlayerHost(
-                screen,
-                _loggerFactory.CreateLogger<D2DPlayerHost>(),
-                _desktopWindowManager,
-                actualMonitorBounds);
-
-            // Propagate StaticMode setting to player host
-            playerHost.StaticMode = StaticMode;
-
-            await playerHost.InitializeAsync(cancellationToken);
-
-            _playerHosts[screen.Order] = playerHost;
-
-            // No explicit unsubscribe needed: playerHost lifetime is bounded by this service's Dispose,
-            // which disposes all hosts. The lambda captures 'this' but cannot outlive the service.
-            playerHost.LapCompleted += (_, lapNum) =>
-            {
-                bool shouldFire;
-                lock (_lapLock)
-                {
-                    shouldFire = lapNum > _lastBroadcastLap;
-                    if (shouldFire) _lastBroadcastLap = lapNum;
-                }
-                if (shouldFire)
-                    GlobalLapCompleted?.Invoke(this, lapNum);
-            };
-
-            _logger.LogInformation("Sending animation metadata to player {Order}", screen.Order);
-
             // Send LOAD_ANIMATION command with metadata
             // In per-monitor (simultaneous) mode: each player is its own independent canvas
             // In spanning (sequential) mode: players share a virtual canvas with offset
@@ -213,10 +191,95 @@ public class D2DCompositionService : IDisposable, ITestProbeTarget
                 IconZoneExpansionPx = maskZones ? backgroundConfig.IconZoneExpansionPx : 0
             };
 
-            await playerHost.SendLoadAnimationAsync(loadCmd);
+            _hostSetup[screen.Order] = (screen, actualMonitorBounds, loadCmd);
+            await CreateAndLoadHostAsync(screen.Order, cancellationToken);
         }
 
         _logger.LogInformation("D2D composition service initialized successfully (metadata sent to all players)");
+    }
+
+    /// <summary>Spawn the player for <paramref name="order"/>, parent it, and send its LOAD (from <see cref="_hostSetup"/>).</summary>
+    private async Task<D2DPlayerHost> CreateAndLoadHostAsync(int order, CancellationToken cancellationToken)
+    {
+        var (screen, bounds, loadCmd) = _hostSetup[order];
+        _logger.LogInformation("Creating D2D player host for screen {Order}", order);
+
+        var playerHost = new D2DPlayerHost(
+            screen,
+            _loggerFactory.CreateLogger<D2DPlayerHost>(),
+            _desktopWindowManager,
+            bounds);
+
+        // Propagate StaticMode setting to player host
+        playerHost.StaticMode = StaticMode;
+
+        await playerHost.InitializeAsync(cancellationToken);
+
+        _playerHosts[order] = playerHost;
+
+        // No explicit unsubscribe needed: playerHost lifetime is bounded by this service's Dispose,
+        // which disposes all hosts. The lambda captures 'this' but cannot outlive the service.
+        playerHost.LapCompleted += (_, lapNum) =>
+        {
+            bool shouldFire;
+            lock (_lapLock)
+            {
+                shouldFire = lapNum > _lastBroadcastLap;
+                if (shouldFire) _lastBroadcastLap = lapNum;
+            }
+            if (shouldFire)
+                GlobalLapCompleted?.Invoke(this, lapNum);
+        };
+        playerHost.PlayerExitedUnexpectedly += (_, _) => _ = Task.Run(() => RespawnAsync(order, playerHost));
+
+        _logger.LogInformation("Sending animation metadata to player {Order}", order);
+        await playerHost.SendLoadAnimationAsync(loadCmd);
+        return playerHost;
+    }
+
+    /// <summary>
+    /// A player died on its own (crash, explorer restart took its window): start a new one with the same LOAD and,
+    /// if the scene was running, the same shared start — it rejoins in step. At most 3 respawns a minute per
+    /// service, so a player that crashes on load does not loop forever.
+    /// </summary>
+    // ponytail: show events that were running and the thumbnail window handle are not handed to the new player.
+    private async Task RespawnAsync(int order, D2DPlayerHost dead)
+    {
+        if (_disposing || _disposed || !_playerHosts.TryGetValue(order, out var current) || !ReferenceEquals(current, dead)) return;
+        lock (_respawns)
+        {
+            var now = DateTime.UtcNow;
+            while (_respawns.Count > 0 && now - _respawns.Peek() > TimeSpan.FromMinutes(1)) _respawns.Dequeue();
+            if (_respawns.Count >= 3)
+            {
+                _logger.LogError("Player {Order} died again: 3 respawns in the last minute, giving up", order);
+                return;
+            }
+            _respawns.Enqueue(now);
+        }
+
+        _logger.LogWarning("Player {Order} exited unexpectedly — respawning", order);
+        try { dead.Dispose(); } catch (Exception ex) { _logger.LogDebug(ex, "Disposing the dead player host"); }
+        try
+        {
+            await Task.Delay(1000);   // explorer may be restarting; ParentToDesktopAsync also retries
+            if (_disposing || _disposed) return;
+            var host = await CreateAndLoadHostAsync(order, CancellationToken.None);
+            if (_lastTestMode.Timecode || _lastTestMode.ClockSkewMs != 0)
+                await host.SendTestModeAsync(_lastTestMode.Timecode, _lastTestMode.ClockSkewMs);
+            if (_isRunning && _lastStart is { } start)
+                await host.SendStartAnimationAsync(new PlayerCommandStartAnimation
+                {
+                    StartTimestampMs = start.StartTimestampMs,
+                    PixelsPerSecond = start.PixelsPerSecond,
+                });
+            if (_disposing || _disposed) host.Dispose();   // disposed while respawning
+            else _logger.LogInformation("Player {Order} respawned", order);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Respawning player {Order} failed", order);
+        }
     }
 
     /// <summary>
@@ -269,6 +332,7 @@ public class D2DCompositionService : IDisposable, ITestProbeTarget
             }
         }
 
+        _lastStart = (startTimestampMs, pixelsPerSecond);
         _isRunning = true;
         _logger.LogInformation("D2D composition service started (all players now rendering locally)");
     }
@@ -394,6 +458,7 @@ public class D2DCompositionService : IDisposable, ITestProbeTarget
             return;
 
         _logger.LogInformation("Disposing D2D composition service");
+        _disposing = true;   // no respawn from here on
 
         // Mark as not running (StopAsync should have been awaited by the caller)
         _isRunning = false;

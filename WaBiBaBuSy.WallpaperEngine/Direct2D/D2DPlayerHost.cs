@@ -230,11 +230,16 @@ public class D2DPlayerHost : IDisposable
 
         // Find the desktop windows
         var workerW = _desktopWindowManager.FindDesktopWorkerWindow();
-        if (workerW == IntPtr.Zero)
+        // Explorer may be restarting: retry briefly, then fail. Unparented, the player's monitor-sized popup
+        // would show as an ordinary window over the desktop instead of behind the icons (review D5).
+        for (int attempt = 1; workerW == IntPtr.Zero && attempt <= 5; attempt++)
         {
-            _logger.LogWarning("Failed to find WorkerW window");
-            return;
+            _logger.LogWarning("Failed to find WorkerW window (attempt {Attempt}/5) — retrying", attempt);
+            await Task.Delay(1000);
+            workerW = _desktopWindowManager.FindDesktopWorkerWindow();
         }
+        if (workerW == IntPtr.Zero)
+            throw new InvalidOperationException("desktop WorkerW window not found: the player cannot be placed behind the icons");
 
         // Get the parent window (Progman in layered mode) and z-order window (DefView)
         var progman = _desktopWindowManager.ProgmanHandle;
@@ -251,12 +256,8 @@ public class D2DPlayerHost : IDisposable
         _logger.LogInformation("Sending PARENT:{Parent},{ZOrder} to player (layered mode: {Layered})",
             parentHwnd.ToInt64(), zOrderHwnd.ToInt64(), _desktopWindowManager.IsLayeredDesktopMode);
 
-        await SendCommandAsync($"PARENT:{parentHwnd.ToInt64()},{zOrderHwnd.ToInt64()}");
-
-        // Wait for response
-        if (_playerProcess != null)
         {
-            var response = await _playerProcess.StandardOutput.ReadLineAsync();
+            var response = await RequestAsync($"PARENT:{parentHwnd.ToInt64()},{zOrderHwnd.ToInt64()}", "PARENT", TimeSpan.FromSeconds(10));
             _logger.LogInformation("Player PARENT response: {Response}", response);
 
             if (response?.StartsWith("ERROR:") == true)
@@ -276,8 +277,8 @@ public class D2DPlayerHost : IDisposable
     /// tree was torn down by Snipping Tool / display change / explorer restart).
     /// Fire-and-forget: we do NOT await the player's READY response, because this
     /// runs from a background event and could race with in-flight command/response
-    /// pairs on stdout. All player responses are "READY", so at worst one future
-    /// command's ReadLineAsync picks up this stale READY harmlessly.
+    /// pairs on stdout. Its one reply line is counted as stale, so the next
+    /// <see cref="RequestAsync"/> skips it instead of taking it as its own answer.
     /// </summary>
     private async Task ReissuePlayerParentingAsync()
     {
@@ -297,7 +298,64 @@ public class D2DPlayerHost : IDisposable
 
         _logger.LogInformation("Reparent retry: re-issuing PARENT:{Parent},{ZOrder}",
             parentHwnd.ToInt64(), zOrderHwnd.ToInt64());
+        Interlocked.Increment(ref _staleReplies);
         await SendCommandAsync($"PARENT:{parentHwnd.ToInt64()},{zOrderHwnd.ToInt64()}");
+    }
+
+    // Review 2026-10-13 D4: replies are paired by position on stdout. Reply lines nobody waits for (a background
+    // re-parent, a request that timed out) are counted here and skipped, so they never shift later pairs.
+    private int _staleReplies;
+    private readonly SemaphoreSlim _requestGate = new(1, 1);
+    private Task<string?>? _pendingRead;
+
+    private static TimeSpan Max(TimeSpan a, TimeSpan b) => a > b ? a : b;
+
+    /// <summary>
+    /// Send a command that answers with one "READY" / "ERROR:…" line and return that line. One request at a time;
+    /// a player that does not answer within <paramref name="timeout"/> throws <see cref="TimeoutException"/>
+    /// (its late answer is then skipped by the next request).
+    /// </summary>
+    private async Task<string> RequestAsync(string command, string what, TimeSpan timeout)
+    {
+        var process = _playerProcess ?? throw new InvalidOperationException("player not running");
+        await _requestGate.WaitAsync();
+        try
+        {
+            await SendCommandAsync(command);
+            var deadline = DateTime.UtcNow + timeout;
+            while (true)
+            {
+                // A pipe read cannot be cancelled and a second read while one is pending throws: a read that timed
+                // out stays pending in _pendingRead, and the next request continues it instead of starting another.
+                var read = _pendingRead ??= process.StandardOutput.ReadLineAsync();
+                string? line;
+                try { line = await read.WaitAsync(Max(TimeSpan.Zero, deadline - DateTime.UtcNow)); }
+                catch (TimeoutException)
+                {
+                    Interlocked.Increment(ref _staleReplies);
+                    throw new TimeoutException($"player did not answer {what} within {timeout.TotalSeconds:F0} s");
+                }
+                _pendingRead = null;
+                if (line == null) throw new InvalidOperationException($"player closed stdout during {what}");
+                bool isReply = line == "READY" || line.StartsWith("ERROR:");
+                if (!isReply)
+                {
+                    _logger.LogWarning("Unexpected player output during {What}: {Line}", what, line);
+                    continue;
+                }
+                if (Interlocked.Decrement(ref _staleReplies) >= 0)
+                {
+                    _logger.LogDebug("Skipped a stale player reply during {What}: {Line}", what, line);
+                    continue;
+                }
+                Interlocked.Increment(ref _staleReplies);   // undo: nothing was stale
+                return line;
+            }
+        }
+        finally
+        {
+            _requestGate.Release();
+        }
     }
 
     /// <summary>
@@ -385,13 +443,9 @@ public class D2DPlayerHost : IDisposable
             var json = JsonConvert.SerializeObject(cmd);
             _logger.LogInformation("Sending LOAD_ANIMATION command: {Path}", cmd.AnimationConfig.AnimationPath);
 
-            // Send JSON command
-            await SendCommandAsync(json);
-
-            // Wait for response
-            if (_playerProcess != null)
+            // Send JSON command; LOAD extracts GIF frames / opens the video, so it gets a long timeout.
             {
-                var response = await _playerProcess.StandardOutput.ReadLineAsync();
+                var response = await RequestAsync(json, "LOAD_ANIMATION", TimeSpan.FromSeconds(60));
                 if (response?.StartsWith("ERROR:") == true)
                 {
                     _logger.LogError("Player failed to load animation: {Error}", response);
@@ -432,13 +486,8 @@ public class D2DPlayerHost : IDisposable
             _logger.LogInformation("Sending START_ANIMATION command: timestamp={Timestamp}ms, speed={Speed}px/s",
                 cmd.StartTimestampMs, cmd.PixelsPerSecond);
 
-            // Send JSON command
-            await SendCommandAsync(json);
-
-            // Wait for response
-            if (_playerProcess != null)
             {
-                var response = await _playerProcess.StandardOutput.ReadLineAsync();
+                var response = await RequestAsync(json, "START_ANIMATION", TimeSpan.FromSeconds(10));
                 if (response?.StartsWith("ERROR:") == true)
                 {
                     _logger.LogError("Player failed to start animation: {Error}", response);
@@ -478,19 +527,14 @@ public class D2DPlayerHost : IDisposable
             var json = JsonConvert.SerializeObject(cmd);
             _logger.LogInformation("Sending STOP_ANIMATION command");
 
-            // Send JSON command
-            await SendCommandAsync(json);
-
             // Wait for response with timeout to avoid hanging if player is unresponsive
-            if (_playerProcess != null)
             {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
                 string? response;
                 try
                 {
-                    response = await _playerProcess.StandardOutput.ReadLineAsync(cts.Token);
+                    response = await RequestAsync(json, "STOP_ANIMATION", TimeSpan.FromSeconds(3));
                 }
-                catch (OperationCanceledException)
+                catch (TimeoutException)
                 {
                     _logger.LogWarning("Timed out waiting for STOP_ANIMATION response from player");
                     return;
@@ -703,10 +747,17 @@ public class D2DPlayerHost : IDisposable
 
     private void OnPlayerExited(object? sender, EventArgs e)
     {
-        _logger.LogWarning("Player process exited with code {ExitCode}",
-            _playerProcess?.ExitCode ?? -1);
+        int code = -1;
+        try { code = _playerProcess?.ExitCode ?? -1; } catch { /* disposed meanwhile */ }
+        _logger.LogWarning("Player process exited with code {ExitCode}", code);
         _isInitialized = false;
+        if (!_disposing) PlayerExitedUnexpectedly?.Invoke(this, EventArgs.Empty);
     }
+
+    /// <summary>The player process ended without <see cref="Dispose"/> (crash, explorer restart took its window).</summary>
+    public event EventHandler? PlayerExitedUnexpectedly;
+
+    private volatile bool _disposing;
 
     private void OnPlayerError(object? sender, DataReceivedEventArgs e)
     {
@@ -792,6 +843,7 @@ public class D2DPlayerHost : IDisposable
         }
 
         _logger.LogInformation("Disposing D2DPlayerHost");
+        _disposing = true;   // the EXIT / Kill below is expected: no PlayerExitedUnexpectedly
 
         try
         {

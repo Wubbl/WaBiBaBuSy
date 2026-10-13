@@ -202,11 +202,22 @@ partial class Program
     [DllImport("user32.dll")]   private static extern uint   GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
     [DllImport("user32.dll", EntryPoint = "SystemParametersInfoW")]
     private static extern bool SystemParametersInfoUint(uint action, uint param, out uint result, uint winIni);
-    [DllImport("user32.dll")]   private static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")]   private static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeoutMs, out IntPtr result);
+    private const uint SMTO_ABORTIFHUNG = 0x0002;
+
+    /// <summary>
+    /// SendMessage to explorer's icon list with a 200 ms cap (review D6): this runs on the render thread, and a busy
+    /// or hung explorer must not freeze the wallpaper. Null when the call timed out or failed.
+    /// </summary>
+    private static IntPtr? SendToExplorer(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam) =>
+        SendMessageTimeout(hWnd, msg, wParam, lParam, SMTO_ABORTIFHUNG, 200, out var result) == IntPtr.Zero ? null : result;
     [DllImport("user32.dll", CharSet = CharSet.Auto)] private static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
     [DllImport("user32.dll", CharSet = CharSet.Auto)] private static extern IntPtr FindWindowEx(IntPtr parent, IntPtr childAfter, string? className, string? windowName);
     private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
     [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    /// <summary>Last complete icon reading; returned when explorer does not answer in time.</summary>
+    private static List<(int X, int Y)> _lastRawIcons = new();
 
     private static List<(int X, int Y)> DetectDesktopIconPositions()
     {
@@ -226,14 +237,17 @@ partial class Program
                 if (remote == IntPtr.Zero) return result;
                 try
                 {
-                    int count = (int)SendMessage(lv, DICO_LVM_GETITEMCOUNT, IntPtr.Zero, IntPtr.Zero);
+                    // Explorer busy / hung: keep the last good reading (an empty or partial one would rebuild wrong zones).
+                    if (SendToExplorer(lv, DICO_LVM_GETITEMCOUNT, IntPtr.Zero, IntPtr.Zero) is not { } countResult) return new(_lastRawIcons);
+                    int count = (int)countResult;
                     var buf = new byte[8];
                     for (int i = 0; i < count; i++)
                     {
-                        SendMessage(lv, DICO_LVM_GETITEMPOSITION, new IntPtr(i), remote);
+                        if (SendToExplorer(lv, DICO_LVM_GETITEMPOSITION, new IntPtr(i), remote) == null) return new(_lastRawIcons);
                         if (ReadProcessMemory(proc, remote, buf, 8, out _))
                             result.Add((BitConverter.ToInt32(buf, 0), BitConverter.ToInt32(buf, 4)));
                     }
+                    _lastRawIcons = new(result);
                 }
                 finally { VirtualFreeEx(proc, remote, 0, DICO_MEM_RELEASE); }
             }
@@ -682,7 +696,7 @@ partial class Program
 
             // Cleanup
             Cleanup();
-            return 0;
+            return _deviceLost ? ExitCodeDeviceLost : 0;
         }
         catch (Exception ex)
         {
@@ -983,6 +997,13 @@ partial class Program
         }
     }
 
+    private const int ExitCodeDeviceLost = 3;
+    private static bool _deviceLost;
+
+    /// <summary>DXGI_ERROR_DEVICE_REMOVED / _RESET / _HUNG, D2DERR_RECREATE_TARGET: nothing drawn on this device works again.</summary>
+    private static bool IsDeviceLost(Exception ex) => ex.HResult is unchecked((int)0x887A0005) or unchecked((int)0x887A0007)
+        or unchecked((int)0x887A0006) or unchecked((int)0x8899000C);
+
     private static void RenderLoop()
     {
         _logger?.LogInformation("Render loop started");
@@ -1176,6 +1197,9 @@ partial class Program
                     _needsIconRefresh = false;
                     _logger?.LogInformation("[IconRefresh] Re-detecting icons after desktop refresh");
                     InitializeBackground(_backgroundConfig);
+                    // The pattern's fade mask is built from the zone bands: drop it so it follows the new icons (review D6).
+                    _zoneFadeOpacityBrush?.Dispose(); _zoneFadeOpacityBrush = null;
+                    _zoneFadeMaskBitmap?.Dispose();   _zoneFadeMaskBitmap = null;
                 }
 
                 if (_d2dContext != null && _swapChain != null)
@@ -1404,6 +1428,15 @@ partial class Program
                 {
                     if (frameLockTaken) Monitor.Exit(_compositionLock);
                 }
+            }
+            catch (Exception ex) when (IsDeviceLost(ex))
+            {
+                // Review 2026-10-13 D2: a TDR / driver update / dock unplug invalidates the D3D device, swap chain and
+                // every D2D resource. Recreating them all in place is a large change; ending the process instead lets
+                // the host respawn a fresh player with the same LOAD + shared start, which rejoins the wall in step.
+                _logger?.LogError(ex, "Graphics device lost (0x{HResult:X8}) — exiting so the host respawns the player", ex.HResult);
+                _deviceLost = true;
+                _running = false;
             }
             catch (Exception ex)
             {
