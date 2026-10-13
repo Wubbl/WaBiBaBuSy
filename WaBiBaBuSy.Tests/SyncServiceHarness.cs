@@ -37,6 +37,22 @@ internal sealed class SyncServiceHarness : IDisposable
         return cts;
     }
 
+    /// <summary>A half-open client: every write to its stream hangs (its HTTP/2 window is full).</summary>
+    public CancellationTokenSource ConnectStalled(string clientId)
+    {
+        var cts = new CancellationTokenSource();
+        _streams.Add(cts);
+        _ = Service.SyncStream(new BlockingReader<SyncResponse>(), new StalledWriter<SyncCommand>(),
+            new FakeServerCallContext(new Metadata { { "client-id", clientId } }, cts.Token));
+        return cts;
+    }
+
+    private sealed class StalledWriter<T> : IServerStreamWriter<T>
+    {
+        public WriteOptions? WriteOptions { get; set; }
+        public Task WriteAsync(T message) => new TaskCompletionSource().Task;
+    }
+
     /// <summary>The RegisterClient RPC, as a client with a persistent id sends it.</summary>
     public Task<RegistrationResponse> RegisterAsync(string clientId) =>
         Service.RegisterClient(new ClientInfo { ClientId = clientId, Hostname = clientId, ScreenConfig = new ScreenConfiguration(), AppVersion = WaBiBaBuSy.Common.Version.VersionInfo.AppVersion, BuildNumber = WaBiBaBuSy.Common.Version.VersionInfo.BuildNumber },

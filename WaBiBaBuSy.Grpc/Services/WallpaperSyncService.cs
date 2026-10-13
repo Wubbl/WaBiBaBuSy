@@ -108,11 +108,13 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
             var cutoff = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - HeartbeatTimeoutSeconds;
             foreach (var kvp in _connectedClients)
             {
-                if (kvp.Value.LastHeartbeat < cutoff)
+                // Remove exactly the record seen as dead: a client that re-registered meanwhile has a new record
+                // (and a new stream) that must survive this sweep.
+                if (kvp.Value.LastHeartbeat < cutoff && _connectedClients.TryRemove(kvp))
                 {
                     _logger.LogWarning("Client {ClientId} ({Hostname}) heartbeat timed out (> {Timeout}s) — removing from topology",
                         kvp.Key, kvp.Value.Hostname, HeartbeatTimeoutSeconds);
-                    RemoveClient(kvp.Key);
+                    if (!_connectedClients.ContainsKey(kvp.Key)) ForgetClientState(kvp.Key);
                 }
             }
         }
@@ -653,14 +655,26 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         {
             _logger.LogInformation("Client {ClientId} removed", clientId);
         }
+        ForgetClientState(clientId);
+        return removed;
+    }
+
+    /// <summary>Drop a removed client's stream, thumbnail, write lock and drift data.</summary>
+    private void ForgetClientState(string clientId)
+    {
         _clientCommandStreams.TryRemove(clientId, out _);
         _clientThumbnails.TryRemove(clientId, out _);
         // Drop (don't Dispose) the write lock: a concurrent writer may still hold it,
         // and releasing a disposed SemaphoreSlim throws.
         _writeLocks.TryRemove(clientId, out _);
         _driftMonitor.Remove(clientId);
-        return removed;
     }
+
+    /// <summary>
+    /// How long one command write (or the wait for the previous one) may take. A half-open client whose
+    /// HTTP/2 window filled up would otherwise block every later send to it, and a broadcast behind it.
+    /// </summary>
+    public TimeSpan WriteTimeout { get; set; } = TimeSpan.FromSeconds(5);
 
     /// <summary>
     /// Write a command to a client's response stream. IServerStreamWriter forbids
@@ -671,15 +685,25 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     private async Task WriteToClientStreamAsync(string clientId, IServerStreamWriter<SyncCommand> stream, SyncCommand command)
     {
         var gate = _writeLocks.GetOrAdd(clientId, _ => new SemaphoreSlim(1, 1));
-        await gate.WaitAsync();
+        if (!await gate.WaitAsync(WriteTimeout))
+            throw new TimeoutException($"an earlier write to {clientId} is still pending");
+        var write = stream.WriteAsync(command);
         try
         {
-            await stream.WriteAsync(command);
+            await write.WaitAsync(WriteTimeout);
         }
-        finally
+        catch (TimeoutException)
+        {
+            // The write is still in flight: keep the gate until it ends, so no second write overlaps it.
+            _ = write.ContinueWith(_ => gate.Release(), TaskScheduler.Default);
+            throw;
+        }
+        catch
         {
             gate.Release();
+            throw;
         }
+        gate.Release();
     }
 
     /// <summary>

@@ -125,6 +125,15 @@ public class RoomNodeSourcesTests
     }
 
     [Fact]
+    public void ToRoomNode_SyncingCountsAsConnected()
+    {
+        // Review 2026-10-13 C11: every command ack set Syncing, and the node dropped out of the next start for up to 5 s.
+        var c = Remote("X", 0, 1);
+        c.Status = ClientStatusEnum.ClientSyncing;
+        Assert.True(RoomNodeSources.ToRoomNode(c).IsConnected);
+    }
+
+    [Fact]
     public void ToRoomNode_DisconnectedStatus()
     {
         var c = Remote("X", 0, 1);

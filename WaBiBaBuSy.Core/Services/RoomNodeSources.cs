@@ -138,7 +138,8 @@ public static class RoomNodeSources
             RefreshHz = monitor?.RefreshRate ?? 0,
             GapBeforeCm = client.PhysicalDistanceCm,
             PixelsPerCm = monitor?.PixelsPerCm ?? 0f,
-            IsConnected = client.Status is ClientStatusEnum.ClientConnected or ClientStatusEnum.ClientPlaying,
+            // Syncing = it just acknowledged a command (until its next heartbeat): still a live node.
+            IsConnected = client.Status is ClientStatusEnum.ClientConnected or ClientStatusEnum.ClientPlaying or ClientStatusEnum.ClientSyncing,
             RttMs = client.RttMs,
             ClockOffsetMs = client.ClockOffsetMs
         };

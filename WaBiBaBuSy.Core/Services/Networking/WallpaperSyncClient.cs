@@ -155,7 +155,18 @@ public class WallpaperSyncClient : IDisposable
 
             // Create gRPC channel
             var serverUrl = $"http://{serverAddress}:{serverPort}";
-            _channel = GrpcChannel.ForAddress(serverUrl);
+            // Pings notice a server that vanished without a reset, so the reconnect loop starts instead of
+            // the SyncStream hanging on a dead connection.
+            _channel = GrpcChannel.ForAddress(serverUrl, new GrpcChannelOptions
+            {
+                HttpHandler = new SocketsHttpHandler
+                {
+                    KeepAlivePingDelay = TimeSpan.FromSeconds(20),
+                    KeepAlivePingTimeout = TimeSpan.FromSeconds(20),
+                    KeepAlivePingPolicy = HttpKeepAlivePingPolicy.Always,
+                    EnableMultipleHttp2Connections = true,
+                },
+            });
             _client = new WallpaperSync.WallpaperSyncClient(_channel);
 
             // Register with server

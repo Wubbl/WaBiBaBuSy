@@ -127,6 +127,10 @@ public class WallpaperSyncServerHost : IDisposable
         // Configure Kestrel to use HTTP/2 (required for gRPC)
         builder.WebHost.ConfigureKestrel(options =>
         {
+            // HTTP/2 pings find a client that vanished without a TCP reset (power, Wi-Fi): its SyncStream then
+            // ends instead of hanging until the OS gives up, so dead connections do not pile up over a long party.
+            options.Limits.Http2.KeepAlivePingDelay = TimeSpan.FromSeconds(20);
+            options.Limits.Http2.KeepAlivePingTimeout = TimeSpan.FromSeconds(20);
             if (LoopbackOnly)
                 options.Listen(IPAddress.Loopback, _configuration.Port, lo => lo.Protocols = HttpProtocols.Http2);
             else

@@ -1333,6 +1333,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             var bgColor = config.Background.ColorHex ?? "#000000";
             var movementTypeInt = (int)effMovement.Type;
 
+            // All sends at once: a slow client (bounded by the write timeout) must not push the others past the shared start.
+            var sends = new List<Task>();
             foreach (var remote in remoteClients)
             {
                 var remoteClient = remote.Node;
@@ -1341,7 +1343,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
 
                 Debug.WriteLine($"[CrossScreen] Sending cross-screen D2D to remote {remoteClient.Hostname} ({remoteClient.Id}): offset={remoteOffsetX}px, canvas={layout.CanvasWidth}px");
 
-                await _service.SyncCoordinator.StartCrossScreenD2DOnClientAsync(
+                sends.Add(_service.SyncCoordinator.StartCrossScreenD2DOnClientAsync(
                     clientId: remoteClient.Id,
                     contentId: contentId,
                     filePath: effAnimation.AnimationPath,
@@ -1367,8 +1369,9 @@ public sealed partial class ServerPlaybackHost : ObservableObject
                     monitorOffsetY: remoteLayout?.OffsetY ?? 0,
                     nodeOrder: remoteLayout?.Order ?? 0,
                     layout: isSequential ? remoteLayout : null,
-                    assets: sceneAssets);
+                    assets: sceneAssets));
             }
+            await Task.WhenAll(sends);
         }
         else if (remoteClients.Count > 0)
         {

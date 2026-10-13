@@ -23,6 +23,25 @@ public class SyncStreamLifecycleTests : IDisposable
     }
 
     [Fact]
+    public async Task StalledClient_SendsFailWithinTheTimeout_AndOthersAreNotBlocked()
+    {
+        // Review 2026-10-13 C8: a write that never completes used to hold the client's gate forever.
+        _h.Service.WriteTimeout = TimeSpan.FromMilliseconds(100);
+        _h.ConnectStalled("stalled");
+        int received = 0;
+        _h.Connect("healthy", _ => Interlocked.Increment(ref received));
+        var cmd = new SyncCommand { Type = CommandType.Stop };
+
+        var first = _h.Service.SendCommandToClientAsync("stalled", cmd);
+        var second = _h.Service.SendCommandToClientAsync("stalled", cmd);   // queued behind the hung write
+        Assert.True(await _h.Service.SendCommandToClientAsync("healthy", cmd));
+
+        Assert.False(await first.WaitAsync(TimeSpan.FromSeconds(2)));
+        Assert.False(await second.WaitAsync(TimeSpan.FromSeconds(2)));
+        Assert.Equal(1, received);
+    }
+
+    [Fact]
     public async Task OldStreamEndingAfterReconnect_KeepsTheClient()
     {
         Assert.True((await _h.RegisterAsync("c1")).Success);
