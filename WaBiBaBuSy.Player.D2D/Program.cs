@@ -196,9 +196,9 @@ partial class Program
     [DllImport("kernel32.dll")] private static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
     [DllImport("kernel32.dll")] private static extern bool   CloseHandle(IntPtr h);
     [DllImport("kernel32.dll")] private static extern uint   WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
-    [DllImport("kernel32.dll")] private static extern IntPtr VirtualAllocEx(IntPtr proc, IntPtr addr, uint size, uint type, uint protect);
-    [DllImport("kernel32.dll")] private static extern bool   VirtualFreeEx(IntPtr proc, IntPtr addr, uint size, uint type);
-    [DllImport("kernel32.dll")] private static extern bool   ReadProcessMemory(IntPtr proc, IntPtr baseAddr, [Out] byte[] buf, uint size, out uint read);
+    [DllImport("kernel32.dll")] private static extern IntPtr VirtualAllocEx(IntPtr proc, IntPtr addr, nuint size, uint type, uint protect);
+    [DllImport("kernel32.dll")] private static extern bool   VirtualFreeEx(IntPtr proc, IntPtr addr, nuint size, uint type);
+    [DllImport("kernel32.dll")] private static extern bool   ReadProcessMemory(IntPtr proc, IntPtr baseAddr, [Out] byte[] buf, nuint size, out nuint read);
     [DllImport("user32.dll")]   private static extern uint   GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
     [DllImport("user32.dll", EntryPoint = "SystemParametersInfoW")]
     private static extern bool SystemParametersInfoUint(uint action, uint param, out uint result, uint winIni);
@@ -1159,6 +1159,15 @@ partial class Program
                     }
                 }
 
+                // Review 2026-10-13 D1: the whole frame (icon-zone rebuild, draw, present) holds the composition lock.
+                // LOAD / STOP dispose GIF frames, brushes and the video buffers under the same lock on the stdin
+                // thread; drawing without it read freed native memory (crash on a scene switch). LOAD already held
+                // the lock for its whole run and the old loop blocked on it mid-frame, so this adds no new stall.
+                bool frameLockTaken = false;
+                try
+                {
+                Monitor.Enter(_compositionLock, ref frameLockTaken);
+
                 // Re-detect desktop icons and rebuild zones after a desktop refresh.
                 // Debounce: wait for the desktop to finish settling before reading icon positions.
                 if (_needsIconRefresh && _backgroundConfig != null && _d2dContext != null
@@ -1389,6 +1398,11 @@ partial class Program
                         _logger?.LogInformation("[D2D-PRESENT] Frame #{Frame} presented | NativeD2D: {Native}",
                             _frameCount, shouldComposeNative);
                     }
+                }
+                }
+                finally
+                {
+                    if (frameLockTaken) Monitor.Exit(_compositionLock);
                 }
             }
             catch (Exception ex)

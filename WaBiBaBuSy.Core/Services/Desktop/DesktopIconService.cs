@@ -28,9 +28,9 @@ public class DesktopIconService
     [DllImport("user32.dll")] private static extern bool SystemParametersInfo(uint action, uint param, out uint result, uint winIni);
     [DllImport("kernel32.dll")] private static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
     [DllImport("kernel32.dll")] private static extern bool CloseHandle(IntPtr h);
-    [DllImport("kernel32.dll")] private static extern IntPtr VirtualAllocEx(IntPtr hProc, IntPtr addr, uint size, uint type, uint protect);
-    [DllImport("kernel32.dll")] private static extern bool VirtualFreeEx(IntPtr hProc, IntPtr addr, uint size, uint type);
-    [DllImport("kernel32.dll")] private static extern bool ReadProcessMemory(IntPtr hProc, IntPtr baseAddr, [Out] byte[] buf, uint size, out uint read);
+    [DllImport("kernel32.dll")] private static extern IntPtr VirtualAllocEx(IntPtr hProc, IntPtr addr, nuint size, uint type, uint protect);
+    [DllImport("kernel32.dll")] private static extern bool VirtualFreeEx(IntPtr hProc, IntPtr addr, nuint size, uint type);
+    [DllImport("kernel32.dll")] private static extern bool ReadProcessMemory(IntPtr hProc, IntPtr baseAddr, [Out] byte[] buf, nuint size, out nuint read);
 
     public DesktopIconService(ILogger<DesktopIconService>? logger = null)
     {

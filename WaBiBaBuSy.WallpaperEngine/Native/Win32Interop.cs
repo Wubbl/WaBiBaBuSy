@@ -367,15 +367,15 @@ internal static class Win32Interop
     public static extern bool CloseHandle(IntPtr hObject);
 
     [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern IntPtr VirtualAllocEx(IntPtr hProcess, IntPtr lpAddress, uint dwSize,
+    public static extern IntPtr VirtualAllocEx(IntPtr hProcess, IntPtr lpAddress, nuint dwSize,
         uint flAllocationType, uint flProtect);
 
     [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern bool VirtualFreeEx(IntPtr hProcess, IntPtr lpAddress, uint dwSize, uint dwFreeType);
+    public static extern bool VirtualFreeEx(IntPtr hProcess, IntPtr lpAddress, nuint dwSize, uint dwFreeType);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool ReadProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress,
-        [Out] byte[] lpBuffer, uint nSize, out uint lpNumberOfBytesRead);
+        [Out] byte[] lpBuffer, nuint nSize, out nuint lpNumberOfBytesRead);
 }
 
 /// <summary>
