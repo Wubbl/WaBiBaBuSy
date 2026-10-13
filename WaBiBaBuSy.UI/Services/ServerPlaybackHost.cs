@@ -659,7 +659,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
                 {
                     var r = await ApplyCrossScreenConfigAsync(config);
                     SceneApplied?.Invoke(config);   // the room paints the live sprite on animating tiles only
-                    return new ApplyMetrics(r.VirtualCanvasWidth, r.ContentWidthPx, r.StartLeadMs, r.EffectiveSpeedPx);
+                    return new ApplyMetrics(r.VirtualCanvasWidth, r.ContentWidthPx, r.StartLeadMs, r.EffectiveSpeedPx, r.CanvasWraps);
                 }),
                 seedProvider: () => Environment.TickCount,
                 prefetch: PrefetchShowAssetsAsync,
@@ -1403,7 +1403,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             ContentWidthPx = 0, // best-effort; wire a real value later if a service exposes it
             EffectiveSpeedPx = effMovement.SpeedPixelsPerSecond,
             StartLeadMs = startLeadMs,
-            SharedStartTimestampMs = sharedStartTimestamp
+            SharedStartTimestampMs = sharedStartTimestamp,
+            CanvasWraps = layout.Wraps,
         };
     }
 
@@ -1558,4 +1559,6 @@ public sealed class CrossScreenApplyResult
     public float EffectiveSpeedPx { get; init; }
     /// <summary>The shared UTC start timestamp all nodes were given.</summary>
     public long SharedStartTimestampMs { get; init; }
+    /// <summary>Ring seat map: the sprite wraps instead of running in and out (lap = canvas width).</summary>
+    public bool CanvasWraps { get; init; }
 }

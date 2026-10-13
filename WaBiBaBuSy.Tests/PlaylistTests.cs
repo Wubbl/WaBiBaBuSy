@@ -70,6 +70,14 @@ public class PlaylistTests
     }
 
     [Fact]
+    public void ComputeLapMs_Ring_IsCanvasOverSpeed_NoRunIn()
+    {
+        // Review 2026-10-13 E7: on a Ring the sprite wraps (MovementCalculator runIn = 0), so a lap is 4000 px, not 4200.
+        var mv = new MovementConfig { Type = MovementType.Linear, SpeedPixelsPerSecond = 500f, Loop = true };
+        Assert.Equal(8000, PlaylistScheduler.ComputeLapMs(mv, 4000, 200, speedPxOverride: 0f, canvasWraps: true));
+    }
+
+    [Fact]
     public void ComputeLapMs_NonLinear_ReturnsZero()
     {
         foreach (var t in new[] { MovementType.Static, MovementType.Bounce, MovementType.SineWave,

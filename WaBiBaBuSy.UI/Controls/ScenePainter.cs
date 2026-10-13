@@ -315,7 +315,7 @@ public sealed partial class ScenePainter
         var parts = new List<string> { $"t = {Math.Max(0, elapsed) / 1000.0:0.0} s" };
         if (scene != null)
         {
-            int lap = PlaylistScheduler.ComputeLapMs(scene.Movement, layout.CanvasWidth, animW);
+            int lap = PlaylistScheduler.ComputeLapMs(scene.Movement, layout.CanvasWidth, animW, speedPxOverride: 0f, canvasWraps: layout.Wraps);
             if (lap > 0) parts.Add($"lap ≈ {lap / 1000.0:0} s");
             parts.Add(layout.IsPhysical
                 ? $"{PhysicalUnits.PxToCm(layout.CanvasWidth, layout.RefPixelsPerCm) / 100f:0.0} m canvas (physical)" + (layout.Wraps ? " · ring" : "")

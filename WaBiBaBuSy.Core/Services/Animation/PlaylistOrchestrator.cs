@@ -12,7 +12,7 @@ using System.Linq;
 namespace WaBiBaBuSy.Core.Services.Animation;
 
 /// <summary>Metrics an apply callback returns so the orchestrator can compute lap-snap timing.</summary>
-public readonly record struct ApplyMetrics(int VirtualCanvasWidth, int ContentWidthPx, int StartLeadMs = 0, float SpeedPxPerSecond = 0f);
+public readonly record struct ApplyMetrics(int VirtualCanvasWidth, int ContentWidthPx, int StartLeadMs = 0, float SpeedPxPerSecond = 0f, bool CanvasWraps = false);
 
 /// <summary>
 /// Where a running show is: the playlist it runs, the item order of its current cycle (shuffled or not) and
@@ -273,7 +273,7 @@ public class PlaylistOrchestrator
 
                     // SpeedPxPerSecond is the canvas speed after cm→px resolution (physical canvas).
                     int lapMs = PlaylistScheduler.ComputeLapMs(
-                        item.Config.Movement, metrics.VirtualCanvasWidth, metrics.ContentWidthPx, metrics.SpeedPxPerSecond);
+                        item.Config.Movement, metrics.VirtualCanvasWidth, metrics.ContentWidthPx, metrics.SpeedPxPerSecond, metrics.CanvasWraps);
                     int dwell = PlaylistScheduler.ResolveDwellMs(item, playlist.DefaultItemDurationMs, lapMs);
 
                     // The apply path schedules the shared start StartLeadMs in the future so all

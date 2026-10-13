@@ -24,16 +24,20 @@ public static class PlaylistScheduler
     /// Effective canvas speed in px/s when the config's speed is authored in cm/s (see
     /// <see cref="PhysicalUnits.EffectiveSpeedPx"/>); 0 = use <c>m.SpeedPixelsPerSecond</c>.
     /// </param>
-    public static int ComputeLapMs(MovementConfig m, int canvasWidth, int contentWidthPx, float speedPxOverride)
+    /// <param name="canvasWraps">
+    /// Ring seat map: the sprite wraps from the last seat to the first, so a lap is exactly the canvas width
+    /// (no run-in), as in <see cref="MovementCalculator"/> (review 2026-10-13 E7: the lap was one sprite too long).
+    /// </param>
+    public static int ComputeLapMs(MovementConfig m, int canvasWidth, int contentWidthPx, float speedPxOverride, bool canvasWraps = false)
     {
         if (m.Type != MovementType.Linear) return 0;
         if (!m.Loop) return 0;
         float speed = speedPxOverride > 0f ? speedPxOverride : m.SpeedPixelsPerSecond;
         if (speed <= 0f) return 0;
 
-        float animWidth = Math.Max(0, contentWidthPx);
-        float startX = m.StartX ?? (m.Reversed ? canvasWidth : -animWidth);
-        float endX   = m.EndX   ?? (m.Reversed ? -animWidth  : canvasWidth);
+        float runIn = canvasWraps ? 0f : Math.Max(0, contentWidthPx);
+        float startX = m.StartX ?? (m.Reversed ? canvasWidth : -runIn);
+        float endX   = m.EndX   ?? (m.Reversed ? -runIn      : canvasWidth);
         float startY = m.StartY ?? 0f;
         float endY   = m.EndY   ?? startY;
 
