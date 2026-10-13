@@ -104,6 +104,23 @@ public class SkewedSchedulingTests : IDisposable
         Assert.True(Executed);
     }
 
+    [Fact]
+    public async Task OlderCommand_StillWaiting_IsDropped_WhenANewerOneArrived()
+    {
+        // Review 2026-10-13 C1: commands run on their own tasks; a LOAD / STOP that finishes after a newer
+        // one must not act (a stopped or replaced scene came back). Two STOPs make the ordering observable.
+        var older = _playback.Dispatch(StopAt(StartMs + 3000));
+        var newer = _playback.Dispatch(StopAt(StartMs + 1000));
+
+        _time.Advance(TimeSpan.FromMilliseconds(1000));
+        await newer.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, Volatile.Read(ref _executed));
+
+        _time.Advance(TimeSpan.FromMilliseconds(2000));
+        await older.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, Volatile.Read(ref _executed));   // the older STOP was superseded
+    }
+
     /// <summary>A <see cref="TimeProvider"/> that only moves on <see cref="Advance"/>; due timers fire inside it.</summary>
     private sealed class ManualTimeProvider : TimeProvider
     {

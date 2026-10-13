@@ -66,6 +66,11 @@ public class WallpaperPlaybackService : IDisposable
     private long _playbackStartTimestamp; // UTC timestamp when playback started
     private long _initialPositionMs; // Initial position when playback started
 
+    // Each command runs on its own task and a LOAD may wait for its timestamp and a download, so a STOP
+    // or a newer LOAD can finish first. Every LOAD / STOP takes the next generation in arrival order and
+    // only acts while it is still the newest: a stopped or replaced scene can never come back late.
+    private long _playbackGeneration;
+
     public WallpaperPlaybackService(
         ILogger<WallpaperPlaybackService> logger,
         WallpaperSyncClient syncClient,
@@ -196,9 +201,11 @@ public class WallpaperPlaybackService : IDisposable
     /// <summary>
     /// Handle incoming sync command from server
     /// </summary>
-    private void OnSyncCommandReceived(object? sender, SyncCommandReceivedEventArgs e)
+    private void OnSyncCommandReceived(object? sender, SyncCommandReceivedEventArgs e) => _ = Dispatch(e.Command);
+
+    /// <summary>Start one command in arrival order (generation taken here, on the receiving thread); the task is for tests.</summary>
+    internal Task Dispatch(SyncCommand command)
     {
-        var command = e.Command;
         _logger.LogInformation("[Playback] === COMMAND RECEIVED === Type={CommandType}, ContentId={ContentId}, Seq={SequenceNumber}",
             command.Type, command.ContentId, command.SequenceNumber);
         _logger.LogInformation("[Playback] D2DApplyDelegate is {Status}", D2DApplyDelegate != null ? "SET" : "NULL (no D2D rendering possible)");
@@ -206,17 +213,18 @@ public class WallpaperPlaybackService : IDisposable
 
         // Show events skip the timestamp wait: the players hold them until T0 (fetching the image takes time too).
         if (command.Type == CommandType.Event)
-        {
-            _ = Task.Run(() => HandleShowEventAsync(command));
-            return;
-        }
+            return Task.Run(() => HandleShowEventAsync(command));
+
+        long generation = command.Type is CommandType.Load or CommandType.Stop
+            ? Interlocked.Increment(ref _playbackGeneration)
+            : -1;
 
         // Schedule command execution based on timestamp
-        _ = Task.Run(async () =>
+        return Task.Run(async () =>
         {
             try
             {
-                await ExecuteCommandWithTimingAsync(command);
+                await ExecuteCommandWithTimingAsync(command, generation);
             }
             catch (Exception ex)
             {
@@ -229,7 +237,7 @@ public class WallpaperPlaybackService : IDisposable
     /// Execute command at the specified timestamp, measured on the sync client's clock (incl. any
     /// simulated test skew). Internal for unit tests of skewed scheduling.
     /// </summary>
-    internal async Task ExecuteCommandWithTimingAsync(SyncCommand command)
+    internal async Task ExecuteCommandWithTimingAsync(SyncCommand command, long generation = -1)
     {
         // Calculate delay until execution time
         var targetTimestamp = command.TimestampUtc;
@@ -252,18 +260,26 @@ public class WallpaperPlaybackService : IDisposable
         }
 
         // Execute the command
-        await ExecuteCommandAsync(command);
+        await ExecuteCommandAsync(command, generation);
+    }
+
+    /// <summary>True when a newer LOAD / STOP arrived after this one (<paramref name="generation"/> -1 = never stale).</summary>
+    private bool IsSuperseded(long generation, SyncCommand command)
+    {
+        if (generation < 0 || generation == Interlocked.Read(ref _playbackGeneration)) return false;
+        _logger.LogInformation("[Playback] {Type} seq {Seq} dropped: a newer LOAD / STOP arrived while it waited", command.Type, command.SequenceNumber);
+        return true;
     }
 
     /// <summary>
     /// Execute the sync command
     /// </summary>
-    private async Task ExecuteCommandAsync(SyncCommand command)
+    private async Task ExecuteCommandAsync(SyncCommand command, long generation)
     {
         switch (command.Type)
         {
             case CommandType.Load:
-                await HandleLoadCommandAsync(command);
+                await HandleLoadCommandAsync(command, generation);
                 break;
 
             case CommandType.Play:
@@ -275,7 +291,7 @@ public class WallpaperPlaybackService : IDisposable
                 break;
 
             case CommandType.Stop:
-                await HandleStopCommandAsync(command);
+                if (!IsSuperseded(generation, command)) await HandleStopCommandAsync(command);
                 break;
 
             case CommandType.Seek:
@@ -295,7 +311,7 @@ public class WallpaperPlaybackService : IDisposable
     /// <summary>
     /// Handle LOAD command - download content if needed, then render via D2D or LibVLC
     /// </summary>
-    private async Task HandleLoadCommandAsync(SyncCommand command)
+    private async Task HandleLoadCommandAsync(SyncCommand command, long generation)
     {
         try
         {
@@ -389,6 +405,7 @@ public class WallpaperPlaybackService : IDisposable
                         request.VirtualCanvasWidth, request.MonitorOffsetX, request.SharedStartTimestampMs,
                         request.PixelsPerSecond, request.PerMonitorMode, request.MovementType, request.MonitorIndex,
                         request.MovementJson.Length > 0, request.AnimationJson.Length > 0, request.BackgroundJson.Length > 0);
+                    if (IsSuperseded(generation, command)) return;   // after the downloads, before the players change
                     await D2DCrossScreenApplyDelegate(request);
                     _logger.LogInformation("[Playback:LOAD] Cross-screen D2D applied: {ContentId}", command.ContentId);
                 }
@@ -400,6 +417,8 @@ public class WallpaperPlaybackService : IDisposable
                 }
                 return;
             }
+
+            if (IsSuperseded(generation, command)) return;
 
             // Use D2D renderer if requested and delegate is available
             if (rendererType == "d2d" && D2DApplyDelegate != null)
