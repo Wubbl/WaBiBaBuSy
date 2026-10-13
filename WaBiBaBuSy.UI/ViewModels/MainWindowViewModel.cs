@@ -1868,6 +1868,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     {
         // Don't overwrite order while a reorder operation is in flight
         if (_isReorderingInProgress) return;
+        if (Interlocked.CompareExchange(ref _refreshRunning, 1, 0) != 0) return;
 
         try
         {
@@ -1960,7 +1961,15 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             Debug.WriteLine($"Error refreshing topology: {ex.Message}");
             Debug.WriteLine($"Stack trace: {ex.StackTrace}");
         }
+        finally
+        {
+            Interlocked.Exchange(ref _refreshRunning, 0);
+        }
     }
+
+    // The 2 s timer fires on the thread pool: a slow client-mode GetTopologyAsync let refreshes overlap and an older
+    // topology overwrite a newer one (review 2026-10-13, part 5). A tick that finds one running is skipped.
+    private int _refreshRunning;
 
     /// <summary>
     /// Show local machine node(s) in local-only mode (when not connected to server/client)
