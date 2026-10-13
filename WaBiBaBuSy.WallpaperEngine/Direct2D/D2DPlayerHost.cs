@@ -58,12 +58,6 @@ public class D2DPlayerHost : IDisposable
     public IntPtr PlayerHwnd => _playerHwnd;
 
     /// <summary>
-    /// Gets or sets whether to run in static mode (render first frame only, then stop).
-    /// Must be set before calling InitializeAsync.
-    /// </summary>
-    public bool StaticMode { get; set; } = false;
-
-    /// <summary>
     /// Raised when the player signals that a path lap has completed.
     /// The event argument is the 1-based lap number reported by the player.
     /// </summary>
@@ -92,13 +86,6 @@ public class D2DPlayerHost : IDisposable
             // Prepare command line arguments using actual monitor bounds
             var bounds = _actualMonitorBounds;
             var args = $"--bounds {bounds.X},{bounds.Y},{bounds.Width},{bounds.Height}";
-
-            // Add --static flag if StaticMode is enabled
-            if (StaticMode)
-            {
-                args += " --static";
-                _logger.LogInformation("Static mode enabled - player will render first frame only");
-            }
 
             _logger.LogInformation("Player window bounds: X={X}, Y={Y}, Width={W}, Height={H}",
                 bounds.X, bounds.Y, bounds.Width, bounds.Height);
@@ -359,73 +346,6 @@ public class D2DPlayerHost : IDisposable
     }
 
     /// <summary>
-    /// Sends a color command to the player to fill the screen with a solid color.
-    /// </summary>
-    /// <param name="color">The color to fill with</param>
-    public async Task SetColorAsync(Color color)
-    {
-        if (!IsRunning)
-        {
-            _logger.LogWarning("Cannot send command: player not running");
-            return;
-        }
-
-        var hex = $"{color.R:X2}{color.G:X2}{color.B:X2}";
-        await SendCommandAsync($"COLOR:{hex}");
-    }
-
-    /// <summary>
-    /// Sends a JPEG frame to the player process to display.
-    /// </summary>
-    /// <param name="jpegData">JPEG-encoded frame data</param>
-    public async Task SetFrameAsync(byte[] jpegData)
-    {
-        if (!IsRunning)
-        {
-            _logger.LogWarning("Cannot send frame: player not running");
-            return;
-        }
-
-        if (jpegData == null || jpegData.Length == 0)
-        {
-            _logger.LogWarning("Cannot send frame: data is null or empty");
-            return;
-        }
-
-        try
-        {
-            // Encode to base64
-            var base64 = Convert.ToBase64String(jpegData);
-            _logger.LogDebug("Sending frame: {Size} bytes ({Base64Size} base64)", jpegData.Length, base64.Length);
-
-            // Send FRAME command
-            await SendCommandAsync($"FRAME:{base64}");
-
-            // Wait for response
-            if (_playerProcess != null)
-            {
-                var response = await _playerProcess.StandardOutput.ReadLineAsync();
-                if (response?.StartsWith("ERROR:") == true)
-                {
-                    _logger.LogError("Player failed to display frame: {Error}", response);
-                }
-                else if (response == "READY")
-                {
-                    _logger.LogTrace("Frame displayed successfully");
-                }
-                else
-                {
-                    _logger.LogWarning("Unexpected response from player: {Response}", response);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to send frame to player");
-        }
-    }
-
-    /// <summary>
     /// Sends a LOAD_ANIMATION command with animation metadata to the player.
     /// This replaces the per-frame approach with metadata-based rendering.
     /// </summary>
@@ -616,60 +536,6 @@ public class D2DPlayerHost : IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to send debug overlay flags");
-        }
-    }
-
-    /// <summary>
-    /// Enable test mode: toggles between red and blue every 2 seconds.
-    /// Use this to verify the swap chain is working (displaying different frames).
-    /// </summary>
-    public async Task EnableTestModeAsync()
-    {
-        if (!IsRunning)
-        {
-            _logger.LogWarning("Cannot enable test mode: player not running");
-            return;
-        }
-
-        try
-        {
-            _logger.LogWarning("[TEST MODE] Enabling color toggle test in player");
-            await SendCommandAsync("TEST");
-
-            if (_playerProcess != null)
-            {
-                var response = await _playerProcess.StandardOutput.ReadLineAsync();
-                _logger.LogInformation("[TEST MODE] Response: {Response}", response);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to enable test mode");
-        }
-    }
-
-    /// <summary>
-    /// Disable test mode.
-    /// </summary>
-    public async Task DisableTestModeAsync()
-    {
-        if (!IsRunning)
-            return;
-
-        try
-        {
-            _logger.LogWarning("[TEST MODE] Disabling test mode");
-            await SendCommandAsync("TESTOFF");
-
-            if (_playerProcess != null)
-            {
-                var response = await _playerProcess.StandardOutput.ReadLineAsync();
-                _logger.LogInformation("[TEST MODE] Response: {Response}", response);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to disable test mode");
         }
     }
 
