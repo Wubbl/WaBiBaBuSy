@@ -111,6 +111,9 @@ public class SkewedSchedulingTests : IDisposable
         // one must not act (a stopped or replaced scene came back). Two STOPs make the ordering observable.
         var older = _playback.Dispatch(StopAt(StartMs + 3000));
         var newer = _playback.Dispatch(StopAt(StartMs + 1000));
+        // Dispatch runs each command on Task.Run: advance only once both delays exist, or a late one never fires.
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (_time.PendingTimers < 2 && DateTime.UtcNow < deadline) await Task.Delay(5);
 
         _time.Advance(TimeSpan.FromMilliseconds(1000));
         await newer.WaitAsync(TimeSpan.FromSeconds(5));
@@ -133,6 +136,12 @@ public class SkewedSchedulingTests : IDisposable
         public override DateTimeOffset GetUtcNow()
         {
             lock (_lock) return _now;
+        }
+
+        /// <summary>Timers waiting to fire (a delay started on another task registers here once it runs).</summary>
+        public int PendingTimers
+        {
+            get { lock (_lock) return _timers.Count(t => t.Due != null); }
         }
 
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)

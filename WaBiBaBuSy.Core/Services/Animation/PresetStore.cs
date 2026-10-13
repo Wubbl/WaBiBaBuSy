@@ -32,9 +32,7 @@ public sealed class PresetStore
 
     public PresetStore(string? directoryOverride = null)
     {
-        Directory = directoryOverride ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "WaBiBaBuSy", "presets");
+        Directory = directoryOverride ?? Path.Combine(WaBiBaBuSy.Models.Configuration.AppDataPaths.Root, "presets");
     }
 
     /// <summary>A file stem for <paramref name="name"/>: invalid characters → '_', no trailing dots, no device names.</summary>

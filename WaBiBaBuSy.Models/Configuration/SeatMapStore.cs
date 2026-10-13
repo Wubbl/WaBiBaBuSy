@@ -17,9 +17,7 @@ public static class SeatMapStore
         Converters = { new JsonStringEnumConverter() }
     };
 
-    public static string DefaultPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "WaBiBaBuSy", "seatmap.json");
+    public static string DefaultPath => Path.Combine(AppDataPaths.Root, "seatmap.json");
 
     public static SeatMap Load(string? path = null)
     {

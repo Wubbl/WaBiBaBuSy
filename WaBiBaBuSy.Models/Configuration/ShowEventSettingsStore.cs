@@ -17,9 +17,7 @@ public static class ShowEventSettingsStore
         Converters = { new JsonStringEnumConverter() }
     };
 
-    public static string DefaultPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "WaBiBaBuSy", "show-events.json");
+    public static string DefaultPath => Path.Combine(AppDataPaths.Root, "show-events.json");
 
     public static ShowEventSettings Load(string? path = null)
     {

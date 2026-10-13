@@ -21,9 +21,7 @@ public class PlaylistStore
 
     public PlaylistStore(string? directoryOverride = null)
     {
-        Directory = directoryOverride ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "WaBiBaBuSy", "playlists");
+        Directory = directoryOverride ?? Path.Combine(WaBiBaBuSy.Models.Configuration.AppDataPaths.Root, "playlists");
     }
 
     private void EnsureDirectory() => System.IO.Directory.CreateDirectory(Directory);
