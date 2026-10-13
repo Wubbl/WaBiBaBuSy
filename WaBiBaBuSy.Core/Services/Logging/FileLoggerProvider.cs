@@ -32,6 +32,9 @@ internal sealed class FileLoggerProvider : ILoggerProvider
 
         if (_writer == null || _currentPath != path)
         {
+            // After a failed open (locked file, bad path) wait before the next try: every log call on every
+            // thread used to retry the open under the lock (review 2026-10-13, part 8).
+            if (_writer == null && DateTime.UtcNow < _retryOpenAfter) return null;
             lock (_writeLock)
             {
                 if (_writer == null || _currentPath != path)
@@ -44,10 +47,12 @@ internal sealed class FileLoggerProvider : ILoggerProvider
                         _writer = new StreamWriter(path, append: true) { AutoFlush = true };
                         _currentPath = path;
                         _writer.WriteLine($"[{DateTime.Now:HH:mm:ss.fff} INF] [FileLogger] Log file opened: {path}");
+                        PruneOldLogs(dir);
                     }
                     catch (Exception ex)
                     {
                         _writer = null;
+                        _retryOpenAfter = DateTime.UtcNow.AddSeconds(30);
                         _lastError = $"Failed to create log file at '{path}': {ex.Message}";
                         Console.Error.WriteLine($"[FileLogger] {_lastError}");
                     }
@@ -56,6 +61,22 @@ internal sealed class FileLoggerProvider : ILoggerProvider
         }
 
         return _writer;
+    }
+
+    private DateTime _retryOpenAfter = DateTime.MinValue;
+
+    /// <summary>Daily files are kept this long; older ones are deleted when a new day's file opens.</summary>
+    public const int RetentionDays = 14;
+
+    /// <summary>Delete <c>wabibabusy-*.log</c> files older than <see cref="RetentionDays"/> (review 2026-10-13 E17: no retention at all).</summary>
+    private static void PruneOldLogs(string dir)
+    {
+        var cutoff = DateTime.Now.AddDays(-RetentionDays);
+        foreach (var file in Directory.EnumerateFiles(dir, "wabibabusy-*.log"))
+        {
+            try { if (File.GetLastWriteTime(file) < cutoff) File.Delete(file); }
+            catch { /* in use or no permission: next roll-over tries again */ }
+        }
     }
 
     /// <summary>Last error encountered when trying to create the log file (for diagnostics).</summary>

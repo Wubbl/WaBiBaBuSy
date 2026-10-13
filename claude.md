@@ -1,7 +1,7 @@
 # WaBiBaBuSy - Wallpaper Synchronization System
 
 **Project Name:** WallpaperBiBaBuSync (BiBaBu = our club name)
-**Version:** 2.6.3 | **Framework:** .NET 9.0 | **Status:** MVP complete + post-MVP visual features + LAN-party Tier 0 / 1.1 / 2.1
+**Version:** 2.6.5 | **Framework:** .NET 9.0 | **Status:** MVP complete + post-MVP visual features + LAN-party Tier 0 / 1.1 / 2.1
 **Last Updated:** 2026-10-13 | **Next:** E2E Multi-Client Testing (first session 2026-10-09 evening, runbook below), then roadmap Tier 2.4 Portal + transitions (events done) / 2.3 scene layers
 
 WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5% server CPU, ±50ms drift tolerance, and distributed client-side rendering. Supports images (JPG/PNG/BMP), videos (MP4/AVI/MKV), and GIFs across multi-monitor setups.

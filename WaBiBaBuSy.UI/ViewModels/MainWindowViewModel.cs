@@ -2166,6 +2166,9 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     /// For remote clients: reads from server gRPC thumbnail cache.
     /// For local monitors: captures directly via ThumbnailCaptureService.
     /// </summary>
+    private readonly Dictionary<string, byte[]> _lastThumbnailBytes = new();
+    private readonly Dictionary<string, Avalonia.Media.Imaging.Bitmap> _retiredThumbnails = new();
+
     private void UpdateClientThumbnail(ClientNodeViewModel client)
     {
         try
@@ -2187,9 +2190,19 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             {
                 return;
             }
+            // Unchanged picture (idle / static scene): keep the bitmap instead of decoding a new one every 2 s.
+            if (_lastThumbnailBytes.TryGetValue(client.ClientId, out var last) && last.AsSpan().SequenceEqual(jpegBytes))
+                return;
+            _lastThumbnailBytes[client.ClientId] = jpegBytes;
 
             using var ms = new MemoryStream(jpegBytes);
+            var replaced = client.ThumbnailImage;
             client.ThumbnailImage = new Avalonia.Media.Imaging.Bitmap(ms);
+            // Review 2026-10-13 E17: replaced thumbnails were never disposed (native Skia memory, ~25/s with 50 nodes).
+            // Dispose one refresh late, so a frame still drawing the previous bitmap never meets a disposed one.
+            // ponytail: one-refresh grace instead of render-thread ownership tracking.
+            if (_retiredThumbnails.Remove(client.ClientId, out var older)) older.Dispose();
+            if (replaced != null) _retiredThumbnails[client.ClientId] = replaced;
         }
         catch (Exception ex)
         {
