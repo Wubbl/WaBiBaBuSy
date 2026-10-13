@@ -10,13 +10,14 @@ sealed class Program
     // SynchronizationContext-reliant code before AppMain is called: things aren't initialized
     // yet and stuff might break.
     [STAThread]
-    public static void Main(string[] args)
+    public static int Main(string[] args)
     {
         CliConsole.Initialize();
         var options = StartupOptions.Parse(args);
         foreach (var warning in options.Warnings)
             CliConsole.WriteLine($"WaBiBaBuSy: {warning} ({StartupOptions.Usage})", error: true);
-        BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+        // The lifetime returns the code passed to Shutdown(): --test-run --exit relies on it (0 / 1 / 2).
+        return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }
 
     // Avalonia configuration, don't remove; also used by visual designer.

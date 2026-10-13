@@ -2,7 +2,7 @@
   "name": "clock-skew",
   "requires": { "minRemoteNodes": 1 },
   "steps": [
-    { "type": "testMode", "timecode": true, "simulatedClockSkewMs": { "REMOTE-HOSTNAME-1": 2000, "REMOTE-HOSTNAME-2": -2000 } },
+    { "type": "testMode", "timecode": true, "simulatedClockSkewMs": { "REMOTE-HOSTNAME-1": 2000 } },
     { "type": "wait", "label": "re-measure clock offset", "ms": 12000 },
     { "type": "playScene", "scene": "scenes/linear-sequential.json", "marker": true },
     { "type": "probe", "label": "clean-start", "at": "start+150ms", "capture": true },

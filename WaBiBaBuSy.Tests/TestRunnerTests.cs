@@ -101,6 +101,9 @@ public class TestRunnerTests : IDisposable
         var violations = report.Steps[1].Probes.SelectMany(p => p.PerfViolations).ToList();
         Assert.Contains(violations, v => v.StartsWith("pc-02 memory 500 MB > 1 MB"));
         Assert.DoesNotContain(violations, v => v.StartsWith("server memory"));   // the server also hosts the UI and every local player
+        // Review 2026-10-13 A7: the fake remote never reports CPU / GPU, so those targets were not tested.
+        Assert.Contains("not measured: ", report.Steps[1].Message);
+        Assert.Contains("pc-02 GPU", report.Steps[1].Message);
     }
 
     [Fact]
@@ -112,6 +115,31 @@ public class TestRunnerTests : IDisposable
         var probe = report.Steps[1].Probes[0];
         Assert.True(probe.Samples.Single(s => s.NodeName == "pc-02").Missing);
         Assert.Equal(Verdict.Warn, probe.Verdict);
+        Assert.Equal(1, report.ExitCode().Code);
+    }
+
+    [Fact]
+    public async Task LocalMonitorWithoutARunningPlayer_CountsAsMissing()
+    {
+        // Review 2026-10-13 A4: only running players answer, so a dead local player used to vanish from the probe.
+        _host.AddLocalNodeWithoutPlayer(1);
+        var report = await Runner().RunAsync(Scenario($$"""{{PlayMarker}}, { "type": "probe", "label": "p", "at": "now+30ms", "capture": false }"""),
+            "unit.json", CancellationToken.None);
+        var probe = report.Steps[1].Probes[0];
+        Assert.True(probe.Samples.Single(s => s.NodeName == "server #1").Missing);
+        Assert.Equal(1, report.ExitCode().Code);
+    }
+
+    [Fact]
+    public async Task RequestedCaptureThatNeverArrives_FailsTheProbe()
+    {
+        // Review 2026-10-13 A5: a lost upload used to leave the position check "Skipped" and the probe green.
+        _transport.RemoteCaptures = false;
+        var report = await Runner().RunAsync(Scenario($$"""{{PlayMarker}}, { "type": "probe", "label": "p", "at": "now+30ms", "capture": true }"""),
+            "unit.json", CancellationToken.None);
+        var probe = report.Steps[1].Probes[0];
+        Assert.Equal(Verdict.Fail, probe.Verdict);
+        Assert.Contains(probe.Messages, m => m.Contains("no frame arrived from: pc-02"));
     }
 
     [Fact]
@@ -177,7 +205,7 @@ public class TestRunnerTests : IDisposable
         _host.Target(1).MarkerOffsetX = 5;   // monitor 1 draws a different frame
         var failing = await Runner().RunAsync(Scenario($$"""{{PlayMarker}}, { "type": "exactFrame", "label": "px", "elapsedMs": 5000 }"""),
             "unit.json", CancellationToken.None);
-        var parity = failing.Steps[1].Probes[0].Parity.Single();
+        var parity = failing.Steps[1].Probes[0].Parity.Single(p => p.NodeName == "server #1");
         Assert.Equal(Verdict.Fail, parity.Verdict);
         Assert.NotNull(parity.DiffImagePath);
     }
@@ -832,6 +860,10 @@ public class TestRunnerTests : IDisposable
             _nodes.Insert(index, new TestNodeInfo { NodeId = $"SERVER_LOCALHOST_MONITOR_{index}", Name = $"server #{index}", IsLocal = true, MonitorIndex = index, Width = W, Height = H });
         }
 
+        /// <summary>A local monitor the room lists whose player is not running (crashed / never started).</summary>
+        public void AddLocalNodeWithoutPlayer(int index) =>
+            _nodes.Insert(index, new TestNodeInfo { NodeId = $"SERVER_LOCALHOST_MONITOR_{index}", Name = $"server #{index}", IsLocal = true, MonitorIndex = index, Width = W, Height = H });
+
         public void AddRemote(string nodeId, string name) =>
             _nodes.Add(new TestNodeInfo { NodeId = nodeId, Name = name, IsLocal = false, Width = W, Height = H, SeatOrder = _nodes.Count });
 
@@ -888,8 +920,8 @@ public class TestRunnerTests : IDisposable
         public bool HoldPreflightUntilCancelled { get; set; }
         /// <summary>Probes answered before the client's first post-reset heartbeat: no clock estimate yet (offset 0, RTT 0).</summary>
         public HashSet<string> NoEstimateProbeIds { get; } = new();
-        /// <summary>Each remote reply carries a capture PNG for monitor 0.</summary>
-        public bool RemoteCaptures { get; set; }
+        /// <summary>Upload a frame when one is requested, like a real client; off = the upload got lost.</summary>
+        public bool RemoteCaptures { get; set; } = true;
         /// <summary>Replaces the whole probe behaviour for a client (null result = fall through to the default).</summary>
         public Func<string, ProbeRequest, CancellationToken, Task<RemoteProbeResult?>>? ProbeOverride { get; set; }
         public int ProbeCount;

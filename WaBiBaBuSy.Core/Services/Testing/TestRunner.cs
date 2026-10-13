@@ -364,6 +364,13 @@ public sealed class TestRunner
                         : $"{sr.Probes.Count} probes, spread max {spreads.Max():F1} ms / mean {spreads.Average():F1} ms";
                     var perfIssues = sr.Probes.SelectMany(p => p.PerfViolations).Distinct().ToList();
                     if (perfIssues.Count > 0) sr.Message += $"; perf: {string.Join("; ", perfIssues)}";
+                    var unmeasured = series.Perf ? UnmeasuredPerf(sr.Probes) : new List<string>();
+                    if (unmeasured.Count > 0)
+                    {
+                        // A null counter passes every threshold: say the CPU / GPU target was not tested at all.
+                        sr.Message += $"; not measured: {string.Join(", ", unmeasured)}";
+                        sr.Verdict = Verdicts.Worst(sr.Verdict, Verdict.Warn);
+                    }
                     var faults = sr.Probes.Where(p => p.Error != null).Select(p => $"{p.ProbeId}: {p.Error}").ToList();
                     if (faults.Count > 0) sr.Message += $"; {faults.Count} probe(s) failed: {string.Join("; ", faults.Take(3))}";
                     var notes = sr.Probes.SelectMany(p => p.Messages).Distinct().ToList();
@@ -595,6 +602,11 @@ public sealed class TestRunner
             }
             pr.Samples.Add(sample);
         }
+        // Only running players answer: a local monitor the scene targets whose player died or hung
+        // would otherwise vanish from the probe instead of counting as missing.
+        foreach (var node in ctx.Nodes.Where(n => n.IsLocal && ctx.IsTarget(n.NodeId)))
+            if (!localReplies.Any(r => r.MonitorIndex == node.MonitorIndex))
+                pr.Samples.Add(NodeProbeSample.MissingFor(node.NodeId, node.Name, node.MonitorIndex, true, $"no reply from the local player within {timeout.TotalSeconds:F1} s"));
 
         // A remote that did not answer may have dropped: record that now, not after a long series.
         if (remoteResults.Any(r => r == null)) await CheckConnectionsAsync(ctx);
@@ -646,6 +658,18 @@ public sealed class TestRunner
             if (capture && ctx.Marker) EvaluatePositions(ctx, pr);
         }
         if (exactElapsedMs != null) EvaluateParity(ctx, sr, pr);
+        if (capture)
+        {
+            // A frame that never arrived (upload dropped, player wrote none) would otherwise just be skipped by
+            // the position and parity checks: the evidence was asked for, so its absence fails the probe.
+            var noFrame = pr.Samples.Where(s => !s.Missing && s.Error == null && s.CapturePath == null)
+                .Select(s => s.MonitorIndex > 0 && !s.IsLocal ? $"{s.NodeName}#{s.MonitorIndex}" : s.NodeName).ToList();
+            if (noFrame.Count > 0)
+            {
+                pr.Messages.Add($"capture requested but no frame arrived from: {string.Join(", ", noFrame)}");
+                pr.Verdict = Verdicts.Worst(pr.Verdict, Verdict.Fail);
+            }
+        }
         if (perf) EvaluatePerf(pr, t);
         if (skewIssues.Count > 0)
         {
@@ -777,6 +801,12 @@ public sealed class TestRunner
                 foreach (var bad in unreadableBeforeReference)
                     AddParityFailure(pr, bad.Node, string.Empty, $"frame unreadable: {bad.Error}");
         }
+        // Mixed resolutions leave every group with one member: say so instead of a silent "0 comparisons".
+        if (pr.Parity.Count == 0 && withFrames.Count >= 2)
+        {
+            pr.Messages.Add($"parity not compared: no two of {withFrames.Count} frames share a resolution");
+            pr.Verdict = Verdicts.Worst(pr.Verdict, Verdict.Warn);
+        }
     }
 
     private static void AddParityFailure(ProbeReport pr, NodeProbeSample node, string referenceNodeName, string message)
@@ -790,6 +820,19 @@ public sealed class TestRunner
             Message = message,
         });
         pr.Verdict = Verdicts.Worst(pr.Verdict, Verdict.Fail);
+    }
+
+    /// <summary>"pc-02 GPU" for every machine whose counter stayed null over the whole series.</summary>
+    private static List<string> UnmeasuredPerf(IEnumerable<ProbeReport> probes)
+    {
+        var result = new List<string>();
+        foreach (var machine in probes.SelectMany(p => p.Samples).Where(s => s.Perf != null).GroupBy(s => s.IsLocal ? "server" : s.NodeName))
+        {
+            var perf = machine.Select(s => s.Perf!).ToList();
+            if (perf.All(p => p.PlayerCpuPercent == null)) result.Add($"{machine.Key} player CPU");
+            if (perf.All(p => p.GpuPercent == null)) result.Add($"{machine.Key} GPU");
+        }
+        return result;
     }
 
     private static void EvaluatePerf(ProbeReport pr, ScenarioThresholds t)

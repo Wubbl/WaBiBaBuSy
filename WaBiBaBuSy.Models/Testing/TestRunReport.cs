@@ -22,6 +22,23 @@ public sealed class TestRunReport
     public List<string> LogFiles { get; set; } = new();
     public string ClockNote { get; set; } =
         "Probe times are converted with each client's clock-offset estimate, so an error in that estimate itself is invisible here; it is bounded by RTT/2 per node (clockBoundMs).";
+
+    /// <summary>
+    /// CLI exit code: 2 aborted, 1 when a step failed <b>or</b> the run cannot vouch for every node
+    /// (a node lost, a probe a node did not answer, nothing measured at all), else 0. Stricter than
+    /// <see cref="Verdict"/>, where those cases are only Warn / Skipped: a script must never read them as a pass.
+    /// </summary>
+    public (int Code, string? Reason) ExitCode()
+    {
+        if (Aborted) return (2, AbortReason ?? "aborted");
+        if (Verdict == Verdict.Fail) return (1, "a step failed");
+        if (NodeFailures.Count > 0) return (1, $"node(s) lost: {string.Join(", ", NodeFailures.Select(f => f.Name))}");
+        var unanswered = Steps.SelectMany(s => s.Probes).SelectMany(p => p.Samples)
+            .Where(s => s.Missing || s.Error != null).Select(s => s.NodeName).Distinct().ToList();
+        if (unanswered.Count > 0) return (1, $"probe(s) not answered by: {string.Join(", ", unanswered)}");
+        if (Verdict == Verdict.Skipped) return (1, "nothing was measured");
+        return (0, null);
+    }
 }
 
 /// <summary>A remote node lost during the run: when and why. Later steps run without it.</summary>

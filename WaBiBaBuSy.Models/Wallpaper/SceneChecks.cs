@@ -67,6 +67,10 @@ public static class SceneChecks
             && grading is not (ColorGradingMode.TravelingRainbow or ColorGradingMode.TravelingList or ColorGradingMode.TravelingRandom))
             warnings.Add("Endless needs a Traveling color mode");
 
+        var bad = BadGradingColors(anim.ColorGrading);
+        if (bad.Count > 0)
+            warnings.Add($"Not a color (#RRGGBB): {string.Join(", ", bad)} — drawn white");
+
         if (anim.Pattern != null && IsVideo(anim.AnimationPath))
             warnings.Add("Pattern with a video: every cell decodes the video");
 
@@ -90,6 +94,19 @@ public static class SceneChecks
             warnings.Add("Very slow: " + CrossingReadout(scene, layout));
 
         return warnings;
+    }
+
+    /// <summary>The grading colors the active mode uses that do not parse (list for list modes, A/B for Gradient).</summary>
+    private static List<string> BadGradingColors(ColorGradingConfig? grading)
+    {
+        IEnumerable<string?> used = grading?.Mode switch
+        {
+            ColorGradingMode.Gradient => new[] { grading.GradientA, grading.GradientB },
+            ColorGradingMode.RandomColors or ColorGradingMode.CycleColorList or ColorGradingMode.TravelingList or ColorGradingMode.TravelingRandom
+                => grading.ColorList ?? new List<string>(),
+            _ => Array.Empty<string?>(),
+        };
+        return used.Where(c => !ColorGrader.IsValidColor(c)).Select(c => $"\"{c}\"").ToList();
     }
 
     /// <summary>True when both scenes serialize identically (null equals only null).</summary>

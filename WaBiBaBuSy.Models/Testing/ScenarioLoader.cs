@@ -6,11 +6,16 @@ namespace WaBiBaBuSy.Models.Testing;
 /// <summary>Parses and validates scenario JSON. Nothing is played when this throws.</summary>
 public static class ScenarioLoader
 {
-    /// <summary>camelCase, case-insensitive, comments and trailing commas allowed; <c>type</c> may come anywhere in a step.</summary>
+    /// <summary>
+    /// camelCase, case-insensitive, comments and trailing commas allowed; <c>type</c> may come anywhere in a step.
+    /// Unknown properties are rejected: a misspelled <c>minRemoteNodes</c> or threshold would otherwise fall back
+    /// to its default and let the run pass without testing what the file asked for.
+    /// </summary>
     public static JsonSerializerOptions JsonOptions { get; } = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true,
+        UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
         AllowOutOfOrderMetadataProperties = true,   // "type" does not have to be the first property
         ReadCommentHandling = JsonCommentHandling.Skip,
         AllowTrailingCommas = true,

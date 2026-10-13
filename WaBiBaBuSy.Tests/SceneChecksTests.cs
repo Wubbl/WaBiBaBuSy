@@ -65,6 +65,24 @@ public class SceneChecksTests
         => Assert.Empty(SceneChecks.Validate(Scene(), Canvas(5000)));
 
     [Fact]
+    public void BadGradingColor_NeverThrows_DrawsWhite_AndIsFlagged()
+    {
+        // Review 2026-10-13 A10: byte.Parse threw on every frame on every node.
+        var list = new ColorGradingConfig { Mode = ColorGradingMode.CycleColorList, CyclesPerSecond = 1, ColorList = { "#GG0000", "#00FF00" } };
+        Assert.Equal((1f, 1f, 1f), ColorGrader.ComputeCurrentColor(list, 0));
+        Assert.Equal((0f, 1f, 0f), ColorGrader.ComputeCurrentColor(list, 1000));   // the valid entry still works
+        var gradient = new ColorGradingConfig { Mode = ColorGradingMode.Gradient, GradientA = "#12345Z" };
+        ColorGrader.ComputeCurrentColor(gradient, 500);
+        Assert.True(ColorGrader.IsValidColor("#FF00FF00"));   // #AARRGGBB stays accepted
+
+        var s = Scene();
+        s.Animation.ColorGrading = list;
+        Assert.Contains("Not a color (#RRGGBB): \"#GG0000\" — drawn white", SceneChecks.Validate(s, Canvas(5000)));
+        s.Animation.ColorGrading = new ColorGradingConfig { Mode = ColorGradingMode.Rainbow, ColorList = { "junk" } };
+        Assert.Empty(SceneChecks.Validate(s, Canvas(5000)));   // the list is not used in Rainbow mode
+    }
+
+    [Fact]
     public void Validate_EmptyPath_AsksForFile()
     {
         var s = Scene();

@@ -196,25 +196,26 @@ public static class ColorGrader
     private static int Hash(int seed, int k) => seed ^ (int)((uint)k * 2654435761u);
 
     /// <summary>Parse a hex color "#RRGGBB" or "#AARRGGBB" → normalized RGB floats (0..1).</summary>
-    private static (float R, float G, float B) HexToRgb(string hex)
+    /// <summary>White when <paramref name="hex"/> is not #RRGGBB / #AARRGGBB. Never throws: it runs on every frame on every node.</summary>
+    private static (float R, float G, float B) HexToRgb(string? hex) =>
+        TryHexToRgb(hex, out var rgb) ? rgb : (1f, 1f, 1f);
+
+    /// <summary>True when <paramref name="hex"/> is a color the grader can use (#RRGGBB or #AARRGGBB, '#' optional).</summary>
+    public static bool IsValidColor(string? hex) => TryHexToRgb(hex, out _);
+
+    private static bool TryHexToRgb(string? hex, out (float R, float G, float B) rgb)
     {
-        if (string.IsNullOrWhiteSpace(hex)) return (1f, 1f, 1f);
+        rgb = (1f, 1f, 1f);
+        if (string.IsNullOrWhiteSpace(hex)) return false;
         var s = hex.Trim().TrimStart('#');
-        if (s.Length == 6)
-        {
-            byte r = byte.Parse(s.AsSpan(0, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-            byte g = byte.Parse(s.AsSpan(2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-            byte b = byte.Parse(s.AsSpan(4, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-            return (r / 255f, g / 255f, b / 255f);
-        }
-        if (s.Length == 8)
-        {
-            byte r = byte.Parse(s.AsSpan(2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-            byte g = byte.Parse(s.AsSpan(4, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-            byte b = byte.Parse(s.AsSpan(6, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-            return (r / 255f, g / 255f, b / 255f);
-        }
-        return (1f, 1f, 1f);
+        int o = s.Length switch { 6 => 0, 8 => 2, _ => -1 };   // #AARRGGBB: skip the alpha
+        if (o < 0
+            || !byte.TryParse(s.AsSpan(o, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out byte r)
+            || !byte.TryParse(s.AsSpan(o + 2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out byte g)
+            || !byte.TryParse(s.AsSpan(o + 4, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out byte b))
+            return false;
+        rgb = (r / 255f, g / 255f, b / 255f);
+        return true;
     }
 
     /// <summary>HSV (hue 0..360, sat/val 0..1) → RGB (0..1).</summary>

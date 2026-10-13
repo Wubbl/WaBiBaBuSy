@@ -352,6 +352,13 @@ public class ScenarioLoaderTests : IDisposable
         Assert.Contains("needs a playScene step before it", Assert.Throws<ScenarioException>(() => ScenarioLoader.Parse(json, _dir)).Message);
     }
 
+    [Theory]   // review 2026-10-13 A6: a typo used to fall back to the default silently
+    [InlineData("""{ "name": "x", "requires": { "minRemoteNode": 2 }, "steps": [ { "type": "stop" } ] }""", "minRemoteNode")]
+    [InlineData("""{ "name": "x", "thresholds": { "driftSpreadMS": 10, "driftSpreadMsx": 1 }, "steps": [ { "type": "stop" } ] }""", "driftSpreadMsx")]
+    [InlineData("""{ "name": "x", "steps": [ { "type": "wait", "label": "w", "forMs": 100 } ] }""", "forMs")]
+    public void Parse_UnknownProperty_IsRejected(string json, string property) =>
+        Assert.Contains(property, Assert.Throws<ScenarioException>(() => ScenarioLoader.Parse(json, _dir)).Message);
+
     [Theory]
     [InlineData("smoke-local.json")]
     [InlineData("sync-basic.json")]
@@ -359,6 +366,8 @@ public class ScenarioLoaderTests : IDisposable
     [InlineData("clock-skew.json")]
     [InlineData("recovery.json")]
     [InlineData("showcase/events.json")]
+    [InlineData("showcase/showcase.json")]
+    [InlineData("showcase/comet.json")]
     public void BundledScenario_IsValid(string file)
     {
         var root = AppContext.BaseDirectory;

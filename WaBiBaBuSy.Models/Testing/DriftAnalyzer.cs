@@ -80,9 +80,10 @@ public static class DriftAnalyzer
         var renderErrors = valid.Select(s => RenderErrorMs(s, sharedStartServerUtcMs)).ToList();
         double renderSpread = renderErrors.Max() - renderErrors.Min();
 
-        var verdict = spread <= thresholds.DriftWarnMs ? Verdict.Pass
-            : spread <= thresholds.DriftSpreadMs ? Verdict.Warn
-            : Verdict.Fail;
+        var verdict = Grade(spread, thresholds);
+        // Present-only spread leaves the fallback nodes out; grade them via the all-render-time spread
+        // (same basis on every node), so a drifting node without present data cannot hide behind the others.
+        if (presentOnly && fallbackNames.Count > 0) verdict = Verdicts.Worst(verdict, Grade(renderSpread, thresholds));
         if (missing.Count > 0) verdict = Verdicts.Worst(verdict, Verdict.Warn);
 
         var message = $"spread {spread:F1} ms (warn > {thresholds.DriftWarnMs}, fail > {thresholds.DriftSpreadMs}), common latency {mean:F1} ms";
@@ -105,6 +106,9 @@ public static class DriftAnalyzer
             Verdict = verdict, MissingNodes = missing, Message = message,
         };
     }
+
+    private static Verdict Grade(double spreadMs, ScenarioThresholds t) =>
+        spreadMs <= t.DriftWarnMs ? Verdict.Pass : spreadMs <= t.DriftSpreadMs ? Verdict.Warn : Verdict.Fail;
 
     /// <summary><see cref="ErrorMs"/> with the render time, ignoring any present time.</summary>
     private static double RenderErrorMs(NodeProbeSample sample, long sharedStartServerUtcMs) =>

@@ -118,6 +118,19 @@ public class DriftAnalyzerTests
     }
 
     [Fact]
+    public void MixedProbe_DriftingFallbackNode_FailsTheVerdict()
+    {
+        // Review 2026-10-13 A3: a fallback node 200 ms off used to pass because only present-time nodes were graded.
+        var fallback = Node("c", contentLagMs: 200);
+        fallback.PresentLocalUtcMs = null;
+
+        var r = DriftAnalyzer.Analyze(new[] { Node("a"), Node("b"), fallback }, Start, T);
+
+        Assert.Equal(0, r.SpreadMs, 3);
+        Assert.Equal(Verdict.Fail, r.Verdict);
+    }
+
+    [Fact]
     public void AllFallback_UsesAllSamples_AndSaysSo()
     {
         var a = Node("a");

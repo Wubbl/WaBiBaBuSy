@@ -277,7 +277,7 @@ public partial class TrayViewModel : ObservableObject
 
     /// <summary>
     /// --test-run: open the control panel, start the server, wait for the scenario's remote nodes
-    /// (120 s), run, print the verdict; with --exit quit with 0 (no failure), 1 (a step failed), 2 (aborted).
+    /// (120 s), run, print the verdict; with --exit quit with <see cref="TestRunReport.ExitCode"/> (0 pass, 1 failed or a node unaccounted for, 2 aborted).
     /// </summary>
     public async Task RunTestFromCommandLineAsync(string scenarioPath, bool exitWhenDone)
     {
@@ -299,8 +299,8 @@ public partial class TrayViewModel : ObservableObject
             }
 
             var report = await _testControl.StartAsync(scenarioPath);
-            exitCode = report.Aborted ? 2 : report.Verdict == Verdict.Fail ? 1 : 0;
-            CliConsole.WriteLine($"Test run {report.Verdict.ToString().ToLowerInvariant()}: {Path.Combine(report.ResultsDirectory, "report.html")}");
+            (exitCode, var reason) = report.ExitCode();
+            CliConsole.WriteLine($"Test run {report.Verdict.ToString().ToLowerInvariant()}{(reason != null ? $" (exit {exitCode}: {reason})" : "")}: {Path.Combine(report.ResultsDirectory, "report.html")}");
         }
         catch (Exception ex)
         {

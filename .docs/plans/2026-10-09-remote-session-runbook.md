@@ -46,13 +46,13 @@ On the server, from the exe's folder (the build copies `TestScenarios\` next to 
 Start-Process -Wait -PassThru .\WaBiBaBuSy.UI.exe '--test-run','TestScenarios\sync-basic.json','--exit' | % ExitCode
 ```
 
-Or Developer tools → Run test suite… in the main window. Exit code 0 = pass, 1 = a step failed, 2 = aborted / not enough clients (the CLI waits 120 s for them).
+Or Developer tools → Run test suite… in the main window. Exit code 0 = pass, 1 = a step failed or a node is unaccounted for (lost / probe not answered / nothing measured), 2 = aborted / not enough clients (the CLI waits 120 s for them). Builds before `fix/review-batch-a` always exited 0.
 
 | Order | Scenario | Time | Note |
 |---|---|---|---|
 | 1 | `parity-matrix.json` (pixel mode) | ~2 min | first, because it is short and shows parity problems at once |
 | 2 | `parity-matrix.json` with Room ⚙ → Physical units on | ~2 min | turn Physical units off afterwards |
-| 3 | `clock-skew.json` | ~1.5 min | first replace `REMOTE-HOSTNAME-1/-2` in the exe folder's copy with the tile names (the repo file stays untouched) |
+| 3 | `clock-skew.json` | ~1.5 min | first replace `REMOTE-HOSTNAME-1` in the exe folder's copy with a tile name (with 2+ clients add a second key, e.g. `"<pc>": -2000`; the repo file stays untouched) |
 | 4 | `showcase/events.json` | ~15 s | now with remotes: confetti / spotlight / traversal / whiteout / announce in the remotes' frames too |
 | 5 | `recovery.json` | ~3 min | fault injection: 6 s link loss (reconnect time, limit 5 s) + 45 s silence (sweep time); replace `REMOTE-HOSTNAME-1` in the exe folder's copy. Covers the timing of checklist §7 — the manual cable pull in §6 becomes a cross-check |
 | 6 | `sync-basic.json` | ~11 min | do §5.2 eyes checks meanwhile; or run the **lost node** variant (§4: pull a cable after ~1 min) |
