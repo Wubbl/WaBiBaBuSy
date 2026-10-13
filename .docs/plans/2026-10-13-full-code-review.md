@@ -38,6 +38,8 @@ Output: one findings list per part (severity, file:line, failure scenario), cons
 
 ### Batch B — security / trust boundary (plain-HTTP, unauthenticated gRPC)
 
+**Decision 2026-10-13: trusted LAN** — no auth / signing. **Status: B1, B2, B4, B5 fixed** on `fix/review-batch-a` (B2 also fixes E2: cache files live under `{cache}\{hash16}\{name}`). **B3 deferred by the decision** (its authenticity parts only matter against a malicious server); the update bugs that break honest updates stay in batch E (E1, E4) and the installed-updater self-lock in F.
+
 Trust model: anything that can answer as "the server" (rogue LAN host, MITM) is fully trusted; SHA-256 checks only catch corruption. Decide: accept for trusted LAN, or add a shared-secret HMAC / signed packages.
 
 | # | Sev | Finding | Where |

@@ -95,6 +95,11 @@ public sealed class PresetStore
     public async Task<string> ImportAsync(string sourceFile, string? name = null)
     {
         var config = await Task.Run(() => SceneFile.Load(sourceFile));
+        // A handed-over file may point anywhere on this disk; its assets get copied and sent to every client.
+        // Only media files travel, so a crafted preset cannot ship e.g. ..\..\Documents\passwords.txt to the room.
+        var notMedia = SceneAssets.CollectPaths(config).Select(a => a.Path).Where(p => !SceneChecks.IsMediaFile(p)).ToList();
+        if (notMedia.Count > 0)
+            throw new ScenarioException($"{sourceFile}: not an image, GIF or video: {string.Join(", ", notMedia)}");
         config.SelectedMonitorIds = new List<string>();
         await PresetBundle.BundleAssetsAsync(config, Directory);
         return await WriteAsync(name ?? UniqueName(Path.GetFileNameWithoutExtension(sourceFile)), config);

@@ -181,6 +181,18 @@ public class WallpaperSyncServiceTestModeTests : IDisposable
     }
 
     [Fact]
+    public async Task SubmitProbeResult_WithoutARunningTest_IsRejected()
+    {
+        // Review 2026-10-13 B5: nobody subscribes outside a test run, so an upload then is unsolicited.
+        _h.Connect("c1", _ => { });
+
+        var ack = await _h.SubmitProbeAsync("c1", "p1", "{}", new Dictionary<int, byte[]> { [0] = new byte[600] });
+
+        Assert.False(ack.Success);
+        Assert.Equal("no test run", ack.Message);
+    }
+
+    [Fact]
     public async Task SubmitProbeResult_CapturesAboveTheCap_AreDropped_ButTheResultIsDelivered()
     {
         _h.Connect("c1", _ => { });

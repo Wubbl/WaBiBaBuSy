@@ -24,6 +24,13 @@ public static class SceneChecks
     public static bool IsVideo(string? path)
         => !string.IsNullOrEmpty(path) && VideoExtensions.Contains(Path.GetExtension(path));
 
+    private static readonly HashSet<string> StillAndGifExtensions =
+        new(StringComparer.OrdinalIgnoreCase) { ".gif", ".png", ".jpg", ".jpeg", ".bmp" };
+
+    /// <summary>True for a file the players can show (image, GIF, video), by extension.</summary>
+    public static bool IsMediaFile(string? path)
+        => IsVideo(path) || (!string.IsNullOrEmpty(path) && StillAndGifExtensions.Contains(Path.GetExtension(path)));
+
     /// <summary>
     /// Seconds the sprite needs to travel the full canvas width once at the scene's effective speed
     /// (cm/s resolved with the layout's reference DPI). 0 for Static movement, zero speed or no canvas.

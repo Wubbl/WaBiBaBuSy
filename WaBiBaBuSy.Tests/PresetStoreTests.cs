@@ -86,6 +86,21 @@ public class PresetStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Import_NonMediaAsset_IsRejected_AndNothingIsCopied()
+    {
+        // Review 2026-10-13 B4: a handed-over preset pointing at ..\secret.txt used to bundle it and send it to every client.
+        Asset("show/secret.txt");
+        var path = Path.Combine(_root, "show", "scenes", "evil.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{ "Animation": { "AnimationPath": "../secret.txt" } }""");
+
+        var ex = await Assert.ThrowsAsync<ScenarioException>(() => _store.ImportAsync(path));
+        Assert.Contains("secret.txt", ex.Message);
+        Assert.Empty(_store.List());
+        Assert.False(Directory.Exists(Path.Combine(_store.Directory, "assets")));
+    }
+
+    [Fact]
     public async Task List_AlphabeticalNamesOnly()
     {
         var logo = Asset("gallery/logo.png");

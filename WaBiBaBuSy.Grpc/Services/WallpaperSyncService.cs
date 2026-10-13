@@ -1278,6 +1278,11 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         IAsyncStreamReader<ProbeResultChunk> requestStream,
         ServerCallContext context)
     {
+        // Only a running test run subscribes (ServerTestChannel lives for one run): otherwise nobody asked
+        // for a probe, so nothing is read or buffered (up to 128 MB per call) for an unsolicited upload.
+        if (ProbeResultReceived == null)
+            return new ProbeResultAck { Success = false, Message = "no test run" };
+
         ProbeResultHeader? header = null;
         var captures = new Dictionary<int, MemoryStream>();
         long captureBytes = 0;
