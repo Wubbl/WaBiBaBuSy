@@ -24,6 +24,17 @@ public class UpdateApplicator
     /// <param name="backupDirectory">Directory to store backup files</param>
     /// <param name="updaterExePath">Path to WaBiBaBuSy.Updater.exe (optional, auto-detected if not provided)</param>
     /// <returns>True if updater launched successfully</returns>
+    /// <summary>
+    /// One quoted command-line argument. Backslashes right before the closing quote are doubled: the install dir
+    /// is AppContext.BaseDirectory, which ends in '\', and <c>"C:\…\WaBiBaBuSy\"</c> made Windows read <c>\"</c> as a
+    /// literal quote and swallow the rest of the line — the updater then exited on missing options (review E1).
+    /// </summary>
+    internal static string QuoteArg(string value)
+    {
+        int trailing = value.Length - value.TrimEnd('\\').Length;
+        return "\"" + value + new string('\\', trailing) + "\"";
+    }
+
     public bool LaunchUpdaterAndExit(
         string updateDirectory,
         string installDirectory,
@@ -65,9 +76,9 @@ public class UpdateApplicator
             var currentProcessId = Process.GetCurrentProcess().Id;
 
             // Build command-line arguments for updater
-            var arguments = $"--update-dir \"{updateDirectory}\" " +
-                          $"--install-dir \"{installDirectory}\" " +
-                          $"--backup-dir \"{backupDirectory}\" " +
+            var arguments = $"--update-dir {QuoteArg(updateDirectory)} " +
+                          $"--install-dir {QuoteArg(installDirectory)} " +
+                          $"--backup-dir {QuoteArg(backupDirectory)} " +
                           $"--process-id {currentProcessId}";
 
             _logger.LogInformation("Launching updater with arguments: {Arguments}", arguments);
