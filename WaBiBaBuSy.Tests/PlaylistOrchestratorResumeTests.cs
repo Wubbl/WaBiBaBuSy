@@ -46,6 +46,36 @@ public class PlaylistOrchestratorResumeTests
     }
 
     [Fact]
+    public async Task StartWhileAStopIsStillFinishing_TheNewShowSurvivesTheStop()
+    {
+        // Review 2026-10-13 C5: StopAsync used to null the fields after its awaits, wiping a show started meanwhile.
+        var interruptRunning = new TaskCompletionSource();
+        var releaseInterrupt = new TaskCompletionSource();
+        var o = new PlaylistOrchestrator(NullLogger<PlaylistOrchestrator>.Instance,
+            apply: config => { lock (_gate) _applied.Add(config); return Task.FromResult(new ApplyMetrics(1000, 0)); },
+            seedProvider: () => 7,
+            fireEvent: _ => { interruptRunning.TrySetResult(); return releaseInterrupt.Task; })
+        { MinInterruptEveryMs = 1 };
+        var first = Show(2);
+        first.Interrupts.Add(new PlaylistInterrupt { EveryMs = 10, Type = WaBiBaBuSy.Models.Show.ShowEventType.Blackout });
+        o.Start(first);
+        await interruptRunning.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var stop = o.StopAsync();   // the loop ends at once; the stop still waits for the running interrupt
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (o.IsRunning && DateTime.UtcNow < deadline) await Task.Delay(5);
+        var second = Show(2);
+        second.Name = "second";
+        o.Start(second);
+        releaseInterrupt.SetResult();
+        await stop.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(o.IsRunning);
+        Assert.Equal("second", o.CaptureResumePoint()?.Playlist.Name);
+        await o.StopAsync();
+    }
+
+    [Fact]
     public void CaptureResumePoint_NullWhenNothingRuns()
     {
         Assert.Null(Orchestrator().CaptureResumePoint());

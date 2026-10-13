@@ -171,26 +171,40 @@ public class PlaylistOrchestrator
     /// <summary>Stop the show. Safe to call when already stopped.</summary>
     public async Task StopAsync()
     {
-        _cts?.Cancel();
-        if (_loopTask != null)
+        // Work on the show that runs now: a Start while this awaits installs a new one, which must survive.
+        var cts = _cts;
+        var loop = _loopTask;
+        var interrupts = _interruptTask;
+        var interruptCts = _interruptCts;
+        cts?.Cancel();
+        try
         {
-            try { await _loopTask; } catch (OperationCanceledException) { }
+            if (loop != null)
+            {
+                try { await loop; } catch (OperationCanceledException) { }
+            }
+            if (interrupts != null)
+            {
+                try { await interrupts; } catch (OperationCanceledException) { }
+            }
         }
-        _loopTask = null;
-        if (_interruptTask != null)
+        finally
         {
-            try { await _interruptTask; } catch (OperationCanceledException) { }
-            _interruptTask = null;
+            interruptCts?.Dispose();
+            cts?.Dispose();
+            if (ReferenceEquals(_loopTask, loop))   // no newer Start in between
+            {
+                _loopTask = null;
+                _interruptTask = null;
+                _interruptCts = null;
+                _cts = null;
+                CurrentItem = null;
+                CurrentItemIndex = -1;
+                NextItem = null;
+                NextSwitchUtcMs = 0;
+                _position = null;
+            }
         }
-        _interruptCts?.Dispose();
-        _interruptCts = null;
-        _cts?.Dispose();
-        _cts = null;
-        CurrentItem = null;
-        CurrentItemIndex = -1;
-        NextItem = null;
-        NextSwitchUtcMs = 0;
-        _position = null;
     }
 
     /// <summary>Advance to the next item now (ends the current dwell). No-op when no show is running.</summary>
@@ -242,7 +256,8 @@ public class PlaylistOrchestrator
                     CurrentItem = item;
                     CurrentItemIndex = index;
                     _position = new PlaylistResumePoint(playlist, order, k);
-                    ItemChanged?.Invoke(item, index);
+                    try { ItemChanged?.Invoke(item, index); }
+                    catch (Exception ex) { _logger.LogWarning(ex, "ItemChanged handler failed for '{Name}'", item.Name); }
 
                     ApplyMetrics metrics;
                     try
@@ -295,6 +310,11 @@ public class PlaylistOrchestrator
         catch (OperationCanceledException)
         {
             _logger.LogInformation("Playlist rotation cancelled");
+        }
+        catch (Exception ex)
+        {
+            // A fault ends the show here; StopAsync then cleans up instead of rethrowing it at its caller.
+            _logger.LogError(ex, "Playlist rotation failed; the show ends");
         }
         finally
         {
