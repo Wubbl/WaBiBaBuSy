@@ -129,11 +129,12 @@ public class WallpaperPlaybackService : IDisposable
         try
         {
             if (_contentCache.TryGetValue(contentId, out cached) && File.Exists(cached)) return cached;
-            _cacheManager?.EnsureSpace(0);
             var path = await _syncClient.DownloadContentAsync(contentId, _cacheDirectory);
             if (path == null) return null;
             _contentCache[contentId] = path;
             SaveCacheIndex();
+            // After the download (its size is known only now); recently used files, this one included, are kept.
+            _cacheManager?.EnsureSpace(0);
             return path;
         }
         finally

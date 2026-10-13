@@ -102,10 +102,22 @@ public class ContentCacheManager
         return evicted >= 0; // Always allow the download to proceed
     }
 
+    /// <summary>Files used this recently are never evicted: the running show and a prefetch just touched them.</summary>
+    public static readonly TimeSpan RecentUseProtection = TimeSpan.FromMinutes(10);
+
     private int EvictToSize(long currentSize, long targetSize)
     {
+        // Review 2026-10-13 E3: eviction used to take any file — the cache index itself (never touched, so always
+        // "oldest"), downloads in progress, and assets of the show playing right now.
+        // ponytail: "recently used" stands in for "in the running show / prefetch"; pass the set explicitly if a
+        // show ever runs longer than the window without touching its assets.
+        var cutoff = DateTime.UtcNow - RecentUseProtection;
         var files = new DirectoryInfo(_cacheDirectory)
             .EnumerateFiles("*", SearchOption.AllDirectories)
+            .Where(f => f.Name != WaBiBaBuSy.Models.Content.ContentCacheIndex.FileName
+                        && !f.Name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)
+                        && !f.Name.EndsWith(".part", StringComparison.OrdinalIgnoreCase)
+                        && f.LastAccessTimeUtc < cutoff && f.LastWriteTimeUtc < cutoff)
             .OrderBy(f => f.LastAccessTimeUtc) // Least recently accessed first
             .ToList();
 
