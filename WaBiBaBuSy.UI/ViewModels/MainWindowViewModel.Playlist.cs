@@ -1,7 +1,14 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading.Tasks;
+using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
+using WaBiBaBuSy.Core.Services.Logging;
+using WaBiBaBuSy.Models.Wallpaper;
+using WaBiBaBuSy.Models.Wallpaper.Suggest;
 
 namespace WaBiBaBuSy.UI.ViewModels;
 
@@ -18,6 +25,7 @@ public partial class MainWindowViewModel
         PlaylistEditor.StopShow = StopPlaylistAsync;
         PlaylistEditor.CaptureDraft = () => SceneEditor.BuildConfig();
         PlaylistEditor.LoadIntoEditor = LoadDraft;
+        PlaylistEditor.BuildFromFolder = AddPlaylistFromFolderAsync;
         PlaylistEditor.ThumbnailProvider = path =>
             Wallpapers.FirstOrDefault(w => string.Equals(w.FilePath, path, StringComparison.OrdinalIgnoreCase))?.Thumbnail;
         PlaylistEditor.PropertyChanged += (_, e) =>
@@ -64,5 +72,54 @@ public partial class MainWindowViewModel
     {
         IsRightPanelOpen = true;
         RightPanelTabIndex = 1;
+    }
+
+    private const int MaxFolderFiles = 200;
+
+    /// <summary>
+    /// Auto from folder (spec 2026-10-14 folder-playlist §2): pick a folder, add its media to the gallery, profile it,
+    /// build a party playlist and append its items to the open playlist. Never throws; the status line says what happened.
+    /// </summary>
+    private async Task AddPlaylistFromFolderAsync()
+    {
+        try
+        {
+            if (_storageProvider == null) return;
+            var folders = await _storageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title = "Folder with pictures, GIFs or videos",
+                AllowMultiple = false,
+            });
+            var folder = folders.Count > 0 ? folders[0].TryGetLocalPath() : null;
+            if (string.IsNullOrEmpty(folder)) return;
+            string folderName = Path.GetFileName(folder.TrimEnd('\\', '/'));
+
+            var all = Directory.EnumerateFiles(folder).Where(SceneChecks.IsMediaFile)
+                .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase).ToList();
+            if (all.Count == 0)
+            {
+                PlaylistEditor.FolderStatus = $"No pictures or videos in {folderName}";
+                return;
+            }
+            var files = all.Take(MaxFolderFiles).ToList();
+            foreach (var f in files) AddWallpaperFromPath(f);
+
+            var screen = PrimaryScreen();
+            var progress = new Progress<int>(n => PlaylistEditor.FolderStatus = $"Analysing {n} / {files.Count}…");
+            PlaylistEditor.FolderStatus = $"Analysing 0 / {files.Count}…";
+            var profiles = await ProfileFilesAsync(files, screen.Width, screen.Height, progress);
+
+            var built = PlaylistBuilder.Build(folderName, profiles, screen.Width, screen.Height, screen.PixelsPerCm,
+                SceneEditor.BuildConfig(), PlaylistEditor.DefaultDurationMs);
+            int added = PlaylistEditor.AppendItems(built.Name, built.Items);
+            double minutes = built.Items.Sum(i => i.GetEffectiveDurationMs(PlaylistEditor.DefaultDurationMs)) / 60_000.0;
+            PlaylistEditor.FolderStatus = $"Added {added} items (≈ {Math.Round(minutes)} min) from {folderName}"
+                + (all.Count > files.Count ? $" — first {files.Count} of {all.Count} files" : string.Empty);
+        }
+        catch (Exception ex)
+        {
+            AppLogger.CreateLogger<MainWindowViewModel>().LogWarning(ex, "Auto from folder failed");
+            PlaylistEditor.FolderStatus = "Could not build from that folder: " + ex.Message;
+        }
     }
 }

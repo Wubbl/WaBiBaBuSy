@@ -346,44 +346,71 @@ public partial class MainWindowViewModel
             .Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
         if (paths.Count == 0) return null;
 
-        // Gallery facts snapshotted on the UI thread; only the decode runs off it.
-        var facts = paths.Select(p =>
-        {
-            var item = Wallpapers.FirstOrDefault(w => string.Equals(w.FilePath, p, StringComparison.OrdinalIgnoreCase));
-            bool video = item?.Type == WallpaperType.Video;
-            return (path: p, video, thumb: item?.ThumbnailPath, resolution: item?.Resolution, durationMs: item?.DurationMs ?? 0);
-        }).ToList();
+        var screen = PrimaryScreen();
+        var files = await ProfileFilesAsync(paths, screen.Width, screen.Height);
+        return new SelectionProfile(files, screen.Width, screen.Height, screen.PixelsPerCm);
+    }
 
-        int screenW = 1920, screenH = 1080;
-        float pixelsPerCm = 0f;
+    /// <summary>Primary monitor size and reference DPI; 1920 × 1080 and 0 (unknown DPI) when they cannot be read.</summary>
+    private static (int Width, int Height, float PixelsPerCm) PrimaryScreen()
+    {
         try
         {
             var primary = LocalMonitors.Snapshot().Monitors.FirstOrDefault(m => m.IsPrimary);
-            if (primary != null) (screenW, screenH) = (primary.Width, primary.Height);
-            pixelsPerCm = LocalMonitors.ReferencePixelsPerCm;
+            return (primary?.Width ?? 1920, primary?.Height ?? 1080, LocalMonitors.ReferencePixelsPerCm);
         }
         catch (Exception ex)
         {
-            AppLogger.CreateLogger<MainWindowViewModel>().LogWarning(ex, "Suggest: could not read the primary monitor, assuming 1920x1080");
+            AppLogger.CreateLogger<MainWindowViewModel>().LogWarning(ex, "Could not read the primary monitor, assuming 1920x1080");
+            return (1920, 1080, 0f);
         }
+    }
 
-        var files = await Task.Run(() => facts.Select(x =>
+    /// <summary>
+    /// Profile media files for Suggest and Auto from folder. Gallery facts are snapshotted on the UI thread; the decode,
+    /// and — for files the gallery has not measured yet — the GIF loop / video probe, run off it. A file that fails
+    /// any step is profiled with what is known (never throws). <paramref name="progress"/> gets the count done.
+    /// </summary>
+    private async Task<List<MediaProfile>> ProfileFilesAsync(IReadOnlyList<string> paths, int screenW, int screenH,
+        IProgress<int>? progress = null)
+    {
+        var facts = paths.Select(p =>
         {
-            var (w, h, pixels) = (0, 0, PixelFacts.Unknown);
-            try
-            {
-                (w, h, pixels) = MediaProbe.Read(x.video && !string.IsNullOrEmpty(x.thumb) ? x.thumb : x.path);
-            }
-            catch (Exception ex)
-            {
-                // ponytail: any decode failure (OOM on a huge file, a Magick edge case) degrades to "unknown pixels"
-                AppLogger.CreateLogger<MainWindowViewModel>().LogWarning(ex, "Suggest: could not analyse {Path}", x.path);
-            }
-            if (x.video && TryParseResolution(x.resolution, out int vw, out int vh)) (w, h) = (vw, vh);
-            return MediaProfile.Create(x.path, w, h, screenW, screenH, pixels, x.durationMs);
-        }).ToList());
+            var item = Wallpapers.FirstOrDefault(w => string.Equals(w.FilePath, p, StringComparison.OrdinalIgnoreCase));
+            return (path: p, video: SceneChecks.IsVideo(p), thumb: item?.ThumbnailPath, resolution: item?.Resolution,
+                durationMs: item?.DurationMs ?? 0);
+        }).ToList();
 
-        return new SelectionProfile(files, screenW, screenH, pixelsPerCm);
+        return await Task.Run(async () =>
+        {
+            var result = new List<MediaProfile>(facts.Count);
+            foreach (var x in facts)
+            {
+                var (w, h, pixels) = (0, 0, PixelFacts.Unknown);
+                long durationMs = x.durationMs;
+                string? resolution = x.resolution;
+                try
+                {
+                    if (x.video && (durationMs <= 0 || !TryParseResolution(resolution, out _, out _))
+                        && await _thumbnailGenerator.ProbeVideo(x.path) is { } probe)
+                        (durationMs, resolution) = (probe.DurationMs, probe.Resolution);
+                    else if (durationMs <= 0 && MediaAnalyzer.KindOf(x.path) == MediaKind.Gif
+                             && GifMetadataReader.Read(x.path) is { } gif)
+                        durationMs = gif.DurationMs;
+                    bool hasThumb = x.video && !string.IsNullOrEmpty(x.thumb) && File.Exists(x.thumb);
+                    if (!x.video || hasThumb) (w, h, pixels) = MediaProbe.Read(hasThumb ? x.thumb! : x.path);
+                }
+                catch (Exception ex)
+                {
+                    // ponytail: any probe / decode failure degrades to "unknown pixels"; the file still gets an item
+                    AppLogger.CreateLogger<MainWindowViewModel>().LogWarning(ex, "Could not analyse {Path}", x.path);
+                }
+                if (x.video && TryParseResolution(resolution, out int vw, out int vh)) (w, h) = (vw, vh);
+                result.Add(MediaProfile.Create(x.path, w, h, screenW, screenH, pixels, durationMs));
+                progress?.Report(result.Count);
+            }
+            return result;
+        });
     }
 
     private static bool TryParseResolution(string? resolution, out int width, out int height)

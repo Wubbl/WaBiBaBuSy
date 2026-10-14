@@ -914,6 +914,24 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     [RelayCommand]
     private void OpenSettings() => Views.SettingsWindow.ShowSingle();
 
+    /// <summary>The gallery's "Get content ▾" menu, built from <see cref="ContentLinks"/>.</summary>
+    public IReadOnlyList<ContentMenuEntry> ContentMenuEntries => _contentMenuEntries ??= ContentLinks.Groups
+        .SelectMany(g => new[] { new ContentMenuEntry($"— {g.Title} —", null, null) }
+            .Concat(g.Links.Select(l => new ContentMenuEntry(l.Name, l.Tip, OpenLinkCommand))))
+        .Append(new ContentMenuEntry("💡 " + ContentLinks.Tip, null, null))
+        .ToList();
+    private IReadOnlyList<ContentMenuEntry>? _contentMenuEntries;
+
+    /// <summary>Open a content link in the default browser.</summary>
+    [RelayCommand]
+    private void OpenLink(string? header)
+    {
+        var url = ContentLinks.Groups.SelectMany(g => g.Links).FirstOrDefault(l => l.Name == header)?.Url;
+        if (url == null) return;
+        try { Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true }); }
+        catch (Exception ex) { AppLogger.CreateLogger<MainWindowViewModel>().LogWarning(ex, "Could not open {Url}", url); }
+    }
+
     [RelayCommand]
     private void OpenLogFolder() => Process.Start(new ProcessStartInfo
     {
