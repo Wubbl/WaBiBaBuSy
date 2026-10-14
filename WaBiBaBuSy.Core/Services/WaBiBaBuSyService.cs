@@ -145,7 +145,6 @@ public class WaBiBaBuSyService : IDisposable
     public event EventHandler<ServerStatusChangedEventArgs>? ServerStatusChanged;
     public event EventHandler<ConnectionStatusChangedEventArgs>? ClientConnectionStatusChanged;
     public event EventHandler<ServerDiscoveredEventArgs>? ServerDiscovered;
-    public event EventHandler<ClientListChangedEventArgs>? ClientListChanged;
     public event EventHandler<UpdateAvailableEventArgs>? UpdateAvailable;
 
     public WaBiBaBuSyService(
@@ -704,10 +703,4 @@ public class WaBiBaBuSyService : IDisposable
         DisconnectFromServerAsync().Wait();
         StopServerDiscovery();
     }
-}
-
-public class ClientListChangedEventArgs : EventArgs
-{
-    public IEnumerable<ConnectedClient> Clients { get; }
-    public ClientListChangedEventArgs(IEnumerable<ConnectedClient> clients) => Clients = clients;
 }
