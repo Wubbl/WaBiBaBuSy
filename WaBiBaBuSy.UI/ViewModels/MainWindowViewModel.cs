@@ -291,8 +291,8 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     public int ActiveStartLeadMs => _server.ActiveStartLeadMs;
     /// <summary>Movement the players received (after cm→px).</summary>
     public MovementConfig? ActiveEffectiveMovement => _server.ActiveEffectiveMovement;
-    /// <summary>Preview image of the running scene (the gallery thumbnail for videos).</summary>
-    [ObservableProperty] private string? _activeSpriteImagePath;
+    /// <summary>Preview image for a layer's file (the gallery thumbnail for videos); the room view's resolver.</summary>
+    public Func<string?, string?> SpriteImageResolver => ResolveSpriteImagePath;
 
     // ── Tier 1.3 show reliability ────────────────────────────────────────────
 
@@ -422,9 +422,8 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             clientCfg.CacheDirectory,
             clientCfg.MaxCacheSizeMB);
 
-        // Load wallpaper gallery from disk (before the sprite path: video thumbnails come from it)
+        // Load wallpaper gallery from disk (the room preview takes video thumbnails from it)
         LoadWallpaperGallery();
-        ActiveSpriteImagePath = ResolveSpriteImagePath(server.ActiveScene?.Animation.AnimationPath);
 
         // Room layout (rows / ring) — single row until the user configures the room
         LoadSeatMap();
@@ -719,8 +718,6 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         switch (e.PropertyName)
         {
             case nameof(ServerPlaybackHost.ActiveScene):
-                // The sprite first: the room repaints on RoomScene and must not pair the new scene with the old image.
-                ActiveSpriteImagePath = ResolveSpriteImagePath(_server.ActiveScene?.Animation.AnimationPath);
                 OnPropertyChanged(nameof(ActiveScene));
                 OnPropertyChanged(nameof(RoomScene));
                 break;
@@ -849,7 +846,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     /// </summary>
     private void MarkAnimationTargets(CrossScreenConfig? config)
     {
-        var animFileName = Path.GetFileName(config?.Animation.AnimationPath ?? string.Empty);
+        var animFileName = Path.GetFileName(config?.FirstLayer?.Animation.AnimationPath ?? string.Empty);
         var selectedIds = new HashSet<string>(config?.SelectedMonitorIds ?? new List<string>());
         foreach (var client in Clients)
         {
@@ -1046,7 +1043,13 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
 
     public string? NodeWarning(string nodeId)
     {
-        if (!IsLocalMonitor(nodeId)) return null;
+        if (!IsLocalMonitor(nodeId))
+        {
+            var version = _service.GetConnectedClients().FirstOrDefault(c => c.ClientId == nodeId)?.AppVersion;
+            return version == null || WaBiBaBuSy.Common.Version.VersionInfo.SupportsSceneLayers(version)
+                ? null
+                : $"Runs v{version} — needs update to {WaBiBaBuSy.Common.Version.VersionInfo.MinSceneLayersVersion}+ before it plays scenes.";
+        }
         var local = Clients.Where(c => IsLocalMonitor(c.ClientId) && c.MonitorRefreshHz > 0).ToList();
         if (local.Select(c => c.MonitorRefreshHz).Distinct().Count() < 2) return null;
         var me = local.FirstOrDefault(c => c.ClientId == nodeId);
@@ -2310,7 +2313,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     private async Task StartCrossScreen()
     {
         var scene = _server.LastScene;
-        if (scene == null || string.IsNullOrEmpty(scene.Animation.AnimationPath))
+        if (scene == null || string.IsNullOrEmpty(scene.FirstLayer?.Animation.AnimationPath))
         {
             Debug.WriteLine("[CrossScreen] No configuration — opening the Scene editor");
             OpenSceneEditor();

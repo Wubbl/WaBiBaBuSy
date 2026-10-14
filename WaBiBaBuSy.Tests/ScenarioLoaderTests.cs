@@ -125,9 +125,11 @@ public class ScenarioLoaderTests : IDisposable
     }
 
     [Theory]
-    [InlineData("""{ "Animation": null }""", "Animation is null")]
+    // Legacy top-level "Animation"/"Movement": null are defaulted by LegacySceneMigration; nulls inside a layer still fail.
+    [InlineData("""{ "Layers": [ { "Animation": null } ] }""", "Layers[0].Animation is null")]
     [InlineData("""{ "Animation": { "AnimationPath": "marker.png" }, "Background": null }""", "Background is null")]
-    [InlineData("""{ "Animation": { "AnimationPath": "marker.png" }, "Movement": null }""", "Movement is null")]
+    [InlineData("""{ "Layers": [ { "Animation": { "AnimationPath": "marker.png" }, "Movement": null } ] }""", "Layers[0].Movement is null")]
+
     [InlineData("""{ "Animation": { "AnimationPath": "marker.png", "AdditionalAnimationPaths": null } }""", "AdditionalAnimationPaths is null")]
     public void SceneFile_Load_JsonNulls_AreScenarioErrors(string json, string expected)
     {
@@ -196,7 +198,7 @@ public class ScenarioLoaderTests : IDisposable
 
         var scene = SceneFile.Load(path);
 
-        Assert.Equal(new[] { Path.Combine(_dir, "scenes", "sub", "b.png") }, scene.Animation.AdditionalAnimationPaths);
+        Assert.Equal(new[] { Path.Combine(_dir, "scenes", "sub", "b.png") }, scene.Layers[0].Animation.AdditionalAnimationPaths);
         Assert.Equal(Path.Combine(_dir, "bg.png"), scene.Background.ImagePath);
     }
 
@@ -307,9 +309,9 @@ public class ScenarioLoaderTests : IDisposable
     public void SceneFile_Load_MakesAssetPathsAbsolute_AndReadsEnumNames()
     {
         var scene = SceneFile.Load(Path.Combine(_dir, "scenes", "linear.json"));
-        Assert.Equal(Path.Combine(_dir, "scenes", "marker.png"), scene.Animation.AnimationPath);
-        Assert.Equal(MovementType.Linear, scene.Movement.Type);
-        Assert.Equal(AnimationDistributionMode.Sequential, scene.DistributionMode);
+        Assert.Equal(Path.Combine(_dir, "scenes", "marker.png"), scene.Layers[0].Animation.AnimationPath);
+        Assert.Equal(MovementType.Linear, scene.Layers[0].Movement.Type);
+        Assert.Equal(AnimationDistributionMode.Sequential, scene.Layers[0].Distribution);
     }
 
     [Fact]

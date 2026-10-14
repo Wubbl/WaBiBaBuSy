@@ -109,7 +109,7 @@ public partial class PlaylistViewModel : ViewModelBase
         foreach (var row in e.NewItems?.OfType<PlaylistItemRow>() ?? Enumerable.Empty<PlaylistItemRow>())
         {
             row.PlaylistDefaultDurationMs = DefaultDurationMs;
-            row.Thumbnail ??= ThumbnailProvider?.Invoke(row.Model.Config.Animation.AnimationPath);
+            row.Thumbnail ??= ThumbnailProvider?.Invoke(row.Model.Config.FirstLayer?.Animation.AnimationPath ?? string.Empty);
             row.PropertyChanged += OnRowPropertyChanged;
         }
         foreach (var row in e.OldItems?.OfType<PlaylistItemRow>() ?? Enumerable.Empty<PlaylistItemRow>())
@@ -283,9 +283,10 @@ public partial class PlaylistViewModel : ViewModelBase
     /// <summary>Append a scene as a new item (named <paramref name="name"/>, else after its file) and make it the loaded item.</summary>
     public PlaylistItemRow AddItem(CrossScreenConfig config, string? name = null)
     {
-        name ??= string.IsNullOrWhiteSpace(config.Animation.AnimationPath)
+        var first = config.FirstLayer?.Animation.AnimationPath;
+        name ??= string.IsNullOrWhiteSpace(first)
             ? "Scene"
-            : Path.GetFileNameWithoutExtension(config.Animation.AnimationPath);
+            : Path.GetFileNameWithoutExtension(first);
         var row = new PlaylistItemRow(new PlaylistItem { Name = name, Config = config });
         Items.Add(row);
         SelectedItem = row;
@@ -298,7 +299,7 @@ public partial class PlaylistViewModel : ViewModelBase
         if (LoadedItem == null) return;
         config.SelectedMonitorIds = LoadedItem.Model.Config.SelectedMonitorIds;
         LoadedItem.ReplaceConfig(config);
-        LoadedItem.Thumbnail = ThumbnailProvider?.Invoke(config.Animation.AnimationPath);
+        LoadedItem.Thumbnail = ThumbnailProvider?.Invoke(config.FirstLayer?.Animation.AnimationPath ?? string.Empty);
     }
 
     [RelayCommand]

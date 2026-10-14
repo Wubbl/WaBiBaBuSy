@@ -21,10 +21,10 @@ public sealed class SelectionProfile
         ScreenWidth = screenWidth > 0 ? screenWidth : 1920;
         ScreenHeight = screenHeight > 0 ? screenHeight : 1080;
         Mix = ClassifyMix(files);
-        Big = Mix == SelectionMix.BigPlusSmall ? files.First(f => f.Size == SizeClass.FullScreen)
-            : files.Count == 1 && files[0].Size == SizeClass.FullScreen ? files[0]
+        Big = Mix == SelectionMix.BigPlusSmall ? files.First(IsBig)
+            : files.Count == 1 && IsBig(files[0]) ? files[0]
             : null;
-        Sprites = Mix == SelectionMix.BigPlusSmall ? files.Where(f => f.Size != SizeClass.FullScreen).ToList() : files;
+        Sprites = Mix == SelectionMix.BigPlusSmall ? files.Where(f => !IsBig(f)).ToList() : files;
         AllMonochrome = Sprites.All(f => f.Pixels.IsMonochrome);
         var paletteSource = Mix == SelectionMix.BigPlusSmall ? files.OrderBy(f => f == Big ? 0 : 1) : files.AsEnumerable();
         SharedPalette = paletteSource.SelectMany(f => f.Pixels.DominantColors)
@@ -45,7 +45,7 @@ public sealed class SelectionProfile
     public float PixelsPerCm { get; }
     /// <summary>How the files relate to each other.</summary>
     public SelectionMix Mix { get; }
-    /// <summary>The full-screen file (BigPlusSmall, or a single full-screen file); otherwise null.</summary>
+    /// <summary>The full-screen or panorama file (BigPlusSmall, or a single such file); otherwise null.</summary>
     public MediaProfile? Big { get; }
     /// <summary>The files sprite recipes move: all of them, except the big one in BigPlusSmall.</summary>
     public IReadOnlyList<MediaProfile> Sprites { get; }
@@ -69,10 +69,13 @@ public sealed class SelectionProfile
     public string Describe() =>
         Path.GetFileName(Files[0].Path) + (Count > 1 ? $" + {Count - 1} more" : string.Empty);
 
+    /// <summary>Fills the screen by itself: full-screen sized, or a panorama (which may be shorter than one screen).</summary>
+    private static bool IsBig(MediaProfile f) => f.Size == SizeClass.FullScreen || f.IsPanorama;
+
     private static SelectionMix ClassifyMix(IReadOnlyList<MediaProfile> files)
     {
         if (files.Count == 1) return SelectionMix.Single;
-        if (files.Count(f => f.Size == SizeClass.FullScreen) == 1) return SelectionMix.BigPlusSmall;
+        if (files.Count(IsBig) == 1) return SelectionMix.BigPlusSmall;
         if (files.Any(f => f.PixelHeight <= 0)) return SelectionMix.Mixed;
         int min = files.Min(f => f.PixelHeight), max = files.Max(f => f.PixelHeight);
         return max <= 2 * min ? SelectionMix.Uniform : SelectionMix.Mixed;

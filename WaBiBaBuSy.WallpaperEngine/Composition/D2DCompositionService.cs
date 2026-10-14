@@ -26,8 +26,6 @@ public class D2DCompositionService : IDisposable, ITestProbeTarget
 
     private VirtualCanvasManager? _canvasManager;
     private BackgroundLayerConfig? _backgroundConfig;
-    private AnimationLayerConfig? _animationConfig;
-    private MovementConfig? _movementConfig;
     // Concurrent: a respawn (thread pool) replaces a host while the owner's thread enumerates them.
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, D2DPlayerHost> _playerHosts = new();
     // What a respawned player needs to come back exactly where it was (review D3): the shared start makes it
@@ -117,67 +115,43 @@ public class D2DCompositionService : IDisposable, ITestProbeTarget
     /// Initialize the composition service with canvas layout and layer configurations.
     /// Creates D2DPlayer processes and sends animation metadata to each.
     /// </summary>
-    /// <param name="perMonitorMode">
-    /// When true (Simultaneous mode), each player treats its own monitor as the entire canvas.
-    /// When false (Sequential/spanning mode), animation spans across the full virtual canvas.
+    /// <param name="layers">Scene layers, bottom first, resolved to canvas pixels.</param>
+    /// <param name="layout">
+    /// This node's seat-map layout: the canvas of every Sequential layer. Null = the monitor alone is the canvas
+    /// (single-monitor playback); Simultaneous layers always use the monitor alone.
     /// </param>
     public async Task InitializeAsync(
         VirtualCanvasManager canvasManager,
         BackgroundLayerConfig backgroundConfig,
-        AnimationLayerConfig animationConfig,
+        IReadOnlyList<SceneLayer> layers,
         Rectangle actualMonitorBounds,
         int monitorIndex = 0,
-        MovementConfig? movementConfig = null,
-        bool perMonitorMode = false,
-        int? explicitVirtualCanvasWidth = null,
-        int? explicitMonitorOffsetX = null,
-        int? explicitVirtualCanvasHeight = null,
-        int? explicitMonitorOffsetY = null,
-        int nodeOrder = 0,
         NodeLayout? layout = null,
         CancellationToken cancellationToken = default)
     {
         if (_disposed)
             throw new ObjectDisposedException(nameof(D2DCompositionService));
 
-        _logger.LogInformation("Initializing D2D composition service for {ScreenCount} screens (metadata-based), movement={MovementType}, perMonitor={PerMonitor}",
-            canvasManager.ScreenMappings.Count, movementConfig?.Type.ToString() ?? "None", perMonitorMode);
+        _logger.LogInformation("Initializing D2D composition service for {ScreenCount} screens (metadata-based), {Layers} layer(s), layout={HasLayout}",
+            canvasManager.ScreenMappings.Count, layers.Count, layout != null);
 
         _canvasManager = canvasManager ?? throw new ArgumentNullException(nameof(canvasManager));
         _backgroundConfig = backgroundConfig ?? throw new ArgumentNullException(nameof(backgroundConfig));
-        _animationConfig = animationConfig ?? throw new ArgumentNullException(nameof(animationConfig));
-        _movementConfig = movementConfig;
         _monitorIndex = monitorIndex;
+
+        // F3a: when pattern + IconZone are combined, the pattern fills the desktop edge-to-edge
+        // and icon zones become a clip mask. A* pathing is skipped entirely. Layer 0 only.
+        bool maskZones = backgroundConfig.Mode == BackgroundMode.IconZone && layers.Count > 0 && layers[0].Animation.Pattern != null;
 
         // Create D2D player hosts for each screen
         foreach (var screen in canvasManager.ScreenMappings)
         {
-            // Send LOAD_ANIMATION command with metadata
-            // In per-monitor (simultaneous) mode: each player is its own independent canvas
-            // In spanning (sequential) mode: players share a virtual canvas with offset
-            // F3a: when pattern + IconZone are combined, the pattern fills the desktop edge-to-edge
-            // and icon zones become a clip mask. A* pathing is skipped entirely.
-            bool maskZones = backgroundConfig.Mode == BackgroundMode.IconZone && animationConfig.Pattern != null;
-
             var loadCmd = new PlayerCommandLoadAnimation
             {
-                AnimationConfig = animationConfig,
+                Layers = layers.ToList(),
                 BackgroundConfig = backgroundConfig,
                 MonitorIndex = monitorIndex,
-                // Canvas height is the tallest node in the wall (not this monitor's height) so every
-                // node computes the same centerY; shorter nodes are centered via MonitorOffsetY.
-                VirtualCanvasHeight = explicitVirtualCanvasHeight ?? (perMonitorMode
-                    ? actualMonitorBounds.Height
-                    : (canvasManager.VirtualBounds.Height > 0 ? canvasManager.VirtualBounds.Height : actualMonitorBounds.Height)),
-                VirtualCanvasWidth = explicitVirtualCanvasWidth ?? (perMonitorMode
-                    ? actualMonitorBounds.Width
-                    : (canvasManager.VirtualBounds.Width > 0 ? canvasManager.VirtualBounds.Width : actualMonitorBounds.Width)),
-                MonitorOffsetX = explicitMonitorOffsetX ?? (perMonitorMode ? 0 : screen.VirtualBounds.X),
-                MonitorOffsetY = explicitMonitorOffsetY ?? (perMonitorMode ? 0 : screen.VirtualBounds.Y),
-                NodeOrder = nodeOrder,
-                PerMonitorMode = perMonitorMode,
-                Layout = perMonitorMode ? null : layout,
-                MovementConfig = _movementConfig,
+                Layout = layout,
                 MaskZones = maskZones,
                 UseZonePalette = backgroundConfig.IconZonePaletteEnabled,
                 IconFadePaddingPx = maskZones ? backgroundConfig.IconFadePaddingPx : 0,

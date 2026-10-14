@@ -74,6 +74,14 @@ public static class MediaAnalyzer
         return aspect > 2.5 ? AspectClass.Wide : aspect < 0.6 ? AspectClass.Tall : AspectClass.Square;
     }
 
+    /// <summary>
+    /// A still, opaque picture at least 3 : 1 and 1.5 screens wide: made to span the room as a
+    /// <see cref="BackgroundMode.Panorama"/> background, not to move as a sprite (a transparent wide wordmark stays a sprite).
+    /// </summary>
+    public static bool IsPanorama(MediaKind kind, int width, int height, int screenWidth, bool hasAlpha) =>
+        kind == MediaKind.Image && !hasAlpha && height > 0 && screenWidth > 0
+        && width >= 3.0 * height && width >= 1.5 * screenWidth;
+
     /// <summary>Gif for <c>.gif</c>, Video for anything <see cref="SceneChecks.IsVideo"/> accepts, else Image.</summary>
     public static MediaKind KindOf(string path) =>
         string.Equals(Path.GetExtension(path), ".gif", StringComparison.OrdinalIgnoreCase) ? MediaKind.Gif

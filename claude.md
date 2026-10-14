@@ -1,8 +1,8 @@
 # WaBiBaBuSy - Wallpaper Synchronization System
 
 **Project Name:** WallpaperBiBaBuSync (BiBaBu = our club name)
-**Version:** 2.6.5 | **Framework:** .NET 9.0 | **Status:** MVP complete + post-MVP visual features + LAN-party Tier 0 / 1.1 / 2.1
-**Last Updated:** 2026-10-14 | **Next:** E2E Multi-Client Testing (first session 2026-10-09 evening, runbook below), then roadmap Tier 2.4 Portal + transitions (events done) / 2.3 scene layers
+**Version:** 2.7.0 | **Framework:** .NET 9.0 | **Status:** MVP complete + post-MVP visual features + LAN-party Tier 0 / 1.1 / 2.1 / 2.3
+**Last Updated:** 2026-10-14 | **Next:** E2E Multi-Client Testing (first session 2026-10-09 evening, runbook below), then roadmap Tier 2.4 Portal + transitions (events done); 2.3 scene layers slice 1 done
 
 WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5% server CPU, ±50ms drift tolerance, and distributed client-side rendering. Supports images (JPG/PNG/BMP), videos (MP4/AVI/MKV), and GIFs across multi-monitor setups.
 
@@ -16,16 +16,17 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 - Hardware-accelerated Direct2D rendering with separate player process
 - Precise timing synchronization via shared UTC start timestamp + deterministic math (±50ms tolerance)
 - Multi-monitor support: Sequential (spanning) and Simultaneous (per-monitor) modes
+- Scene layers: a scene is a background plus N image/GIF layers (bottom first), each with its own file(s), movement, look, effects, opacity, Sequential/Simultaneous distribution and phase offset — Layers strip in the Scene editor, every layer in the room preview; only the bottom layer may be a video or follow the IconZone path (`SceneLayer`, `Program.Layers.cs`)
 - 6 movement types (Static, Linear, Bounce, SineWave, Circular, RandomWalk) with Reversed/Endless options
 - Sprite effects: trail, pulse, spin and bezel-crossing Glow/Flash/Ripple — pure functions of the shared clock (`SpriteEffects`), drawn by the players and the room preview (Effects tab)
 - One-shot show events: Spotlight a seat, Celebration burst, Traversal (an image laps the ring once), Blackout, Announce text lap — shared T0 + duration, drawn above the scene by every player and the room preview (`WaBiBaBuSy.Models/Show`), fired from the Events strip, Ctrl+Alt+1..5 (server only) or playlist interrupts; `SyncCommand` EVENT
 - Pattern grid multiplier: tile the animation into an infinite deterministic world-space grid (spacing, jitter, rotation, multi-image)
 - Color grading: 8 modes — time-based (Rainbow, RandomColors, Gradient, CycleColorList) and per-cell Traveling Colors (Rainbow/List/Random)
-- Backgrounds: SolidColor, StretchedImage, TiledImage, ThreeZone corridor, IconZone (A* pathfinding around real desktop icons)
+- Backgrounds: SolidColor, StretchedImage, TiledImage, ThreeZone corridor, IconZone (A* pathfinding around real desktop icons), Panorama (one wide image over the whole seat-map canvas, each player crops its slice on the CPU — `NodeMapping.PanoramaSource`)
 - Debug overlay in player (F11 / IPC): A* path, icon rects, zone bands, movement trail, info panel
 - Playlist / Party Mode: rotate animation configs across all machines on a loop (per-item duration + global default, shuffle, opt-in Linear lap-snap; Playlist tab in the right panel, show controls in the toolbar; JSON-persisted under `%APPDATA%\WaBiBaBuSy\playlists\`)
 - Scene presets: save / load / import / export scenes as presets (`%APPDATA%\WaBiBaBuSy\presets\`, scene-file format, imported assets bundled relative), add them to playlists; tray "Quick start ▸" plays one on all seats with the window closed; 14 starter presets seeded on first run from the showcase scenes
-- Auto-suggest: ✨ Suggest in the Scene editor profiles the picked media (size vs monitor, aspect, transparency, mono vs colourful, dominant colours, GIF loop length) and offers four recipe-built scenes as cards (`WaBiBaBuSy.Models/Wallpaper/Suggest/`); click previews in the room view, Shuffle, Keep / ✕ revert
+- Auto-suggest: ✨ Suggest in the Scene editor profiles the picked media (size vs monitor, aspect, transparency, mono vs colourful, dominant colours, GIF loop length) and offers four recipe-built scenes as cards (`WaBiBaBuSy.Models/Wallpaper/Suggest/`; a wide opaque still ≥ 3:1 and 1.5 screens wide is a panorama → Panorama recipe, picked sprites ride across it); click previews in the room view, Shuffle, Keep / ✕ revert
 - Auto from folder: the Playlist tab builds a party playlist from a folder (full-screen files / videos as Showcases, look-alike transparent sprites in groups of 3–5, the rest solo; interleaved, no recipe twice in a row, GIF dwell on whole loops — `PlaylistBuilder`); the gallery's "Get content ▾" links free content sites, AI generators and clean-up tools (`Models/Content/ContentLinks.cs`)
 - Show reliability: hashed content ids, persistent client cache, every scene asset transferred, playlist prefetch with per-node readiness, server download throttle, health strip + Resync all
 - Auto-update system with SHA-256 verification and rollback
@@ -124,18 +125,26 @@ Other: `TestScenarios/` (test-mode scenarios), `Installer/` (Inno Setup), `tools
 ### Animation Distribution Modes
 **There are exactly two modes. Their meaning is precise:**
 
+The mode is chosen **per scene layer** (`SceneLayer.Distribution`, 2026-10-14):
+
 | Mode | UI Name | What it means | Virtual canvas | MonitorOffsetX |
 |------|---------|---------------|----------------|----------------|
-| **Sequential** | "Sequential" | Animation **spans across all monitors** as one big canvas | `VirtualCanvasWidth = total width of all monitors combined` | `= this monitor's X offset in virtual space` |
-| **Simultaneous** | "Simultaneous" | Animation plays **independently on each monitor** | `VirtualCanvasWidth = this monitor's width only` | `= 0` |
+| **Sequential** | "Sequential" | The layer **spans across all monitors** as one big canvas | `VirtualCanvasWidth = total width of all monitors combined` (seat-map `NodeLayout`) | `= this monitor's X offset in virtual space` |
+| **Simultaneous** | "Simultaneous" | The layer plays **independently on each monitor** | `VirtualCanvasWidth = this monitor's width only` | `= 0` |
 
 **Implementation path:**
-1. Docked Scene editor (`SceneEditorPanel` → `CrossScreenConfigViewModel.BuildConfig`) → user picks mode → stored in `CrossScreenConfig.DistributionMode`
-2. `ServerPlaybackHost.ApplyCrossScreenConfigAsync()` (Play, toolbar Start and every show item; app-lifetime, owned by the tray) → converts to `perMonitorMode = (mode == Simultaneous)`
-3. `D2DCompositionService.InitializeAsync(perMonitorMode)` → adjusts `VirtualCanvasWidth` and `MonitorOffsetX`
-4. `Player.D2D` receives IPC message → uses `MovementCalculator` → subtracts `MonitorOffsetX` from virtual position
+1. Docked Scene editor (`SceneEditorPanel` → `CrossScreenConfigViewModel.BuildConfig`) → user picks the mode of the selected layer → `SceneLayer.Distribution`
+2. `ServerPlaybackHost.ApplyCrossScreenConfigAsync()` (Play, toolbar Start and every show item; app-lifetime, owned by the tray) → `CrossScreenPlanner` resolves every layer (cm → px) and builds the seat-map layout
+3. `D2DCompositionService.InitializeAsync(layers, layout)` → one LOAD with all layers + this node's `NodeLayout`; remotes get the same via `SyncParameters.scene_json` + `layout_json`
+4. `Player.D2D` picks the canvas per layer (`LayoutFor`: Sequential = `NodeLayout`, Simultaneous = own monitor, offset 0) → `MovementCalculator` at `SyncTiming.LayerElapsed` → subtracts `MonitorOffsetX` from virtual position
 
-**CRITICAL:** Both modes start ALL D2D players simultaneously with the same timestamp. The difference is ONLY in how `VirtualCanvasWidth` and `MonitorOffsetX` are set.
+**CRITICAL:** Every layer of every player starts from the same shared timestamp. The modes differ ONLY in how `VirtualCanvasWidth` and `MonitorOffsetX` are set for that layer.
+
+### Scene Layers (roadmap 2.3)
+- A scene is `Background` + `List<SceneLayer> Layers` (index 0 = bottom, list order = draw order). Old single-sprite JSON (`Animation` / `Movement` / `DistributionMode`) migrates to layer 0 **on every read** (`LegacySceneMigration`, `[JsonExtensionData]` + `IJsonOnDeserialized`) — never re-add those properties.
+- **Layer 0 only**: video, IconZone A* path + clip mask, ThreeZone corridor clamp; scene-wide things (show events, test-mode markers, lap snap, remote content id) follow layer 0.
+- Player: each layer's per-sprite statics live in a `LayerRuntime` and are swapped in before it updates/draws (`Program.Layers.cs`); layer 0 is the resting state. A **new per-sprite static must be added to `LayerRuntime` + `SaveInto`/`LoadFrom`**, or upper layers share it with layer 0.
+- Layers never read each other's state; a layer's clock is `SyncTiming.LayerElapsed` (node phase, start gate, `PhaseOffsetMs`) in the player and the room preview alike.
 
 ### Logging Architecture
 - **`AppLogger`** is a static factory using volatile `LoggingConfiguration`. `ApplyConfig()` takes effect immediately.
@@ -164,7 +173,7 @@ dotnet test WaBiBaBuSy.Tests
 
 1. **E2E Multi-Client Testing** — follow `.docs/plans/2026-10-09-remote-session-runbook.md`: `TestScenarios/parity-matrix`, `clock-skew`, `showcase/events`, `sync-basic`, `recovery` (fault injection, added 2026-10-10) on 2+ machines, then the hands-on checklist `.docs/plans/2026-10-04-manual-test-checklist.md` §5–§8 (ring, physical canvas, show events, show reliability, reconnection <5s); server-alone GUI checks §1–§3 any other day
 2. **VALIDATE: File logging + Installer** — LogToFile at `%LOCALAPPDATA%\WaBiBaBuSy\Logs\`; clean Windows 10/11 install
-3. **Roadmap Tier 2** — 2.4 Portal + transitions (events done) → 2.3 scene layers (see `.docs/plans/2026-09-17-lan-party-roadmap.md`)
+3. **Roadmap Tier 2** — 2.4 Portal + transitions (events done); 2.3 scene layers slice 1 done 2026-10-14 (GUI check + multi-machine parity pending; follow-ups: video on upper layers, spawn windows, layer presets) — see `.docs/plans/2026-09-17-lan-party-roadmap.md`
 
 Full list: `.docs/2026.07_OPEN_ITEMS.md` (refreshed 2026-10-09).
 

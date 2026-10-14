@@ -31,21 +31,27 @@ public static class SceneChecks
     public static bool IsMediaFile(string? path)
         => IsVideo(path) || (!string.IsNullOrEmpty(path) && StillAndGifExtensions.Contains(Path.GetExtension(path)));
 
+    /// <summary>Soft limit: more layers than this get a warning (draw cost per node).</summary>
+    public const int MaxLayers = 6;
+
+    /// <summary>Soft limit: more pattern layers than this get a warning (hundreds of cells each).</summary>
+    public const int MaxPatternLayers = 2;
+
     /// <summary>
-    /// Seconds the sprite needs to travel the full canvas width once at the scene's effective speed
+    /// Seconds the layer's sprite needs to travel the full canvas width once at its effective speed
     /// (cm/s resolved with the layout's reference DPI). 0 for Static movement, zero speed or no canvas.
     /// </summary>
-    public static double CrossingSeconds(CrossScreenConfig scene, SeatMapLayoutResult? layout)
+    public static double CrossingSeconds(SceneLayer? layer, SeatMapLayoutResult? layout)
     {
-        if (layout == null || layout.CanvasWidth <= 0 || scene.Movement.Type == MovementType.Static) return 0;
-        float speed = PhysicalUnits.EffectiveSpeedPx(scene.Movement, layout.RefPixelsPerCm);
+        if (layer == null || layout == null || layout.CanvasWidth <= 0 || layer.Movement.Type == MovementType.Static) return 0;
+        float speed = PhysicalUnits.EffectiveSpeedPx(layer.Movement, layout.RefPixelsPerCm);
         return speed > 0f ? layout.CanvasWidth / (double)speed : 0;
     }
 
     /// <summary>"crosses the room in 12.5 s" / "… in 2 min 5 s"; empty when there is nothing to cross.</summary>
-    public static string CrossingReadout(CrossScreenConfig scene, SeatMapLayoutResult? layout)
+    public static string CrossingReadout(SceneLayer? layer, SeatMapLayoutResult? layout)
     {
-        double s = CrossingSeconds(scene, layout);
+        double s = CrossingSeconds(layer, layout);
         return s <= 0 ? string.Empty : "crosses the room in " + FormatSeconds(s);
     }
 
@@ -56,51 +62,74 @@ public static class SceneChecks
         return $"{total / 60} min {total % 60} s";
     }
 
-    /// <summary>One-line warnings for the editor's amber chips, in display order. Empty = nothing to fix.</summary>
+    /// <summary>
+    /// One-line warnings for the editor's amber chips, in display order. Empty = nothing to fix.
+    /// With more than one layer, layer warnings carry a "Layer N (name): " prefix (N counts from 1, bottom first).
+    /// </summary>
     public static IReadOnlyList<string> Validate(CrossScreenConfig scene, SeatMapLayoutResult? layout)
     {
         var warnings = new List<string>();
-        var anim = scene.Animation;
 
-        if (string.IsNullOrWhiteSpace(anim.AnimationPath))
-            warnings.Add("Pick an animation file from the strip");
-
-        if (scene.Background.Mode is BackgroundMode.StretchedImage or BackgroundMode.TiledImage
-            && string.IsNullOrWhiteSpace(scene.Background.ImagePath))
+        if (scene.Background.UsesImage && string.IsNullOrWhiteSpace(scene.Background.ImagePath))
             warnings.Add("Pick a background image");
 
+        if (scene.Layers.Count > MaxLayers)
+            warnings.Add($"More than {MaxLayers} layers: every node draws them all each frame");
+        if (scene.Layers.Count(l => l.Enabled && l.Animation.Pattern != null) > MaxPatternLayers)
+            warnings.Add($"More than {MaxPatternLayers} pattern layers: hundreds of cells each");
+
+        bool prefix = scene.Layers.Count > 1;
+        for (int i = 0; i < scene.Layers.Count; i++)
+        {
+            var layer = scene.Layers[i];
+            if (!layer.Enabled) continue;
+            string head = prefix ? $"Layer {i + 1} ({layer.Name}): " : string.Empty;
+            foreach (var w in ValidateLayer(layer, i, scene.Background.Mode, layout))
+                warnings.Add(head + w);
+        }
+        return warnings;
+    }
+
+    private static IEnumerable<string> ValidateLayer(SceneLayer layer, int index, BackgroundMode backgroundMode, SeatMapLayoutResult? layout)
+    {
+        var anim = layer.Animation;
+
+        if (string.IsNullOrWhiteSpace(anim.AnimationPath))
+            yield return "Pick an animation file from the strip";
+
+        if (index > 0 && IsVideo(anim.AnimationPath))
+            yield return "Only the bottom layer can play a video — this layer is skipped";
+
         var grading = anim.ColorGrading?.Mode ?? ColorGradingMode.None;
-        if (scene.Movement.Type == MovementType.Linear && scene.Movement.Endless
+        if (layer.Movement.Type == MovementType.Linear && layer.Movement.Endless
             && grading is not (ColorGradingMode.TravelingRainbow or ColorGradingMode.TravelingList or ColorGradingMode.TravelingRandom))
-            warnings.Add("Endless needs a Traveling color mode");
+            yield return "Endless needs a Traveling color mode";
 
         var bad = BadGradingColors(anim.ColorGrading);
         if (bad.Count > 0)
-            warnings.Add($"Not a color (#RRGGBB): {string.Join(", ", bad)} — drawn white");
+            yield return $"Not a color (#RRGGBB): {string.Join(", ", bad)} — drawn white";
 
         if (anim.Pattern != null && IsVideo(anim.AnimationPath))
-            warnings.Add("Pattern with a video: every cell decodes the video");
+            yield return "Pattern with a video: every cell decodes the video";
 
         if (SpriteEffects.HasAny(anim.Effects))
         {
             if (anim.Pattern != null)
-                warnings.Add("Effects are not drawn with a pattern");
+                yield return "Effects are not drawn with a pattern";
             else if (anim.AdditionalAnimationPaths?.Any(p => !string.IsNullOrWhiteSpace(p)) == true)
-                warnings.Add("Effects need a single image (no extra images)");
-            else if (MovementCalculator.FollowsIconPath(scene.Background.Mode, scene.Movement))
-                warnings.Add("Effects are not drawn on an IconZone path");
+                yield return "Effects need a single image (no extra images)";
+            else if (index == 0 && MovementCalculator.FollowsIconPath(backgroundMode, layer.Movement))
+                yield return "Effects are not drawn on an IconZone path";
             if ((anim.Effects!.Entry != BezelEffect.None || anim.Effects.Exit != BezelEffect.None)
                 && !SpriteEffects.IsValidBezelColor(anim.Effects.BezelColorHex))
-                warnings.Add("Bezel color must be #RRGGBB");
+                yield return "Bezel color must be #RRGGBB";
         }
 
-        double crossing = CrossingSeconds(scene, layout);
+        double crossing = CrossingSeconds(layer, layout);
         if (crossing > 0 && crossing < MinCrossingSeconds)
-            warnings.Add("Very fast: " + CrossingReadout(scene, layout));
+            yield return "Very fast: " + CrossingReadout(layer, layout);
         else if (crossing > MaxCrossingSeconds)
-            warnings.Add("Very slow: " + CrossingReadout(scene, layout));
-
-        return warnings;
+            yield return "Very slow: " + CrossingReadout(layer, layout);
     }
 
     /// <summary>The grading colors the active mode uses that do not parse (list for list modes, A/B for Gradient).</summary>

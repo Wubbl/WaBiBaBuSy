@@ -90,8 +90,11 @@ public static class PresetBundle
     private static void Rewrite(CrossScreenConfig config, Func<string, string> map)
     {
         string One(string p) => string.IsNullOrWhiteSpace(p) ? p : map(p);
-        config.Animation.AnimationPath = One(config.Animation.AnimationPath);
-        config.Animation.AdditionalAnimationPaths = config.Animation.AdditionalAnimationPaths.Select(One).ToList();
+        foreach (var layer in config.Layers)
+        {
+            layer.Animation.AnimationPath = One(layer.Animation.AnimationPath);
+            layer.Animation.AdditionalAnimationPaths = layer.Animation.AdditionalAnimationPaths.Select(One).ToList();
+        }
         if (!string.IsNullOrEmpty(config.Background.ImagePath))
             config.Background.ImagePath = One(config.Background.ImagePath);
     }

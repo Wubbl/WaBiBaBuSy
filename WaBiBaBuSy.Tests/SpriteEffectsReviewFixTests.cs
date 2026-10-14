@@ -32,18 +32,18 @@ public class SpriteEffectsReviewFixTests
     [Fact]
     public void Validate_InvalidBezelColor_Warns()
     {
-        var s = new CrossScreenConfig();
-        s.Animation.AnimationPath = "a.gif";
-        s.Animation.Effects = new SpriteEffectsConfig { Entry = BezelEffect.Glow, BezelColorHex = "#7FDBFG" };
+        var s = new CrossScreenConfig { Layers = { new SceneLayer() } };
+        s.Layers[0].Animation.AnimationPath = "a.gif";
+        s.Layers[0].Animation.Effects = new SpriteEffectsConfig { Entry = BezelEffect.Glow, BezelColorHex = "#7FDBFG" };
         Assert.Contains("Bezel color must be #RRGGBB", SceneChecks.Validate(s, null));
     }
 
     [Fact]
     public void Validate_InvalidColorWithoutBezelEffect_NoWarning()
     {
-        var s = new CrossScreenConfig();
-        s.Animation.AnimationPath = "a.gif";
-        s.Animation.Effects = new SpriteEffectsConfig { SpinDegPerSecond = 10, BezelColorHex = "nope" };
+        var s = new CrossScreenConfig { Layers = { new SceneLayer() } };
+        s.Layers[0].Animation.AnimationPath = "a.gif";
+        s.Layers[0].Animation.Effects = new SpriteEffectsConfig { SpinDegPerSecond = 10, BezelColorHex = "nope" };
         Assert.DoesNotContain("Bezel color must be #RRGGBB", SceneChecks.Validate(s, null));
     }
 
@@ -132,10 +132,10 @@ public class SpriteEffectsReviewFixTests
     [Fact]
     public void Validate_NullAdditionalPaths_DoesNotThrow()
     {
-        var s = new CrossScreenConfig();
-        s.Animation.AnimationPath = "a.gif";
-        s.Animation.AdditionalAnimationPaths = null!;
-        s.Animation.Effects = new SpriteEffectsConfig { SpinDegPerSecond = 10 };
+        var s = new CrossScreenConfig { Layers = { new SceneLayer() } };
+        s.Layers[0].Animation.AnimationPath = "a.gif";
+        s.Layers[0].Animation.AdditionalAnimationPaths = null!;
+        s.Layers[0].Animation.Effects = new SpriteEffectsConfig { SpinDegPerSecond = 10 };
         SceneChecks.Validate(s, null);
     }
 

@@ -1,0 +1,48 @@
+{
+  // Scene layers (roadmap 2.3): the four-layer party scene from the design, bottom first.
+  // Logo rain behind, three bubbles bouncing, the cat running the wall, a sponsor logo centred on every seat (Simultaneous).
+  "Background": { "Mode": "SolidColor", "ColorHex": "#05070F" },
+  "Layers": [
+    {
+      "Name": "Logo rain",
+      "Animation": {
+        "AnimationPath": "../assets/bibabu-logo.png", "FitMode": "TargetHeight", "TargetHeight": 70,
+        "Pattern": { "Sizing": "Fill", "SpacingX": 90, "SpacingY": 60, "Seed": 3 },
+        "ColorGrading": { "Mode": "TravelingRainbow", "Seed": 5, "ColoredCellPercentage": 0.3 }
+      },
+      "Movement": { "Type": "Linear", "SpeedPixelsPerSecond": 40, "DirectionAngleDegrees": 0, "Endless": true },
+      "Distribution": "Sequential"
+    },
+    {
+      "Name": "Bubbles",
+      "Opacity": 0.6,
+      "PhaseOffsetMs": 7000,
+      "Animation": {
+        "AnimationPath": "../assets/bibabu-logo.png", "FitMode": "TargetHeight", "TargetHeight": 110,
+        "AdditionalAnimationPaths": ["../assets/bibabu-logo.png", "../assets/bibabu-logo.png"],
+        "MultiImageSpread": 900, "MultiImagePhaseJitterMs": 1500
+      },
+      "Movement": { "Type": "Bounce", "SpeedPixelsPerSecond": 120, "DirectionAngleDegrees": 60 },
+      "Distribution": "Sequential"
+    },
+    {
+      "Name": "The cat",
+      "Animation": {
+        "AnimationPath": "../assets/cat.gif", "FitMode": "TargetHeight", "TargetHeight": 200,
+        "FaceTravelDirection": true,
+        "Effects": { "Trail": { "Count": 5, "SpacingMs": 90, "StartOpacity": 0.45, "ScaleFalloff": 0.92, "UseGradingColor": false } }
+      },
+      "Movement": { "Type": "Linear", "SpeedPixelsPerSecond": 500 },
+      "Distribution": "Sequential"
+    },
+    {
+      "Name": "Sponsor",
+      "Opacity": 0.5,
+      "Animation": {
+        "AnimationPath": "../assets/bibabu-logo.png", "FitMode": "TargetHeight", "TargetHeight": 120
+      },
+      "Movement": { "Type": "Static" },
+      "Distribution": "Simultaneous"
+    }
+  ]
+}

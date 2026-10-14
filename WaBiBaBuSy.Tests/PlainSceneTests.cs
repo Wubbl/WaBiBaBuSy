@@ -41,12 +41,12 @@ public class PlainSceneTests
     {
         var s = PlainScene.Create(@"C:\walls\beach.jpg");
 
-        Assert.Equal(@"C:\walls\beach.jpg", s.Animation.AnimationPath);
-        Assert.Empty(s.Animation.AdditionalAnimationPaths);
-        Assert.Equal(MovementType.Static, s.Movement.Type);
-        Assert.Equal(ColorGradingMode.None, s.Animation.ColorGrading.Mode);
-        Assert.Null(s.Animation.Pattern);
-        Assert.False(s.Animation.RotateWithPath);
+        Assert.Equal(@"C:\walls\beach.jpg", s.Layers[0].Animation.AnimationPath);
+        Assert.Empty(s.Layers[0].Animation.AdditionalAnimationPaths);
+        Assert.Equal(MovementType.Static, s.Layers[0].Movement.Type);
+        Assert.Equal(ColorGradingMode.None, s.Layers[0].Animation.ColorGrading.Mode);
+        Assert.Null(s.Layers[0].Animation.Pattern);
+        Assert.False(s.Layers[0].Animation.RotateWithPath);
         Assert.Equal(BackgroundMode.SolidColor, s.Background.Mode);
     }
 
@@ -55,10 +55,10 @@ public class PlainSceneTests
     {
         var s = PlainScene.Create("clip.mp4");
 
-        Assert.Equal(ContentFitMode.Fill, s.Animation.FitMode);
-        Assert.Equal(AnimationDistributionMode.Simultaneous, s.DistributionMode);
-        Assert.True(s.Animation.Loop);
-        Assert.Equal(1.0, s.Animation.SpeedMultiplier);
+        Assert.Equal(ContentFitMode.Fill, s.Layers[0].Animation.FitMode);
+        Assert.Equal(AnimationDistributionMode.Simultaneous, s.Layers[0].Distribution);
+        Assert.True(s.Layers[0].Animation.Loop);
+        Assert.Equal(1.0, s.Layers[0].Animation.SpeedMultiplier);
     }
 
     [Fact]
@@ -66,9 +66,9 @@ public class PlainSceneTests
     {
         // The players' own math: centered and time-invariant.
         var s = PlainScene.Create("beach.jpg");
-        Assert.False(MovementCalculator.FollowsIconPath(s.Background.Mode, s.Movement));
-        var at0 = MovementCalculator.Calculate(s.Movement, 0, 1920, 1080, 1920, 1080);
-        var at9 = MovementCalculator.Calculate(s.Movement, 9_000, 1920, 1080, 1920, 1080);
+        Assert.False(MovementCalculator.FollowsIconPath(s.Background.Mode, s.Layers[0].Movement));
+        var at0 = MovementCalculator.Calculate(s.Layers[0].Movement, 0, 1920, 1080, 1920, 1080);
+        var at9 = MovementCalculator.Calculate(s.Layers[0].Movement, 9_000, 1920, 1080, 1920, 1080);
         Assert.Equal(at0, at9);
     }
 }

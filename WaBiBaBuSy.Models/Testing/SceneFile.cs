@@ -65,24 +65,37 @@ public static class SceneFile
         // JSON "null" overrides the (non-nullable) defaults: report it instead of crashing later.
         var nulls = new List<string>();
         // Nested collections too: a hand-edited preset with one of them null would crash the editor later.
-        if (IsNull(config.Animation)) nulls.Add("Animation");
+        if (IsNull(config.Layers)) nulls.Add("Layers");
         else
         {
-            if (IsNull(config.Animation.AdditionalAnimationPaths)) nulls.Add("Animation.AdditionalAnimationPaths");
-            if (IsNull(config.Animation.ColorGrading)) nulls.Add("Animation.ColorGrading");
-            else if (IsNull(config.Animation.ColorGrading.ColorList)) nulls.Add("Animation.ColorGrading.ColorList");
+            for (int i = 0; i < config.Layers.Count; i++)
+            {
+                var layer = config.Layers[i];
+                string at = $"Layers[{i}]";
+                if (IsNull(layer)) { nulls.Add(at); continue; }
+                if (IsNull(layer.Animation)) nulls.Add(at + ".Animation");
+                else
+                {
+                    if (IsNull(layer.Animation.AdditionalAnimationPaths)) nulls.Add(at + ".Animation.AdditionalAnimationPaths");
+                    if (IsNull(layer.Animation.ColorGrading)) nulls.Add(at + ".Animation.ColorGrading");
+                    else if (IsNull(layer.Animation.ColorGrading.ColorList)) nulls.Add(at + ".Animation.ColorGrading.ColorList");
+                }
+                if (IsNull(layer.Movement)) nulls.Add(at + ".Movement");
+            }
         }
         if (IsNull(config.Background)) nulls.Add("Background");
         else if (IsNull(config.Background.IconZonePaletteHexes)) nulls.Add("Background.IconZonePaletteHexes");
-        if (IsNull(config.Movement)) nulls.Add("Movement");
         if (IsNull(config.SelectedMonitorIds)) nulls.Add("SelectedMonitorIds");
         if (nulls.Count > 0) throw new ScenarioException($"{full}: {string.Join(", ", nulls.Select(n => n + " is null"))}");
 
         var dir = Path.GetDirectoryName(full)!;
         try
         {
-            config.Animation.AnimationPath = Absolute(dir, config.Animation.AnimationPath);
-            config.Animation.AdditionalAnimationPaths = config.Animation.AdditionalAnimationPaths.Select(p => Absolute(dir, p)).ToList();
+            foreach (var layer in config.Layers)
+            {
+                layer.Animation.AnimationPath = Absolute(dir, layer.Animation.AnimationPath);
+                layer.Animation.AdditionalAnimationPaths = layer.Animation.AdditionalAnimationPaths.Select(p => Absolute(dir, p)).ToList();
+            }
             if (!string.IsNullOrEmpty(config.Background.ImagePath))
                 config.Background.ImagePath = Absolute(dir, config.Background.ImagePath);
         }

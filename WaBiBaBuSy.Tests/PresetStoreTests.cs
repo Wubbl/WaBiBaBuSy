@@ -46,8 +46,8 @@ public class PresetStoreTests : IDisposable
 
     private static CrossScreenConfig Scene(string path) => new()
     {
-        Animation = new AnimationLayerConfig { AnimationPath = path },
-        Movement = new MovementConfig { Type = MovementType.Linear },
+        Layers = { new SceneLayer { Animation = new AnimationLayerConfig { AnimationPath = path }, Movement = new MovementConfig { Type = MovementType.Linear } } },
+
         SelectedMonitorIds = new List<string> { "N1", "N2" },
     };
 
@@ -59,7 +59,7 @@ public class PresetStoreTests : IDisposable
 
         Assert.Equal("Comet", saved);
         var back = await _store.LoadAsync("Comet");
-        Assert.Equal(logo, back.Animation.AnimationPath);
+        Assert.Equal(logo, back.Layers[0].Animation.AnimationPath);
         Assert.Empty(back.SelectedMonitorIds);
         Assert.False(Directory.Exists(Path.Combine(_store.Directory, "assets")));   // gallery files are referenced, not copied
         var json = File.ReadAllText(_store.PathFor("Comet"));
@@ -149,9 +149,9 @@ public class PresetStoreTests : IDisposable
         Assert.True(File.Exists(Path.Combine(_store.Directory, "assets", "logo.png")));
         Assert.Contains("\"assets/logo.png\"", File.ReadAllText(_store.PathFor(name)));
         var back = await _store.LoadAsync(name);
-        Assert.Equal(Path.Combine(_store.Directory, "assets", "logo.png"), back.Animation.AnimationPath);
+        Assert.Equal(Path.Combine(_store.Directory, "assets", "logo.png"), back.Layers[0].Animation.AnimationPath);
         Assert.Empty(back.SelectedMonitorIds);
-        Assert.Equal(900, back.Movement.SpeedPixelsPerSecond);
+        Assert.Equal(900, back.Layers[0].Movement.SpeedPixelsPerSecond);
     }
 
     [Fact]

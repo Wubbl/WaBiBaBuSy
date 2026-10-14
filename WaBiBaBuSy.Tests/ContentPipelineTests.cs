@@ -111,7 +111,7 @@ public class SceneAssetsTests : IDisposable
     {
         var cfg = new CrossScreenConfig
         {
-            Animation = new AnimationLayerConfig { AnimationPath = @"C:\a\fish.gif", AdditionalAnimationPaths = { @"C:\a\b.png", @"C:\a\fish.gif", "" } },
+            Layers = { new SceneLayer { Animation = new AnimationLayerConfig { AnimationPath = @"C:\a\fish.gif", AdditionalAnimationPaths = { @"C:\a\b.png", @"C:\a\fish.gif", "" } } } },
             Background = new BackgroundLayerConfig { Mode = BackgroundMode.TiledImage, ImagePath = @"C:\a\bg.jpg" }
         };
         var paths = SceneAssets.CollectPaths(cfg);
@@ -126,7 +126,7 @@ public class SceneAssetsTests : IDisposable
     {
         var cfg = new CrossScreenConfig
         {
-            Animation = new AnimationLayerConfig { AnimationPath = @"C:\a\fish.gif" },
+            Layers = { new SceneLayer { Animation = new AnimationLayerConfig { AnimationPath = @"C:\a\fish.gif" } } },
             Background = new BackgroundLayerConfig { Mode = BackgroundMode.SolidColor, ImagePath = @"C:\a\ignored.jpg" }
         };
         Assert.Single(SceneAssets.CollectPaths(cfg));
@@ -137,6 +137,7 @@ public class SceneAssetsTests : IDisposable
     {
         var localB = Path.Combine(_dir, "b.png"); File.WriteAllText(localB, "b");
         var localExisting = Path.Combine(_dir, "here.png"); File.WriteAllText(localExisting, "h");
+        var localFish = Path.Combine(_dir, "fish.gif"); File.WriteAllText(localFish, "f");
         var anim = new AnimationLayerConfig
         {
             AnimationPath = @"X:\server\fish.gif",
@@ -146,7 +147,10 @@ public class SceneAssetsTests : IDisposable
         var bg = new BackgroundLayerConfig { Mode = BackgroundMode.StretchedImage, ImagePath = @"X:\server\bg.jpg", ColorHex = "#123456" };
         var map = new Dictionary<string, string> { [@"X:\server\b.png"] = localB };
 
-        var (a2, bg2) = SceneAssets.RewriteToLocal(anim, bg, map, primaryLocalPath: Path.Combine(_dir, "fish.gif"));
+        var scene = new CrossScreenConfig { Layers = { new SceneLayer { Animation = anim } }, Background = bg };
+        var result = SceneAssets.RewriteToLocal(scene, map, primaryLocalPath: localFish);
+        var a2 = result.Layers[0].Animation;
+        var bg2 = result.Background;
 
         Assert.Equal(Path.Combine(_dir, "fish.gif"), a2.AnimationPath);
         // The missing one keeps its slot (primary image instead): the cell→image hash needs the same count everywhere.
@@ -164,7 +168,8 @@ public class SceneAssetsTests : IDisposable
     {
         var localBg = Path.Combine(_dir, "bg.jpg"); File.WriteAllText(localBg, "x");
         var bg = new BackgroundLayerConfig { Mode = BackgroundMode.TiledImage, ImagePath = @"X:\bg.jpg" };
-        var (_, bg2) = SceneAssets.RewriteToLocal(new AnimationLayerConfig(), bg, new Dictionary<string, string> { [@"X:\bg.jpg"] = localBg }, null);
+        var bg2 = SceneAssets.RewriteToLocal(new CrossScreenConfig { Background = bg }, new Dictionary<string, string> { [@"X:\bg.jpg"] = localBg }).Background;
+
         Assert.Equal(BackgroundMode.TiledImage, bg2.Mode);
         Assert.Equal(localBg, bg2.ImagePath);
     }

@@ -24,13 +24,14 @@ public class SceneFileWriteTests : IDisposable
         var logo = Asset("logo.png");
         var config = new CrossScreenConfig
         {
-            Animation = new AnimationLayerConfig
-            {
-                AnimationPath = logo,
-                Effects = new SpriteEffectsConfig { Entry = BezelEffect.Ripple },
-            },
-            Movement = new MovementConfig { Type = MovementType.Bounce, SpeedPixelsPerSecond = 420 },
-            DistributionMode = AnimationDistributionMode.Simultaneous,
+            Layers = { new SceneLayer {
+                Animation = new AnimationLayerConfig
+                {
+                    AnimationPath = logo,
+                    Effects = new SpriteEffectsConfig { Entry = BezelEffect.Ripple },
+                },
+                Movement = new MovementConfig { Type = MovementType.Bounce, SpeedPixelsPerSecond = 420 },
+                Distribution = AnimationDistributionMode.Simultaneous } },
         };
 
         var json = SceneFile.ToJson(config);
@@ -43,16 +44,16 @@ public class SceneFileWriteTests : IDisposable
         var path = Path.Combine(_dir, "scene.json");
         File.WriteAllText(path, json);
         var back = SceneFile.Load(path);
-        Assert.Equal(logo, back.Animation.AnimationPath);
-        Assert.Equal(MovementType.Bounce, back.Movement.Type);
-        Assert.Equal(420, back.Movement.SpeedPixelsPerSecond);
-        Assert.Equal(BezelEffect.Ripple, back.Animation.Effects!.Entry);
+        Assert.Equal(logo, back.Layers[0].Animation.AnimationPath);
+        Assert.Equal(MovementType.Bounce, back.Layers[0].Movement.Type);
+        Assert.Equal(420, back.Layers[0].Movement.SpeedPixelsPerSecond);
+        Assert.Equal(BezelEffect.Ripple, back.Layers[0].Animation.Effects!.Entry);
     }
 
     [Fact]
     public void ToJson_NonAsciiPathNotEscaped()
     {
-        var json = SceneFile.ToJson(new CrossScreenConfig { Animation = new AnimationLayerConfig { AnimationPath = @"C:\Bilder\Größe.png" } });
+        var json = SceneFile.ToJson(CrossScreenConfig.Single(new SceneLayer { Animation = new AnimationLayerConfig { AnimationPath = @"C:\Bilder\Größe.png" } }));
         Assert.Contains("Größe.png", json);
     }
 
@@ -78,15 +79,16 @@ public class SceneFileWriteTests : IDisposable
     {
         var config = new CrossScreenConfig
         {
-            Animation = new AnimationLayerConfig { AnimationPath = "a.png", AdditionalAnimationPaths = new List<string> { "b.png" } },
+            Layers = { new SceneLayer { Animation = new AnimationLayerConfig { AnimationPath = "a.png", AdditionalAnimationPaths = new List<string> { "b.png" } } } },
+
             SelectedMonitorIds = new List<string> { "N1" },
         };
         var copy = SceneFile.Clone(config);
 
         Assert.Equal(SceneFile.ToJson(config), SceneFile.ToJson(copy));
-        copy.Animation.AdditionalAnimationPaths.Add("c.png");
+        copy.Layers[0].Animation.AdditionalAnimationPaths.Add("c.png");
         copy.SelectedMonitorIds.Clear();
-        Assert.Single(config.Animation.AdditionalAnimationPaths);
+        Assert.Single(config.Layers[0].Animation.AdditionalAnimationPaths);
         Assert.Single(config.SelectedMonitorIds);
     }
 }

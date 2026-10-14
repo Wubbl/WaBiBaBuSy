@@ -253,7 +253,7 @@
                             <controls:RoomView Host="{Binding}"
                                                Scene="{Binding RoomScene}"
                                                SharedStartUtcMs="{Binding RoomSharedStartMs}"
-                                               SpriteImagePath="{Binding RoomSpriteImagePath}"
+                                               SpriteImageResolver="{Binding SpriteImageResolver}"
                                                ActiveLayout="{Binding RoomLayout}"
                                                ShowEvents="{Binding RoomShowEvents}"
                                                IsClockPaused="{Binding PreviewPaused}"

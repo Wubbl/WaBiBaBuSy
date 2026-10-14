@@ -13,11 +13,11 @@ public class SceneChecksTests
     /// <summary>A scene that produces no warnings on a 5000 px canvas (10 s crossing).</summary>
     private static CrossScreenConfig Scene()
     {
-        var c = new CrossScreenConfig();
+        var c = new CrossScreenConfig { Layers = { new SceneLayer() } };
         c.Background.Mode = BackgroundMode.SolidColor;
-        c.Animation.AnimationPath = "fish.gif";
-        c.Movement.Type = MovementType.Linear;
-        c.Movement.SpeedPixelsPerSecond = 500f;
+        c.Layers[0].Animation.AnimationPath = "fish.gif";
+        c.Layers[0].Movement.Type = MovementType.Linear;
+        c.Layers[0].Movement.SpeedPixelsPerSecond = 500f;
         return c;
     }
 
@@ -28,34 +28,34 @@ public class SceneChecksTests
 
     [Fact]
     public void CrossingSeconds_PixelCanvas_IsWidthOverSpeed()
-        => Assert.Equal(10.0, SceneChecks.CrossingSeconds(Scene(), Canvas(5000)), 3);
+        => Assert.Equal(10.0, SceneChecks.CrossingSeconds(Scene().Layers[0], Canvas(5000)), 3);
 
     [Fact]
     public void CrossingSeconds_PhysicalCanvas_UsesCmSpeed()
     {
         var s = Scene();
-        s.Movement.SpeedUnit = SpeedUnit.CentimetersPerSecond;
-        s.Movement.SpeedCmPerSecond = 20f;                 // 20 cm/s × 40 px/cm = 800 px/s
-        Assert.Equal(10.0, SceneChecks.CrossingSeconds(s, Canvas(8000, refPpcm: 40f)), 3);
+        s.Layers[0].Movement.SpeedUnit = SpeedUnit.CentimetersPerSecond;
+        s.Layers[0].Movement.SpeedCmPerSecond = 20f;                 // 20 cm/s × 40 px/cm = 800 px/s
+        Assert.Equal(10.0, SceneChecks.CrossingSeconds(s.Layers[0], Canvas(8000, refPpcm: 40f)), 3);
     }
 
     [Fact]
     public void CrossingSeconds_StaticOrNoLayout_IsZero()
     {
         var s = Scene();
-        s.Movement.Type = MovementType.Static;
-        Assert.Equal(0, SceneChecks.CrossingSeconds(s, Canvas(5000)));
-        Assert.Equal(0, SceneChecks.CrossingSeconds(Scene(), null));
-        Assert.Equal(0, SceneChecks.CrossingSeconds(Scene(), Canvas(0)));
+        s.Layers[0].Movement.Type = MovementType.Static;
+        Assert.Equal(0, SceneChecks.CrossingSeconds(s.Layers[0], Canvas(5000)));
+        Assert.Equal(0, SceneChecks.CrossingSeconds(Scene().Layers[0], null));
+        Assert.Equal(0, SceneChecks.CrossingSeconds(Scene().Layers[0], Canvas(0)));
     }
 
     [Fact]
     public void CrossingReadout_FormatsSecondsAndMinutes()
     {
-        Assert.Equal("crosses the room in 10 s", SceneChecks.CrossingReadout(Scene(), Canvas(5000)));
-        Assert.Equal("crosses the room in 12.5 s", SceneChecks.CrossingReadout(Scene(), Canvas(6250)));
-        Assert.Equal("crosses the room in 2 min 0 s", SceneChecks.CrossingReadout(Scene(), Canvas(59_800)));
-        Assert.Equal("", SceneChecks.CrossingReadout(Scene(), null));
+        Assert.Equal("crosses the room in 10 s", SceneChecks.CrossingReadout(Scene().Layers[0], Canvas(5000)));
+        Assert.Equal("crosses the room in 12.5 s", SceneChecks.CrossingReadout(Scene().Layers[0], Canvas(6250)));
+        Assert.Equal("crosses the room in 2 min 0 s", SceneChecks.CrossingReadout(Scene().Layers[0], Canvas(59_800)));
+        Assert.Equal("", SceneChecks.CrossingReadout(Scene().Layers[0], null));
     }
 
     // ── warnings ─────────────────────────────────────────────────────────────
@@ -76,9 +76,9 @@ public class SceneChecksTests
         Assert.True(ColorGrader.IsValidColor("#FF00FF00"));   // #AARRGGBB stays accepted
 
         var s = Scene();
-        s.Animation.ColorGrading = list;
+        s.Layers[0].Animation.ColorGrading = list;
         Assert.Contains("Not a color (#RRGGBB): \"#GG0000\" — drawn white", SceneChecks.Validate(s, Canvas(5000)));
-        s.Animation.ColorGrading = new ColorGradingConfig { Mode = ColorGradingMode.Rainbow, ColorList = { "junk" } };
+        s.Layers[0].Animation.ColorGrading = new ColorGradingConfig { Mode = ColorGradingMode.Rainbow, ColorList = { "junk" } };
         Assert.Empty(SceneChecks.Validate(s, Canvas(5000)));   // the list is not used in Rainbow mode
     }
 
@@ -86,7 +86,7 @@ public class SceneChecksTests
     public void Validate_EmptyPath_AsksForFile()
     {
         var s = Scene();
-        s.Animation.AnimationPath = "";
+        s.Layers[0].Animation.AnimationPath = "";
         Assert.Contains("Pick an animation file from the strip", SceneChecks.Validate(s, Canvas(5000)));
     }
 
@@ -103,10 +103,10 @@ public class SceneChecksTests
     public void Validate_EndlessNeedsTravelingColors()
     {
         var s = Scene();
-        s.Movement.Endless = true;
+        s.Layers[0].Movement.Endless = true;
         Assert.Contains("Endless needs a Traveling color mode", SceneChecks.Validate(s, Canvas(5000)));
 
-        s.Animation.ColorGrading.Mode = ColorGradingMode.TravelingList;
+        s.Layers[0].Animation.ColorGrading.Mode = ColorGradingMode.TravelingList;
         Assert.DoesNotContain("Endless needs a Traveling color mode", SceneChecks.Validate(s, Canvas(5000)));
     }
 
@@ -114,8 +114,8 @@ public class SceneChecksTests
     public void Validate_PatternWithVideo_Warns()
     {
         var s = Scene();
-        s.Animation.AnimationPath = @"C:\clips\party.MP4";
-        s.Animation.Pattern = new PatternConfig();
+        s.Layers[0].Animation.AnimationPath = @"C:\clips\party.MP4";
+        s.Layers[0].Animation.Pattern = new PatternConfig();
         Assert.Contains("Pattern with a video: every cell decodes the video", SceneChecks.Validate(s, Canvas(5000)));
     }
 
@@ -136,7 +136,7 @@ public class SceneChecksTests
     public void SameScene_AnyFieldChanged_IsFalse()
     {
         var b = Scene();
-        b.Movement.DirectionAngleDegrees = 45f;
+        b.Layers[0].Movement.DirectionAngleDegrees = 45f;
         Assert.False(SceneChecks.SameScene(Scene(), b));
     }
 
@@ -167,39 +167,39 @@ public class SceneChecksTests
     public void ApplyRoomUnits_Physical_SetsCmFlags_KeepsBothValues()
     {
         var s = Scene();
-        s.Animation.TargetHeight = 300;
-        s.Animation.TargetHeightCm = 12f;
-        s.Movement.SpeedCmPerSecond = 25f;
+        s.Layers[0].Animation.TargetHeight = 300;
+        s.Layers[0].Animation.TargetHeightCm = 12f;
+        s.Layers[0].Movement.SpeedCmPerSecond = 25f;
 
         PhysicalUnits.ApplyRoomUnits(s, physicalRoom: true);
 
-        Assert.Equal(SizeUnit.Centimeters, s.Animation.SizeUnit);
-        Assert.Equal(SpeedUnit.CentimetersPerSecond, s.Movement.SpeedUnit);
-        Assert.Equal(300, s.Animation.TargetHeight);
-        Assert.Equal(12f, s.Animation.TargetHeightCm);
-        Assert.Equal(500f, s.Movement.SpeedPixelsPerSecond);
-        Assert.Equal(25f, s.Movement.SpeedCmPerSecond);
+        Assert.Equal(SizeUnit.Centimeters, s.Layers[0].Animation.SizeUnit);
+        Assert.Equal(SpeedUnit.CentimetersPerSecond, s.Layers[0].Movement.SpeedUnit);
+        Assert.Equal(300, s.Layers[0].Animation.TargetHeight);
+        Assert.Equal(12f, s.Layers[0].Animation.TargetHeightCm);
+        Assert.Equal(500f, s.Layers[0].Movement.SpeedPixelsPerSecond);
+        Assert.Equal(25f, s.Layers[0].Movement.SpeedCmPerSecond);
     }
 
     [Fact]
     public void ApplyRoomUnits_PixelRoom_SetsPxFlags()
     {
         var s = Scene();
-        s.Animation.SizeUnit = SizeUnit.Centimeters;
-        s.Movement.SpeedUnit = SpeedUnit.CentimetersPerSecond;
+        s.Layers[0].Animation.SizeUnit = SizeUnit.Centimeters;
+        s.Layers[0].Movement.SpeedUnit = SpeedUnit.CentimetersPerSecond;
 
         PhysicalUnits.ApplyRoomUnits(s, physicalRoom: false);
 
-        Assert.Equal(SizeUnit.Pixels, s.Animation.SizeUnit);
-        Assert.Equal(SpeedUnit.PixelsPerSecond, s.Movement.SpeedUnit);
+        Assert.Equal(SizeUnit.Pixels, s.Layers[0].Animation.SizeUnit);
+        Assert.Equal(SpeedUnit.PixelsPerSecond, s.Layers[0].Movement.SpeedUnit);
     }
 
     [Fact]
     public void Validate_EffectsWithPattern_Warns()
     {
         var s = Scene();
-        s.Animation.Pattern = new PatternConfig();
-        s.Animation.Effects = new SpriteEffectsConfig { SpinDegPerSecond = 30 };
+        s.Layers[0].Animation.Pattern = new PatternConfig();
+        s.Layers[0].Animation.Effects = new SpriteEffectsConfig { SpinDegPerSecond = 30 };
         Assert.Contains("Effects are not drawn with a pattern", SceneChecks.Validate(s, Canvas(5000)));
     }
 
@@ -207,8 +207,8 @@ public class SceneChecksTests
     public void Validate_EffectsWithExtraImages_Warns()
     {
         var s = Scene();
-        s.Animation.AdditionalAnimationPaths.Add("b.png");
-        s.Animation.Effects = new SpriteEffectsConfig { Entry = BezelEffect.Glow };
+        s.Layers[0].Animation.AdditionalAnimationPaths.Add("b.png");
+        s.Layers[0].Animation.Effects = new SpriteEffectsConfig { Entry = BezelEffect.Glow };
         Assert.Contains("Effects need a single image (no extra images)", SceneChecks.Validate(s, Canvas(5000)));
     }
 
@@ -217,8 +217,8 @@ public class SceneChecksTests
     {
         var s = Scene();
         s.Background.Mode = BackgroundMode.IconZone;
-        s.Movement.Type = MovementType.Linear;
-        s.Animation.Effects = new SpriteEffectsConfig { Trail = new TrailConfig() };
+        s.Layers[0].Movement.Type = MovementType.Linear;
+        s.Layers[0].Animation.Effects = new SpriteEffectsConfig { Trail = new TrailConfig() };
         Assert.Contains("Effects are not drawn on an IconZone path", SceneChecks.Validate(s, Canvas(5000)));
     }
 
@@ -226,8 +226,8 @@ public class SceneChecksTests
     public void Validate_NothingEnabled_NoEffectWarnings()
     {
         var s = Scene();
-        s.Animation.Pattern = new PatternConfig();
-        s.Animation.Effects = new SpriteEffectsConfig();          // nothing enabled
+        s.Layers[0].Animation.Pattern = new PatternConfig();
+        s.Layers[0].Animation.Effects = new SpriteEffectsConfig();          // nothing enabled
         Assert.DoesNotContain(SceneChecks.Validate(s, Canvas(5000)), w => w.StartsWith("Effects"));
     }
 }

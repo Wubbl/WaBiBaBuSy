@@ -293,19 +293,26 @@ await _service.ConnectToServerAsync(address, port, ApplyD2DFromRemoteAsync);
 
 **Architecture:** Server orchestrates timing, clients render locally.
 
-### Two Distribution Modes
+### Scene Model (scene layers, 2026-10-14)
+
+`CrossScreenConfig` = `Background` + `List<SceneLayer> Layers` (index 0 = bottom) + `SelectedMonitorIds`. A `SceneLayer` holds
+`AnimationLayerConfig` (file(s), size, fit, pattern, color grading, effects), `MovementConfig`, `Distribution`, `Opacity`,
+`PhaseOffsetMs`, `Name`, `Enabled`. Pre-layers JSON migrates to layer 0 on every read (`LegacySceneMigration`). Only layer 0 may be a
+video and only layer 0 follows the IconZone path / corridor. Spec: `.docs/plans/2026-09-17-scene-layers-design.md`.
+
+### Two Distribution Modes (per layer)
 
 | Mode | Description | Virtual Canvas | MonitorOffsetX |
 |------|-------------|----------------|----------------|
-| **Sequential** | Animation spans across all monitors as one canvas | Total width of all monitors | Monitor's X offset |
-| **Simultaneous** | Same animation plays independently on each monitor | Single monitor width | 0 |
+| **Sequential** | The layer spans across all monitors as one canvas | Total width of all monitors (seat-map `NodeLayout`) | Monitor's X offset |
+| **Simultaneous** | The layer plays independently on each monitor | Single monitor width | 0 |
 
 ### Data Flow
 
-1. Docked Scene editor (`SceneEditorPanel` → `CrossScreenConfigViewModel.BuildConfig`) → user picks mode → `CrossScreenConfig.DistributionMode`
-2. `ServerPlaybackHost.ApplyCrossScreenConfigAsync()` (Play, Start, show items) → `perMonitorMode = (mode == Simultaneous)`
-3. `D2DCompositionService.InitializeAsync(perMonitorMode)` → sets `VirtualCanvasWidth` + `MonitorOffsetX`
-4. `Player.D2D` receives IPC → `MovementCalculator` positions animation deterministically
+1. Docked Scene editor (`SceneEditorPanel` → `CrossScreenConfigViewModel.BuildConfig`) → Layers strip + tabs edit the selected layer → `CrossScreenConfig.Layers`
+2. `ServerPlaybackHost.ApplyCrossScreenConfigAsync()` (Play, Start, show items) → `CrossScreenPlanner`: seat-map layout + every layer resolved cm → px (`PhysicalUnits.ResolveScene`)
+3. `D2DCompositionService.InitializeAsync(layers, layout)` → LOAD with all layers + this node's `NodeLayout`; remotes: `SyncParameters.scene_json` + `layout_json` (+ every asset), clients older than 2.7.0 are not sent scenes
+4. `Player.D2D` swaps each layer's state in (`Program.Layers.cs`, `LayerRuntime`), picks its canvas by `Distribution`, positions it with `MovementCalculator` at `SyncTiming.LayerElapsed`, draws bottom to top
 
 ### Timing Synchronization
 - Server broadcasts timing every 1 second

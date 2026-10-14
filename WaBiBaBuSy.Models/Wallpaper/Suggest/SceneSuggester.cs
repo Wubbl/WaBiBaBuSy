@@ -57,7 +57,7 @@ public static class SceneSuggester
 
     private static SuggestionSet Build(SelectionProfile s, CrossScreenConfig baseScene, int seed, IEnumerable<ISceneRecipe> recipes) =>
         new(recipes.Select((r, i) => BuildCard(r, s, baseScene, PatternLayout.Hash3(seed, i, 7))).ToList(),
-            s.Mix == SelectionMix.BigPlusSmall ? LayersNote
+            s.Mix == SelectionMix.BigPlusSmall && s.Big?.IsPanorama != true ? LayersNote
             : s.HasVideoSprite && s.Count > 1 ? VideoNote
             : null);
 
@@ -68,9 +68,11 @@ public static class SceneSuggester
     private static Suggestion WithCentimetres(Suggestion suggestion, float pixelsPerCm)
     {
         if (pixelsPerCm <= 0f) return suggestion;
-        var scene = suggestion.Scene;
-        scene.Animation.TargetHeightCm = PhysicalUnits.PxToCm(scene.Animation.TargetHeight, pixelsPerCm);
-        scene.Movement.SpeedCmPerSecond = PhysicalUnits.PxToCm(scene.Movement.SpeedPixelsPerSecond, pixelsPerCm);
+        foreach (var layer in suggestion.Scene.Layers)
+        {
+            layer.Animation.TargetHeightCm = PhysicalUnits.PxToCm(layer.Animation.TargetHeight, pixelsPerCm);
+            layer.Movement.SpeedCmPerSecond = PhysicalUnits.PxToCm(layer.Movement.SpeedPixelsPerSecond, pixelsPerCm);
+        }
         return suggestion;
     }
 }

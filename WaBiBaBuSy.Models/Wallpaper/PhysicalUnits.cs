@@ -30,34 +30,40 @@ public static class PhysicalUnits
     public static float PxToCm(float px, float refPixelsPerCm) => refPixelsPerCm > 0f ? px / refPixelsPerCm : 0f;
 
     /// <summary>
-    /// Deep copies of the scene's movement and animation configs with every cm value resolved to
-    /// canvas pixels and the unit flags reset to pixels. This is what gets serialized to players.
-    /// When <paramref name="refPixelsPerCm"/> is 0 (pixel canvas) cm values fall back to the
-    /// stored pixel values unchanged.
+    /// Deep copy of a layer with every cm value resolved to canvas pixels and the unit flags reset to
+    /// pixels. This is what gets serialized to players. When <paramref name="refPixelsPerCm"/> is 0
+    /// (pixel canvas) cm values fall back to the stored pixel values unchanged.
     /// </summary>
-    public static (MovementConfig Movement, AnimationLayerConfig Animation) ResolveForCanvas(
-        CrossScreenConfig config, float refPixelsPerCm)
+    public static SceneLayer ResolveLayer(SceneLayer layer, float refPixelsPerCm)
     {
-        var movement = Clone(config.Movement);
-        movement.SpeedPixelsPerSecond = EffectiveSpeedPx(config.Movement, refPixelsPerCm);
-        movement.SpeedUnit = SpeedUnit.PixelsPerSecond;
-
-        var animation = Clone(config.Animation);
-        animation.TargetHeight = EffectiveTargetHeightPx(config.Animation, refPixelsPerCm);
-        animation.SizeUnit = SizeUnit.Pixels;
-
-        return (movement, animation);
+        var resolved = Clone(layer);
+        resolved.Movement.SpeedPixelsPerSecond = EffectiveSpeedPx(layer.Movement, refPixelsPerCm);
+        resolved.Movement.SpeedUnit = SpeedUnit.PixelsPerSecond;
+        resolved.Animation.TargetHeight = EffectiveTargetHeightPx(layer.Animation, refPixelsPerCm);
+        resolved.Animation.SizeUnit = SizeUnit.Pixels;
+        return resolved;
     }
 
+    /// <summary>The scene with every layer resolved by <see cref="ResolveLayer"/> (background shared, monitors copied).</summary>
+    public static CrossScreenConfig ResolveScene(CrossScreenConfig scene, float refPixelsPerCm) => new()
+    {
+        Background = scene.Background,
+        Layers = scene.Layers.ConvertAll(l => ResolveLayer(l, refPixelsPerCm)),
+        SelectedMonitorIds = new(scene.SelectedMonitorIds),
+    };
+
     /// <summary>
-    /// Set the size and speed unit flags from the room: cm and cm/s on a physical canvas, px and px/s
-    /// otherwise. Both stored values (px and cm) are left untouched, so switching the room back and
-    /// forth loses nothing. Used by the Scene editor's BuildConfig.
+    /// Set the size and speed unit flags of every layer from the room: cm and cm/s on a physical canvas,
+    /// px and px/s otherwise. Both stored values (px and cm) are left untouched, so switching the room
+    /// back and forth loses nothing. Used by the Scene editor's BuildConfig.
     /// </summary>
     public static void ApplyRoomUnits(CrossScreenConfig config, bool physicalRoom)
     {
-        config.Animation.SizeUnit = physicalRoom ? SizeUnit.Centimeters : SizeUnit.Pixels;
-        config.Movement.SpeedUnit = physicalRoom ? SpeedUnit.CentimetersPerSecond : SpeedUnit.PixelsPerSecond;
+        foreach (var layer in config.Layers)
+        {
+            layer.Animation.SizeUnit = physicalRoom ? SizeUnit.Centimeters : SizeUnit.Pixels;
+            layer.Movement.SpeedUnit = physicalRoom ? SpeedUnit.CentimetersPerSecond : SpeedUnit.PixelsPerSecond;
+        }
     }
 
     private static T Clone<T>(T value) where T : class

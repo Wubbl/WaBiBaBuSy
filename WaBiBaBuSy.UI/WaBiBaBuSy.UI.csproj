@@ -10,8 +10,8 @@
 
     <!-- Version Information: Major.Minor.Patch set manually, BuildNumber auto-set from git commit count -->
     <MajorVersion>2</MajorVersion>
-    <MinorVersion>6</MinorVersion>
-    <PatchVersion>5</PatchVersion>
+    <MinorVersion>7</MinorVersion>
+    <PatchVersion>0</PatchVersion>
     <Version>$(MajorVersion).$(MinorVersion).$(PatchVersion)</Version>
     <AssemblyVersion>$(MajorVersion).$(MinorVersion).$(PatchVersion).$(BuildNumber)</AssemblyVersion>
     <FileVersion>$(MajorVersion).$(MinorVersion).$(PatchVersion).$(BuildNumber)</FileVersion>

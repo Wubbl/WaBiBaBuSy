@@ -48,6 +48,18 @@ public static class SyncTiming
     /// </summary>
     public static bool ShouldDrawAnimation(long effectiveElapsedMs) => effectiveElapsedMs >= 0;
 
+    /// <summary>
+    /// A scene layer's clock on a node: the shared elapsed shifted by the layer's Wave-mode node phase (Simultaneous
+    /// layers only), null before that reaches 0 (nothing drawn yet), then advanced by the layer's own
+    /// <see cref="SceneLayer.PhaseOffsetMs"/>. Players and the room preview both position and animate a layer at this.
+    /// </summary>
+    public static long? LayerElapsed(long sceneElapsedMs, int nodeOrder, SceneLayer layer)
+    {
+        long phased = ApplyNodePhase(sceneElapsedMs, nodeOrder, layer.Movement.NodePhaseDelayMs,
+            layer.Distribution == AnimationDistributionMode.Simultaneous);
+        return ShouldDrawAnimation(phased) ? phased + layer.PhaseOffsetMs : null;
+    }
+
     /// <summary>Modulo that maps negative values into [0, period). Period must be &gt; 0.</summary>
     public static long PositiveModulo(long value, long period)
     {

@@ -1,6 +1,21 @@
 {
-  "Background": { "Mode": "SolidColor", "ColorHex": "#202020" },
-  "Animation": { "AnimationPath": "../assets/marker.png", "TargetHeight": 64, "FitMode": "Center", "Loop": true },
-  "Movement": { "Type": "Static" },
-  "DistributionMode": "Simultaneous"
+  "Background": {
+    "Mode": "SolidColor",
+    "ColorHex": "#202020"
+  },
+  "Layers": [
+    {
+      "Name": "marker",
+      "Animation": {
+        "AnimationPath": "../assets/marker.png",
+        "TargetHeight": 64,
+        "FitMode": "Center",
+        "Loop": true
+      },
+      "Movement": {
+        "Type": "Static"
+      },
+      "Distribution": "Simultaneous"
+    }
+  ]
 }

@@ -69,7 +69,7 @@ public static class PlaylistBuilder
         return playlist;
     }
 
-    private static bool IsShowcase(MediaProfile f) => f.Size == SizeClass.FullScreen || f.Kind == MediaKind.Video;
+    private static bool IsShowcase(MediaProfile f) => f.Size == SizeClass.FullScreen || f.IsPanorama || f.Kind == MediaKind.Video;
 
     private static PlaylistItem BuildItem(IReadOnlyList<MediaProfile> files, int screenWidth, int screenHeight,
         float pixelsPerCm, CrossScreenConfig baseScene, int defaultDurationMs, string? previousRecipe)

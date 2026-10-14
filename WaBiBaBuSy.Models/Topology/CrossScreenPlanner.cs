@@ -14,12 +14,8 @@ public sealed class CrossScreenPlan
     public IReadOnlyList<PlannedNode> Remote { get; init; } = Array.Empty<PlannedNode>();
     /// <summary>Seat-map layout of every target (chain order).</summary>
     public SeatMapLayoutResult Layout { get; init; } = new();
-    /// <summary>Movement after cm→px resolution (what the players receive).</summary>
-    public MovementConfig EffectiveMovement { get; init; } = new();
-    /// <summary>Animation after cm→px resolution.</summary>
-    public AnimationLayerConfig EffectiveAnimation { get; init; } = new();
-    /// <summary>Simultaneous mode: every monitor is its own canvas.</summary>
-    public bool PerMonitor { get; init; }
+    /// <summary>The scene with every layer's cm values resolved to canvas px (what the players receive).</summary>
+    public CrossScreenConfig EffectiveScene { get; init; } = new();
     /// <summary>Worst round trip of the remote targets (0 without remotes); sizes the start lead.</summary>
     public double MaxRemoteRttMs { get; init; }
     /// <summary>No node matched: nothing to play.</summary>
@@ -67,7 +63,7 @@ public static class CrossScreenPlanner
         var local = localNodes.Select(Planned).ToList();
         var remote = targets.Where(n => !n.IsLocal).Select(Planned).ToList();
         if (local.Count == 0 && remote.Count == 0)
-            return new CrossScreenPlan { EffectiveMovement = config.Movement, EffectiveAnimation = config.Animation };
+            return new CrossScreenPlan { EffectiveScene = config };
 
         var layoutInputs = local.Concat(remote).OrderBy(p => p.Node.Order).Select(p => new LayoutNodeInput
         {
@@ -80,16 +76,14 @@ public static class CrossScreenPlanner
         var layout = SeatMapLayoutBuilder.Build(seatMap, layoutInputs, referencePixelsPerCm);
 
         // Physical canvas: cm sizes/speeds become canvas px once, here; players only ever see pixels.
-        var (movement, animation) = PhysicalUnits.ResolveForCanvas(config, layout.RefPixelsPerCm);
+        var effectiveScene = PhysicalUnits.ResolveScene(config, layout.RefPixelsPerCm);
 
         return new CrossScreenPlan
         {
             Local = local,
             Remote = remote,
             Layout = layout,
-            EffectiveMovement = movement,
-            EffectiveAnimation = animation,
-            PerMonitor = config.DistributionMode == AnimationDistributionMode.Simultaneous,
+            EffectiveScene = effectiveScene,
             MaxRemoteRttMs = remote.Count > 0 ? remote.Max(p => p.Node.RttMs) : 0.0
         };
     }

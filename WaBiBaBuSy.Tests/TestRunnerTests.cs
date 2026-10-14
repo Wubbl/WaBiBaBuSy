@@ -882,8 +882,8 @@ public class TestRunnerTests : IDisposable
             return Task.FromResult(new SceneStartInfo
             {
                 SharedStartServerUtcMs = start,
-                PerMonitor = scene.DistributionMode == AnimationDistributionMode.Simultaneous,
-                EffectiveMovement = scene.Movement,
+                PerMonitor = scene.Layers[0].Distribution == AnimationDistributionMode.Simultaneous,
+                EffectiveMovement = scene.Layers[0].Movement,
             });
         }
 

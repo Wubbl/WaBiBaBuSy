@@ -14,18 +14,25 @@ public static class PlainScene
             Mode = BackgroundMode.SolidColor,
             ColorHex = backgroundHex
         },
-        Animation = new AnimationLayerConfig
+        Layers =
         {
-            AnimationPath = path,
-            FitMode = ContentFitMode.Fill,
-            Loop = true,
-            VerticalAlign = VerticalAlignment.Center,
-            RotateWithPath = false,
-            SpeedMultiplier = 1.0,
-            ColorGrading = new ColorGradingConfig { Mode = ColorGradingMode.None },
-            Pattern = null
-        },
-        DistributionMode = AnimationDistributionMode.Simultaneous,
-        Movement = new MovementConfig { Type = MovementType.Static }
+            new SceneLayer
+            {
+                Name = System.IO.Path.GetFileNameWithoutExtension(path),
+                Animation = new AnimationLayerConfig
+                {
+                    AnimationPath = path,
+                    FitMode = ContentFitMode.Fill,
+                    Loop = true,
+                    VerticalAlign = VerticalAlignment.Center,
+                    RotateWithPath = false,
+                    SpeedMultiplier = 1.0,
+                    ColorGrading = new ColorGradingConfig { Mode = ColorGradingMode.None },
+                    Pattern = null
+                },
+                Distribution = AnimationDistributionMode.Simultaneous,
+                Movement = new MovementConfig { Type = MovementType.Static }
+            }
+        }
     };
 }

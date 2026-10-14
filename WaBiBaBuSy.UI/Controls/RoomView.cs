@@ -40,9 +40,9 @@ public partial class RoomView : Control
     /// <summary>Defines the <see cref="SharedStartUtcMs"/> property.</summary>
     public static readonly StyledProperty<long> SharedStartUtcMsProperty =
         AvaloniaProperty.Register<RoomView, long>(nameof(SharedStartUtcMs));
-    /// <summary>Defines the <see cref="SpriteImagePath"/> property.</summary>
-    public static readonly StyledProperty<string?> SpriteImagePathProperty =
-        AvaloniaProperty.Register<RoomView, string?>(nameof(SpriteImagePath));
+    /// <summary>Defines the <see cref="SpriteImageResolver"/> property.</summary>
+    public static readonly StyledProperty<Func<string?, string?>?> SpriteImageResolverProperty =
+        AvaloniaProperty.Register<RoomView, Func<string?, string?>?>(nameof(SpriteImageResolver));
     /// <summary>Defines the <see cref="ActiveLayout"/> property.</summary>
     public static readonly StyledProperty<SeatMapLayoutResult?> ActiveLayoutProperty =
         AvaloniaProperty.Register<RoomView, SeatMapLayoutResult?>(nameof(ActiveLayout));
@@ -68,8 +68,8 @@ public partial class RoomView : Control
     /// with <see cref="ActiveLayout"/>; 0 = design clock over the current seat map.
     /// </summary>
     public long SharedStartUtcMs { get => GetValue(SharedStartUtcMsProperty); set => SetValue(SharedStartUtcMsProperty, value); }
-    /// <summary>Local image file drawn as the sprite (null = placeholder shape).</summary>
-    public string? SpriteImagePath { get => GetValue(SpriteImagePathProperty); set => SetValue(SpriteImagePathProperty, value); }
+    /// <summary>Maps a layer's animation file to the local image drawn for it (null result = placeholder shape).</summary>
+    public Func<string?, string?>? SpriteImageResolver { get => GetValue(SpriteImageResolverProperty); set => SetValue(SpriteImageResolverProperty, value); }
     /// <summary>
     /// Layout the tiles are painted with. Live: the layout the running players were started with
     /// (target subset, start-time gaps and ppcm) — the seat map may have been edited or nodes may have
@@ -133,7 +133,7 @@ public partial class RoomView : Control
 
     static RoomView()
     {
-        AffectsRender<RoomView>(SceneProperty, SharedStartUtcMsProperty, SpriteImagePathProperty, ActiveLayoutProperty, ShowEventsProperty);
+        AffectsRender<RoomView>(SceneProperty, SharedStartUtcMsProperty, SpriteImageResolverProperty, ActiveLayoutProperty, ShowEventsProperty);
         FocusableProperty.OverrideDefaultValue<RoomView>(true);
         ClipToBoundsProperty.OverrideDefaultValue<RoomView>(true);
     }
@@ -144,7 +144,11 @@ public partial class RoomView : Control
     {
         base.OnPropertyChanged(change);
         if (change.Property == HostProperty) AttachHost(Host);
-        else if (change.Property == SpriteImagePathProperty) _painter.SpriteImagePath = SpriteImagePath;
+        else if (change.Property == SpriteImageResolverProperty)
+        {
+            _painter.SpriteImageResolver = SpriteImageResolver;
+            _painter.ClearBitmaps();
+        }
         else if (change.Property == SharedStartUtcMsProperty) _clock.SharedStartUtcMs = SharedStartUtcMs;
         else if (change.Property == SceneProperty && !_clock.IsLive) _clock.Restart();
         else if (change.Property == IsClockPausedProperty) { _clock.IsPaused = IsClockPaused; InvalidateVisual(); }
@@ -358,17 +362,17 @@ public partial class RoomView : Control
 
         var sceneBox = ToRect(t.Scene);
         ctx.FillRectangle(SceneBg, sceneBox, 4);
-        if (node != null && ScenePainter.HasSprite(scene))
+        if (node != null && ScenePainter.HasContent(scene))
         {
             double s = Math.Min(sceneBox.Width / node.Width, sceneBox.Height / node.Height);
             var screen = new Rect(sceneBox.X + (sceneBox.Width - node.Width * s) / 2,
                                   sceneBox.Y + (sceneBox.Height - node.Height * s) / 2,
                                   node.Width * s, node.Height * s);
-            _painter.PaintBackground(ctx, screen, s, scene);
-            _painter.PaintSprite(ctx, screen, s, node, scene!, elapsed);
+            _painter.PaintBackground(ctx, screen, s, scene, node);
+            _painter.PaintLayers(ctx, screen, s, node, scene!, elapsed);
             if (live && ShowEvents is { Count: > 0 } events)
-                _painter.PaintShowEvents(ctx, screen, s, ScenePainter.EffectiveNode(scene!, node), events, SharedStartUtcMs, elapsed,
-                    sharedCanvas: scene!.DistributionMode == AnimationDistributionMode.Sequential);
+                _painter.PaintShowEvents(ctx, screen, s, ScenePainter.EffectiveNode(scene!.FirstLayer, node), events, SharedStartUtcMs, elapsed,
+                    sharedCanvas: scene.FirstLayer?.Distribution != AnimationDistributionMode.Simultaneous);
         }
         else if (c?.ThumbnailImage is { } thumb)
         {

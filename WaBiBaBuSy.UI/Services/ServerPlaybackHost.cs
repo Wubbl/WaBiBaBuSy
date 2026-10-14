@@ -243,7 +243,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         float aspect = 1f;
         if (type == ShowEventType.Traversal)
         {
-            image = string.IsNullOrWhiteSpace(settings.TraversalImagePath) ? scene.Animation.AnimationPath : settings.TraversalImagePath;
+            image = string.IsNullOrWhiteSpace(settings.TraversalImagePath) ? scene.FirstLayer?.Animation.AnimationPath ?? "" : settings.TraversalImagePath;
             var ext = Path.GetExtension(image).ToLowerInvariant();
             if (ext is not (".png" or ".gif" or ".jpg" or ".jpeg" or ".bmp"))
             {
@@ -259,7 +259,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         }
 
         var request = new ShowEventRequest(type, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), _activeMaxRttMs, layout,
-            PerMonitor: scene.DistributionMode == AnimationDistributionMode.Simultaneous, targetSeatId,
+            PerMonitor: scene.FirstLayer?.Distribution == AnimationDistributionMode.Simultaneous, targetSeatId,
             Seed: Random.Shared.Next(), EventId: Guid.NewGuid().ToString("N"), image, aspect, text);
         var evt = ShowEventFactory.Create(request, settings, out var error);
         if (evt == null)
@@ -852,22 +852,27 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             canvasManager.CalculateLayout(new[] { screenConfig });
 
             var backgroundConfig = new BackgroundLayerConfig { Mode = BackgroundMode.SolidColor, ColorHex = backgroundColor };
-            // Simple playback: content centered and stationary
-            var animationConfig = new AnimationLayerConfig
+            // Simple playback: one layer, content centered and stationary on this monitor
+            var layer = new SceneLayer
             {
-                AnimationPath = filePath,
-                TargetHeight = screen.Bounds.Height,
-                Loop = true,
-                VerticalAlign = VerticalAlignment.Center,
-                CenterInitialPosition = true,
-                FitMode = (ContentFitMode)fitMode
+                Animation = new AnimationLayerConfig
+                {
+                    AnimationPath = filePath,
+                    TargetHeight = screen.Bounds.Height,
+                    Loop = true,
+                    VerticalAlign = VerticalAlignment.Center,
+                    CenterInitialPosition = true,
+                    FitMode = (ContentFitMode)fitMode
+                },
+                Movement = new MovementConfig { Type = MovementType.Static },
+                Distribution = AnimationDistributionMode.Simultaneous,
             };
 
             // Metadata-based: the player process renders, nothing is composed in this process
             var d2dService = new D2DCompositionService(
                 AppLogger.CreateLogger<D2DCompositionService>(), AppLogger.Factory, _desktopManager);
             var actualBounds = new System.Drawing.Rectangle(screen.Bounds.X, screen.Bounds.Y, screen.Bounds.Width, screen.Bounds.Height);
-            await d2dService.InitializeAsync(canvasManager, backgroundConfig, animationConfig, actualBounds, monitorIndex);
+            await d2dService.InitializeAsync(canvasManager, backgroundConfig, new[] { layer }, actualBounds, monitorIndex);
 
             // Small delay to ensure player has loaded animation
             await Task.Delay(100);
@@ -1018,8 +1023,9 @@ public sealed partial class ServerPlaybackHost : ObservableObject
                     SharedStartServerUtcMs = ActiveSharedStartMs,
                     StartLeadMs = ActiveStartLeadMs,
                     Layout = ActiveLayout,
-                    PerMonitor = config.DistributionMode == AnimationDistributionMode.Simultaneous,
-                    EffectiveMovement = ActiveEffectiveMovement ?? config.Movement,
+                    // Marker checks follow the bottom layer (the probes report its position).
+                    PerMonitor = config.FirstLayer?.Distribution == AnimationDistributionMode.Simultaneous,
+                    EffectiveMovement = ActiveEffectiveMovement ?? config.FirstLayer?.Movement ?? new MovementConfig(),
                 };
             }
             finally
@@ -1116,8 +1122,11 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         lock (_seqLapLock) _lastGlobalLap = -1;   // a new scene counts its laps from the start
         _activeSceneHasRemotes = remoteClients.Count > 0;
         var layout = plan.Layout;
-        var effMovement = plan.EffectiveMovement;
-        var effAnimation = plan.EffectiveAnimation;
+        // Layer 0 drives everything scene-wide: IconZone path, lap signal, start speed, remote content id, thumbnails.
+        var effScene = plan.EffectiveScene;
+        var bottom = effScene.FirstLayer;
+        var effMovement = bottom?.Movement ?? new MovementConfig { Type = MovementType.Static };
+        bool bottomSequential = bottom?.Distribution != AnimationDistributionMode.Simultaneous;
         Debug.WriteLine($"[CrossScreen] Starting D2D animation on {localClients.Count} local + {remoteClients.Count} remote node(s)");
         Debug.WriteLine($"[CrossScreen] Virtual canvas: {layout.CanvasWidth}x{layout.CanvasHeight} ({_seatMap.Traversal}, {_seatMap.Rows.Count} row(s), wraps={layout.Wraps})");
 
@@ -1125,10 +1134,9 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         var screens = System.Windows.Forms.Screen.AllScreens;
 
         // Sequential + IconZone: compute one global A* path across the full virtual canvas
-        // so all local monitors share the same coordinated corridor path.
-        var perMonitor = plan.PerMonitor;
-        var animationConfig = effAnimation;
-        if (!perMonitor && config.Background.Mode == BackgroundMode.IconZone && localClients.Count > 0)
+        // so all local monitors share the same coordinated corridor path (layer 0 only follows it).
+        var layers = effScene.Layers;
+        if (bottom != null && bottomSequential && config.Background.Mode == BackgroundMode.IconZone && localClients.Count > 0)
         {
             try
             {
@@ -1144,7 +1152,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
                 // keeps the server-side path padding in sync with what Player.D2D will compute
                 // locally (pathPaddingPx = _animHeight / 2 + optional wave amplitude).
                 int effectiveHeight = ComputeEffectiveAnimationHeight(
-                    config.Animation, firstScreen.Bounds.Width, virtualH);
+                    bottom.Animation, firstScreen.Bounds.Width, virtualH);
                 int pathPaddingPx = effectiveHeight / 2;
                 if (effMovement.Type == MovementType.SineWave)
                     pathPaddingPx += (int)Math.Ceiling(effMovement.WaveAmplitudePixels);
@@ -1157,24 +1165,9 @@ public sealed partial class ServerPlaybackHost : ObservableObject
                     paddingPx: pathPaddingPx,
                     visualPaddingPx: Math.Max(4, cellW / 10));
 
-                // Clone animation config with global path attached
-                animationConfig = new AnimationLayerConfig
-                {
-                    AnimationPath             = effAnimation.AnimationPath,
-                    AdditionalAnimationPaths  = effAnimation.AdditionalAnimationPaths,
-                    TargetHeight              = effAnimation.TargetHeight,
-                    Loop                      = effAnimation.Loop,
-                    VerticalAlign             = effAnimation.VerticalAlign,
-                    CenterInitialPosition     = effAnimation.CenterInitialPosition,
-                    SpeedMultiplier           = effAnimation.SpeedMultiplier,
-                    FitMode                   = effAnimation.FitMode,
-                    RotateWithPath            = effAnimation.RotateWithPath,
-                    PrecomputedPath           = globalLayout.Path,
-                    ColorGrading              = effAnimation.ColorGrading,
-                    Pattern                   = effAnimation.Pattern,
-                    MultiImageSpread          = effAnimation.MultiImageSpread,
-                    MultiImagePhaseJitterMs   = effAnimation.MultiImagePhaseJitterMs
-                };
+                // The bottom layer carries the global path (effScene is the planner's own copy). Attached to the
+                // config itself, so effects and face-travel are no longer dropped by a field-by-field clone.
+                bottom.Animation.PrecomputedPath = globalLayout.Path;
 
                 Debug.WriteLine($"[CrossScreen] IconZone sequential: computed global path with {globalLayout.Path.Count} waypoints across {layout.CanvasWidth}px virtual canvas");
 
@@ -1238,12 +1231,9 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             var singleCanvas = new VirtualCanvasManager(AppLogger.CreateLogger<VirtualCanvasManager>());
             singleCanvas.CalculateLayout(new[] { thisCfg });
 
-            // In sequential mode the player needs the full virtual canvas width and this
-            // monitor's X offset within it; derive both from the seat-map layout.
+            // Sequential layers play on this node's seat-map layout; the player builds the per-monitor canvas of
+            // Simultaneous layers itself.
             var nodeLayout = layout.Get(planned.Node.Id);
-            int virtualOffsetX = nodeLayout?.OffsetX ?? 0;
-            int virtualOffsetY = nodeLayout?.OffsetY ?? 0;
-            int nodeOrder = nodeLayout?.Order ?? 0;
 
             // Create D2D service
             var d2dService = new D2DCompositionService(
@@ -1256,25 +1246,18 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             // movement correctly in sequential (spanning) mode.
             await d2dService.InitializeAsync(
                 singleCanvas,
-                config.Background,
-                animationConfig,
+                effScene.Background,
+                layers,
                 actualBounds,
                 monitorIndex,
-                effMovement,
-                perMonitorMode: perMonitor,
-                explicitVirtualCanvasWidth: perMonitor ? null : layout.CanvasWidth,
-                explicitMonitorOffsetX: perMonitor ? null : virtualOffsetX,
-                explicitVirtualCanvasHeight: perMonitor ? null : layout.CanvasHeight,
-                explicitMonitorOffsetY: perMonitor ? null : virtualOffsetY,
-                nodeOrder: nodeOrder,
-                layout: perMonitor ? null : nodeLayout);
+                nodeLayout);
 
             // Subscribe for lap-completion recompute in sequential IconZone mode
-            if (!perMonitor && config.Background.Mode == BackgroundMode.IconZone)
+            if (bottom != null && bottomSequential && config.Background.Mode == BackgroundMode.IconZone)
                 d2dService.GlobalLapCompleted += OnSequentialLapCompleted;
 
             newServices.Add((monitorIndex, d2dService));
-            Debug.WriteLine($"[CrossScreen] Monitor {monitorIndex} initialized (virtualOffsetX={virtualOffsetX}, vcw={layout.CanvasWidth})");
+            Debug.WriteLine($"[CrossScreen] Monitor {monitorIndex} initialized (offsetX={nodeLayout?.OffsetX ?? 0}, vcw={layout.CanvasWidth})");
         }
         }
         catch
@@ -1287,10 +1270,9 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         await Task.Delay(200);
 
         // Phase 2: Start ALL players with same shared timestamp.
-        // Background always renders on all monitors simultaneously.
-        // DistributionMode controls animation positioning:
-        //   - Sequential: animation spans across virtual canvas (multi-monitor spanning)
-        //   - Simultaneous: animation plays independently on each monitor
+        // Background always renders on all monitors simultaneously. Each layer's Distribution controls its positioning:
+        //   - Sequential: the layer spans the virtual canvas (multi-monitor spanning)
+        //   - Simultaneous: the layer plays independently on each monitor
         // Tier 0.4: place the shared start in the future so remotes have received the command,
         // downloaded, spawned and decoded before the first frame — every node then starts on the
         // same frame instead of popping in mid-lap. Lead = 3×worst RTT + the local load time we
@@ -1304,8 +1286,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             : (int)effMovement.SpeedPixelsPerSecond;
         Debug.WriteLine($"[CrossScreen] Shared start scheduled {startLeadMs}ms ahead (maxRtt={maxRttMs:F0}ms, load={phase1Timer.ElapsedMilliseconds}ms)");
 
-        var isSequential = config.DistributionMode == AnimationDistributionMode.Sequential;
-        Debug.WriteLine($"[CrossScreen] Starting {(isSequential ? "SEQUENTIAL (spanning)" : "SIMULTANEOUS (per-monitor)")} animation on {newServices.Count} monitors, timestamp={sharedStartTimestamp}ms, speed={pixelsPerSecond}px/s");
+        Debug.WriteLine($"[CrossScreen] Starting {layers.Count} layer(s) on {newServices.Count} monitors, timestamp={sharedStartTimestamp}ms, bottom speed={pixelsPerSecond}px/s");
 
         try
         {
@@ -1324,15 +1305,22 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         // An event still running (e.g. across a playlist item switch) continues on the new players at its position.
         await ReplayEventsAsync(newServices.Select(s => s.service));
 
-        // Phase 3: Send cross-screen D2D commands to remote clients
-        if (remoteClients.Count > 0 && _service.SyncCoordinator != null)
+        // Phase 3: Send cross-screen D2D commands to remote clients. The bottom layer's file is the command's primary
+        // content (a background-only scene, e.g. a lone panorama, sends its background image); every other file travels as an asset.
+        var primaryPath = layers.FirstOrDefault(l => !string.IsNullOrWhiteSpace(l.Animation.AnimationPath))?.Animation.AnimationPath
+            ?? (effScene.Background.UsesImage && !string.IsNullOrWhiteSpace(effScene.Background.ImagePath) ? effScene.Background.ImagePath : null);
+        if (remoteClients.Count > 0 && _service.SyncCoordinator != null && primaryPath == null)
+        {
+            // ponytail: a scene without any file (solid color only) is not sent to remotes (the LOAD needs a primary file).
+            Debug.WriteLine("[CrossScreen] Scene without files: remote nodes keep what they show");
+        }
+        else if (remoteClients.Count > 0 && _service.SyncCoordinator != null)
         {
             // Tier 1.3: ids identify bytes (name + hash) so renamed/re-exported files are never served stale.
-            var contentId = ContentIdentity.ComputeId(effAnimation.AnimationPath);
+            var contentId = ContentIdentity.ComputeId(primaryPath!);
             var sceneAssets = BuildAssetRefs(config);
             _crossScreenContentId = contentId;
-            var bgColor = config.Background.ColorHex ?? "#000000";
-            var movementTypeInt = (int)effMovement.Type;
+            var sentScene = new CrossScreenConfig { Background = effScene.Background, Layers = layers };
 
             // All sends at once: a slow client (bounded by the write timeout) must not push the others past the shared start.
             var sends = new List<Task>();
@@ -1340,36 +1328,19 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             {
                 var remoteClient = remote.Node;
                 var remoteLayout = layout.Get(remoteClient.Id);
-                var remoteOffsetX = remoteLayout?.OffsetX ?? 0;
 
-                Debug.WriteLine($"[CrossScreen] Sending cross-screen D2D to remote {remoteClient.Hostname} ({remoteClient.Id}): offset={remoteOffsetX}px, canvas={layout.CanvasWidth}px");
+                Debug.WriteLine($"[CrossScreen] Sending cross-screen D2D to remote {remoteClient.Hostname} ({remoteClient.Id}): offset={remoteLayout?.OffsetX ?? 0}px, canvas={layout.CanvasWidth}px");
 
                 sends.Add(_service.SyncCoordinator.StartCrossScreenD2DOnClientAsync(
                     clientId: remoteClient.Id,
                     contentId: contentId,
-                    filePath: effAnimation.AnimationPath,
-                    backgroundColor: bgColor,
-                    fitMode: (int)(effAnimation.FitMode),
-                    virtualCanvasWidth: layout.CanvasWidth,
-                    monitorOffsetX: remoteOffsetX,
+                    filePath: primaryPath!,
+                    // Resolved scene incl. the precomputed global A* path, so remotes compute identical deterministic math.
+                    scene: sentScene,
+                    layout: remoteLayout,
                     sharedStartTimestampMs: sharedStartTimestamp,
-                    pixelsPerSecond: pixelsPerSecond,
-                    perMonitorMode: !isSequential,
-                    movementType: movementTypeInt,
-                    pattern: effAnimation.Pattern,
-                    colorGrading: effAnimation.ColorGrading,
-                    // Full configs so the remote computes identical deterministic math.
-                    // animationConfig is the (possibly IconZone-cloned) config, so the
-                    // precomputed global A* path now reaches remote machines too.
-                    movement: effMovement,
-                    animation: animationConfig,
-                    background: config.Background,
                     // MonitorIndex is -1 for whole-machine nodes → render on primary.
                     targetMonitorIndex: Math.Max(0, remoteClient.MonitorIndex),
-                    virtualCanvasHeight: layout.CanvasHeight,
-                    monitorOffsetY: remoteLayout?.OffsetY ?? 0,
-                    nodeOrder: remoteLayout?.Order ?? 0,
-                    layout: isSequential ? remoteLayout : null,
                     assets: sceneAssets));
             }
             await Task.WhenAll(sends);
@@ -1382,7 +1353,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         StartFullscreenDetectionIfNeeded();
 
         // Set up thumbnail capture for live preview in topology nodes
-        var animName = Path.GetFileName(effAnimation.AnimationPath) ?? "Animation";
+        var animName = string.IsNullOrEmpty(primaryPath) ? "Animation" : Path.GetFileName(primaryPath);
         foreach (var (monitorIndex, d2dService) in newServices)
         {
             SetupThumbnailCapture(monitorIndex, d2dService.PlayerHwnd, animName);
@@ -1500,7 +1471,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
 
         // F3a: when pattern + IconZone are combined, the pattern fills the desktop and zones
         // are used as a clip mask only — no A* path is needed, so skip the recompute/broadcast.
-        if (LastScene?.Animation.Pattern != null
+        if (LastScene?.FirstLayer?.Animation.Pattern != null
             && LastScene.Background.Mode == BackgroundMode.IconZone)
         {
             return;

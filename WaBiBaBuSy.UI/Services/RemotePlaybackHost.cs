@@ -132,7 +132,7 @@ public sealed class RemotePlaybackHost
     private async Task ApplyCrossScreenCoreAsync(CrossScreenApplyRequest req)
     {
         var monitorIndex = req.MonitorIndex;
-        Debug.WriteLine($"[D2D-CrossScreen] Received: file={req.FilePath}, monitor={monitorIndex}, canvas={req.VirtualCanvasWidth}px, offset={req.MonitorOffsetX}px, ts={req.SharedStartTimestampMs}ms, speed={req.PixelsPerSecond}px/s, perMonitor={req.PerMonitorMode}, movType={req.MovementType}");
+        Debug.WriteLine($"[D2D-CrossScreen] Received: file={req.FilePath}, monitor={monitorIndex}, ts={req.SharedStartTimestampMs}ms");
 
         // Dispose previous cross-screen service for this monitor
         if (_players.TryRemove(monitorIndex, out var existing))
@@ -153,8 +153,7 @@ public sealed class RemotePlaybackHost
             screen.Bounds.X, screen.Bounds.Y,
             screen.Bounds.Width, screen.Bounds.Height);
 
-        // Build a single-screen canvas manager (used for player host init only;
-        // actual virtualCanvasWidth / monitorOffsetX are overridden via explicit params)
+        // Build a single-screen canvas manager (used for player host init only; the canvas comes from the layout)
         var screenConfig = new WaBiBaBuSy.WallpaperEngine.Composition.ScreenConfiguration
         {
             ClientId = $"REMOTE_CLIENT_MONITOR_{monitorIndex}",
@@ -166,56 +165,22 @@ public sealed class RemotePlaybackHost
         var canvasManager = new VirtualCanvasManager(AppLogger.CreateLogger<VirtualCanvasManager>());
         canvasManager.CalculateLayout(new[] { screenConfig });
 
-        // ── Background: full config when transmitted, solid-color fallback otherwise ──
-        var backgroundConfig = DeserializeRemoteConfig<BackgroundLayerConfig>(req.BackgroundJson, "BackgroundLayerConfig")
-            ?? new BackgroundLayerConfig { Mode = BackgroundMode.SolidColor, ColorHex = req.BackgroundColor };
-
-        // ── Animation: full config when transmitted (TargetHeight/SpeedMultiplier/
-        //    VerticalAlign/RotateWithPath/PrecomputedPath/pattern/colors all matter
-        //    for cross-machine determinism), legacy reconstruction otherwise ──
-        var animationConfig = DeserializeRemoteConfig<AnimationLayerConfig>(req.AnimationJson, "AnimationLayerConfig");
-        if (animationConfig != null)
+        // ── Scene (background + layers, cm already resolved): every server-side path is rewritten to this
+        //    client's cache (Tier 1.3). A layer whose file could not be fetched is disabled here, a missing extra
+        //    image falls back to its layer's file and a missing background image degrades to solid color. ──
+        var remoteScene = DeserializeRemoteConfig<CrossScreenConfig>(req.SceneJson, "CrossScreenConfig");
+        if (remoteScene == null)
         {
-            // Tier 1.3: every server-side path (primary, additional images, background image) is
-            // rewritten to this client's cache. Anything that could not be fetched is dropped and a
-            // missing background image degrades to solid color.
-            var (localAnim, localBg) = SceneAssets.RewriteToLocal(animationConfig, backgroundConfig, req.LocalAssetPaths, req.FilePath);
-            animationConfig = localAnim;
-            backgroundConfig = localBg;
-            Debug.WriteLine($"[D2D-CrossScreen] Assets: {req.LocalAssetPaths.Count} mapped, {animationConfig.AdditionalAnimationPaths.Count} additional image(s), bg={backgroundConfig.Mode}");
+            Debug.WriteLine("[D2D-CrossScreen] ERROR: no scene in the LOAD command (server too old?) — nothing to play");
+            return;
         }
-        else
-        {
-            PatternConfig? pattern = DeserializeRemoteConfig<PatternConfig>(req.PatternJson, "PatternConfig");
-            ColorGradingConfig colorGrading = DeserializeRemoteConfig<ColorGradingConfig>(req.ColorGradingJson, "ColorGradingConfig") ?? new();
-            backgroundConfig = SceneAssets.RewriteToLocal(new AnimationLayerConfig(), backgroundConfig, req.LocalAssetPaths, null).Background;
-            animationConfig = new AnimationLayerConfig
-            {
-                AnimationPath = req.FilePath,
-                TargetHeight = screen.Bounds.Height,
-                Loop = true,
-                VerticalAlign = VerticalAlignment.Center,
-                CenterInitialPosition = true,
-                FitMode = (ContentFitMode)req.FitMode,
-                Pattern = pattern,
-                ColorGrading = colorGrading
-            };
-        }
+        var scene = SceneAssets.RewriteToLocal(remoteScene, req.LocalAssetPaths, req.FilePath);
+        Debug.WriteLine($"[D2D-CrossScreen] Assets: {req.LocalAssetPaths.Count} mapped, {scene.Layers.Count} layer(s) ({scene.Layers.Count(l => !l.Enabled)} disabled), bg={scene.Background.Mode}");
 
-        // ── Node layout (seat map: mirroring, ring wrap); null for legacy servers ──
+        // ── Node layout (seat map: offset, mirroring, ring wrap) — the canvas of Sequential layers ──
         var remoteNodeLayout = DeserializeRemoteConfig<NodeLayout>(req.LayoutJson, "NodeLayout");
 
-        // ── Movement: full config when transmitted, legacy type+speed otherwise ──
-        var movementConfig = DeserializeRemoteConfig<MovementConfig>(req.MovementJson, "MovementConfig")
-            ?? (req.MovementType == 0
-                ? null
-                : new MovementConfig
-                {
-                    Type = (MovementType)req.MovementType,
-                    SpeedPixelsPerSecond = req.PixelsPerSecond
-                });
-
-        Debug.WriteLine($"[D2D-CrossScreen] Initializing D2D service: bounds={actualBounds}, vcw={req.VirtualCanvasWidth}, offsetX={req.MonitorOffsetX}, perMonitor={req.PerMonitorMode}");
+        Debug.WriteLine($"[D2D-CrossScreen] Initializing D2D service: bounds={actualBounds}, canvas={remoteNodeLayout?.CanvasWidth ?? 0}, offsetX={remoteNodeLayout?.OffsetX ?? 0}");
         var d2dService = new D2DCompositionService(
             AppLogger.CreateLogger<D2DCompositionService>(),
             AppLogger.Factory,
@@ -225,27 +190,13 @@ public sealed class RemotePlaybackHost
         // the skew shifts the player's clock, and the start is converted with the skewed offset.
         var testMode = _service.Client?.TestModeState ?? default;
 
-        // Same speed convention as the local start path: Static → 0.
-        var pixelsPerSecond = movementConfig == null || movementConfig.Type == MovementType.Static
-            ? 0
-            : (int)movementConfig.SpeedPixelsPerSecond;
+        // Same speed convention as the local start path: the bottom layer's speed, Static → 0.
+        var bottom = scene.FirstLayer?.Movement;
+        var pixelsPerSecond = bottom == null || bottom.Type == MovementType.Static ? 0 : (int)bottom.SpeedPixelsPerSecond;
 
         await StartOrDisposeAsync(d2dService, async () =>
         {
-            // Simultaneous (per-monitor) mode must NOT receive the spanning canvas
-            // overrides — the service derives canvas = this monitor's width, offset = 0,
-            // exactly like the local path does (see StartCrossScreenAnimation).
-            await d2dService.InitializeAsync(
-                canvasManager, backgroundConfig, animationConfig, actualBounds,
-                monitorIndex, movementConfig,
-                perMonitorMode: req.PerMonitorMode,
-                explicitVirtualCanvasWidth: req.PerMonitorMode ? null : req.VirtualCanvasWidth,
-                explicitMonitorOffsetX: req.PerMonitorMode ? null : req.MonitorOffsetX,
-                // 0 = older server that did not send a canvas height → fall back to this monitor's.
-                explicitVirtualCanvasHeight: req.PerMonitorMode || req.VirtualCanvasHeight <= 0 ? null : req.VirtualCanvasHeight,
-                explicitMonitorOffsetY: req.PerMonitorMode ? null : req.MonitorOffsetY,
-                nodeOrder: req.NodeOrder,
-                layout: req.PerMonitorMode ? null : remoteNodeLayout);
+            await d2dService.InitializeAsync(canvasManager, scene.Background, scene.Layers, actualBounds, monitorIndex, remoteNodeLayout);
 
             await Task.Delay(100);
 
@@ -357,14 +308,19 @@ public sealed class RemotePlaybackHost
             ColorHex = backgroundColor
         };
 
-        var animationConfig = new AnimationLayerConfig
+        var layer = new SceneLayer
         {
-            AnimationPath = filePath,
-            TargetHeight = screen.Bounds.Height,
-            Loop = true,
-            VerticalAlign = VerticalAlignment.Center,
-            CenterInitialPosition = true,
-            FitMode = (ContentFitMode)fitMode
+            Animation = new AnimationLayerConfig
+            {
+                AnimationPath = filePath,
+                TargetHeight = screen.Bounds.Height,
+                Loop = true,
+                VerticalAlign = VerticalAlignment.Center,
+                CenterInitialPosition = true,
+                FitMode = (ContentFitMode)fitMode
+            },
+            Movement = new MovementConfig { Type = MovementType.Static },
+            Distribution = AnimationDistributionMode.Simultaneous,
         };
 
         Debug.WriteLine($"[D2D-Remote] Creating D2DCompositionService for monitor {monitorIndex}");
@@ -382,7 +338,7 @@ public sealed class RemotePlaybackHost
         await StartOrDisposeAsync(d2dService, async () =>
         {
             Debug.WriteLine($"[D2D-Remote] Initializing D2D service with bounds {actualBounds}");
-            await d2dService.InitializeAsync(canvasManager, backgroundConfig, animationConfig, actualBounds, monitorIndex);
+            await d2dService.InitializeAsync(canvasManager, backgroundConfig, new[] { layer }, actualBounds, monitorIndex);
             await Task.Delay(100);
             if (testMode.Timecode || testMode.ClockSkewMs != 0)
                 await d2dService.SetTestModeAsync(testMode.Timecode, testMode.ClockSkewMs);

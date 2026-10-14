@@ -18,9 +18,11 @@ public class PlayerCommandLoadAnimation : PlayerMessageBase
     }
 
     /// <summary>
-    /// Animation layer configuration (file path, size, alignment, looping)
+    /// The scene's sprite layers, bottom first, already resolved to canvas pixels. Each layer picks its canvas
+    /// by its own <see cref="SceneLayer.Distribution"/>: Sequential = <see cref="Layout"/>, Simultaneous = this
+    /// monitor alone. Only layer 0 may be a video and only layer 0 follows the IconZone path / corridor.
     /// </summary>
-    public AnimationLayerConfig AnimationConfig { get; set; } = new();
+    public System.Collections.Generic.List<SceneLayer> Layers { get; set; } = new();
 
     /// <summary>
     /// Background layer configuration (solid color, image, or tiled pattern)
@@ -33,50 +35,10 @@ public class PlayerCommandLoadAnimation : PlayerMessageBase
     public int MonitorIndex { get; set; } = 0;
 
     /// <summary>
-    /// Virtual canvas height for composition calculations
-    /// </summary>
-    public int VirtualCanvasHeight { get; set; } = 1080;
-
-    /// <summary>
-    /// Total virtual canvas width (all monitors combined) for movement calculations
-    /// </summary>
-    public int VirtualCanvasWidth { get; set; } = 1920;
-
-    /// <summary>
-    /// This monitor's X offset in the virtual canvas (for multi-monitor positioning)
-    /// </summary>
-    public int MonitorOffsetX { get; set; } = 0;
-
-    /// <summary>
-    /// This monitor's Y offset in the virtual canvas. Non-zero when this monitor is shorter than
-    /// the canvas (mixed heights): the node is vertically centered inside the canvas.
-    /// </summary>
-    public int MonitorOffsetY { get; set; } = 0;
-
-    /// <summary>
-    /// This node's traversal index (0-based) in the selected node set. Drives Wave-mode phase
-    /// (<see cref="MovementConfig.NodePhaseDelayMs"/>) in per-monitor (Simultaneous) mode.
-    /// </summary>
-    public int NodeOrder { get; set; } = 0;
-
-    /// <summary>
-    /// True in Simultaneous distribution (each monitor is its own canvas). The player uses it to
-    /// decide whether the node phase applies; Sequential spanning mode never shifts a node's clock.
-    /// </summary>
-    public bool PerMonitorMode { get; set; } = false;
-
-    /// <summary>
-    /// Full node layout from the seat map (offset, mirroring, ring wrap, canvas size, order).
-    /// When present the player prefers it over the loose fields above. Null in per-monitor mode
-    /// and for hosts that predate the seat map.
+    /// This node's place on the seat-map canvas (offset, mirroring, ring wrap, canvas size, order, scale) —
+    /// the canvas of every Sequential layer. Null = this monitor alone is the canvas.
     /// </summary>
     public NodeLayout? Layout { get; set; }
-
-    /// <summary>
-    /// Movement configuration for animation positioning.
-    /// When null, falls back to legacy PixelsPerSecond-based linear movement.
-    /// </summary>
-    public MovementConfig? MovementConfig { get; set; }
 
     /// <summary>
     /// Icon-zone rectangles in virtual-canvas coordinates. Populated by the orchestrator from
@@ -89,7 +51,7 @@ public class PlayerCommandLoadAnimation : PlayerMessageBase
     /// <summary>
     /// When true, the player builds a clip-mask geometry of (canvas \ union(ZoneRects)) and
     /// pushes it as an ID2D1Layer around the animation/pattern draw. Set automatically when
-    /// BackgroundMode == IconZone AND AnimationConfig.Pattern != null.
+    /// BackgroundMode == IconZone AND layer 0 has a pattern.
     /// </summary>
     public bool MaskZones { get; set; } = false;
 

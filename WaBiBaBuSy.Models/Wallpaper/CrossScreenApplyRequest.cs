@@ -4,44 +4,24 @@ using WaBiBaBuSy.Models.Content;
 namespace WaBiBaBuSy.Models.Wallpaper;
 
 /// <summary>
-/// Everything a client needs to start a cross-screen D2D animation, as received
-/// from the server via a LOAD command with renderer_type = "d2d_crossscreen".
-/// The JSON fields carry full configs (movement/animation/background); the scalar
-/// fields are the legacy fallbacks for servers that don't send JSON yet.
+/// Everything a client needs to start a cross-screen D2D scene, as received from the server via a LOAD command
+/// with renderer_type = "d2d_crossscreen": the scene (background + layers, cm already resolved to px), this node's
+/// seat-map layout, the shared start and the downloaded assets.
 /// </summary>
 public class CrossScreenApplyRequest
 {
-    /// <summary>Locally-cached content file path (already downloaded from the server).</summary>
+    /// <summary>Locally-cached copy of the bottom layer's file (the command's content id).</summary>
     public required string FilePath { get; init; }
 
     /// <summary>Which local monitor to render on.</summary>
     public int MonitorIndex { get; init; }
 
-    public string BackgroundColor { get; init; } = "#000000";
-    public int FitMode { get; init; }
-    public int VirtualCanvasWidth { get; init; }
-    public int MonitorOffsetX { get; init; }
-
-    /// <summary>Virtual canvas height (max node height). 0 = legacy server → use this monitor's height.</summary>
-    public int VirtualCanvasHeight { get; init; }
-
-    /// <summary>This node's Y offset inside the virtual canvas (vertical centering on mixed heights).</summary>
-    public int MonitorOffsetY { get; init; }
-
-    /// <summary>This node's traversal index (0-based) — drives Wave-mode phase in Simultaneous distribution.</summary>
-    public int NodeOrder { get; init; }
     public long SharedStartTimestampMs { get; init; }
-    public int PixelsPerSecond { get; init; }
-    public bool PerMonitorMode { get; init; }
-    public int MovementType { get; init; }
 
-    public string PatternJson { get; init; } = "";
-    public string ColorGradingJson { get; init; } = "";
-    public string MovementJson { get; init; } = "";
-    public string AnimationJson { get; init; } = "";
-    public string BackgroundJson { get; init; } = "";
+    /// <summary>JSON <see cref="CrossScreenConfig"/> with the server's file paths (rewritten via <see cref="LocalAssetPaths"/>).</summary>
+    public string SceneJson { get; init; } = "";
 
-    /// <summary>JSON <c>NodeLayout</c> from the server's seat map (mirroring, ring wrap). Empty = legacy server.</summary>
+    /// <summary>JSON <c>NodeLayout</c> from the server's seat map — the canvas of Sequential layers. Empty = this monitor alone.</summary>
     public string LayoutJson { get; init; } = "";
 
     /// <summary>Every file the scene references, as sent by the server (Tier 1.3).</summary>

@@ -1,6 +1,7 @@
 // WaBiBaBuSy.UI/Controls/ScenePainter.cs
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.IO;
 using Avalonia;
 using Avalonia.Media;
@@ -22,66 +23,94 @@ public sealed partial class ScenePainter
     private const int MaxPreviewCellsPerNode = 400;
     private static readonly IBrush MonoCellBrush = new SolidColorBrush(Color.Parse("#BBBBBB"));
 
-    private string? _spritePath;
-    private Bitmap? _bitmap;
-    private bool _loaded;
+    // ponytail: the cache is dropped whole past 32 images; per-scene eviction if big playlists make the preview stutter.
+    private const int MaxCachedBitmaps = 32;
+    private readonly Dictionary<string, Bitmap?> _bitmaps = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Image drawn for the sprite (the file for images/GIFs, a thumbnail for videos).</summary>
-    public string? SpriteImagePath
+    /// <summary>
+    /// Maps a layer's animation file to the image the preview draws (the file for images/GIFs, a thumbnail for
+    /// videos, null = placeholder). Null resolver = draw the file itself.
+    /// </summary>
+    public Func<string?, string?>? SpriteImageResolver { get; set; }
+
+    /// <summary>Forget every decoded image (e.g. after the gallery produced new video thumbnails).</summary>
+    public void ClearBitmaps() => _bitmaps.Clear();
+
+    private Bitmap? BitmapFor(string? animationPath)
     {
-        get => _spritePath;
-        set
+        var image = SpriteImageResolver != null ? SpriteImageResolver(animationPath) : animationPath;
+        if (string.IsNullOrEmpty(image)) return null;
+        if (_bitmaps.TryGetValue(image, out var cached)) return cached;
+        Bitmap? bmp = null;
+        try
         {
-            if (value == _spritePath) return;
-            _spritePath = value;
-            _bitmap = null;
-            _loaded = false;
+            if (File.Exists(image)) bmp = new Bitmap(image);
         }
+        catch
+        {
+            bmp = null;
+        }
+        if (_bitmaps.Count >= MaxCachedBitmaps) _bitmaps.Clear();
+        _bitmaps[image] = bmp;
+        return bmp;
     }
 
-    private Bitmap? SpriteBitmap
+    // The preview only needs a few hundred px per tile: decode panoramas at 4096 px wide instead of 20000+.
+    private const int PanoramaPreviewWidth = 4096;
+    private const string PanoramaKeyPrefix = "panorama|";
+
+    private Bitmap? PanoramaBitmap(string? path)
     {
-        get
+        if (string.IsNullOrEmpty(path)) return null;
+        string key = PanoramaKeyPrefix + path;
+        if (_bitmaps.TryGetValue(key, out var cached)) return cached;
+        Bitmap? bmp = null;
+        try
         {
-            if (_loaded) return _bitmap;
-            _loaded = true;
-            try
+            if (File.Exists(path))
             {
-                if (!string.IsNullOrEmpty(_spritePath) && File.Exists(_spritePath))
-                    _bitmap = new Bitmap(_spritePath);
+                using var stream = File.OpenRead(path);
+                bmp = Bitmap.DecodeToWidth(stream, PanoramaPreviewWidth);
             }
-            catch
-            {
-                _bitmap = null;
-            }
-            return _bitmap;
         }
+        catch
+        {
+            bmp = null;
+        }
+        if (_bitmaps.Count >= MaxCachedBitmaps) _bitmaps.Clear();
+        _bitmaps[key] = bmp;
+        return bmp;
     }
 
-    /// <summary>True when the scene has an animation file to draw.</summary>
-    public static bool HasSprite(CrossScreenConfig? scene) => scene != null && !string.IsNullOrEmpty(scene.Animation.AnimationPath);
+    /// <summary>True when the scene has an enabled layer with an animation file to draw.</summary>
+    public static bool HasSprite(CrossScreenConfig? scene) =>
+        scene != null && scene.Layers.Any(l => l.Enabled && !string.IsNullOrEmpty(l.Animation.AnimationPath));
 
     /// <summary>Resolve cm → canvas px exactly like the apply path does, so preview and wall agree.</summary>
-    public static CrossScreenConfig? Resolve(CrossScreenConfig? scene, SeatMapLayoutResult layout)
-    {
-        if (scene == null) return null;
-        var (mv, an) = PhysicalUnits.ResolveForCanvas(scene, layout.RefPixelsPerCm);
-        return new CrossScreenConfig
-        {
-            Background = scene.Background, Movement = mv, Animation = an,
-            DistributionMode = scene.DistributionMode, SelectedMonitorIds = scene.SelectedMonitorIds,
-            AnimationSpeedPxPerSecond = scene.AnimationSpeedPxPerSecond
-        };
-    }
+    public static CrossScreenConfig? Resolve(CrossScreenConfig? scene, SeatMapLayoutResult layout) =>
+        scene == null ? null : PhysicalUnits.ResolveScene(scene, layout.RefPixelsPerCm);
 
-    /// <summary>Background color (and ThreeZone bands) of the scene over the node rect.</summary>
-    public void PaintBackground(DrawingContext ctx, Rect rect, double s, CrossScreenConfig? scene)
+    /// <summary>True when the scene has something to paint: a sprite, or a panorama background.</summary>
+    public static bool HasContent(CrossScreenConfig? scene) =>
+        HasSprite(scene) || (scene?.Background is { Mode: BackgroundMode.Panorama } bg && !string.IsNullOrEmpty(bg.ImagePath));
+
+    /// <summary>Background color (ThreeZone bands, this node's panorama slice) of the scene over the node rect.</summary>
+    public void PaintBackground(DrawingContext ctx, Rect rect, double s, CrossScreenConfig? scene, NodeLayout? node = null)
     {
         var bg = scene?.Background;
         var color = ParseHex(bg == null ? "#000000" :
             bg.Mode == BackgroundMode.IconZone ? bg.IconCorridorColorHex :
             bg.Mode == BackgroundMode.ThreeZone ? bg.CorridorColorHex : bg.ColorHex);
         ctx.FillRectangle(new SolidColorBrush(color), rect);
+        if (bg?.Mode == BackgroundMode.Panorama && PanoramaBitmap(bg.ImagePath) is { } pano)
+        {
+            var (px, py, pw, ph) = NodeMapping.PanoramaSource(node, pano.PixelSize.Width, pano.PixelSize.Height);
+            using var flip = node?.Mirrored == true
+                ? ctx.PushTransform(Matrix.CreateTranslation(-rect.Center.X, 0) * Matrix.CreateScale(-1, 1) * Matrix.CreateTranslation(rect.Center.X, 0))
+                : default(DrawingContext.PushedState?);
+            ctx.DrawImage(pano, new Rect(px, py, pw, ph), rect);
+            return;
+        }
         if (bg?.Mode != BackgroundMode.ThreeZone) return;
 
         double top = rect.Top + bg.CorridorTopPx * s;
@@ -93,20 +122,21 @@ public sealed partial class ScenePainter
     }
 
     /// <summary>Sprite size after FitMode — mirrors the player's CalculateAnimationLayout for the given node.</summary>
-    public (int W, int H) SpriteSizeFor(CrossScreenConfig? scene, NodeLayout node)
+    public (int W, int H) SpriteSizeFor(SceneLayer? layer, NodeLayout node)
     {
-        if (scene == null) return (0, 0);
+        if (layer == null) return (0, 0);
+        var anim = layer.Animation;
         int nativeW = 400, nativeH = 300;
-        var bmp = SpriteBitmap;
+        var bmp = BitmapFor(anim.AnimationPath);
         if (bmp != null && bmp.PixelSize.Width > 0 && bmp.PixelSize.Height > 0)
         {
             nativeW = bmp.PixelSize.Width; nativeH = bmp.PixelSize.Height;
         }
-        else if (scene.Animation.TargetHeight > 0)
+        else if (anim.TargetHeight > 0)
         {
-            nativeH = scene.Animation.TargetHeight; nativeW = (int)(nativeH * 16 / 9.0);
+            nativeH = anim.TargetHeight; nativeW = (int)(nativeH * 16 / 9.0);
         }
-        switch (scene.Animation.FitMode)
+        switch (anim.FitMode)
         {
             case ContentFitMode.Fit:
             {
@@ -122,7 +152,7 @@ public sealed partial class ScenePainter
                 return (node.Width, node.Height);
             case ContentFitMode.TargetHeight:
             {
-                int th = Math.Max(1, scene.Animation.TargetHeight);
+                int th = Math.Max(1, anim.TargetHeight);
                 return (Math.Max(1, (int)Math.Round(nativeW * (double)th / nativeH)), th);
             }
             default:
@@ -131,49 +161,69 @@ public sealed partial class ScenePainter
     }
 
     /// <summary>
-    /// The layout a node's player actually uses: the seat-map node in Sequential mode; in Simultaneous mode a
-    /// per-monitor one (offset 0, its own canvas, not mirrored, no wrap) — what the player synthesizes when it
-    /// gets no layout. The sprite and the show events of the preview both go through it.
+    /// The layout a node's player uses for a layer: the seat-map node for a Sequential layer; for a Simultaneous one
+    /// a per-monitor layout (offset 0, its own canvas, not mirrored, no wrap) — what the player builds itself.
+    /// Show events follow the bottom layer (Sequential when the scene has none), as on the players.
     /// </summary>
-    public static NodeLayout EffectiveNode(CrossScreenConfig scene, NodeLayout node) =>
-        scene.DistributionMode == AnimationDistributionMode.Simultaneous
+    public static NodeLayout EffectiveNode(SceneLayer? layer, NodeLayout node) =>
+        layer?.Distribution == AnimationDistributionMode.Simultaneous
             ? new NodeLayout { Id = node.Id, OffsetX = 0, OffsetY = 0, Width = node.Width, Height = node.Height, CanvasWidth = node.Width, CanvasHeight = node.Height, Order = node.Order }
             : node;
 
-    /// <summary>Draws the scene's sprite/pattern on one node (clipped to <paramref name="rect"/>); true when the sprite's center is on this node.</summary>
-    public bool PaintSprite(DrawingContext ctx, Rect rect, double s, NodeLayout node, CrossScreenConfig scene, long elapsedMs)
+    /// <summary>
+    /// Draws every enabled layer bottom to top on one node (clipped to <paramref name="rect"/>); true when the
+    /// lowest drawn layer's sprite center is on this node.
+    /// </summary>
+    public bool PaintLayers(DrawingContext ctx, Rect rect, double s, NodeLayout node, CrossScreenConfig scene, long elapsedMs)
     {
         using var clip = ctx.PushClip(rect);
-        bool perMonitor = scene.DistributionMode == AnimationDistributionMode.Simultaneous;
-        long e = SyncTiming.ApplyNodePhase(elapsedMs, node.Order, scene.Movement.NodePhaseDelayMs, perMonitor);
-        if (!SyncTiming.ShouldDrawAnimation(e)) return false;
+        bool? hit = null;
+        for (int i = 0; i < scene.Layers.Count; i++)
+        {
+            var layer = scene.Layers[i];
+            if (!layer.Enabled || string.IsNullOrEmpty(layer.Animation.AnimationPath)) continue;
+            using var alpha = layer.Opacity < 0.999f ? ctx.PushOpacity(Math.Clamp(layer.Opacity, 0f, 1f)) : default(DrawingContext.PushedState?);
+            bool h = PaintLayer(ctx, rect, s, node, layer, scene.Background, followsBackground: i == 0, elapsedMs);
+            hit ??= h;
+        }
+        return hit == true;
+    }
 
-        var eff = EffectiveNode(scene, node);
-        var (animW, animH) = SpriteSizeFor(scene, node);
+    /// <summary>One layer's sprite/pattern; true when its sprite's center is on this node.</summary>
+    private bool PaintLayer(DrawingContext ctx, Rect rect, double s, NodeLayout node, SceneLayer layer,
+        BackgroundLayerConfig background, bool followsBackground, long elapsedMs)
+    {
+        if (SyncTiming.LayerElapsed(elapsedMs, node.Order, layer) is not long e) return false;
+        var anim = layer.Animation;
+        var movement = layer.Movement;
+
+        var eff = EffectiveNode(layer, node);
+        var (animW, animH) = SpriteSizeFor(layer, node);
         if (animW <= 0 || animH <= 0) return false;
 
-        var grading = scene.Animation.ColorGrading;
+        var grading = anim.ColorGrading;
         bool traveling = grading != null && grading.Mode is ColorGradingMode.TravelingRainbow or ColorGradingMode.TravelingList or ColorGradingMode.TravelingRandom;
 
         // Same position math as the players for Traveling + pattern: whole-cell loop snap, and in Endless mode the
         // phase + cell offset split (review 2026-10-13 E10). The preview has one source, so the step is animW + spacing.
-        float tileStep = traveling && scene.Animation.Pattern != null ? animW + scene.Animation.Pattern.SpacingX : 0f;
+        float tileStep = traveling && anim.Pattern != null ? animW + anim.Pattern.SpacingX : 0f;
         int cellOffsetI = 0;
         float vx, vy;
-        if (MovementCalculator.EndlessTravelingScroll(scene.Movement, e, tileStep) is { } endless)
+        if (MovementCalculator.EndlessTravelingScroll(movement, e, tileStep) is { } endless)
         {
             vx = endless.X;
-            vy = scene.Movement.StartY ?? (eff.CanvasHeight - animH) / 2f;
+            vy = movement.StartY ?? (eff.CanvasHeight - animH) / 2f;
             cellOffsetI = endless.CellOffsetI;
         }
         else
         {
-            (vx, vy) = MovementCalculator.Calculate(scene.Movement, e, animW, animH, eff.CanvasWidth, eff.CanvasHeight,
+            (vx, vy) = MovementCalculator.Calculate(movement, e, animW, animH, eff.CanvasWidth, eff.CanvasHeight,
                 tileAlignStepX: tileStep, canvasWraps: eff.Wraps);
         }
         float ly = NodeMapping.ToLocalY(vy, eff);
 
-        var bg = scene.Background;
+        // Only the bottom layer follows the background's corridor / IconZone path (as on the players).
+        var bg = followsBackground ? background : new BackgroundLayerConfig { Mode = BackgroundMode.SolidColor };
         ly = ClampCorridor(ly, bg, animH);
         Color? tint = null;
         if (grading != null && grading.Mode != ColorGradingMode.None && !traveling)
@@ -182,9 +232,9 @@ public sealed partial class ScenePainter
             tint = Color.FromRgb((byte)(r * 255), (byte)(g * 255), (byte)(b * 255));
         }
 
-        if (scene.Animation.Pattern != null)
+        if (anim.Pattern != null)
         {
-            var cells = PatternLayout.Compute(scene.Animation.Pattern, vx, ly, animW, animH,
+            var cells = PatternLayout.Compute(anim.Pattern, vx, ly, animW, animH,
                 eff.CanvasWidth, eff.CanvasHeight, eff.OffsetX, eff.Width, eff.Height, 1, cellLogicalOffsetI: cellOffsetI);
             int stride = Math.Max(1, cells.Count / MaxPreviewCellsPerNode);
             double cw = Math.Max(2, animW * s), ch = Math.Max(2, animH * s);
@@ -207,11 +257,11 @@ public sealed partial class ScenePainter
 
         bool hit = false;
         Span<float> copies = stackalloc float[2];
-        var bmp = SpriteBitmap;
+        var bmp = BitmapFor(anim.AnimationPath);
 
         // Roadmap 2.4 effects, with the players' pure math (SpriteEffects).
-        var fx = SpriteEffects.Supported(scene.Animation, scene.Movement, bg.Mode) ? scene.Animation.Effects : null;
-        var input = new SpritePoseInput(scene.Movement, animW, animH, eff.CanvasWidth, eff.CanvasHeight, 0f, eff);
+        var fx = SpriteEffects.Supported(anim, movement, bg.Mode) ? anim.Effects : null;
+        var input = new SpritePoseInput(movement, animW, animH, eff.CanvasWidth, eff.CanvasHeight, 0f, eff);
 
         // Trail first (farthest ghost first), then the sprite on top.
         if (fx != null)
@@ -327,16 +377,16 @@ public sealed partial class ScenePainter
     public static string BuildInfoLine(CrossScreenConfig? scene, SeatMapLayoutResult layout, long elapsed, int animW, string? hotId, IReadOnlyDictionary<string, string>? labels)
     {
         var parts = new List<string> { $"t = {Math.Max(0, elapsed) / 1000.0:0.0} s" };
-        if (scene != null)
+        if (scene?.FirstLayer is { } bottom)
         {
-            int lap = PlaylistScheduler.ComputeLapMs(scene.Movement, layout.CanvasWidth, animW, speedPxOverride: 0f, canvasWraps: layout.Wraps);
+            int lap = PlaylistScheduler.ComputeLapMs(bottom.Movement, layout.CanvasWidth, animW, speedPxOverride: 0f, canvasWraps: layout.Wraps);
             if (lap > 0) parts.Add($"lap ≈ {lap / 1000.0:0} s");
             parts.Add(layout.IsPhysical
                 ? $"{PhysicalUnits.PxToCm(layout.CanvasWidth, layout.RefPixelsPerCm) / 100f:0.0} m canvas (physical)" + (layout.Wraps ? " · ring" : "")
                 : $"{layout.CanvasWidth:N0} px canvas" + (layout.Wraps ? " · ring" : ""));
             if (layout.IsPhysical && animW > 0)
                 parts.Add($"sprite {PhysicalUnits.PxToCm(animW, layout.RefPixelsPerCm):0.0} cm wide");
-            if (MovementCalculator.FollowsIconPath(scene.Background.Mode, scene.Movement)) parts.Add("IconZone path not previewed");
+            if (MovementCalculator.FollowsIconPath(scene.Background.Mode, bottom.Movement)) parts.Add("IconZone path not previewed");
             if (hotId != null)
             {
                 string name = labels != null && labels.TryGetValue(hotId, out var l) ? l : hotId;

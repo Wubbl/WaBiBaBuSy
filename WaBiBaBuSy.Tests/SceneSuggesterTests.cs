@@ -66,7 +66,7 @@ public class SceneSuggesterTests
         var video = MediaProfile.Create(@"C:\m\clip.mp4", 800, 600, 1920, 1080, PixelFacts.Unknown, 60000);
         var set = SceneSuggester.Suggest(Sel(F("logo.png", 200, 200), video), Base, 1);
         Assert.Equal(new[] { "Showcase" }, Names(set));
-        Assert.Equal(@"C:\m\clip.mp4", set.Cards[0].Scene.Animation.AnimationPath);
+        Assert.Equal(@"C:\m\clip.mp4", set.Cards[0].Scene.Layers[0].Animation.AnimationPath);
         Assert.Equal(SceneSuggester.VideoNote, set.Note);
     }
 
@@ -76,8 +76,8 @@ public class SceneSuggesterTests
         var s = new SelectionProfile(new[] { F("logo.png", 200, 200) }, 1920, 1080, pixelsPerCm: 40f);
         foreach (var card in SceneSuggester.Suggest(s, Base, 1).Cards)
         {
-            Assert.Equal(card.Scene.Animation.TargetHeight / 40f, card.Scene.Animation.TargetHeightCm, 3);
-            Assert.Equal(card.Scene.Movement.SpeedPixelsPerSecond / 40f, card.Scene.Movement.SpeedCmPerSecond, 3);
+            Assert.Equal(card.Scene.Layers[0].Animation.TargetHeight / 40f, card.Scene.Layers[0].Animation.TargetHeightCm, 3);
+            Assert.Equal(card.Scene.Layers[0].Movement.SpeedPixelsPerSecond / 40f, card.Scene.Layers[0].Movement.SpeedCmPerSecond, 3);
         }
     }
 
@@ -103,7 +103,7 @@ public class SceneSuggesterTests
     {
         var s = new SelectionProfile(new[] { F("logo.png", 200, 200) }, 1920, 1080, pixelsPerCm: 40f);
         var card = SceneSuggester.BuildCard(SceneSuggester.Ranked(s)[0], s, Base, 3);
-        Assert.Equal(card.Scene.Animation.TargetHeight / 40f, card.Scene.Animation.TargetHeightCm, 3);
+        Assert.Equal(card.Scene.Layers[0].Animation.TargetHeight / 40f, card.Scene.Layers[0].Animation.TargetHeightCm, 3);
     }
 
     [Fact]

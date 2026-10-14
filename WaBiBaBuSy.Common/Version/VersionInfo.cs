@@ -99,9 +99,14 @@ public static class VersionInfo
     /// <param name="minimumVersion">Minimum required version</param>
     /// <returns>True if current version is below minimum, false otherwise</returns>
     public static bool IsUpdateRequired(string currentVersion, string minimumVersion)
-    {
-        return CompareVersions(currentVersion, minimumVersion) < 0;
-    }
+        => CompareVersions(currentVersion, minimumVersion) < 0;
+
+    /// <summary>First version that speaks scene layers (SyncParameters.scene_json); older clients are sent no scenes.</summary>
+    public const string MinSceneLayersVersion = "2.7.0";
+
+    /// <summary>True when a client of <paramref name="clientVersion"/> can play scene-layer LOAD commands.</summary>
+    public static bool SupportsSceneLayers(string? clientVersion)
+        => !string.IsNullOrWhiteSpace(clientVersion) && !IsUpdateRequired(clientVersion, MinSceneLayersVersion);
 
     /// <summary>
     /// Checks if a newer version is available

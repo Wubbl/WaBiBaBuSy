@@ -361,7 +361,7 @@ public class D2DPlayerHost : IDisposable
         {
             // Serialize command to JSON
             var json = JsonConvert.SerializeObject(cmd);
-            _logger.LogInformation("Sending LOAD_ANIMATION command: {Path}", cmd.AnimationConfig.AnimationPath);
+            _logger.LogInformation("Sending LOAD_ANIMATION command: {Layers} layer(s), first {Path}", cmd.Layers.Count, cmd.Layers.FirstOrDefault()?.Animation.AnimationPath);
 
             // Send JSON command; LOAD extracts GIF frames / opens the video, so it gets a long timeout.
             {
