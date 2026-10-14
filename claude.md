@@ -25,6 +25,7 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 - Debug overlay in player (F11 / IPC): A* path, icon rects, zone bands, movement trail, info panel
 - Playlist / Party Mode: rotate animation configs across all machines on a loop (per-item duration + global default, shuffle, opt-in Linear lap-snap; Playlist tab in the right panel, show controls in the toolbar; JSON-persisted under `%APPDATA%\WaBiBaBuSy\playlists\`)
 - Scene presets: save / load / import / export scenes as presets (`%APPDATA%\WaBiBaBuSy\presets\`, scene-file format, imported assets bundled relative), add them to playlists; tray "Quick start ▸" plays one on all seats with the window closed; 14 starter presets seeded on first run from the showcase scenes
+- Auto-suggest: ✨ Suggest in the Scene editor profiles the picked media (size vs monitor, aspect, transparency, mono vs colourful, dominant colours, GIF loop length) and offers four recipe-built scenes as cards (`WaBiBaBuSy.Models/Wallpaper/Suggest/`); click previews in the room view, Shuffle, Keep / ✕ revert
 - Show reliability: hashed content ids, persistent client cache, every scene asset transferred, playlist prefetch with per-node readiness, server download throttle, health strip + Resync all
 - Auto-update system with SHA-256 verification and rollback
 - System tray operation with minimal UI footprint

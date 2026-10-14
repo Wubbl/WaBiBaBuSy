@@ -1,6 +1,6 @@
 # Auto-Suggest Scenes from the Picked Media — Design Spec
 **Date:** 2026-10-14  
-**Status:** Draft — awaiting review  
+**Status:** Implemented 2026-10-14 (unit tests + real-decode console check; GUI click-through pending)  
 
 ## Goal
 
@@ -33,15 +33,15 @@ AI content tools, animated mini-previews inside the cards, learning from what th
 | `SizeClass` (Small / Medium / FullScreen) | vs the server's primary monitor height H and width W | Small: height < 0.25·H. FullScreen: width ≥ 0.7·W **and** height ≥ 0.7·H. Else Medium |
 | `AspectClass` (Wide / Square / Tall) | w / h | Wide > 2.5, Tall < 0.6, else Square |
 | `HasAlpha` | thumbnail pixels | > 5 % of pixels with alpha < 128 |
-| `IsMonochrome` | visible pixels (alpha ≥ 128) | ≥ 90 % of them either low-saturation (S < 0.15) or within ±20° of the dominant hue |
+| `IsMonochrome` | visible pixels (alpha ≥ 128) | ≥ 90 % of them either achromatic (S < 0.15, or max channel < 40) or within the dominant 10° hue bin ± 2 bins |
 | `DominantColors` (≤ 3, `#RRGGBB`) | visible pixels | 4-bit-per-channel buckets, most frequent first; buckets under 5 % dropped |
 | `MeanLuminance` (0–1) | visible pixels | Rec. 709 luma mean |
 | `LoopMs` (GIF), `DurationMs` (video) | existing `GifMetadataReader` / `ProbeVideo` | null for stills |
 
 The pixel facts come from `MediaAnalyzer.Analyze(ReadOnlySpan<byte> bgra, int w, int h)` (pure). The UI
-decodes the file's first frame with Magick.NET, scaled to fit 64 × 64, and passes the BGRA bytes. For
-videos the existing thumbnail is decoded instead. Results are cached on `WallpaperGalleryItem` inside
-`MainWindowViewModel.ScheduleMediaDetails`, so Suggest never blocks on decoding. A file that fails to
+decodes the file's first frame with Magick.NET (`MediaProbe`), scaled to fit 64 × 64, and passes the BGRA bytes. For
+videos the gallery thumbnail is decoded and the size comes from the gallery's resolution. The profile is built
+off the UI thread when Suggest is pressed (a handful of 64 px decodes) — nothing is cached or persisted. A file that fails to
 decode gets a profile with pixel facts unknown (`HasAlpha = false`, `IsMonochrome = false`,
 `DominantColors` empty); recipes must cope.
 
@@ -52,7 +52,7 @@ Built from the picked files (`AnimationPath` + `AdditionalAnimationPaths`):
 - `Files` (the `MediaProfile`s, hero first), `Count`
 - `Mix`: **Single**, **Uniform** (all within a factor 2 in height), **BigPlusSmall** (exactly one FullScreen,
   the rest Small/Medium), **Mixed** (anything else)
-- `AllMonochrome`, `SharedPalette` (the union of dominant colours, ≤ 5, most frequent first)
+- `AllMonochrome` (over the sprites), `SharedPalette` (the union of dominant colours, ≤ 5, the big file's first in BigPlusSmall, else file order)
 - `ShortestLoopMs` over the GIFs (null if none)
 
 Deliberately not measured: seamless-loop detection, content recognition.
@@ -77,8 +77,8 @@ deterministic hash (`PatternLayout.Hash3`) over the seed, never `System.Random`.
 
 - **Tint:** mono → a colour mode (Rainbow / Gradient between two palette colours / CycleColorList);
   colourful → `ColorGrading.Mode = None`.
-- **Background:** `SolidColor`. Light media (`MeanLuminance` > 0.6) → dark background; dark media → light
-  one. The hue is the first dominant colour, darkened to luma ≈ 0.08 (or lightened to ≈ 0.85).
+- **Background:** `SolidColor`. Dark media (`MeanLuminance` < 0.25) → light background; everything else → dark
+  (Fireflies and Comet always dark; Showcase black). The hue is the first dominant colour, darkened to luma ≈ 0.08 (or lightened to ≈ 0.85).
 - **Timing:** with a GIF in the selection, cycle-based values (pulse period, spin turn, colour
   `CyclesPerSecond`) are snapped to whole multiples of `ShortestLoopMs`.
 - **Size:** `FitMode = TargetHeight`, height chosen per recipe as a fraction of screen height; FullScreen
@@ -89,17 +89,18 @@ deterministic hash (`PatternLayout.Hash3`) over the seed, never `System.Random`.
 
 | Recipe | Score high when | Builds |
 |---|---|---|
-| **DVD Bounce** | Single, Small, HasAlpha | `Bounce`; mono → `CycleColorList` over the palette (colour change on wall hits) |
-| **Logo Conveyor** | any sprite; bonus in Sequential mode | `Linear`, `Endless`; mono → Rainbow |
+| **DVD Bounce** | Single, Small, HasAlpha | `Bounce`; mono → `CycleColorList` over five party colours (time-based) |
+| **Logo Conveyor** | any sprite (mono scores higher) | `Pattern` + `Linear`; mono → `Endless` + `TravelingRainbow` (Endless needs a Traveling mode); colourful → loops, untinted |
 | **Marquee** | AspectClass Wide | `SineWave`, low amplitude, ~15 % screen height |
-| **Orbit** | Square, Small/Medium | `Circular` + spin; one turn = one loop when a GIF |
-| **Pulse Grid** | Small sprites; Count ≥ 2 | `Pattern` (Fill), files spread over cells; mono → `TravelingRainbow`; pulse timed to the loop |
+| **Orbit** | Square, Small/Medium | `Circular`, node phase delay; a single file also spins, one turn = whole GIF loops (effects need a single image) |
+| **Pulse Grid** | Small sprites; Count ≥ 2 | `Pattern` (Fill), files spread over cells, Static; mono → `Rainbow` colour wave timed to the loop (effects are not drawn with a pattern) |
 | **Fireflies** | Small, Count ≥ 2 or tiny | `RandomWalk`, jittered pattern, dark palette background |
-| **Comet** | Single, Small, HasAlpha | fast `Linear` with `Trail` in the first dominant colour |
-| **Parade** | Uniform, Count ≥ 2 | `Linear`, files in single file, `NodePhaseDelayMs` wave |
+| **Comet** | Single, Small, HasAlpha | fast `Linear`, trail + pulse + Ripple/Glow bezel (preset 13); the trail takes the grading colour, so it is tinted for mono media only |
+| **Parade** | Uniform, Count ≥ 2 | one-row `Pattern` (preset 05) moving `Linear`, files spread over the cells |
 | **Showcase** | a FullScreen file | `Static`, `FitMode = Fill`, no tint, the FullScreen file as the sprite |
 
-Opaque media (`HasAlpha = false`) scores at most 0.3 for swarm recipes (Pulse Grid, Fireflies).
+Opaque media (`HasAlpha = false`) scores at most 0.3 for swarm recipes (Pulse Grid, Fireflies). A video among the
+sprites → only Showcase is offered (a pattern with a video is a warning; videos are backdrops).
 
 ### 2.3 BigPlusSmall (full-screen GIF + small GIFs)
 
@@ -153,9 +154,9 @@ Not included: ThreeZone / IconZone backgrounds (they depend on the desktop, not 
 
 | New | Project |
 |---|---|
-| `Wallpaper/Suggest/MediaProfile.cs`, `MediaAnalyzer.cs`, `SelectionProfile.cs`, `ISceneRecipe.cs`, `SceneRecipes.cs` (all nine), `SceneSuggester.cs` | Models |
-| `ViewModels/SuggestionsViewModel.cs`, strip markup in `SceneEditorPanel.axaml` | UI |
+| `Wallpaper/Suggest/MediaProfile.cs`, `MediaAnalyzer.cs`, `SelectionProfile.cs`, `SuggestKit.cs`, `SceneRecipes.cs` (interface + all nine), `SceneSuggester.cs` | Models |
+| `ViewModels/SuggestionsViewModel.cs`, `Services/MediaProbe.cs`, strip markup in `SceneEditorPanel.axaml` | UI |
 | the tests above | Tests |
 
-Changed: `MainWindowViewModel.ScheduleMediaDetails` (cache the profile), `WallpaperGalleryItem` (profile
-field), `CrossScreenConfigViewModel` / `SceneEditorPanel.axaml` (button).
+Changed: `MainWindowViewModel.SceneEditor.cs` (`Suggestions`, profile builder, close on pick), `CrossScreenConfigViewModel`
+(`HasAnimationFile`), `SceneEditorPanel.axaml` (button + strip).

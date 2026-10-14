@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-10-14 — ✨ Suggest: scenes built for the picked media, branch `feat/auto-suggest`
+
+- **What**: a `✨ Suggest` button in the Scene editor's Content tab. It profiles the picked files (size vs the primary monitor, aspect, transparency, mono vs colourful, dominant colours, brightness, GIF loop length) and shows four cards from nine recipes modelled on the starter presets (DVD Bounce, Logo Conveyor, Marquee, Orbit, Pulse Grid, Fireflies, Comet, Parade, Showcase). Clicking a card makes it the draft (room preview shows it), 🎲 Shuffle offers others, Keep / ✕ close. Mono logos get tinted, colourful ones keep their colours; cycles snap to whole GIF loops; a full-screen file picked with small ones gets a Showcase card and the note "needs scene layers".
+- **Code**: pure `WaBiBaBuSy.Models/Wallpaper/Suggest/` (`MediaAnalyzer`, `MediaProfile`, `SelectionProfile`, `SuggestKit`, `SceneRecipes`, `SceneSuggester`); UI `MediaProbe` (Magick.NET first-frame decode), `SuggestionsViewModel`, strip markup in `SceneEditorPanel.axaml`. Deterministic: recipes use `PatternLayout.Hash3` seeds only; every offered scene passes `SceneChecks.Validate` with no warnings.
+- **Verified**: build 0 errors; 1054 unit tests green (+93); real decode of the showcase assets checked from a console. GUI click-through pending (plan Task 5 step 7). Spec `docs/superpowers/specs/2026-10-14-auto-suggest-design.md`, plan `docs/superpowers/plans/2026-10-14-auto-suggest.md`.
+
+
 ## 2026-10-13/14 — Full code review (8 parts) and fixes, branch `fix/review-batch-a`
 
 - **Review**: whole codebase in 8 parts, ranked list in `.docs/plans/2026-10-13-full-code-review.md` (batches A–F, statuses per item, coverage gaps). Trust model decided: trusted LAN (no auth / package signing).

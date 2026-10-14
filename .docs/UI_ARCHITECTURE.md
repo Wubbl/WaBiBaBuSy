@@ -100,6 +100,11 @@ WaBiBaBuSy runs as a **system tray application**. The main window is hidden by d
 - Manual hex override with inline color preview
 - Applied to D2D player background layer
 
+### ✨ Suggest (2026-10-14)
+- Content tab button `✨ Suggest` (enabled with a picked file) → `SuggestionsViewModel.OpenCommand`: `MediaProbe` decodes each picked file's first frame to 64 × 64 (videos: the gallery thumbnail), `SceneSuggester` builds four cards from the nine recipes in `WaBiBaBuSy.Models/Wallpaper/Suggest/`
+- Strip above the tabs: clicking a card loads it through `SceneEditor.LoadFromConfig` (the preset-load path), so the room preview shows it; 🎲 Shuffle draws four others; Keep closes; ✕ restores the draft saved when the strip opened; picking another gallery thumbnail closes the strip (`Suggestions.Discard`)
+- Nothing reaches the machines until Play. Spec `docs/superpowers/specs/2026-10-14-auto-suggest-design.md`
+
 ### Gallery Selection
 - Blue border on selected item via `Classes.selected` binding
 - `HexToColorConverter` for dynamic color rendering
