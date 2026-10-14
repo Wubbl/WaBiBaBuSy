@@ -1,6 +1,6 @@
 # Folder → Party Playlist, and "Get content" Links — Design Spec
 **Date:** 2026-10-14  
-**Status:** Draft — §1 approved in chat; §2 (UI flow) and §3 (links) written while Patrick was away, **awaiting review**  
+**Status:** Approved 2026-10-14  
 **Builds on:** `2026-10-14-auto-suggest-design.md` (media profiles, recipes, `SceneSuggester`)
 
 ## Goal
@@ -62,7 +62,7 @@ Item: `"<Recipe>: <first file name>"` plus `" + N"` for groups (e.g. `Pulse Grid
 
 Not done: near-duplicate detection, subfolders (only the folder's own files are read).
 
-## 2. UI flow (proposed, awaiting review)
+## 2. UI flow
 
 - **Entry point:** the Playlist tab's **＋ Add ▾** menu gains **"Auto from folder…"** (next to "Current scene" and
   "From preset"). It opens the folder picker.
@@ -79,7 +79,7 @@ Not done: near-duplicate detection, subfolders (only the folder's own files are 
   Scene editor's current draft, as with Suggest.
 - **Empty folder / no media:** status *"No pictures or videos in <folder>"*, nothing added.
 
-## 3. "Get content" links (proposed, awaiting review)
+## 3. "Get content" links
 
 A **"Get content ▾"** button next to the gallery's **+ Add**, opening a menu of links in the default browser
 (`Process.Start` with `UseShellExecute`, the pattern the app already uses):
