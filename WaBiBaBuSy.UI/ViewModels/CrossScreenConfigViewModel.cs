@@ -57,7 +57,11 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(AnimationFileName))]
+    [NotifyPropertyChangedFor(nameof(HasAnimationFile))]
     private string _animationPath = string.Empty;
+
+    /// <summary>True when an animation file is picked (enables ✨ Suggest).</summary>
+    public bool HasAnimationFile => !string.IsNullOrWhiteSpace(AnimationPath);
 
     /// <summary>Caption of the primary file in the Content tab.</summary>
     public string AnimationFileName => string.IsNullOrWhiteSpace(AnimationPath)

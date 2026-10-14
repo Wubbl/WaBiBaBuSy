@@ -13,6 +13,8 @@ using WaBiBaBuSy.Core.Services.Logging;
 using WaBiBaBuSy.Models.Topology;
 using WaBiBaBuSy.Core.Services.Desktop;
 using WaBiBaBuSy.Models.Wallpaper;
+using WaBiBaBuSy.Models.Wallpaper.Suggest;
+using WaBiBaBuSy.UI.Services;
 
 namespace WaBiBaBuSy.UI.ViewModels;
 
@@ -29,6 +31,9 @@ public partial class MainWindowViewModel
 
     /// <summary>The Scene editor (one draft config, <see cref="CrossScreenConfigViewModel.BuildConfig"/>).</summary>
     public CrossScreenConfigViewModel SceneEditor { get; } = new();
+
+    /// <summary>The ✨ Suggest strip over the Scene editor (spec 2026-10-14).</summary>
+    public SuggestionsViewModel Suggestions { get; private set; } = null!;
 
     /// <summary>The editor's draft as last built; replaced only when its content changes (keeps the design clock running).</summary>
     [ObservableProperty]
@@ -126,6 +131,8 @@ public partial class MainWindowViewModel
     /// <summary>Called once at the end of the constructor.</summary>
     private void InitSceneEditor()
     {
+        Suggestions = new SuggestionsViewModel(() => SceneEditor.BuildConfig(), c => SceneEditor.LoadFromConfig(c),
+            BuildSelectionProfileAsync);
         SceneEditor.UsePhysicalUnits = RoomPhysicalUnits;
         SceneEditor.LoadFromConfig(DefaultScene());
         SceneEditor.PropertyChanged += OnSceneEditorPropertyChanged;
@@ -219,6 +226,7 @@ public partial class MainWindowViewModel
     /// </summary>
     public void PickGalleryItem(WallpaperItemViewModel item, bool additive)
     {
+        Suggestions.Discard();
         bool setsPrimary = !SceneEditor.IsPickingBackgroundImage && !additive;
         SceneEditor.PickFromStrip(item.FilePath, additive);
         if (!setsPrimary) return;
@@ -317,4 +325,38 @@ public partial class MainWindowViewModel
     /// <summary>What Revert restores: the loaded playlist item, else what is playing now (a running scene,
     /// or the last one played), else the default scene.</summary>
     private CrossScreenConfig RevertTarget() => PlaylistEditor.LoadedItem?.Model.Config ?? ActiveScene ?? _server.LastScene ?? DefaultScene();
+
+    /// <summary>
+    /// Profile the draft's animation files for the Suggest strip: gallery facts (type, duration, video resolution)
+    /// on the UI thread, then the first-frame decode off it. Null when no file is picked.
+    /// </summary>
+    private async Task<SelectionProfile?> BuildSelectionProfileAsync()
+    {
+        var paths = new[] { SceneEditor.AnimationPath }.Concat(SceneEditor.AdditionalAnimationPaths)
+            .Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
+        if (paths.Count == 0) return null;
+        var items = paths.Select(p => (path: p, item: Wallpapers.FirstOrDefault(w =>
+            string.Equals(w.FilePath, p, StringComparison.OrdinalIgnoreCase)))).ToList();
+
+        var primary = LocalMonitors.Snapshot().Monitors.FirstOrDefault(m => m.IsPrimary);
+        int screenW = primary?.Width ?? 1920, screenH = primary?.Height ?? 1080;
+
+        var files = await Task.Run(() => items.Select(x =>
+        {
+            bool video = x.item?.Type == WallpaperType.Video;
+            var decodePath = video && !string.IsNullOrEmpty(x.item!.ThumbnailPath) ? x.item.ThumbnailPath : x.path;
+            var (w, h, pixels) = MediaProbe.Read(decodePath);
+            if (video && TryParseResolution(x.item!.Resolution, out int vw, out int vh)) (w, h) = (vw, vh);
+            return MediaProfile.Create(x.path, w, h, screenW, screenH, pixels, x.item?.DurationMs ?? 0);
+        }).ToList());
+
+        return new SelectionProfile(files, screenW, screenH);
+    }
+
+    private static bool TryParseResolution(string? resolution, out int width, out int height)
+    {
+        width = height = 0;
+        var parts = (resolution ?? string.Empty).Split('x', 'X', '×');
+        return parts.Length == 2 && int.TryParse(parts[0].Trim(), out width) && int.TryParse(parts[1].Trim(), out height);
+    }
 }

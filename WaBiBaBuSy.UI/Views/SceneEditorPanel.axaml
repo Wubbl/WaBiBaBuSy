@@ -24,6 +24,18 @@
         <Style Selector="Border.strip.selected">
             <Setter Property="BorderBrush" Value="#0078D4"/>
         </Style>
+        <Style Selector="Button.card">
+            <Setter Property="Width" Value="170"/>
+            <Setter Property="MinHeight" Value="64"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+            <Setter Property="VerticalContentAlignment" Value="Top"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+        </Style>
+        <Style Selector="Button.card.selected">
+            <Setter Property="BorderBrush" Value="#0A84FF"/>
+            <Setter Property="BorderThickness" Value="2"/>
+        </Style>
         <Style Selector="TabControl.editor > TabItem">
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="MinHeight" Value="32"/>
@@ -107,6 +119,45 @@
         <Grid Grid.Row="2" RowDefinitions="Auto,*,Auto">
         <!-- Picking hint + validation chips -->
         <StackPanel Grid.Row="0" Spacing="4" Margin="0,4,0,4">
+            <!-- ✨ Suggest strip (spec 2026-10-14) -->
+            <Border Background="#252528" BorderBrush="#3E3E42" BorderThickness="1" CornerRadius="4" Padding="8,6"
+                    IsVisible="{Binding Suggestions.IsOpen}">
+                <StackPanel Spacing="6">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="{Binding Suggestions.Title}" FontWeight="SemiBold" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                            <Button Content="🎲 Shuffle" Command="{Binding Suggestions.ShuffleCommand}"
+                                    ToolTip.Tip="Four other suggestions (the draft stays until you click one)"/>
+                            <Button Content="Keep" Command="{Binding Suggestions.KeepCommand}"
+                                    ToolTip.Tip="Close and keep the clicked suggestion as the draft"/>
+                            <Button Content="✕" Command="{Binding Suggestions.RevertCommand}"
+                                    ToolTip.Tip="Close and go back to the scene from before Suggest"/>
+                        </StackPanel>
+                    </Grid>
+                    <ItemsControl ItemsSource="{Binding Suggestions.Cards}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:SuggestionCardViewModel">
+                                <Button Classes="card" Classes.selected="{Binding IsSelected}"
+                                        Command="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).Suggestions.ApplyCommand}"
+                                        CommandParameter="{Binding}">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding Why}" FontSize="11" Foreground="#BBBBBB" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Text="{Binding Suggestions.Note, StringFormat='ⓘ {0}'}" FontSize="11" Foreground="#9FC5FF"
+                               IsVisible="{Binding Suggestions.HasNote}"/>
+                </StackPanel>
+            </Border>
             <Border Background="#1A3A5C" CornerRadius="4" Padding="8,4"
                     IsVisible="{Binding SceneEditor.IsPickingBackgroundImage}">
                 <TextBlock Text="Click a thumbnail to use it as the background image (click 'Choose from strip' again to cancel)"
@@ -143,6 +194,12 @@
                                 <TextBlock Grid.Column="1" Text="{Binding AnimationFileName}" FontWeight="SemiBold"
                                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                            ToolTip.Tip="{Binding AnimationPath}"/>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*">
+                                <Button Grid.Column="1" Content="✨ Suggest" HorizontalAlignment="Left"
+                                        IsEnabled="{Binding HasAnimationFile}"
+                                        Command="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).Suggestions.OpenCommand}"
+                                        ToolTip.Tip="Four scenes built for the picked media — click one to try it, Shuffle for more"/>
                             </Grid>
                             <Grid ColumnDefinitions="120,*" IsVisible="{Binding HasExtraImages}">
                                 <TextBlock Classes="label" Text="Extra images" VerticalAlignment="Top" Margin="0,3,0,0"/>
