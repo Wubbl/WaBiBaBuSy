@@ -1,151 +1,222 @@
 # Scene Layers (multiple sprites per scene) — Design
 
-**Created:** 2026-09-17 · **Status:** Proposal · **Roadmap:** Tier 2.3 (XL)
-**Solves:** F4 in [`2026-09-17-lan-party-roadmap.md`](2026-09-17-lan-party-roadmap.md)
-**Depends on:** show-reliability design (multi-file transfer), ideally authoring design (preview)
+**Created:** 2026-09-17 · **Revised:** 2026-10-14 (agreed spec for slice 1) · **Status:** Approved for planning
+**Roadmap:** Tier 2.3 (XL) · **Solves:** F4 in [`2026-09-17-lan-party-roadmap.md`](2026-09-17-lan-party-roadmap.md)
+**Depends on:** show reliability (multi-file transfer — done), live preview (done), crossing effects (done)
 
 ---
 
+## 0. Decisions (2026-10-14)
+
+| # | Decision | Choice |
+|---|---|---|
+| D1 | Scope of slice 1 | Image/GIF layers end-to-end: model, player, transport, editor, preview. Video stays on layer 0 only |
+| D2 | Data model | **Full replacement**: `CrossScreenConfig.Layers` is the only sprite store; `Animation`, `Movement`, `DistributionMode`, `AnimationSpeedPxPerSecond` are removed. Legacy JSON migrates on read |
+| D3 | Draw order | List order (index 0 = bottom). No `ZOrder` field |
+| D4 | Distribution | Per layer, resolved inside the player from `NodeLayout` + own monitor size. Scene-wide `perMonitorMode` is removed |
+| D5 | Wire format | One `scene_json` field; the per-part JSON fields and loose movement/layout fields are removed (`reserved`). Server and clients must run the same version |
+| D6 | Layer-0 privileges | Only layer 0 may be a video and only layer 0 follows the IconZone A* path / clip mask |
+
+**Out of slice 1 (follow-ups):** video on layers > 0 (per-layer LibVLC, cap 2), spawn / despawn windows,
+layer presets ("Add layer from preset"), Suggest "add as layer".
+
 ## 1. Goal
 
-A **scene** is a background plus **N layers**, each an independent sprite (or pattern grid) with
-its own source file(s), movement, color grading, size, z-order, phase offset and optional spawn
-window. Example for the party:
+A **scene** is a background plus **N layers**, each an independent sprite (or pattern grid) with its own
+source file(s), movement, color grading, effects, size, opacity, distribution and phase offset.
+Example for the party:
 
-| z | Layer | Source | Movement | Look |
-|---|---|---|---|---|
-| 0 | Logo rain | clan logo PNG | Linear, Endless, 40 px/s | Pattern Fill, TravelingRainbow, 30 % colored |
-| 1 | Bubbles | bubble GIF ×3 | Bounce 60°, 120 px/s, phase +7 s | none, 60 % opacity |
-| 2 | The fish | fish GIF | Linear around the ring, 25 cm/s | face travel, trail |
-| 3 | Sponsor | sponsor PNG | Static, bottom-right of each node (Simultaneous) | 50 % opacity, spawn 20:00–20:05 |
+| Layer (bottom → top) | Source | Movement | Look |
+|---|---|---|---|
+| Logo rain | clan logo PNG | Linear, Endless, 40 px/s | Pattern Fill, TravelingRainbow |
+| Bubbles | bubble GIF ×3 | Bounce 60°, 120 px/s, phase +7 s | 60 % opacity |
+| The fish | fish GIF | Linear around the ring, 25 cm/s | face travel, trail |
+| Sponsor | sponsor PNG | Static, bottom-right of each node (Simultaneous) | 50 % opacity |
 
-Today `CrossScreenConfig` has exactly one `Animation` + `Movement`, and the player keeps one
-layer's state in static fields (`_animationConfig`, `_movementConfig`, `_d2dFramesPerSource`,
-`_animX/_animY`, `_tileAlignStepX`, …). This design turns that into a list without changing any
-deterministic function.
+Success: such a scene plays in sync on every seat and in the room preview; every existing preset,
+playlist and scene file keeps working.
 
-## 2. Data model
+## 2. Data model and migration
 
 ```csharp
 public class SceneLayer
 {
     public string Name { get; set; } = "Layer";
     public bool Enabled { get; set; } = true;
-    public int ZOrder { get; set; }                       // draw order, low first
-    public float Opacity { get; set; } = 1f;
-    public AnimationLayerConfig Animation { get; set; } = new();   // source(s), size, fit, pattern, colors
+    public float Opacity { get; set; } = 1f;                      // 0..1, multiplied into the sprite draw
+    public AnimationLayerConfig Animation { get; set; } = new(); // source(s), size, fit, pattern, colors, Effects
     public MovementConfig Movement { get; set; } = new();
-    public AnimationDistributionMode Distribution { get; set; } = Sequential; // per layer!
-    public long PhaseOffsetMs { get; set; }               // elapsed' = elapsed + PhaseOffsetMs
-    public long? SpawnAtMs { get; set; }                  // null = from start
-    public long? DespawnAtMs { get; set; }                // null = forever
-    public LayerEffects Effects { get; set; } = new();    // see effects design (trail, facing, pulse…)
+    public AnimationDistributionMode Distribution { get; set; } = AnimationDistributionMode.Sequential;
+    public long PhaseOffsetMs { get; set; }                       // layer clock = elapsed + PhaseOffsetMs
 }
 
-public class CrossScreenConfig
+public class CrossScreenConfig : IJsonOnDeserialized
 {
     public BackgroundLayerConfig Background { get; set; } = new();
     public List<SceneLayer> Layers { get; set; } = new();
-    // Legacy single-layer properties stay for one release, marked [Obsolete]:
-    public AnimationLayerConfig Animation { get; set; } = new();
-    public MovementConfig Movement { get; set; } = new();
-    public AnimationDistributionMode DistributionMode { get; set; }
-    public int AnimationSpeedPxPerSecond { get; set; }   // remove (duplicate of Movement.Speed)
     public List<string> SelectedMonitorIds { get; set; } = new();
+
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Legacy { get; set; }
+    void IJsonOnDeserialized.OnDeserialized() => LegacySceneMigration.Apply(this);
 }
 ```
 
-**Normalization rule** (one helper, `SceneNormalizer.Normalize(config)`): if `Layers` is empty,
-wrap `Animation + Movement + DistributionMode` into a single layer. Every consumer (apply path,
-player, preview, playlist summary) calls it, so old JSON (playlist items) keeps working and the
-legacy properties can be deleted later.
+- Effects already live on `AnimationLayerConfig.Effects` — no separate per-layer effects type.
+- **Migration on read, forever:** old keys (`Animation`, `Movement`, `DistributionMode`,
+  `AnimationSpeedPxPerSecond`) have no property and land in `Legacy`. `LegacySceneMigration.Apply`:
+  if `Layers` is empty and `Legacy` holds `Animation` or `Movement`, build `Layers[0]` from them
+  (`Distribution` ← `DistributionMode`, name = file name without extension); then clear `Legacy`.
+  Covers every deserialization path (presets, playlists, scene files, clones) without a migration step.
+- A scene with no layers is valid (background only).
+- Repo files (`TestScenarios/scenes`, `TestScenarios/showcase/scenes`) are rewritten once by load + save
+  through `SceneFile`. `%APPDATA%` presets/playlists upgrade on their next save and always load.
 
-Per-layer `Distribution` is the interesting freedom: the sponsor logo is `Simultaneous` (same
-spot on every node) while the fish is `Sequential` (travels). The player already supports both;
-it is just `canvasWidth/offset` selection per layer.
+**Consumers to migrate** (all reads/writes of `config.Animation` / `.Movement` / `.DistributionMode`):
+`CrossScreenPlanner`, `PhysicalUnits`, `SceneChecks`, `SceneAssets`, `SpriteEffects` callers,
+`SceneRecipes` / `SceneSuggester` / `PlaylistBuilder` (write `Layers[0]`), `PresetSeeder`, `PresetStore`,
+`PresetBundle`, `PlaylistStore`, `PlaylistOrchestrator`, `ShowStatus`, `SceneFile`, `ITestHost`,
+`WaBiBaBuSyService`, `ServerPlaybackHost`, `RemotePlaybackHost`, `ScenePainter`, `CrossScreenConfigViewModel`,
+`MainWindowViewModel*`, `PlaylistItemRow`, `PlaylistViewModel`, `TrayViewModel`.
 
-## 3. Player refactor (`Program.cs`)
+## 3. Player (`WaBiBaBuSy.Player.D2D`)
 
-This is the bulk of the work. Extract the per-layer static state into a class:
+New file `LayerRuntime.cs` — one instance per layer, holding what are today per-sprite statics in
+`Program.cs`: frames / delays / total duration per source, native and draw size, fit mode, tile-align
+step, traveling flag, position (`X`, `Y`, `VirtualX`), rotation, facing state, endless cell offset,
+trail samples. Methods are today's bodies moved mechanically (statics → instance fields):
 
-```csharp
-sealed class LayerRuntime : IDisposable
-{
-    public SceneLayer Config;
-    public List<ID2D1Bitmap[]> FramesPerSource; public List<List<int>> DelaysPerSource; …
-    public int AnimWidth, AnimHeight; public float TileAlignStepX; public bool IsTraveling;
-    public float X, Y, RotationRad; public int EndlessCellOffsetI;
-    public VideoSource? Video;                 // LibVLC per video layer (one player each)
-    public void Load(ID2D1DeviceContext ctx);  // = today's HandleLoadAnimationCommand body
-    public void UpdatePosition(long elapsedMs, NodeLayout layout, CorridorConstraint? c);
-    public void Draw(ID2D1DeviceContext ctx, long elapsedMs, ColorMatrixEffect fx);
-}
+| `LayerRuntime` | From |
+|---|---|
+| `Load(ctx)` | `HandleLoadAnimationCommand` sprite part, `LoadAdditionalAnimationSources`, `CalculateAnimationLayout` |
+| `UpdatePosition(elapsed)` | `UpdateAnimationPosition` |
+| `Draw(ctx, elapsed)` | `DrawAnimationLayer`, `DrawTrail`, `DrawBezelEffect` |
+
+**Stays static in `Program`:** window, devices, background, IconZone / corridor / mask state, LibVLC video,
+shared clock, probes, show events, the shared `ColorMatrixEffect` and brushes (each layer sets its matrix
+before drawing; one render thread).
+
+**Render loop:**
+```
+DrawBackground()
+foreach layer in _layers:                       // index order = draw order
+    if layer.Enabled: layer.UpdatePosition(elapsed + PhaseOffsetMs); layer.Draw(...)
+DrawShowEvents()                                // unchanged, on top
 ```
 
-`RenderLoop` becomes: draw background → `foreach layer in ZOrder: if spawned(elapsed) →
-UpdatePosition(elapsed + Phase) → Draw`. IconZone path-following and the clip mask apply to the
-layers that opt in (`AnimationLayerConfig.FollowIconPath`, default true for the first layer to keep
-today's behavior).
+**Distribution per layer:** the player receives the shared `NodeLayout` and knows its own monitor size.
+`Sequential` → layout canvas width / offset (today's path); `Simultaneous` → own width, offset 0 (today's
+per-monitor path). `D2DCompositionService.InitializeAsync` loses its `perMonitorMode` parameter.
 
-Static → instance conversion should be done mechanically, in this order, each step building and
-running the current single-layer configs unchanged:
-1. Move the source caches + layout fields into `LayerRuntime`, keep a single `_layers[0]`.
-2. Move position/update/draw. Remove `_d2dGifFrames`/`_d2dGifDelays` duplicates (the
-   `_d2dFramesPerSource[0]` path already covers them).
-3. Loop over N layers.
-4. Per-layer LibVLC (video layers) — `_vlcPlayer` becomes `LayerRuntime.Video`. Cap video layers
-   at 2 per node in the UI (decode cost).
+**Layer 0 only:** video (static LibVLC, drawn as layer 0's bitmap) and IconZone path following + clip
+mask (A* state stays static; only layer 0's `UpdatePosition` reads it).
 
-`PlayerCommandLoadAnimation` gets `List<SceneLayer> Layers` (+ `NodeLayout`); `AnimationConfig` /
-`MovementConfig` stay for one release and are normalized on receive.
+**Probes / debug:** `AnimationStateSnapshot` becomes per layer so exact-frame captures restore all layers.
+F11 overlay draws layer 0's path and trail; the info panel lists every layer's position.
 
-## 4. Apply path & transport
+**IPC:** `PlayerCommandLoadAnimation` carries `List<SceneLayer> Layers` (resolved, pixels only) instead
+of `AnimationConfig` / `MovementConfig`.
 
-- `ApplyCrossScreenConfigAsync`: builds the canvas once (seat map), then for **each layer** picks
-  `canvasWidth/offset` by that layer's `Distribution` and, if IconZone + Sequential, computes the
-  global A* path for the layers that follow it (reuse the existing block).
-- gRPC: replace the five per-part JSON fields (`pattern_json … background_json`) with one
-  `scene_json` = the normalized `CrossScreenConfig` (minus `SelectedMonitorIds`) plus
-  `layout_json`. The client-side reconstruction in `ApplyCrossScreenD2DFromRemoteAsync` collapses
-  to "deserialize, rewrite content paths, apply." Keep the old fields populated for one release.
-- Content: every layer's `GetAllAnimationPaths()` plus the background image become content ids;
-  the client downloads all before applying (show-reliability design §3). `CrossScreenApplyRequest`
-  carries `Dictionary<string contentId, string localPath>`.
+**Refactor order** (build + run existing scenes after each):
+1. Single `LayerRuntime` (`_layers[0]`), drop the `_d2dGifFrames` / `_d2dGifDelays` duplicates. Behavior-neutral —
+   determinism tests and `parity-matrix` stay green.
+2. N layers + IPC `Layers`.
+3. Per-layer distribution.
 
-## 5. Determinism
+## 4. Apply path and transport
 
-Nothing new. Each layer's position is `MovementCalculator(config, elapsed + phase, …)`; pattern and
-colors are per layer with their own seeds. Layers never read each other's state. Spawn windows
-compare `elapsed` (shared clock) against constants. The only rule to enforce in code review: no
-layer state may leak into another layer's math.
+**Planner (`CrossScreenPlanner`):** seat map / canvas built once. `PhysicalUnits.ResolveForCanvas` becomes
+`(SceneLayer, refPixelsPerCm) → SceneLayer` and runs per layer. `CrossScreenPlan.EffectiveLayers`
+replaces `EffectiveMovement` / `EffectiveAnimation`; `PerMonitor` is removed. IconZone A* path is
+computed for layer 0 with its distribution.
 
-## 6. UI
+**gRPC `SyncParameters`:** new `string scene_json = 33` = resolved scene (`Background` + effective
+`Layers`, no `SelectedMonitorIds`); `layout_json` (25) and `assets` (26) unchanged. Removed and
+`reserved`: 9 `fit_mode`, 10 `virtual_canvas_width`, 11 `monitor_offset_x`, 13 `pixels_per_second`,
+14 `per_monitor_mode`, 15 `movement_type`, 16–20 `*_json`, 22 `virtual_canvas_height`,
+23 `monitor_offset_y` (all covered by `layout_json` / `scene_json`; 2026-10-14 grep: outside the
+cross-screen path only a log line in `WallpaperSyncClient` reads `fit_mode`). `CrossScreenApplyRequest` replaces its
+five `*Json` strings with `SceneJson`; `RemotePlaybackHost` = deserialize → rewrite paths → apply.
 
-In the tabbed dialog (authoring design): a **Layers** panel on the left (list with enable checkbox,
-z-order drag, add/duplicate/remove, "▲▼"), and the existing Content / Motion / Look tabs edit the
-*selected* layer. Background stays a scene-level tab. Preview draws all layers.
+**Content:** `SceneAssets.CollectPaths` walks every layer's `AnimationPath` + `AdditionalAnimationPaths`
+plus the background image (roles unchanged: `primary` = layer 0's file, `additional` = any other sprite
+file; the client maps by `OriginalPath`). `RewriteToLocal(scene, map)` works on the whole scene:
+missing additional image → that layer's primary (existing rule, keeps `hash % imageCount` stable);
+missing background → solid color (existing); **missing layer primary → that layer `Enabled = false`**
+on this machine, reported in the health strip. Throttle, prefetch, readiness unchanged.
 
-Presets can be per layer ("Bubbles", "Logo rain") as well as per scene — a layer preset is just a
-`SceneLayer` JSON; "Add layer from preset" is the fast way to compose scenes.
+**Version gate:** registration already compares versions but only flags `updateAvailable`. Add: the
+server does not send `LOAD` / `PREFETCH` to a client whose version is older than the server's; the node
+shows "needs update" in the health strip until auto-update brings it level.
 
-## 7. Performance budget
+## 5. Scene editor and preview
 
-Per node: N layers × (cells or 1) draw calls per frame. The pattern path already draws hundreds of
-cells at 60 fps; two or three extra single-sprite layers are negligible. Set soft limits in the
-UI: 6 layers, 2 pattern layers, 2 video layers, and show the estimated draw count.
+**`CrossScreenConfigViewModel`:** existing Content / Motion / Look / Effects fields become the editor for
+the **selected layer** (tab XAML unchanged). Split `LoadFromConfig` / `BuildConfig` into
+`LoadLayer(SceneLayer)` / `BuildLayer()` + the scene-level part (background, room units, monitors).
+New: `ObservableCollection<LayerRow> Layers`, `SelectedLayerIndex`. On selection change: `BuildLayer()`
+into the old index, `LoadLayer()` from the new. `BuildConfig()` flushes the selected layer, then assembles.
+Validation, preview badge, dirty tracking, Suggest keep working through `BuildConfig` / `LoadFromConfig`.
+`PhysicalUnits.ApplyRoomUnits` iterates layers.
 
-## 8. Tests
+**Layers strip** (`SceneEditorPanel.axaml`, between media strip and tabs):
+```
+Layers  [☑ Logo rain][☑ Fish][☐ Sponsor]   [+] [⧉] [✕] [◀] [▶]
+┌ Content │ Motion │ Look │ Effects │ Background ┐
+```
+Chip click selects, checkbox enables, right-click renames; `+` add empty, `⧉` duplicate, `✕` remove
+(not the last), `◀ ▶` reorder (left = bottom). Motion tab gains **Phase offset** and **Distribution**
+(per layer); Look tab gains **Opacity**. Background stays scene-wide.
 
-- `SceneNormalizerTests`: legacy config → one layer, byte-identical apply payload.
-- `ConfigJsonRoundtripTests`: extend with a 3-layer scene.
-- `LayerScheduleTests`: spawn/despawn windows and phase offsets are pure functions of elapsed.
-- Manual: the four-layer example above on two local monitors; then remote.
+**`SceneChecks`** new warnings: video on a layer > 0; more than 6 layers or more than 2 pattern layers;
+enabled layer without a file.
 
-## 9. Rollout
+**Suggest / PlaylistBuilder:** still build single-layer scenes; Keep replaces the whole draft.
 
-1. Model + normalizer + roundtrip tests (no behavior change).
-2. Player refactor steps 1–3 with a single layer (behavior-neutral; verify with the existing
-   configs and the long-run tests).
-3. `scene_json` transport + multi-content transfer.
-4. UI layers panel + preview.
-5. Video layers, limits, presets.
+**`ScenePainter`:** single `_spritePath` / `_bitmap` → bitmap cache keyed by path (dropped when no longer
+referenced). `Resolve` resolves each layer via the same `PhysicalUnits` helper as the planner. Sprite pass
+loops over enabled layers with `elapsed + PhaseOffsetMs`, per-layer canvas (Sequential = shared layout,
+Simultaneous = tile's own width, offset 0) and opacity. `HasSprite` = any enabled layer with a file. Status
+line describes the selected layer.
+
+**Other:** playlist row summary "Logo rain + 2 layers"; presets and tray Quick start store the whole
+scene and need no change.
+
+## 6. Determinism
+
+Nothing new. Each layer's position is `MovementCalculator(layer config, elapsed + PhaseOffsetMs, …)`;
+pattern, colors and effects are per layer with their own seeds. Layers never read each other's state;
+no `Random` / `DateTime.Now` / per-machine state enters the per-layer paths. The video and A* exceptions
+are layer-0-only and unchanged.
+
+## 7. Tests
+
+- `LegacySceneMigrationTests` (new): legacy JSON → one layer with all fields; `Layers` JSON untouched;
+  saved JSON has no legacy keys; every repo scene file loads to the same layer as before the rewrite (golden).
+- `ConfigJsonRoundtripTests`: 3-layer scene (pattern + Simultaneous static + phase-offset sprite).
+- `ContentPipelineTests`: `CollectPaths` over all layers, duplicates once; `RewriteToLocal` disables a
+  layer with a missing primary, leaves the others.
+- `PhysicalCanvasTests` / planner: cm resolved per layer, distribution kept per layer.
+- `LayerScheduleTests` (new): a layer's position at `elapsed + phase` equals `MovementCalculator` at the
+  shifted time; adding / removing layer A does not change layer B's position.
+- Existing determinism guards (`MovementCalculator*`, `PatternLayout`, `SpriteEffects`, `RandomWalkMemo`)
+  pass unchanged — the behavior-neutral check for player step 1.
+- Test mode: `parity-matrix` and `smoke-local` pixel-identical before / after player step 1; new
+  `TestScenarios/showcase/scenes/layers-party.json` (the four-layer example) added to `parity-matrix`.
+
+## 8. Rollout
+
+Worktree, branch `feat/scene-layers`, one commit per step, each step builds and passes tests:
+
+1. Model (`SceneLayer`, `Opacity`, migration), consumers, repo scene files rewritten, tests.
+2. Player step 1 — single `LayerRuntime`, behavior-neutral.
+3. Player steps 2–3 + IPC — N layers, per-layer distribution.
+4. Transport — `scene_json`, proto cleanup, version gate, `RemotePlaybackHost`.
+5. Editor Layers strip + VM split + multi-layer `ScenePainter`.
+6. Docs — this spec's status, `SOFTWARE_ARCHITECTURE.md`, CLAUDE.md capabilities, `RECENT_UPDATES.md`,
+   roadmap Tier 2.3.
+
+## 9. Performance budget
+
+Per node: N layers × (cells or 1) draw calls per frame. The pattern path already draws hundreds of cells
+at 60 fps; a few extra single-sprite layers are negligible. Soft limits via `SceneChecks`: 6 layers,
+2 pattern layers; video only on layer 0.
