@@ -1,6 +1,6 @@
 # Folder → Party Playlist, and "Get content" Links — Design Spec
 **Date:** 2026-10-14  
-**Status:** Approved 2026-10-14  
+**Status:** Implemented 2026-10-14 (unit tests + real-decode console check; GUI click-through pending)  
 **Builds on:** `2026-10-14-auto-suggest-design.md` (media profiles, recipes, `SceneSuggester`)
 
 ## Goal

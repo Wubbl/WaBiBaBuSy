@@ -68,7 +68,7 @@ WaBiBaBuSy runs as a **system tray application**. The main window is hidden by d
 - **Right panel `[Scene | Playlist]`**: replaces the gallery pane and the old modal dialogs.
   - **Scene tab** (`SceneEditorPanel` over `CrossScreenConfigViewModel`): multi-row gallery grid
     of 192×144 thumbnails with a caption (name, resolution, GIF frames/loop, video length) and a
-    detailed tooltip (`MediaDetails`), `+ Add` bottom-right (click = primary file, Ctrl+click =
+    detailed tooltip (`MediaDetails`), `Get content ▾` (links from `ContentLinks`, opened in the browser) and `+ Add` bottom-right (click = primary file, Ctrl+click =
     extra image, right-click = remove) above a drag splitter that resizes gallery vs. editor; tabs Content/Motion/Look/
     Background with Advanced expanders; ⓘ tooltips; amber validation chips (`SceneChecks`); units
     follow the Room ⚙ physical-units toggle; targets = the room selection (`SceneTargets`, chain
@@ -79,7 +79,8 @@ WaBiBaBuSy runs as a **system tray application**. The main window is hidden by d
     draft clock.
   - **Playlist tab** (`PlaylistPanel` over `PlaylistViewModel`): picker/New/Save, name, Loop/
     Shuffle, default seconds, seconds per item, drag ≡ to reorder, right-click Duplicate/Remove,
-    Details expander with lap-snap, ＋ Add current scene; selecting an item loads it into the
+    Details expander with lap-snap, ＋ Add ▾ (current scene / from preset / Auto from folder… —
+    `PlaylistBuilder` over the folder's media, appended, with a status line); selecting an item loads it into the
     Scene tab.
 
 ### Settings Window (UI redesign Plan 3, 2026-09-27)
