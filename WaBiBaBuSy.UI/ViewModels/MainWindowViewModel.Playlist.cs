@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Core.Services.Logging;
@@ -102,7 +103,17 @@ public partial class MainWindowViewModel
                 return;
             }
             var files = all.Take(MaxFolderFiles).ToList();
-            foreach (var f in files) AddWallpaperFromPath(f);
+            // Gallery adds run on the UI thread (header decode, thumbnail, gallery save each): say so, and let the
+            // window repaint between batches instead of freezing silently on a big folder.
+            for (int i = 0; i < files.Count; i++)
+            {
+                if (i % 10 == 0)
+                {
+                    PlaylistEditor.FolderStatus = $"Adding to gallery {i} / {files.Count}…";
+                    await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+                }
+                AddWallpaperFromPath(files[i]);
+            }
 
             var screen = PrimaryScreen();
             var progress = new Progress<int>(n => PlaylistEditor.FolderStatus = $"Analysing {n} / {files.Count}…");
