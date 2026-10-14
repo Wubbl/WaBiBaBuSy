@@ -16,7 +16,7 @@ partial class Program
     /// <summary>ThreeZone background: keep a sprite top (canvas units) inside the corridor (device px → canvas units).</summary>
     private static float ClampToCorridor(float y)
     {
-        if (!_hasCorridorConstraint || _corridorHeightPx <= 0) return y;
+        if (!_layerFollowsBackground || !_hasCorridorConstraint || _corridorHeightPx <= 0) return y;
         float minY = _corridorTopPx / Scale;
         float maxY = (_corridorTopPx + _corridorHeightPx) / Scale - _animHeight;
         if (maxY < minY) maxY = minY;

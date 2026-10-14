@@ -25,10 +25,11 @@ public class PlaylistTests
                     SnapToLap = true,
                     Config = new CrossScreenConfig
                     {
-                        AnimationSpeedPxPerSecond = 640,
-                        DistributionMode = AnimationDistributionMode.Sequential,
-                        Movement = new MovementConfig { Type = MovementType.Linear, SpeedPixelsPerSecond = 640f },
-                        Animation = new AnimationLayerConfig { AnimationPath = "fish.gif", TargetHeight = 300 },
+                        Layers = { new SceneLayer {
+                            Distribution = AnimationDistributionMode.Sequential,
+                            Movement = new MovementConfig { Type = MovementType.Linear, SpeedPixelsPerSecond = 640f },
+                            Animation = new AnimationLayerConfig { AnimationPath = "fish.gif", TargetHeight = 300 } } },
+
                     },
                 },
                 new PlaylistItem { Name = "Idle", DurationMs = null, SnapToLap = false },
@@ -44,8 +45,8 @@ public class PlaylistTests
         Assert.Equal("Fish", restored.Items[0].Name);
         Assert.Equal(12_000, restored.Items[0].DurationMs);
         Assert.True(restored.Items[0].SnapToLap);
-        Assert.Equal(MovementType.Linear, restored.Items[0].Config.Movement.Type);
-        Assert.Equal("fish.gif", restored.Items[0].Config.Animation.AnimationPath);
+        Assert.Equal(MovementType.Linear, restored.Items[0].Config.Layers[0].Movement.Type);
+        Assert.Equal("fish.gif", restored.Items[0].Config.Layers[0].Animation.AnimationPath);
         Assert.Null(restored.Items[1].DurationMs);
     }
 

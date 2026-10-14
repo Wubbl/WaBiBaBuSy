@@ -19,6 +19,9 @@
     { "type": "probeSeries", "label": "facing", "everyMs": 1000, "forMs": 10000, "capture": true, "perf": false },
     { "type": "playScene", "label": "icon zone", "scene": "scenes/iconzone-linear.json" },
     { "type": "probeSeries", "label": "icon zone timing", "everyMs": 2000, "forMs": 10000, "capture": true, "perf": false },
+    { "type": "playScene", "label": "scene layers", "scene": "showcase/scenes/16-layers-party.json" },
+    { "type": "exactFrame", "label": "layers parity", "elapsedMs": 6000 },
+    { "type": "exactFrame", "label": "layers parity later", "elapsedMs": 45678 },
     { "type": "stop" }
   ]
 }

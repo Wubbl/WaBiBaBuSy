@@ -30,7 +30,8 @@ public class SceneRecipeTests
     private static readonly CrossScreenConfig Base = new()
     {
         SelectedMonitorIds = new() { "m1" },
-        DistributionMode = AnimationDistributionMode.Simultaneous,
+        Layers = { new SceneLayer { Distribution = AnimationDistributionMode.Simultaneous } },
+
     };
 
     [Fact]
@@ -58,7 +59,7 @@ public class SceneRecipeTests
             var sug = R(name).Build(s, Base, 11);
             Assert.Empty(SceneChecks.Validate(sug.Scene, null));
             Assert.Equal(new[] { "m1" }, sug.Scene.SelectedMonitorIds);
-            Assert.Equal(AnimationDistributionMode.Simultaneous, sug.Scene.DistributionMode);
+            Assert.Equal(AnimationDistributionMode.Simultaneous, sug.Scene.Layers[0].Distribution);
             Assert.Equal(name, sug.RecipeName);
             Assert.False(string.IsNullOrWhiteSpace(sug.Why));
         }
@@ -69,7 +70,7 @@ public class SceneRecipeTests
     {
         var s = Sel(MediaProfile.Create(@"C:\m\broken.png", 0, 0, 1920, 1080, PixelFacts.Unknown, 0));
         var scene = R(name).Build(s, Base, 3).Scene;
-        Assert.Equal(@"C:\m\broken.png", scene.Animation.AnimationPath);
+        Assert.Equal(@"C:\m\broken.png", scene.Layers[0].Animation.AnimationPath);
     }
 
     [Fact]
@@ -80,14 +81,14 @@ public class SceneRecipeTests
     [Fact]
     public void MonoLogoIsTintedColorfulLogoIsNot()
     {
-        Assert.NotEqual(ColorGradingMode.None, R("DVD Bounce").Build(Sel(F("logo.png", 200, 200)), Base, 1).Scene.Animation.ColorGrading.Mode);
-        Assert.Equal(ColorGradingMode.None, R("DVD Bounce").Build(Sel(F("logo.png", 200, 200, mono: false)), Base, 1).Scene.Animation.ColorGrading.Mode);
+        Assert.NotEqual(ColorGradingMode.None, R("DVD Bounce").Build(Sel(F("logo.png", 200, 200)), Base, 1).Scene.Layers[0].Animation.ColorGrading.Mode);
+        Assert.Equal(ColorGradingMode.None, R("DVD Bounce").Build(Sel(F("logo.png", 200, 200, mono: false)), Base, 1).Scene.Layers[0].Animation.ColorGrading.Mode);
     }
 
     [Fact]
     public void OrbitSpinsOneTurnPerWholeLoops()
     {
-        var spin = R("Orbit").Build(Sel(F("cat.gif", 300, 300, ms: 1200)), Base, 1).Scene.Animation.Effects!.SpinDegPerSecond;
+        var spin = R("Orbit").Build(Sel(F("cat.gif", 300, 300, ms: 1200)), Base, 1).Scene.Layers[0].Animation.Effects!.SpinDegPerSecond;
         double secondsPerTurn = 360.0 / Math.Abs(spin);
         Assert.Equal(0, Math.Round(secondsPerTurn * 1000) % 1200);
     }
@@ -97,9 +98,9 @@ public class SceneRecipeTests
     {
         var s = Sel(F("small.gif", 200, 200, ms: 800), F("big.gif", 1920, 1080, ms: 3000));
         var scene = R("DVD Bounce").Build(s, Base, 1).Scene;
-        Assert.Equal(@"C:\m\small.gif", scene.Animation.AnimationPath);
-        Assert.Empty(scene.Animation.AdditionalAnimationPaths);
-        Assert.Equal(@"C:\m\big.gif", R("Showcase").Build(s, Base, 1).Scene.Animation.AnimationPath);
+        Assert.Equal(@"C:\m\small.gif", scene.Layers[0].Animation.AnimationPath);
+        Assert.Empty(scene.Layers[0].Animation.AdditionalAnimationPaths);
+        Assert.Equal(@"C:\m\big.gif", R("Showcase").Build(s, Base, 1).Scene.Layers[0].Animation.AnimationPath);
     }
 
     [Fact]

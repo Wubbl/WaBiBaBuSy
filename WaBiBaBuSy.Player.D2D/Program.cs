@@ -451,11 +451,11 @@ partial class Program
 
     // Multi-source frame caches (one entry per AnimationPaths[i]). Always populated; for the
     // single-source case the list has exactly one entry. The animation render loop uses these
-    // when Pattern is active OR multi-image mode is on.
-    private static readonly List<ID2D1Bitmap[]> _d2dFramesPerSource = new();
-    private static readonly List<List<int>>     _d2dDelaysPerSource = new();
-    private static readonly List<long>          _d2dTotalDurationPerSource = new();
-    private static readonly List<(int W, int H)> _sourceDimensions = new();
+    // when Pattern is active OR multi-image mode is on. Not readonly: each scene layer swaps in its own lists.
+    private static List<ID2D1Bitmap[]> _d2dFramesPerSource = new();
+    private static List<List<int>>     _d2dDelaysPerSource = new();
+    private static List<long>          _d2dTotalDurationPerSource = new();
+    private static List<(int W, int H)> _sourceDimensions = new();
 
     // F2: Color grading effect — lazy-created on first use, reused every frame.
     private static ID2D1Effect? _colorMatrixEffect;
@@ -1277,8 +1277,8 @@ partial class Program
                             _frameCount, shouldComposeNative, isPlay);
                     }
 
-                    // Stage 4: Pure D2D render path for GIF animations
-                    if (shouldComposeNative && _d2dGifFrames != null)
+                    // Stage 4: Pure D2D render path for GIF / image layers (layer 0 may also be empty or failed)
+                    if (shouldComposeNative && !_useNativeD2DVideo)
                     {
                         try
                         {
@@ -1331,9 +1331,10 @@ partial class Program
                             _lastFrameRenderUtcMs = NowUtcMs;
 
                             DrawBackground();
-                            bool drawAnim = SyncTiming.ShouldDrawAnimation(elapsedMs);
+                            bool drawAnim = SyncTiming.ShouldDrawAnimation(elapsedMs) && _layers.Count > 0 && _layers[0].Config.Enabled;
+                            long layerElapsed = elapsedMs + _layerPhaseOffsetMs;
                             if (drawAnim)
-                                UpdateAnimationPosition(elapsedMs);
+                                UpdateAnimationPosition(layerElapsed);
 
                             // Upload new frame from LibVLC buffer → GPU (~0.5ms for 1080p)
                             if (_videoFrameReady)
@@ -1348,7 +1349,8 @@ partial class Program
 
                             // Video uses single-cell path with optional grading; pattern is unsupported for video.
                             if (drawAnim)
-                                DrawAnimationLayer(elapsedMs, videoBitmapOverride: _currentVideoD2DBitmap);
+                                DrawAnimationLayer(layerElapsed, videoBitmapOverride: _currentVideoD2DBitmap);
+                            DrawUpperLayers(elapsedMs + _lastFramePhaseMs, applyNodePhase: true);
 
                             if (_frameCount % 60 == 0)
                             {
@@ -1580,6 +1582,7 @@ partial class Program
     private static long ComputeEffectiveElapsedMs()
     {
         long raw = (long)(NowUtc - _renderLoopStart).TotalMilliseconds;
+        // Layer 0's node phase (the resting layer); upper layers apply their own from raw = effective + _lastFramePhaseMs.
         long effective = SyncTiming.ApplyNodePhase(raw, _nodeOrder, _movementConfig?.NodePhaseDelayMs ?? 0, _perMonitorMode);
         _lastFramePhaseMs = (int)(raw - effective);   // reported by probes
         return effective;
@@ -2050,18 +2053,24 @@ partial class Program
         _d2dContext.Transform = savedTransform;
     }
 
-    /// <summary>One native-D2D GIF/image frame at <paramref name="elapsedMs"/>: background, then movement + animation once started.</summary>
-    private static void DrawNativeGifScene(long elapsedMs)
+    /// <summary>
+    /// One native-D2D frame at <paramref name="elapsedMs"/> (layer 0's node-phased clock): background, then every layer
+    /// bottom to top once started. Live frames give upper layers their own node phase from the raw clock; exact frames
+    /// (<paramref name="live"/> false) draw every layer at the requested elapsed.
+    /// </summary>
+    private static void DrawNativeGifScene(long elapsedMs, bool live = true)
     {
         DrawBackground();
 
         // Before the shared start (future T0) or before this node's wave phase arrives, only the
         // background is shown — every node then reveals the sprite on the same frame.
-        if (SyncTiming.ShouldDrawAnimation(elapsedMs))
+        if (SyncTiming.ShouldDrawAnimation(elapsedMs) && _layers.Count > 0 && _layers[0].Config.Enabled && _d2dFramesPerSource.Count > 0)
         {
-            UpdateAnimationPosition(elapsedMs);
-            DrawAnimationLayer(elapsedMs);
+            long t = elapsedMs + _layerPhaseOffsetMs;
+            UpdateAnimationPosition(t);
+            DrawAnimationLayer(t);
         }
+        DrawUpperLayers(live ? elapsedMs + _lastFramePhaseMs : elapsedMs, applyNodePhase: live);
     }
 
     private readonly record struct AnimationStateSnapshot(
@@ -2105,7 +2114,7 @@ partial class Program
         // exact frame is offered precisely when the live frame would be drawn by DrawNativeGifScene too.
         bool shouldComposeNative;
         lock (_compositionLock) shouldComposeNative = (_useNativeD2DComposition || _useNativeD2DVideo) && _isPlaying;
-        bool gifPlaying = shouldComposeNative && _d2dGifFrames != null;
+        bool gifPlaying = shouldComposeNative && !_useNativeD2DVideo;
         if (!gifPlaying || _backgroundMode == BackgroundMode.IconZone || _d2dContext == null)
         {
             reply.Error = _backgroundMode == BackgroundMode.IconZone
@@ -2116,6 +2125,7 @@ partial class Program
         }
 
         var saved = SaveAnimationState();
+        var savedUpper = SnapshotUpperLayers();
         ID2D1Bitmap1? target = null, readback = null;
         bool drawing = false;
         try
@@ -2129,7 +2139,7 @@ partial class Program
             drawing = true;
             _hasPrevFacingX = false;
             _facingLeft = false;
-            DrawNativeGifScene(elapsed);
+            DrawNativeGifScene(elapsed, live: false);
             DrawShowEvents(elapsed);   // exact frames have no phase: the raw elapsed is the requested one
             reply.AnimX = _animX; reply.AnimY = _animY; reply.AnimWidth = _animWidth; reply.AnimHeight = _animHeight;
             reply.Flipped = _lastFlipX;
@@ -2187,6 +2197,7 @@ partial class Program
         finally
         {
             RestoreAnimationState(saved);
+            RestoreUpperLayers(savedUpper);
             try { _d2dContext.Transform = Matrix3x2.Identity; } catch { /* context lost */ }   // live frames start from identity
             readback?.Dispose();
             target?.Dispose();
@@ -2740,8 +2751,8 @@ partial class Program
             _animX = -_animWidth;
         }
 
-        // Vertical alignment
-        if (_hasCorridorConstraint && _corridorHeightPx > 0)
+        // Vertical alignment (the ThreeZone corridor only holds layer 0)
+        if (_layerFollowsBackground && _hasCorridorConstraint && _corridorHeightPx > 0)
         {
             // Center within the corridor
             _animY = _corridorTopPx + (_corridorHeightPx - _animHeight) / 2f;
@@ -2792,7 +2803,7 @@ partial class Program
         }
         // IconZone: path-following. Path is in virtual-canvas space; subtract MonitorOffsetX to get local coords.
         // Static never follows the path: the zones are painted, the sprite stays centered (MovementCalculator).
-        else if (MovementCalculator.FollowsIconPath(_backgroundMode, _movementConfig) && _animPath.Count >= 2)
+        else if (MovementCalculator.FollowsIconPath(LayerBackgroundMode, _movementConfig) && _animPath.Count >= 2)
         {
             float speed = _movementConfig?.SpeedPixelsPerSecond ?? 300f;
 
@@ -2894,7 +2905,7 @@ partial class Program
         }
 
         // Warn if IconZone mode has no path to follow (should not happen since ZonePlanner has fallback)
-        if (MovementCalculator.FollowsIconPath(_backgroundMode, _movementConfig) && _animPath.Count < 2)
+        if (MovementCalculator.FollowsIconPath(LayerBackgroundMode, _movementConfig) && _animPath.Count < 2)
             _logger?.LogWarning("[IconZone] Path-following skipped: only {Count} waypoints available. Check icon detection and ZonePlanner output.", _animPath.Count);
 
         // Standard movement via MovementCalculator (Static returns a centered, time-invariant position).
@@ -3783,7 +3794,7 @@ partial class Program
             _hasPrevFacingX = true;
 
             // Roadmap 2.4: trail behind the sprite, pulse + spin on it (pure functions of elapsed).
-            var fx = SpriteEffects.Supported(_animationConfig, _movementConfig, _backgroundMode) ? _animationConfig.Effects : null;
+            var fx = SpriteEffects.Supported(_animationConfig, _movementConfig, LayerBackgroundMode) ? _animationConfig.Effects : null;
             if (fx != null && _animationConfig.FaceTravelDirection)
             {
                 // Same pose-based facing as the trail ghosts: frame history free, so exact frames agree too.
@@ -3880,6 +3891,7 @@ partial class Program
         float rotationDeg, bool gradingActive, float alpha = 1f, bool flipX = false, float spriteScale = 1f)
     {
         if (_d2dContext == null) return;
+        alpha *= _layerOpacity;   // scene layer opacity (1 for a full-opacity layer)
 
         bool needsRotation = MathF.Abs(rotationDeg) > 0.01f;
         bool needsSpriteScale = MathF.Abs(spriteScale - 1f) > 0.0005f;
@@ -3977,52 +3989,18 @@ partial class Program
     {
         try
         {
-            _logger?.LogInformation("Loading animation: {Path}", cmd.AnimationConfig.AnimationPath);
+            _logger?.LogInformation("Loading scene: {Count} layer(s), bottom {Path}", cmd.Layers.Count, cmd.Layers.Count > 0 ? cmd.Layers[0].Animation.AnimationPath : "(none)");
 
             lock (_compositionLock)
             {
-                // Stage 5: Dispose existing native D2D resources
+                // Stage 5: Dispose existing native D2D resources (layer 0 is the active one between frames)
+                ActivateLayer(0);
+                DisposeUpperLayers();
                 DisposeNativeD2DResources();
                 _useNativeD2DComposition = false;
 
-                // Store configuration
-                _animationConfig = cmd.AnimationConfig;
                 _backgroundConfig = cmd.BackgroundConfig;
-                _movementConfig = cmd.MovementConfig;
-                _virtualCanvasWidth = cmd.VirtualCanvasWidth;
-                _monitorOffsetX = cmd.MonitorOffsetX;
-                _virtualCanvasHeight = cmd.VirtualCanvasHeight > 0 ? cmd.VirtualCanvasHeight : _height;
-                _canvasOffsetY = cmd.MonitorOffsetY;
-                _nodeOrder = cmd.NodeOrder;
-                _perMonitorMode = cmd.PerMonitorMode;
-                // Seat-map layout wins when present; otherwise synthesize one from the loose fields
-                // so every downstream mapping goes through the same helper.
-                _layout = cmd.Layout ?? new NodeLayout
-                {
-                    OffsetX = cmd.MonitorOffsetX,
-                    OffsetY = cmd.MonitorOffsetY,
-                    Width = _width,
-                    Height = _height,
-                    CanvasWidth = cmd.VirtualCanvasWidth,
-                    CanvasHeight = _virtualCanvasHeight,
-                    Mirrored = false,
-                    Wraps = false,
-                    Order = cmd.NodeOrder
-                };
-                if (_layout.Width <= 0) _layout.Width = _width;
-                if (_layout.Height <= 0) _layout.Height = _height;
-                if (_layout.Scale <= 0f) _layout.Scale = 1f;
-                _cw = _layout.Width;
-                _ch = _layout.Height;
-                _virtualCanvasWidth = _layout.CanvasWidth > 0 ? _layout.CanvasWidth : _virtualCanvasWidth;
-                _virtualCanvasHeight = _layout.CanvasHeight > 0 ? _layout.CanvasHeight : _virtualCanvasHeight;
-                _monitorOffsetX = _layout.OffsetX;
-                _canvasOffsetY = _layout.OffsetY;
-                _nodeOrder = _layout.Order;
-                _logger?.LogInformation("[LOAD] Layout: offset=({OX},{OY}) canvas={CW}x{CH} slice={SW}x{SH} scale={S:F3} mirrored={M} wraps={W} order={O}",
-                    _layout.OffsetX, _layout.OffsetY, _layout.CanvasWidth, _layout.CanvasHeight, _cw, _ch, Scale, _layout.Mirrored, _layout.Wraps, _layout.Order);
-                _facingLeft = false;
-                _hasPrevFacingX = false;
+                _sequentialLayout = cmd.Layout;
                 _maskZones = cmd.MaskZones;
                 _useZonePalette = cmd.UseZonePalette;
                 _iconFadePaddingPx = cmd.IconFadePaddingPx;
@@ -4030,115 +4008,41 @@ partial class Program
                 _zoneFadeOpacityBrush?.Dispose(); _zoneFadeOpacityBrush = null;
                 _zoneFadeMaskBitmap?.Dispose();   _zoneFadeMaskBitmap   = null;
 
-                // Reset per-source caches before loading
-                ClearPerSourceCaches();
-
-                var filePath = cmd.AnimationConfig.AnimationPath;
-                var extension = Path.GetExtension(filePath).ToLowerInvariant();
-
-                if (extension == ".gif")
+                // Background-only scene: an empty, disabled layer 0 keeps every "layer 0 is active" path valid.
+                var layers = cmd.Layers.Count > 0 ? cmd.Layers : new List<SceneLayer> { new() { Enabled = false } };
+                for (int i = 0; i < layers.Count; i++)
                 {
-                    // Stage 2: Native D2D path for GIFs
-                    _gifSpeedMultiplier = cmd.AnimationConfig.SpeedMultiplier;
-                    _logger?.LogInformation("[LOAD] GIF detected, using native D2D composition (SpeedMultiplier: {Speed}x)", _gifSpeedMultiplier);
-
-                    // Extract GIF frames to GPU
-                    ExtractGifFramesToD2D(filePath);
-
-                    // Calculate animation layout first so _animHeight is set
-                    // (InitializeBackground IconZone uses _animHeight / 2 as path padding)
-                    CalculateAnimationLayout(cmd.AnimationConfig);
-
-                    // Initialize background (Stage 3)
-                    InitializeBackground(cmd.BackgroundConfig);
-
-                    _useNativeD2DComposition = true;
-                    _logger?.LogInformation("[LOAD] Native D2D composition ready: {Frames} frames, {W}x{H}", _d2dGifFrames?.Length, _animWidth, _animHeight);
-                }
-                else if (extension is ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv")
-                {
-                    // Stage 6: Native D2D path for videos (LibVLC → raw buffer → CopyFromMemory)
-                    _logger?.LogInformation("[LOAD] Video detected ({Ext}), using native D2D video", extension);
-
-                    InitializeNativeVideo(filePath);
-
-                    _contentNativeWidth = _videoNativeWidth;
-                    _contentNativeHeight = _videoNativeHeight;
-                    CalculateAnimationLayout(cmd.AnimationConfig);
-
-                    InitializeBackground(cmd.BackgroundConfig);
-
-                    _useNativeD2DVideo = true;
-                    _logger?.LogInformation("[LOAD] Native D2D video ready: {W}x{H}", _videoNativeWidth, _videoNativeHeight);
-                }
-                else if (extension is ".jpg" or ".jpeg" or ".png" or ".bmp")
-                {
-                    // Static image: load as single-frame via Magick.NET, reuse GIF pipeline
-                    _logger?.LogInformation("[LOAD] Static image detected ({Ext}), loading as single D2D frame", extension);
-
-                    using var image = new MagickImage(filePath);
-                    _contentNativeWidth = (int)image.Width;
-                    _contentNativeHeight = (int)image.Height;
-
-                    using var gdiBitmap = image.ToBitmap();
-                    _d2dGifFrames = [UploadBitmapToD2D(gdiBitmap)];
-                    _d2dGifDelays = [1000]; // Single frame, delay irrelevant
-                    _d2dGifTotalDurationMs = 1000;
-
-                    CalculateAnimationLayout(cmd.AnimationConfig);
-                    InitializeBackground(cmd.BackgroundConfig);
-
-                    _useNativeD2DComposition = true;
-                    _logger?.LogInformation("[LOAD] Static image ready: {W}x{H}", _contentNativeWidth, _contentNativeHeight);
-                }
-                else
-                {
-                    _logger?.LogWarning("[LOAD] Unsupported format ({Ext}), no rendering available", extension);
-                }
-
-                // Populate per-source caches: primary source first, then any AdditionalAnimationPaths.
-                if (_d2dGifFrames != null)
-                {
-                    _d2dFramesPerSource.Add(_d2dGifFrames);
-                    _d2dDelaysPerSource.Add(_d2dGifDelays ?? new List<int> { 1000 });
-                    _d2dTotalDurationPerSource.Add(_d2dGifTotalDurationMs > 0 ? _d2dGifTotalDurationMs : 1000);
-                    _sourceDimensions.Add((_contentNativeWidth, _contentNativeHeight));
-                }
-                LoadAdditionalAnimationSources(cmd.AnimationConfig);
-
-                // Compute tile-align step and traveling-mode flag for seamless loop snapping.
-                // _animWidth is set by CalculateAnimationLayout; _sourceDimensions may refine cellW below.
-                var cgMode = cmd.AnimationConfig.ColorGrading?.Mode ?? ColorGradingMode.None;
-                _isTravelingMode = cgMode is ColorGradingMode.TravelingRainbow
-                                             or ColorGradingMode.TravelingList
-                                             or ColorGradingMode.TravelingRandom;
-                if (_isTravelingMode && cmd.AnimationConfig.Pattern != null)
-                {
-                    // Mirror the cellW logic from DrawAnimationLayer so we get the correct step.
-                    int cellW = _animWidth;
-                    if (_sourceDimensions.Count > 0 && _animHeight > 0)
+                    if (i > 0) SaveInto(_layers[i - 1]);
+                    var runtime = new LayerRuntime { Config = layers[i] };
+                    _layers.Add(runtime);
+                    _activeLayer = i;
+                    ResetSpriteStatics(layers[i], isBottom: i == 0);
+                    if (i == 0)
                     {
-                        int maxNativeH = 0;
-                        foreach (var (_, h) in _sourceDimensions)
-                            if (h > maxNativeH) maxNativeH = h;
-                        if (maxNativeH > 0)
+                        _maskZones = cmd.MaskZones;
+                        _logger?.LogInformation("[LOAD] Layout: offset=({OX},{OY}) canvas={CW}x{CH} slice={SW}x{SH} scale={S:F3} mirrored={M} wraps={W} order={O} perMonitor={PM}",
+                            _layout.OffsetX, _layout.OffsetY, _virtualCanvasWidth, _virtualCanvasHeight, _cw, _ch, Scale, _layout.Mirrored, _layout.Wraps, _layout.Order, _perMonitorMode);
+                    }
+                    else _maskZones = false;   // the icon-zone clip mask belongs to layer 0
+
+                    if (layers[i].Enabled && !string.IsNullOrWhiteSpace(layers[i].Animation.AnimationPath))
+                    {
+                        try
                         {
-                            float pScale = (float)_animHeight / maxNativeH;
-                            int maxScaledW = 0;
-                            foreach (var (w, _) in _sourceDimensions)
-                            {
-                                int sw = (int)(w * pScale);
-                                if (sw > maxScaledW) maxScaledW = sw;
-                            }
-                            if (maxScaledW > 0) cellW = maxScaledW;
+                            LoadActiveLayerSprite(layers[i].Animation, allowVideo: i == 0);
+                        }
+                        catch (Exception ex) when (i > 0)
+                        {
+                            // An upper layer that fails to load is skipped; the rest of the scene still plays.
+                            _logger?.LogError(ex, "[LOAD] Layer {Index} failed to load — skipped", i);
                         }
                     }
-                    _tileAlignStepX = cellW + cmd.AnimationConfig.Pattern.SpacingX;
+                    if (i == 0) InitializeBackground(cmd.BackgroundConfig);   // layer 0 active: IconZone pads by its _animHeight
                 }
-                else
-                {
-                    _tileAlignStepX = 0f;
-                }
+                SaveInto(_layers[^1]);
+                LoadFrom(_layers[0]);
+                _activeLayer = 0;
+                _useNativeD2DComposition = !_useNativeD2DVideo;   // GIF / image layers, or just the background
             }
 
             Console.WriteLine("READY");
@@ -4149,6 +4053,104 @@ partial class Program
             _logger?.LogError(ex, "Failed to load animation");
             Console.WriteLine($"ERROR:Load animation failed: {ex.Message}");
             Console.Out.Flush();
+        }
+    }
+
+    /// <summary>
+    /// Load the active layer's sprite: frames (GIF / still image) or LibVLC video (layer 0 only), FitMode layout,
+    /// extra source images and the Traveling tile-align step.
+    /// </summary>
+    private static void LoadActiveLayerSprite(AnimationLayerConfig anim, bool allowVideo)
+    {
+        var filePath = anim.AnimationPath;
+        var extension = Path.GetExtension(filePath).ToLowerInvariant();
+
+        if (extension == ".gif")
+        {
+            // Stage 2: Native D2D path for GIFs
+            _gifSpeedMultiplier = anim.SpeedMultiplier;
+            _logger?.LogInformation("[LOAD] GIF detected, using native D2D composition (SpeedMultiplier: {Speed}x)", _gifSpeedMultiplier);
+            ExtractGifFramesToD2D(filePath);
+            CalculateAnimationLayout(anim);
+            _logger?.LogInformation("[LOAD] Native D2D composition ready: {Frames} frames, {W}x{H}", _d2dGifFrames?.Length, _animWidth, _animHeight);
+        }
+        else if (extension is ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv")
+        {
+            if (!allowVideo)
+            {
+                _logger?.LogWarning("[LOAD] Video on a layer above the bottom one is not supported — skipped: {Path}", filePath);
+                return;
+            }
+            // Stage 6: Native D2D path for videos (LibVLC → raw buffer → CopyFromMemory)
+            _logger?.LogInformation("[LOAD] Video detected ({Ext}), using native D2D video", extension);
+            InitializeNativeVideo(filePath);
+            _contentNativeWidth = _videoNativeWidth;
+            _contentNativeHeight = _videoNativeHeight;
+            CalculateAnimationLayout(anim);
+            _useNativeD2DVideo = true;
+            _logger?.LogInformation("[LOAD] Native D2D video ready: {W}x{H}", _videoNativeWidth, _videoNativeHeight);
+        }
+        else if (extension is ".jpg" or ".jpeg" or ".png" or ".bmp")
+        {
+            // Static image: load as single-frame via Magick.NET, reuse GIF pipeline
+            _logger?.LogInformation("[LOAD] Static image detected ({Ext}), loading as single D2D frame", extension);
+            using var image = new MagickImage(filePath);
+            _contentNativeWidth = (int)image.Width;
+            _contentNativeHeight = (int)image.Height;
+            using var gdiBitmap = image.ToBitmap();
+            _d2dGifFrames = [UploadBitmapToD2D(gdiBitmap)];
+            _d2dGifDelays = [1000]; // Single frame, delay irrelevant
+            _d2dGifTotalDurationMs = 1000;
+            CalculateAnimationLayout(anim);
+            _logger?.LogInformation("[LOAD] Static image ready: {W}x{H}", _contentNativeWidth, _contentNativeHeight);
+        }
+        else
+        {
+            _logger?.LogWarning("[LOAD] Unsupported format ({Ext}), no rendering available", extension);
+        }
+
+        // Populate per-source caches: primary source first, then any AdditionalAnimationPaths.
+        if (_d2dGifFrames != null)
+        {
+            _d2dFramesPerSource.Add(_d2dGifFrames);
+            _d2dDelaysPerSource.Add(_d2dGifDelays ?? new List<int> { 1000 });
+            _d2dTotalDurationPerSource.Add(_d2dGifTotalDurationMs > 0 ? _d2dGifTotalDurationMs : 1000);
+            _sourceDimensions.Add((_contentNativeWidth, _contentNativeHeight));
+        }
+        LoadAdditionalAnimationSources(anim);
+
+        // Compute tile-align step and traveling-mode flag for seamless loop snapping.
+        // _animWidth is set by CalculateAnimationLayout; _sourceDimensions may refine cellW below.
+        var cgMode = anim.ColorGrading?.Mode ?? ColorGradingMode.None;
+        _isTravelingMode = cgMode is ColorGradingMode.TravelingRainbow
+                                     or ColorGradingMode.TravelingList
+                                     or ColorGradingMode.TravelingRandom;
+        if (_isTravelingMode && anim.Pattern != null)
+        {
+            // Mirror the cellW logic from DrawAnimationLayer so we get the correct step.
+            int cellW = _animWidth;
+            if (_sourceDimensions.Count > 0 && _animHeight > 0)
+            {
+                int maxNativeH = 0;
+                foreach (var (_, h) in _sourceDimensions)
+                    if (h > maxNativeH) maxNativeH = h;
+                if (maxNativeH > 0)
+                {
+                    float pScale = (float)_animHeight / maxNativeH;
+                    int maxScaledW = 0;
+                    foreach (var (w, _) in _sourceDimensions)
+                    {
+                        int sw = (int)(w * pScale);
+                        if (sw > maxScaledW) maxScaledW = sw;
+                    }
+                    if (maxScaledW > 0) cellW = maxScaledW;
+                }
+            }
+            _tileAlignStepX = cellW + anim.Pattern.SpacingX;
+        }
+        else
+        {
+            _tileAlignStepX = 0f;
         }
     }
 

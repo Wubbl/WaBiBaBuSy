@@ -29,11 +29,12 @@ public class PresetBundleTests : IDisposable
 
     private static CrossScreenConfig Scene(string primary, string? extra = null, string? background = null) => new()
     {
-        Animation = new AnimationLayerConfig
+        Layers = { new SceneLayer { Animation = new AnimationLayerConfig
         {
             AnimationPath = primary,
             AdditionalAnimationPaths = extra == null ? new List<string>() : new List<string> { primary, extra },
-        },
+        } } },
+
         Background = background == null
             ? new BackgroundLayerConfig()
             : new BackgroundLayerConfig { Mode = BackgroundMode.StretchedImage, ImagePath = background },
@@ -49,8 +50,8 @@ public class PresetBundleTests : IDisposable
 
         await PresetBundle.BundleAssetsAsync(config, Out);
 
-        Assert.Equal("assets/logo.png", config.Animation.AnimationPath);
-        Assert.Equal(new[] { "assets/logo.png", "assets/b.png" }, config.Animation.AdditionalAnimationPaths);
+        Assert.Equal("assets/logo.png", config.Layers[0].Animation.AnimationPath);
+        Assert.Equal(new[] { "assets/logo.png", "assets/b.png" }, config.Layers[0].Animation.AdditionalAnimationPaths);
         Assert.Equal("assets/bg.jpg", config.Background.ImagePath);
         Assert.True(File.Exists(Path.Combine(Out, "assets", "logo.png")));
         Assert.True(File.Exists(Path.Combine(Out, "assets", "b.png")));
@@ -67,7 +68,7 @@ public class PresetBundleTests : IDisposable
 
         await PresetBundle.BundleAssetsAsync(config, Out);
 
-        Assert.Equal("assets/logo.png", config.Animation.AnimationPath);
+        Assert.Equal("assets/logo.png", config.Layers[0].Animation.AnimationPath);
         Assert.Single(Directory.GetFiles(Path.Combine(Out, "assets")));
     }
 
@@ -80,14 +81,14 @@ public class PresetBundleTests : IDisposable
 
         await PresetBundle.BundleAssetsAsync(config, Out);
 
-        Assert.Matches(new Regex("^assets/logo-[0-9a-f]{8}\\.png$"), config.Animation.AnimationPath);
+        Assert.Matches(new Regex("^assets/logo-[0-9a-f]{8}\\.png$"), config.Layers[0].Animation.AnimationPath);
         Assert.Equal(9, File.ReadAllBytes(existing)[0]);   // the other preset's file is untouched
         Assert.Equal(2, Directory.GetFiles(Path.Combine(Out, "assets")).Length);
 
         // Bundling the same file again reuses the suffixed copy.
         var again = Scene(logo);
         await PresetBundle.BundleAssetsAsync(again, Out);
-        Assert.Equal(config.Animation.AnimationPath, again.Animation.AnimationPath);
+        Assert.Equal(config.Layers[0].Animation.AnimationPath, again.Layers[0].Animation.AnimationPath);
         Assert.Equal(2, Directory.GetFiles(Path.Combine(Out, "assets")).Length);
     }
 
@@ -115,7 +116,7 @@ public class PresetBundleTests : IDisposable
 
         PresetBundle.RelativizeUnder(config, Out);
 
-        Assert.Equal("assets/logo.png", config.Animation.AnimationPath);
-        Assert.Equal(new[] { "assets/logo.png", outside }, config.Animation.AdditionalAnimationPaths);
+        Assert.Equal("assets/logo.png", config.Layers[0].Animation.AnimationPath);
+        Assert.Equal(new[] { "assets/logo.png", outside }, config.Layers[0].Animation.AdditionalAnimationPaths);
     }
 }

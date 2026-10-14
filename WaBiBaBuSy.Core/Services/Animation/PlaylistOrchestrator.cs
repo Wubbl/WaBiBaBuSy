@@ -271,9 +271,9 @@ public class PlaylistOrchestrator
                         continue;
                     }
 
-                    // SpeedPxPerSecond is the canvas speed after cm→px resolution (physical canvas).
+                    // Lap snap follows the bottom layer. SpeedPxPerSecond is its canvas speed after cm→px resolution.
                     int lapMs = PlaylistScheduler.ComputeLapMs(
-                        item.Config.Movement, metrics.VirtualCanvasWidth, metrics.ContentWidthPx, metrics.SpeedPxPerSecond, metrics.CanvasWraps);
+                        item.Config.FirstLayer?.Movement ?? new MovementConfig { Type = MovementType.Static }, metrics.VirtualCanvasWidth, metrics.ContentWidthPx, metrics.SpeedPxPerSecond, metrics.CanvasWraps);
                     int dwell = PlaylistScheduler.ResolveDwellMs(item, playlist.DefaultItemDurationMs, lapMs);
 
                     // The apply path schedules the shared start StartLeadMs in the future so all

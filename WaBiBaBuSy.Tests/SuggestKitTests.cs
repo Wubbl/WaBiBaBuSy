@@ -65,21 +65,22 @@ public class SuggestKitTests
         var baseScene = new CrossScreenConfig
         {
             SelectedMonitorIds = new() { "m1", "m2" },
-            DistributionMode = AnimationDistributionMode.Simultaneous,
+            Layers = { new SceneLayer { Distribution = AnimationDistributionMode.Simultaneous } },
+
         };
-        baseScene.Movement.Type = MovementType.Circular;
+        baseScene.Layers[0].Movement.Type = MovementType.Circular;
         var s = new SelectionProfile(new[] { SelectionProfileTests.File("a.png", 200, 200), SelectionProfileTests.File("b.png", 200, 200) }, 1920, 1080);
 
         var scene = SuggestKit.NewScene(baseScene, s, s.Sprites, 0.2);
 
         Assert.Equal(new[] { "m1", "m2" }, scene.SelectedMonitorIds);
         Assert.NotSame(baseScene.SelectedMonitorIds, scene.SelectedMonitorIds);
-        Assert.Equal(AnimationDistributionMode.Simultaneous, scene.DistributionMode);
-        Assert.Equal(@"C:\m\a.png", scene.Animation.AnimationPath);
-        Assert.Equal(new[] { @"C:\m\b.png" }, scene.Animation.AdditionalAnimationPaths);
-        Assert.Equal(ContentFitMode.TargetHeight, scene.Animation.FitMode);
-        Assert.Equal(216, scene.Animation.TargetHeight);
-        Assert.Equal(MovementType.Linear, scene.Movement.Type); // fresh, not the base's Circular
+        Assert.Equal(AnimationDistributionMode.Simultaneous, scene.Layers[0].Distribution);
+        Assert.Equal(@"C:\m\a.png", scene.Layers[0].Animation.AnimationPath);
+        Assert.Equal(new[] { @"C:\m\b.png" }, scene.Layers[0].Animation.AdditionalAnimationPaths);
+        Assert.Equal(ContentFitMode.TargetHeight, scene.Layers[0].Animation.FitMode);
+        Assert.Equal(216, scene.Layers[0].Animation.TargetHeight);
+        Assert.Equal(MovementType.Linear, scene.Layers[0].Movement.Type); // fresh, not the base's Circular
         Assert.Equal(BackgroundMode.SolidColor, scene.Background.Mode);
     }
 

@@ -1,26 +1,21 @@
 using System.Collections.Generic;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace WaBiBaBuSy.Models.Wallpaper;
 
 /// <summary>
-/// Configuration for cross-screen spanning wallpaper mode
+/// A scene: a background plus N sprite layers drawn bottom (index 0) to top.
 /// </summary>
-public class CrossScreenConfig
+public class CrossScreenConfig : IJsonOnDeserialized
 {
     /// <summary>
     /// Background layer configuration
     /// </summary>
     public BackgroundLayerConfig Background { get; set; } = new();
 
-    /// <summary>
-    /// Animation layer configuration
-    /// </summary>
-    public AnimationLayerConfig Animation { get; set; } = new();
-
-    /// <summary>
-    /// Animation movement speed in pixels per second
-    /// </summary>
-    public int AnimationSpeedPxPerSecond { get; set; } = 500;
+    /// <summary>Sprite layers in draw order (index 0 = bottom). Empty = background only.</summary>
+    public List<SceneLayer> Layers { get; set; } = new();
 
     /// <summary>
     /// List of client/monitor IDs selected for animation.
@@ -29,18 +24,20 @@ public class CrossScreenConfig
     public List<string> SelectedMonitorIds { get; set; } = new();
 
     /// <summary>
-    /// Animation distribution mode for orchestrator-based animation (Phase 3).
-    /// Sequential: Animation flows from one client to the next in order
-    /// Simultaneous: All clients animate at the same time
-    /// Default: Sequential
+    /// Unknown JSON keys. Catches the pre-layers single-sprite keys (<c>Animation</c>, <c>Movement</c>,
+    /// <c>DistributionMode</c>) so <see cref="LegacySceneMigration"/> can turn them into layer 0; cleared after load.
     /// </summary>
-    public AnimationDistributionMode DistributionMode { get; set; } = AnimationDistributionMode.Sequential;
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Legacy { get; set; }
 
-    /// <summary>
-    /// Movement configuration for animation positioning across the virtual canvas
-    /// </summary>
-    public MovementConfig Movement { get; set; } = new();
+    /// <summary>The bottom layer, or null for a background-only scene.</summary>
+    [JsonIgnore]
+    public SceneLayer? FirstLayer => Layers.Count > 0 ? Layers[0] : null;
 
+    /// <summary>A scene with one layer (default background).</summary>
+    public static CrossScreenConfig Single(SceneLayer layer) => new() { Layers = { layer } };
+
+    void IJsonOnDeserialized.OnDeserialized() => LegacySceneMigration.Apply(this);
 }
 
 /// <summary>

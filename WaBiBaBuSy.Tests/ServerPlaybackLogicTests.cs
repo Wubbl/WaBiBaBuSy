@@ -21,8 +21,9 @@ public class ServerPlaybackLogicTests
 
     private static CrossScreenConfig Scene(params string[] selected) => new()
     {
-        Animation = new AnimationLayerConfig { AnimationPath = "fish.gif", TargetHeight = 200 },
-        Movement = new MovementConfig { Type = MovementType.Linear, SpeedPixelsPerSecond = 300 },
+        Layers = { new SceneLayer {
+            Animation = new AnimationLayerConfig { AnimationPath = "fish.gif", TargetHeight = 200 },
+            Movement = new MovementConfig { Type = MovementType.Linear, SpeedPixelsPerSecond = 300 } } },
         SelectedMonitorIds = selected.ToList()
     };
 
@@ -122,12 +123,12 @@ public class ServerPlaybackLogicTests
     {
         var nodes = new[] { Node("SERVER_LOCALHOST_MONITOR_0", 0, 0, rtt: 500), Node("remote-a", 1, rtt: 12), Node("remote-b", 2, rtt: 30) };
         var scene = Scene();
-        scene.DistributionMode = AnimationDistributionMode.Simultaneous;
+        scene.Layers[0].Distribution = AnimationDistributionMode.Simultaneous;
 
         var plan = CrossScreenPlanner.Plan(scene, nodes, SeatMap.SingleRow(), 0f, new[] { 40f });
 
         Assert.Equal(30, plan.MaxRemoteRttMs);
-        Assert.True(plan.PerMonitor);
+        Assert.Equal(AnimationDistributionMode.Simultaneous, plan.EffectiveScene.Layers[0].Distribution);
     }
 
     [Fact]
@@ -136,14 +137,15 @@ public class ServerPlaybackLogicTests
         var map = SeatMap.SingleRow();
         map.CanvasMode = CanvasMode.Physical;
         var scene = Scene();
-        scene.Movement.SpeedUnit = SpeedUnit.CentimetersPerSecond;
-        scene.Movement.SpeedCmPerSecond = 10f;
+        scene.Layers[0].Movement.SpeedUnit = SpeedUnit.CentimetersPerSecond;
+        scene.Layers[0].Movement.SpeedCmPerSecond = 10f;
 
         var plan = CrossScreenPlanner.Plan(scene, new[] { Node("remote-a", 0, ppcm: 40f) }, map, 40f, Array.Empty<float>());
 
-        Assert.Equal(400f, plan.EffectiveMovement.SpeedPixelsPerSecond);
-        Assert.Equal(SpeedUnit.PixelsPerSecond, plan.EffectiveMovement.SpeedUnit);
-        Assert.Equal(SpeedUnit.CentimetersPerSecond, scene.Movement.SpeedUnit);   // the scene itself is untouched
+        Assert.Equal(400f, plan.EffectiveScene.Layers[0].Movement.SpeedPixelsPerSecond);
+        Assert.Equal(SpeedUnit.PixelsPerSecond, plan.EffectiveScene.Layers[0].Movement.SpeedUnit
+);
+        Assert.Equal(SpeedUnit.CentimetersPerSecond, scene.Layers[0].Movement.SpeedUnit);   // the scene itself is untouched
     }
 
     // ── TestNodeList ────────────────────────────────────────────────────────

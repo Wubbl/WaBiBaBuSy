@@ -429,37 +429,33 @@ public class WallpaperSyncCoordinator
     }
 
     /// <summary>
-    /// Send a cross-screen D2D command to a remote client.
-    /// Tells the client to start a D2D player with the given virtual canvas parameters,
-    /// synchronized to the shared start timestamp.
+    /// Send a cross-screen D2D scene to a remote client: the resolved scene (background + layers), this node's
+    /// seat-map layout and every asset, synchronized to the shared start timestamp. <paramref name="contentId"/> /
+    /// <paramref name="filePath"/> are the bottom layer's file (the command's primary download).
     /// </summary>
     public async Task StartCrossScreenD2DOnClientAsync(
         string clientId,
         string contentId,
         string filePath,
-        string backgroundColor,
-        int fitMode,
-        int virtualCanvasWidth,
-        int monitorOffsetX,
+        CrossScreenConfig scene,
+        NodeLayout? layout,
         long sharedStartTimestampMs,
-        int pixelsPerSecond,
-        bool perMonitorMode,
-        int movementType,
-        PatternConfig? pattern = null,
-        ColorGradingConfig? colorGrading = null,
-        MovementConfig? movement = null,
-        AnimationLayerConfig? animation = null,
-        Models.Wallpaper.BackgroundLayerConfig? background = null,
-        int targetMonitorIndex = 0,
-        int virtualCanvasHeight = 0,
-        int monitorOffsetY = 0,
-        int nodeOrder = 0,
-        NodeLayout? layout = null,
+        int targetMonitorIndex,
         IReadOnlyList<ContentAssetRef>? assets = null)
     {
         if (_syncService == null)
         {
             _logger.LogWarning("Cannot start cross-screen D2D: sync service not initialized");
+            return;
+        }
+
+        // Scene layers changed the LOAD format: a client older than the floor would show an empty scene. It gets no
+        // scene until auto-update brings it level (the room flags the seat "needs update").
+        var version = _syncService.GetConnectedClients().FirstOrDefault(c => c.ClientId == clientId)?.AppVersion;
+        if (!WaBiBaBuSy.Common.Version.VersionInfo.SupportsSceneLayers(version))
+        {
+            _logger.LogWarning("Client {ClientId} runs {Version}, scenes need {Min}+ — not sent until it updates",
+                clientId, version ?? "(unknown)", WaBiBaBuSy.Common.Version.VersionInfo.MinSceneLayersVersion);
             return;
         }
 
@@ -478,27 +474,12 @@ public class WallpaperSyncCoordinator
             Params = new SyncParameters
             {
                 RendererType = "d2d_crossscreen",
-                BackgroundColor = backgroundColor,
-                FitMode = fitMode,
+                BackgroundColor = scene.Background.ColorHex ?? "#000000",
                 Loop = true,
-                VirtualCanvasWidth = virtualCanvasWidth,
-                MonitorOffsetX = monitorOffsetX,
                 SharedStartTimestampMs = sharedStartTimestampMs,
-                PixelsPerSecond = pixelsPerSecond,
-                PerMonitorMode = perMonitorMode,
-                MovementType = movementType,
-                PatternJson = pattern != null ? JsonSerializer.Serialize(pattern) : string.Empty,
-                ColorGradingJson = colorGrading != null ? JsonSerializer.Serialize(colorGrading) : string.Empty,
-                // Full configs as JSON — remote clients must compute the exact same
-                // deterministic math as local players (Reversed/Endless/wave/orbit/
-                // seed/TargetHeight/backgrounds all matter for sync).
-                MovementJson = movement != null ? JsonSerializer.Serialize(movement) : string.Empty,
-                AnimationJson = animation != null ? JsonSerializer.Serialize(animation) : string.Empty,
-                BackgroundJson = background != null ? JsonSerializer.Serialize(background) : string.Empty,
                 TargetMonitorIndex = targetMonitorIndex,
-                VirtualCanvasHeight = virtualCanvasHeight,
-                MonitorOffsetY = monitorOffsetY,
-                NodeOrder = nodeOrder,
+                // The whole resolved scene: remote players must compute the exact same deterministic math.
+                SceneJson = JsonSerializer.Serialize(scene),
                 LayoutJson = layout != null ? JsonSerializer.Serialize(layout) : string.Empty
             }
         };
@@ -510,8 +491,8 @@ public class WallpaperSyncCoordinator
         _activeCrossScreenCommands[clientId] = command;
 
         _logger.LogInformation(
-            "Starting cross-screen D2D on client {ClientId}: canvas={VCW}px, offset={Offset}px, ts={Ts}ms, speed={Speed}px/s, perMonitor={PerMonitor}",
-            clientId, virtualCanvasWidth, monitorOffsetX, sharedStartTimestampMs, pixelsPerSecond, perMonitorMode);
+            "Starting cross-screen D2D on client {ClientId}: {Layers} layer(s), canvas={VCW}px, offset={Offset}px, ts={Ts}ms",
+            clientId, scene.Layers.Count, layout?.CanvasWidth ?? 0, layout?.OffsetX ?? 0, sharedStartTimestampMs);
 
         try
         {

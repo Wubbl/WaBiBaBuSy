@@ -1,11 +1,16 @@
 {
   // A still logo on every monitor flashing through party colors, fast.
   "Background": { "Mode": "SolidColor", "ColorHex": "#000000" },
-  "Animation": {
-    "AnimationPath": "../assets/bibabu-logo.png", "FitMode": "TargetHeight", "TargetHeight": 420,
-    "ColorGrading": { "Mode": "CycleColorList", "CyclesPerSecond": 1.0,
-                      "ColorList": ["#FF3B30", "#FFCC00", "#34C759", "#0A84FF", "#BF5AF2"] }
-  },
-  "Movement": { "Type": "Static" },
-  "DistributionMode": "Simultaneous"
+  "Layers": [
+    {
+      "Name": "bibabu-logo",
+      "Animation": {
+        "AnimationPath": "../assets/bibabu-logo.png", "FitMode": "TargetHeight", "TargetHeight": 420,
+        "ColorGrading": { "Mode": "CycleColorList", "CyclesPerSecond": 1.0,
+                          "ColorList": ["#FF3B30", "#FFCC00", "#34C759", "#0A84FF", "#BF5AF2"] }
+      },
+      "Movement": { "Type": "Static" },
+      "Distribution": "Simultaneous"
+    }
+  ]
 }

@@ -26,10 +26,32 @@ public partial class ZoneColorItem : ViewModelBase
     [ObservableProperty] private string _label    = "Zone";
 }
 
+/// <summary>One chip of the Scene editor's Layers strip.</summary>
+public partial class LayerRow : ViewModelBase
+{
+    public LayerRow(SceneLayer layer)
+    {
+        Layer = layer;
+        _name = layer.Name;
+        _enabled = layer.Enabled;
+    }
+
+    /// <summary>The layer's config; replaced with the editor fields whenever this row was the selected one.</summary>
+    public SceneLayer Layer { get; set; }
+
+    [ObservableProperty] private string _name;
+    [ObservableProperty] private bool _enabled;
+    [ObservableProperty] private bool _isSelected;
+
+    /// <summary>Rename box of the chip's context flyout is open.</summary>
+    [ObservableProperty] private bool _isRenaming;
+}
+
 /// <summary>
-/// The Scene editor's draft: every field of one <see cref="CrossScreenConfig"/>, loaded with
-/// <see cref="LoadFromConfig"/> and built with <see cref="BuildConfig"/>. Hosted by the main window's
-/// right panel (<c>SceneEditorPanel</c>); targets and preview come from the host.
+/// The Scene editor's draft: the background plus every layer of one <see cref="CrossScreenConfig"/>, loaded with
+/// <see cref="LoadFromConfig"/> and built with <see cref="BuildConfig"/>. The Content / Motion / Look / Effects
+/// fields edit the selected layer (<see cref="SelectedLayerIndex"/>); the other layers wait in <see cref="Layers"/>.
+/// Hosted by the main window's right panel (<c>SceneEditorPanel</c>); targets and preview come from the host.
 /// </summary>
 public partial class CrossScreenConfigViewModel : ViewModelBase
 {
@@ -163,6 +185,25 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     // Tier 0.7: Wave mode — per-node clock shift in Simultaneous distribution (ms per node).
     [ObservableProperty] private int _nodePhaseDelayMs = 0;
 
+    // ── Layers (roadmap 2.3) ──
+
+    /// <summary>The scene's layers, bottom first (the Layers strip, left to right).</summary>
+    public ObservableCollection<LayerRow> Layers { get; } = new();
+
+    /// <summary>Layer the Content / Motion / Look / Effects tabs edit.</summary>
+    [ObservableProperty] private int _selectedLayerIndex;
+
+    /// <summary>Selected layer's opacity, 0–100 % (Look tab).</summary>
+    [ObservableProperty] private int _layerOpacityPercent = 100;
+
+    /// <summary>Selected layer's clock offset in ms: it runs this far ahead of the scene (Motion tab).</summary>
+    [ObservableProperty] private int _layerPhaseOffsetMs;
+
+    /// <summary>More than one layer: the strip shows remove / reorder.</summary>
+    public bool HasSeveralLayers => Layers.Count > 1;
+
+    private bool _switchingLayer;
+
     /// <summary>Sequential radio button: true = one canvas spans all targets. Setting false is ignored (the other button sets its mode).</summary>
     public bool IsSequentialMode
     {
@@ -216,6 +257,119 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         // UI-only randomness: the chosen seed is broadcast as config, so every node still
         // computes the same deterministic path from it.
         RandomSeed = Random.Shared.Next(1, 999_999);
+    }
+
+    partial void OnSelectedLayerIndexChanging(int oldValue, int newValue)
+    {
+        // Park the fields of the layer we leave before the new one is loaded.
+        if (!_switchingLayer && oldValue >= 0 && oldValue < Layers.Count) Layers[oldValue].Layer = BuildLayer();
+    }
+
+    partial void OnSelectedLayerIndexChanged(int value)
+    {
+        if (_switchingLayer || value < 0 || value >= Layers.Count) return;
+        _switchingLayer = true;
+        try { LoadLayer(Layers[value].Layer); }
+        finally { _switchingLayer = false; }
+        MarkSelectedRow();
+    }
+
+    private void MarkSelectedRow()
+    {
+        for (int i = 0; i < Layers.Count; i++) Layers[i].IsSelected = i == SelectedLayerIndex;
+    }
+
+    /// <summary>Select a layer chip.</summary>
+    [RelayCommand]
+    private void SelectLayer(LayerRow? row)
+    {
+        int i = row == null ? -1 : Layers.IndexOf(row);
+        if (i >= 0) SelectedLayerIndex = i;
+    }
+
+    /// <summary>Add an empty layer on top and select it.</summary>
+    [RelayCommand]
+    private void AddLayer() => InsertLayer(Layers.Count, new SceneLayer { Name = $"Layer {Layers.Count + 1}" });
+
+    /// <summary>Copy the selected layer (current edits included) above itself and select the copy.</summary>
+    [RelayCommand]
+    private void DuplicateLayer()
+    {
+        var copy = BuildLayer();
+        copy.Name = Layers[SelectedLayerIndex].Name + " copy";
+        InsertLayer(SelectedLayerIndex + 1, copy);
+    }
+
+    /// <summary>Remove the selected layer (never the last one).</summary>
+    [RelayCommand]
+    private void RemoveLayer()
+    {
+        if (Layers.Count <= 1) return;
+        int i = SelectedLayerIndex;
+        _switchingLayer = true;
+        try
+        {
+            Layers.RemoveAt(i);
+            SelectedLayerIndex = Math.Min(i, Layers.Count - 1);
+            LoadLayer(Layers[SelectedLayerIndex].Layer);
+        }
+        finally { _switchingLayer = false; }
+        LayersChanged();
+    }
+
+    /// <summary>◀: draw the selected layer one step lower.</summary>
+    [RelayCommand]
+    private void MoveLayerDown() => MoveSelectedLayer(-1);
+
+    /// <summary>▶: draw the selected layer one step higher.</summary>
+    [RelayCommand]
+    private void MoveLayerUp() => MoveSelectedLayer(+1);
+
+    private void MoveSelectedLayer(int delta)
+    {
+        int from = SelectedLayerIndex, to = from + delta;
+        if (to < 0 || to >= Layers.Count) return;
+        Layers[from].Layer = BuildLayer();
+        _switchingLayer = true;
+        try
+        {
+            Layers.Move(from, to);
+            SelectedLayerIndex = to;
+        }
+        finally { _switchingLayer = false; }
+        LayersChanged();
+    }
+
+    private void InsertLayer(int index, SceneLayer layer)
+    {
+        if (SelectedLayerIndex >= 0 && SelectedLayerIndex < Layers.Count) Layers[SelectedLayerIndex].Layer = BuildLayer();
+        Layers.Insert(index, NewRow(layer));
+        _switchingLayer = true;
+        try
+        {
+            SelectedLayerIndex = index;
+            LoadLayer(layer);
+        }
+        finally { _switchingLayer = false; }
+        LayersChanged();
+    }
+
+    private LayerRow NewRow(SceneLayer layer)
+    {
+        var row = new LayerRow(layer);
+        row.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(LayerRow.Name) or nameof(LayerRow.Enabled)) OnPropertyChanged(nameof(Layers));
+        };
+        return row;
+    }
+
+    /// <summary>Selection marks, the strip's button states and one change notification for the host's draft update.</summary>
+    private void LayersChanged()
+    {
+        MarkSelectedRow();
+        OnPropertyChanged(nameof(HasSeveralLayers));
+        OnPropertyChanged(nameof(Layers));
     }
 
     public bool IsLinearMode => SelectedMovementType?.Type == MovementType.Linear;
@@ -378,6 +532,10 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         }
         AnimationPath = path;
         AdditionalAnimationPaths.Remove(path);
+        // A fresh "Layer N" takes the file's name, so the strip reads "Fish", "Bubbles", …
+        if (SelectedLayerIndex >= 0 && SelectedLayerIndex < Layers.Count
+            && System.Text.RegularExpressions.Regex.IsMatch(Layers[SelectedLayerIndex].Name, @"^Layer \d+$"))
+            Layers[SelectedLayerIndex].Name = Path.GetFileNameWithoutExtension(path);
     }
 
     public CrossScreenConfigViewModel()
@@ -455,10 +613,39 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         int zIdx = 0;
         foreach (var hex in paletteHexes)
             IconZonePalette.Add(new ZoneColorItem { ColorHex = hex, Label = $"Zone {++zIdx}" });
-        RotateWithPath = config.Animation.RotateWithPath;
-        AnimationPath = config.Animation.AnimationPath;
-        AnimationHeight = config.Animation.TargetHeight;
-        FitModeIndex = config.Animation.FitMode switch
+
+        // IconZone palette toggle
+        IconZonePaletteEnabled = config.Background.IconZonePaletteEnabled;
+        IconFadePaddingPx = config.Background.IconFadePaddingPx;
+        IconZoneExpansionPx = config.Background.IconZoneExpansionPx;
+
+        // Layers: a background-only scene still gets one (empty) layer to edit.
+        var layers = config.Layers.Count > 0 ? config.Layers : new List<SceneLayer> { new() { Name = "Layer 1" } };
+        _switchingLayer = true;
+        try
+        {
+            Layers.Clear();
+            foreach (var layer in layers) Layers.Add(NewRow(Clone(layer)));
+            SelectedLayerIndex = 0;
+            LoadLayer(Layers[0].Layer);
+        }
+        finally { _switchingLayer = false; }
+        LayersChanged();
+    }
+
+    private static SceneLayer Clone(SceneLayer layer) =>
+        System.Text.Json.JsonSerializer.Deserialize<SceneLayer>(System.Text.Json.JsonSerializer.Serialize(layer))!;
+
+    /// <summary>Show one layer in the Content / Motion / Look / Effects fields.</summary>
+    private void LoadLayer(SceneLayer layer)
+    {
+        var anim = layer.Animation;
+        LayerOpacityPercent = (int)MathF.Round(Math.Clamp(layer.Opacity, 0f, 1f) * 100f);
+        LayerPhaseOffsetMs = (int)Math.Clamp(layer.PhaseOffsetMs, int.MinValue, int.MaxValue);
+        RotateWithPath = anim.RotateWithPath;
+        AnimationPath = anim.AnimationPath;
+        AnimationHeight = anim.TargetHeight;
+        FitModeIndex = anim.FitMode switch
         {
             ContentFitMode.Center       => 0,
             ContentFitMode.Fit          => 1,
@@ -468,12 +655,11 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             _                           => 0
         };
         // The unit flags are not loaded: the room decides which of the two stored values is shown.
-        AnimationHeightCm = config.Animation.TargetHeightCm;
-        AnimationSpeedCm = config.Movement.SpeedCmPerSecond;
-        AnimationLoop = config.Animation.Loop;
-        AnimationSpeed = config.AnimationSpeedPxPerSecond;
+        AnimationHeightCm = anim.TargetHeightCm;
+        AnimationSpeedCm = layer.Movement.SpeedCmPerSecond;
+        AnimationLoop = anim.Loop;
 
-        VerticalAlignmentIndex = config.Animation.VerticalAlign switch
+        VerticalAlignmentIndex = anim.VerticalAlign switch
         {
             VerticalAlignment.Top => 0,
             VerticalAlignment.Center => 1,
@@ -481,7 +667,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             _ => 1
         };
 
-        AnimationDistributionModeIndex = config.DistributionMode switch
+        AnimationDistributionModeIndex = layer.Distribution switch
         {
             WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Sequential => 0,
             WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Simultaneous => 1,
@@ -489,7 +675,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         };
 
         // Restore movement configuration
-        var movement = config.Movement;
+        var movement = layer.Movement;
         SelectedMovementType = AllMovementOptions.FirstOrDefault(o => o.Type == movement.Type) ?? AllMovementOptions[0];
         AnimationSpeed = (int)movement.SpeedPixelsPerSecond;
         MovementAngle = movement.DirectionAngleDegrees;
@@ -502,13 +688,13 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         RandomSeed = movement.RandomSeed;
         RandomStepIntervalMs = movement.RandomStepIntervalMs;
         NodePhaseDelayMs = movement.NodePhaseDelayMs;
-        SpeedMultiplier = config.Animation.SpeedMultiplier;
-        FaceTravelDirection = config.Animation.FaceTravelDirection;
+        SpeedMultiplier = anim.SpeedMultiplier;
+        FaceTravelDirection = anim.FaceTravelDirection;
 
-        _loadedMovement = config.Movement;
-        _loadedCenterInitialPosition = config.Animation.CenterInitialPosition;
+        _loadedMovement = movement;
+        _loadedCenterInitialPosition = anim.CenterInitialPosition;
 
-        var fx = _loadedEffects = SpriteEffectsForm.From(config.Animation.Effects);
+        var fx = _loadedEffects = SpriteEffectsForm.From(anim.Effects);
         TrailEnabled = fx.TrailEnabled;
         TrailCount = fx.TrailCount;
         TrailSpacingMs = fx.TrailSpacingMs;
@@ -523,7 +709,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         BezelDurationMs = fx.BezelDurationMs;
 
         // Color grading
-        var grading = config.Animation.ColorGrading ?? new ColorGradingConfig();
+        var grading = anim.ColorGrading ?? new ColorGradingConfig();
         ColorGradingModeIndex = (int)grading.Mode;
         ColorGradingCyclesPerSecond = grading.CyclesPerSecond;
         ColorGradingGradientA = grading.GradientA;
@@ -535,7 +721,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         ColorGradingColoredCellPercentage = grading.ColoredCellPercentage;
 
         // Pattern
-        var pattern = config.Animation.Pattern;
+        var pattern = anim.Pattern;
         PatternEnabled = pattern != null;
         if (pattern != null)
         {
@@ -552,17 +738,16 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
 
         // Multi-image
         AdditionalAnimationPaths.Clear();
-        foreach (var path in config.Animation.AdditionalAnimationPaths)
+        foreach (var path in anim.AdditionalAnimationPaths)
             AdditionalAnimationPaths.Add(path);
-        MultiImageSpread = config.Animation.MultiImageSpread;
-        MultiImagePhaseJitterMs = config.Animation.MultiImagePhaseJitterMs;
-
-        // IconZone palette toggle
-        IconZonePaletteEnabled = config.Background.IconZonePaletteEnabled;
-        IconFadePaddingPx = config.Background.IconFadePaddingPx;
-        IconZoneExpansionPx = config.Background.IconZoneExpansionPx;
+        MultiImageSpread = anim.MultiImageSpread;
+        MultiImagePhaseJitterMs = anim.MultiImagePhaseJitterMs;
     }
 
+    /// <summary>
+    /// The whole scene: background plus every layer (the selected one from the editor fields), unit flags from the room.
+    /// Returns fresh objects — the editor keeps no reference into the result.
+    /// </summary>
     public CrossScreenConfig BuildConfig()
     {
         var backgroundMode = BackgroundModeIndex switch
@@ -575,22 +760,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             _ => BackgroundMode.SolidColor
         };
 
-        var verticalAlign = VerticalAlignmentIndex switch
-        {
-            0 => VerticalAlignment.Top,
-            1 => VerticalAlignment.Center,
-            2 => VerticalAlignment.Bottom,
-            _ => VerticalAlignment.Center
-        };
-
-        var distributionMode = AnimationDistributionModeIndex switch
-        {
-            0 => WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Sequential,
-            1 => WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Simultaneous,
-            _ => WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Sequential
-        };
-
-        var movementType = SelectedMovementType.Type;
+        if (SelectedLayerIndex >= 0 && SelectedLayerIndex < Layers.Count) Layers[SelectedLayerIndex].Layer = BuildLayer();
 
         var config = new CrossScreenConfig
         {
@@ -610,6 +780,47 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                 IconFadePaddingPx = IconFadePaddingPx,
                 IconZoneExpansionPx = IconZoneExpansionPx
             },
+            Layers = Layers.Select(r =>
+            {
+                var layer = Clone(r.Layer);
+                layer.Name = r.Name;
+                layer.Enabled = r.Enabled;
+                return layer;
+            }).ToList(),
+            SelectedMonitorIds = new List<string>(),   // targets are set by the caller (room selection / playlist item)
+        };
+        PhysicalUnits.ApplyRoomUnits(config, UsePhysicalUnits);
+        return config;
+    }
+
+    /// <summary>The selected layer as edited (name / enabled come from its chip).</summary>
+    private SceneLayer BuildLayer()
+    {
+        var verticalAlign = VerticalAlignmentIndex switch
+        {
+            0 => VerticalAlignment.Top,
+            1 => VerticalAlignment.Center,
+            2 => VerticalAlignment.Bottom,
+            _ => VerticalAlignment.Center
+        };
+
+        var distributionMode = AnimationDistributionModeIndex switch
+        {
+            0 => WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Sequential,
+            1 => WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Simultaneous,
+            _ => WaBiBaBuSy.Models.Wallpaper.AnimationDistributionMode.Sequential
+        };
+
+        var movementType = SelectedMovementType.Type;
+        var row = SelectedLayerIndex >= 0 && SelectedLayerIndex < Layers.Count ? Layers[SelectedLayerIndex] : null;
+
+        var layer = new SceneLayer
+        {
+            Name = row?.Name ?? "Layer",
+            Enabled = row?.Enabled ?? true,
+            Opacity = Math.Clamp(LayerOpacityPercent, 0, 100) / 100f,
+            PhaseOffsetMs = LayerPhaseOffsetMs,
+            Distribution = distributionMode,
             Animation = new AnimationLayerConfig
             {
                 AnimationPath = AnimationPath,
@@ -656,11 +867,9 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                     Seed = PatternSeed
                 } : null,
                 MultiImageSpread = MultiImageSpread,
-                MultiImagePhaseJitterMs = MultiImagePhaseJitterMs
+                MultiImagePhaseJitterMs = MultiImagePhaseJitterMs,
+                CenterInitialPosition = _loadedCenterInitialPosition
             },
-            AnimationSpeedPxPerSecond = AnimationSpeed,
-            SelectedMonitorIds = new List<string>(),   // targets are set by the caller (room selection / playlist item)
-            DistributionMode = distributionMode,
             Movement = new MovementConfig
             {
                 Type = movementType,
@@ -685,9 +894,9 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                 OrbitCenterY = _loadedMovement?.OrbitCenterY,
             }
         };
-        config.Animation.CenterInitialPosition = _loadedCenterInitialPosition;
-        PhysicalUnits.ApplyRoomUnits(config, UsePhysicalUnits);
-        return config;
+        if (row != null && string.IsNullOrWhiteSpace(row.Name) && !string.IsNullOrWhiteSpace(AnimationPath))
+            layer.Name = Path.GetFileNameWithoutExtension(AnimationPath);
+        return layer;
     }
 
     [RelayCommand]

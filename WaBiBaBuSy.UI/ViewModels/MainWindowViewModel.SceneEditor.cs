@@ -45,13 +45,9 @@ public partial class MainWindowViewModel
     [NotifyPropertyChangedFor(nameof(RoomLayout))]
     private SeatMapLayoutResult? _draftLayout;
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(RoomSpriteImagePath))]
-    private string? _draftSpriteImagePath;
-
     /// <summary>True: the room paints the editor draft; false: the running scene. Follows the panel, toggled by the badge.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(RoomSharedStartMs), nameof(RoomLayout), nameof(RoomSpriteImagePath), nameof(RoomScene), nameof(PreviewBadgeText))]
+    [NotifyPropertyChangedFor(nameof(RoomSharedStartMs), nameof(RoomLayout), nameof(RoomScene), nameof(PreviewBadgeText))]
     private bool _isPreviewDraft = true;
 
     /// <summary>Right panel expanded (false = thin rail).</summary>
@@ -82,8 +78,6 @@ public partial class MainWindowViewModel
     public CrossScreenConfig? RoomScene => IsPreviewDraft ? DraftScene : ActiveScene;
     /// <summary>Shared clock epoch for the room; 0 = design clock (draft).</summary>
     public long RoomSharedStartMs => IsPreviewDraft ? 0 : ActiveSharedStartMs;
-    /// <summary>Sprite image the room paints.</summary>
-    public string? RoomSpriteImagePath => IsPreviewDraft ? DraftSpriteImagePath : ActiveSpriteImagePath;
     /// <summary>Layout the room paints with (draft targets, or the layout the players were started with).</summary>
     public SeatMapLayoutResult? RoomLayout => IsPreviewDraft ? DraftLayout : ActiveLayout;
     /// <summary>Draft clock multiplier for the room.</summary>
@@ -96,8 +90,6 @@ public partial class MainWindowViewModel
     public string TargetsSummary => SelectedNodeCount == 0
         ? "Targets: all nodes (select nodes in the room to narrow)"
         : $"Targets: {SelectedNodeCount} selected";
-
-    partial void OnActiveSpriteImagePathChanged(string? value) => OnPropertyChanged(nameof(RoomSpriteImagePath));
 
     /// <summary>Opening the panel previews the draft, collapsing it shows what is live.</summary>
     partial void OnIsRightPanelOpenChanged(bool value) => IsPreviewDraft = value;
@@ -117,15 +109,22 @@ public partial class MainWindowViewModel
             IconZonePaletteHexes = PaletteGenerator.GenerateHarmonious(8),
             IconCorridorColorHex = "#1E1E1E"
         },
-        Animation = new AnimationLayerConfig
+        Layers =
         {
-            AnimationPath = string.Empty,
-            TargetHeight = 720,
-            Loop = true,
-            VerticalAlign = WaBiBaBuSy.Models.Wallpaper.VerticalAlignment.Center,
-            RotateWithPath = true
-        },
-        AnimationSpeedPxPerSecond = 500
+            new SceneLayer
+            {
+                Name = "Layer 1",
+                Animation = new AnimationLayerConfig
+                {
+                    AnimationPath = string.Empty,
+                    TargetHeight = 720,
+                    Loop = true,
+                    VerticalAlign = WaBiBaBuSy.Models.Wallpaper.VerticalAlignment.Center,
+                    RotateWithPath = true
+                },
+                Movement = new MovementConfig { SpeedPixelsPerSecond = 500 }
+            }
+        }
     };
 
     /// <summary>Called once at the end of the constructor.</summary>
@@ -184,6 +183,12 @@ public partial class MainWindowViewModel
     /// <summary>Message from the last logged <see cref="UpdateDraft"/> failure, to de-duplicate log spam.</summary>
     private string? _lastDraftUpdateError;
 
+    /// <summary>"File not found: x.gif" for every enabled layer whose file is set but missing on this machine.</summary>
+    private static IEnumerable<string> MissingLayerFiles(CrossScreenConfig config) =>
+        config.Layers
+            .Where(l => l.Enabled && !string.IsNullOrWhiteSpace(l.Animation.AnimationPath) && !File.Exists(l.Animation.AnimationPath))
+            .Select(l => $"File not found: {Path.GetFileName(l.Animation.AnimationPath)}");
+
     private void UpdateDraft()
     {
         try
@@ -194,17 +199,16 @@ public partial class MainWindowViewModel
             var layout = nodes.Count == 0 ? new SeatMapLayoutResult() : BuildSeatLayout(nodes);
 
             DraftLayout = layout;
-            DraftSpriteImagePath = ResolveSpriteImagePath(config.Animation.AnimationPath);
             // The 2 s topology refresh re-runs this: only a real change may restart the draft clock.
             if (!SceneChecks.SameScene(DraftScene, config)) DraftScene = config;
 
             var warnings = SceneChecks.Validate(config, layout).ToList();
-            var path = config.Animation.AnimationPath;
             // UI-only check (Models stays pure): flag a file the editor points at but that no longer
             // exists, instead of only catching it once the user hits Play.
-            if (!string.IsNullOrWhiteSpace(path) && !File.Exists(path))
-                warnings.Add($"File not found: {Path.GetFileName(path)}");
-            SceneEditor.SetChecks(warnings, SceneChecks.CrossingReadout(config, layout));
+            warnings.AddRange(MissingLayerFiles(config));
+            var selected = SceneEditor.SelectedLayerIndex >= 0 && SceneEditor.SelectedLayerIndex < config.Layers.Count
+                ? config.Layers[SceneEditor.SelectedLayerIndex] : config.FirstLayer;
+            SceneEditor.SetChecks(warnings, SceneChecks.CrossingReadout(selected, layout));
 
             _lastDraftUpdateError = null;
         }
@@ -296,11 +300,12 @@ public partial class MainWindowViewModel
         try
         {
             var config = SceneEditor.BuildConfig();
-            var path = config.Animation.AnimationPath;
-            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            var missing = MissingLayerFiles(config).ToList();
+            bool anyFile = config.Layers.Any(l => l.Enabled && !string.IsNullOrWhiteSpace(l.Animation.AnimationPath));
+            if (!anyFile || missing.Count > 0)
             {
                 var warnings = SceneEditor.Warnings.ToList();
-                warnings.Insert(0, string.IsNullOrWhiteSpace(path) ? "Pick an animation file from the strip" : $"File not found: {Path.GetFileName(path)}");
+                warnings.InsertRange(0, anyFile ? missing : new List<string> { "Pick an animation file from the strip" });
                 SceneEditor.SetChecks(warnings.Distinct().ToList(), SceneEditor.SpeedReadout);
                 return;
             }

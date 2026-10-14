@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using WaBiBaBuSy.Models.Testing;
 using WaBiBaBuSy.Models.Wallpaper;
 
 namespace WaBiBaBuSy.Models.Content;
@@ -45,24 +46,30 @@ public static class SceneAssets
             list.Add((path, role));
         }
 
-        Add(config.Animation.AnimationPath, AssetRole.Primary);
-        foreach (var p in config.Animation.AdditionalAnimationPaths) Add(p, AssetRole.Additional);
+        // Role "primary" = the bottom layer's main file; every other sprite file is "additional".
+        // Receivers map files by OriginalPath, so the role carries no layer index.
+        for (int i = 0; i < config.Layers.Count; i++)
+        {
+            var anim = config.Layers[i].Animation;
+            Add(anim.AnimationPath, i == 0 ? AssetRole.Primary : AssetRole.Additional);
+            foreach (var p in anim.AdditionalAnimationPaths) Add(p, AssetRole.Additional);
+        }
         if (config.Background.Mode is BackgroundMode.StretchedImage or BackgroundMode.TiledImage)
             Add(config.Background.ImagePath, AssetRole.Background);
         return list;
     }
 
     /// <summary>
-    /// Rewrite a scene's file references to local paths. Unknown paths are kept when the file exists
-    /// locally (same machine); an additional image that is missing here is replaced by the primary image —
-    /// never dropped, because the per-cell image pick is <c>hash % imageCount</c> and one image less would
-    /// shuffle every cell on this machine only (review 2026-10-13 E8). A missing background image degrades to
-    /// solid color.
-    /// Returns clones — the input is not modified.
+    /// Rewrite every file reference of a scene to local paths. Unknown paths are kept when the file exists
+    /// locally (same machine). Per layer: an additional image that is missing here is replaced by that layer's
+    /// primary — never dropped, because the per-cell image pick is <c>hash % imageCount</c> and one image less
+    /// would shuffle every cell on this machine only (review 2026-10-13 E8); a layer whose primary file is
+    /// missing is disabled on this machine (the other layers still play). A missing background image degrades
+    /// to solid color. <paramref name="primaryLocalPath"/>, when given, is the bottom layer's downloaded file.
+    /// Returns a clone — the input is not modified.
     /// </summary>
-    public static (AnimationLayerConfig Animation, BackgroundLayerConfig Background) RewriteToLocal(
-        AnimationLayerConfig animation, BackgroundLayerConfig background,
-        IReadOnlyDictionary<string, string> originalToLocal, string? primaryLocalPath)
+    public static CrossScreenConfig RewriteToLocal(CrossScreenConfig scene,
+        IReadOnlyDictionary<string, string> originalToLocal, string? primaryLocalPath = null)
     {
         string? Map(string? original)
         {
@@ -71,15 +78,26 @@ public static class SceneAssets
             return File.Exists(original) ? original : null;
         }
 
-        var anim = System.Text.Json.JsonSerializer.Deserialize<AnimationLayerConfig>(System.Text.Json.JsonSerializer.Serialize(animation))!;
-        if (!string.IsNullOrEmpty(primaryLocalPath)) anim.AnimationPath = primaryLocalPath;
-        else anim.AnimationPath = Map(anim.AnimationPath) ?? anim.AnimationPath;
-        anim.AdditionalAnimationPaths = anim.AdditionalAnimationPaths
-            .Where(p => !string.IsNullOrWhiteSpace(p))
-            .Select(p => Map(p) ?? anim.AnimationPath)
-            .ToList();
+        var clone = SceneFile.Clone(scene);
+        for (int i = 0; i < clone.Layers.Count; i++)
+        {
+            var anim = clone.Layers[i].Animation;
+            var primary = i == 0 && !string.IsNullOrEmpty(primaryLocalPath) && File.Exists(primaryLocalPath)
+                ? primaryLocalPath
+                : Map(anim.AnimationPath);
+            if (primary == null)
+            {
+                if (!string.IsNullOrWhiteSpace(anim.AnimationPath)) clone.Layers[i].Enabled = false;
+                continue;
+            }
+            anim.AnimationPath = primary;
+            anim.AdditionalAnimationPaths = anim.AdditionalAnimationPaths
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Select(p => Map(p) ?? primary)
+                .ToList();
+        }
 
-        var bg = System.Text.Json.JsonSerializer.Deserialize<BackgroundLayerConfig>(System.Text.Json.JsonSerializer.Serialize(background))!;
+        var bg = clone.Background;
         if (bg.Mode is BackgroundMode.StretchedImage or BackgroundMode.TiledImage)
         {
             var local = Map(bg.ImagePath);
@@ -90,6 +108,6 @@ public static class SceneAssets
             }
             else bg.ImagePath = local;
         }
-        return (anim, bg);
+        return clone;
     }
 }

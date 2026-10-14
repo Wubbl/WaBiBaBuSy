@@ -53,26 +53,33 @@ public static class SuggestKit
     }
 
     /// <summary>
-    /// A fresh scene for a recipe: the base scene's monitor selection and distribution mode, a solid background
-    /// from <see cref="BackgroundHex"/>, <paramref name="sprites"/> as the animation files, scaled to
+    /// A fresh scene for a recipe: the base scene's monitor selection and its first layer's distribution mode, a solid background
+    /// from <see cref="BackgroundHex"/>, <paramref name="sprites"/> as the one layer's animation files, scaled to
     /// <paramref name="heightFraction"/> of the screen height. Movement is a default <see cref="MovementConfig"/>.
     /// </summary>
     public static CrossScreenConfig NewScene(CrossScreenConfig baseScene, SelectionProfile s,
         IReadOnlyList<MediaProfile> sprites, double heightFraction) => new()
     {
         SelectedMonitorIds = new List<string>(baseScene.SelectedMonitorIds),
-        DistributionMode = baseScene.DistributionMode,
         Background = new BackgroundLayerConfig { Mode = BackgroundMode.SolidColor, ColorHex = BackgroundHex(s) },
-        Animation = new AnimationLayerConfig
+        Layers =
         {
-            AnimationPath = sprites[0].Path,
-            AdditionalAnimationPaths = sprites.Skip(1).Select(f => f.Path).ToList(),
-            FitMode = ContentFitMode.TargetHeight,
-            SizeUnit = SizeUnit.Pixels,
-            TargetHeight = (int)Math.Round(heightFraction * s.ScreenHeight),
-            SpeedMultiplier = 1.0,
+            new SceneLayer
+            {
+                Name = System.IO.Path.GetFileNameWithoutExtension(sprites[0].Path),
+                Distribution = baseScene.FirstLayer?.Distribution ?? AnimationDistributionMode.Sequential,
+                Animation = new AnimationLayerConfig
+                {
+                    AnimationPath = sprites[0].Path,
+                    AdditionalAnimationPaths = sprites.Skip(1).Select(f => f.Path).ToList(),
+                    FitMode = ContentFitMode.TargetHeight,
+                    SizeUnit = SizeUnit.Pixels,
+                    TargetHeight = (int)Math.Round(heightFraction * s.ScreenHeight),
+                    SpeedMultiplier = 1.0,
+                },
+                Movement = new MovementConfig(),
+            }
         },
-        Movement = new MovementConfig(),
     };
 
     private static (int r, int g, int b) Parse(string hex)

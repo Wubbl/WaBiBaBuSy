@@ -40,18 +40,23 @@ public partial class PlaylistItemRow : ViewModelBase
 
     // --- Detail lines -------------------------------------------------------
 
-    /// <summary>Source content: file name (+ extra images), render height and fit mode.</summary>
+    /// <summary>The bottom layer the detail lines describe (an empty one for a background-only scene).</summary>
+    private SceneLayer Bottom => Model.Config.FirstLayer ?? new SceneLayer();
+
+    /// <summary>Bottom layer's file name (+ extra images), render height and fit mode, then "+ N layers".</summary>
     public string SourceSummary
     {
         get
         {
-            var anim = Model.Config.Animation;
+            var anim = Bottom.Animation;
             var paths = anim.GetAllAnimationPaths();
             var primary = paths.Count > 0
                 ? System.IO.Path.GetFileName(paths[0])
                 : "(no file)";
             var extra = paths.Count > 1 ? $" +{paths.Count - 1} more" : string.Empty;
-            return $"{primary}{extra} · {anim.TargetHeight}px · {anim.FitMode}";
+            int others = Model.Config.Layers.Count - 1;
+            var layers = others > 0 ? $" + {others} layer{(others == 1 ? "" : "s")}" : string.Empty;
+            return $"{primary}{extra} · {anim.TargetHeight}px · {anim.FitMode}{layers}";
         }
     }
 
@@ -60,7 +65,7 @@ public partial class PlaylistItemRow : ViewModelBase
     {
         get
         {
-            var m = Model.Config.Movement;
+            var m = Bottom.Movement;
             var parts = new List<string>
             {
                 m.Type.ToString(),
@@ -101,7 +106,7 @@ public partial class PlaylistItemRow : ViewModelBase
             var targets = ids.Count == 0
                 ? "all monitors"
                 : $"{ids.Count} monitor{(ids.Count == 1 ? "" : "s")}";
-            return $"{Model.Config.DistributionMode} · {targets}";
+            return $"{Bottom.Distribution} · {targets}";
         }
     }
 
@@ -113,7 +118,7 @@ public partial class PlaylistItemRow : ViewModelBase
             var cfg = Model.Config;
             var parts = new List<string> { $"bg {cfg.Background.Mode}" };
 
-            var pattern = cfg.Animation.Pattern;
+            var pattern = Bottom.Animation.Pattern;
             if (pattern == null)
             {
                 parts.Add("no pattern");
@@ -129,7 +134,7 @@ public partial class PlaylistItemRow : ViewModelBase
                 parts.Add($"pattern {grid}, gap {pattern.SpacingX:0}×{pattern.SpacingY:0}{jitter}");
             }
 
-            var grading = cfg.Animation.ColorGrading;
+            var grading = Bottom.Animation.ColorGrading;
             if (grading.Mode == ColorGradingMode.None)
             {
                 parts.Add("no grading");
@@ -145,7 +150,7 @@ public partial class PlaylistItemRow : ViewModelBase
                 parts.Add($"{grading.Mode}{detail}");
             }
 
-            parts.AddRange(SpriteEffects.Describe(cfg.Animation.Effects));
+            parts.AddRange(SpriteEffects.Describe(Bottom.Animation.Effects));
 
             return string.Join(" · ", parts);
         }

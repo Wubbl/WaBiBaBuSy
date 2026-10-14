@@ -1,6 +1,23 @@
 {
-  "Background": { "Mode": "SolidColor", "ColorHex": "#202020" },
-  "Animation": { "AnimationPath": "../assets/marker.png", "TargetHeight": 64, "FitMode": "Center", "Loop": true, "FaceTravelDirection": true },
-  "Movement": { "Type": "Bounce", "SpeedPixelsPerSecond": 600 },
-  "DistributionMode": "Sequential"
+  "Background": {
+    "Mode": "SolidColor",
+    "ColorHex": "#202020"
+  },
+  "Layers": [
+    {
+      "Name": "marker",
+      "Animation": {
+        "AnimationPath": "../assets/marker.png",
+        "TargetHeight": 64,
+        "FitMode": "Center",
+        "Loop": true,
+        "FaceTravelDirection": true
+      },
+      "Movement": {
+        "Type": "Bounce",
+        "SpeedPixelsPerSecond": 600
+      },
+      "Distribution": "Sequential"
+    }
+  ]
 }

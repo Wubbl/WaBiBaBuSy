@@ -146,10 +146,13 @@ public class PhysicalUnitsTests
     {
         var cfg = new CrossScreenConfig
         {
-            Movement = new MovementConfig { SpeedUnit = SpeedUnit.CentimetersPerSecond, SpeedCmPerSecond = 10f, SpeedPixelsPerSecond = 1f, Reversed = true, NodePhaseDelayMs = 50 },
-            Animation = new AnimationLayerConfig { SizeUnit = SizeUnit.Centimeters, TargetHeightCm = 10f, TargetHeight = 1, FaceTravelDirection = true, FitMode = ContentFitMode.TargetHeight }
+            Layers = { new SceneLayer {
+                Movement = new MovementConfig { SpeedUnit = SpeedUnit.CentimetersPerSecond, SpeedCmPerSecond = 10f, SpeedPixelsPerSecond = 1f, Reversed = true, NodePhaseDelayMs = 50 },
+                Animation = new AnimationLayerConfig { SizeUnit = SizeUnit.Centimeters, TargetHeightCm = 10f, TargetHeight = 1, FaceTravelDirection = true, FitMode = ContentFitMode.TargetHeight } } }
         };
-        var (mv, an) = PhysicalUnits.ResolveForCanvas(cfg, 40f);
+        var resolved = PhysicalUnits.ResolveScene(cfg, 40f).Layers[0];
+        var (mv, an) = (resolved.Movement, resolved.Animation);
+
 
         Assert.Equal(400f, mv.SpeedPixelsPerSecond);
         Assert.Equal(SpeedUnit.PixelsPerSecond, mv.SpeedUnit);
@@ -159,10 +162,10 @@ public class PhysicalUnitsTests
         Assert.True(an.FaceTravelDirection); Assert.Equal(ContentFitMode.TargetHeight, an.FitMode);
 
         // source untouched
-        Assert.Equal(1f, cfg.Movement.SpeedPixelsPerSecond);
-        Assert.Equal(SpeedUnit.CentimetersPerSecond, cfg.Movement.SpeedUnit);
-        Assert.Equal(1, cfg.Animation.TargetHeight);
-        Assert.NotSame(cfg.Movement, mv);
+        Assert.Equal(1f, cfg.Layers[0].Movement.SpeedPixelsPerSecond);
+        Assert.Equal(SpeedUnit.CentimetersPerSecond, cfg.Layers[0].Movement.SpeedUnit);
+        Assert.Equal(1, cfg.Layers[0].Animation.TargetHeight);
+        Assert.NotSame(cfg.Layers[0].Movement, mv);
     }
 
     [Fact]

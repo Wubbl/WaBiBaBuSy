@@ -62,18 +62,18 @@ public class PlaylistEditingTests
             Name = "Fish",
             DurationMs = 12_000,
             SnapToLap = true,
-            Config = new CrossScreenConfig { SelectedMonitorIds = { "a" } },
+            Config = new CrossScreenConfig { SelectedMonitorIds = { "a" }, Layers = { new SceneLayer() } },
         };
-        original.Config.Animation.AnimationPath = "fish.gif";
+        original.Config.Layers[0].Animation.AnimationPath = "fish.gif";
 
         var copy = PlaylistEditing.Duplicate(original);
-        copy.Config.Animation.AnimationPath = "shark.gif";
+        copy.Config.Layers[0].Animation.AnimationPath = "shark.gif";
         copy.Config.SelectedMonitorIds.Add("b");
 
         Assert.Equal("Fish copy", copy.Name);
         Assert.Equal(12_000, copy.DurationMs);
         Assert.True(copy.SnapToLap);
-        Assert.Equal("fish.gif", original.Config.Animation.AnimationPath);
+        Assert.Equal("fish.gif", original.Config.Layers[0].Animation.AnimationPath);
         Assert.Equal(new[] { "a" }, original.Config.SelectedMonitorIds);
     }
 }

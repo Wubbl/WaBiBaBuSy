@@ -16,7 +16,7 @@ public class PlaylistBuilderTests
     private static Playlist Build(params MediaProfile[] files) =>
         PlaylistBuilder.Build("Cats", files, 1920, 1080, 0f, new CrossScreenConfig(), 30_000);
     private static IEnumerable<string> Recipes(Playlist p) => p.Items.Select(i => i.Name.Split(':')[0]);
-    private static int FileCount(PlaylistItem i) => 1 + i.Config.Animation.AdditionalAnimationPaths.Distinct().Count();
+    private static int FileCount(PlaylistItem i) => 1 + i.Config.Layers[0].Animation.AdditionalAnimationPaths.Distinct().Count();
 
     [Theory]
     [InlineData(3, new[] { 3 })]
@@ -42,7 +42,7 @@ public class PlaylistBuilderTests
         Assert.Equal(3, p.Items.Count(i => i.Name.StartsWith("Showcase:")));
         Assert.Equal(new[] { 4, 5 }, p.Items.Where(i => i.Name.Contains(" + ")).Select(FileCount).OrderBy(n => n));
         Assert.Equal(3 + 2 + 3, p.Items.Count);
-        Assert.Contains(p.Items, i => i.Config.Animation.AnimationPath.EndsWith("wordmark.png") && FileCount(i) == 1);
+        Assert.Contains(p.Items, i => i.Config.Layers[0].Animation.AnimationPath.EndsWith("wordmark.png") && FileCount(i) == 1);
     }
 
     [Fact]
@@ -88,7 +88,7 @@ public class PlaylistBuilderTests
         var unknown = MediaProfile.Create(@"C:\m\broken.png", 0, 0, 1920, 1080, PixelFacts.Unknown, 0);
         var p = Build(unknown);
         Assert.Single(p.Items);
-        Assert.Equal(@"C:\m\broken.png", p.Items[0].Config.Animation.AnimationPath);
+        Assert.Equal(@"C:\m\broken.png", p.Items[0].Config.Layers[0].Animation.AnimationPath);
     }
 
     [Fact]
@@ -106,7 +106,7 @@ public class PlaylistBuilderTests
     public void VideoDwellIsItsLengthCapped()
     {
         var p = Build(Video("short.mp4", 45_000), Video("long.mp4", 600_000), Video("unknown.mp4", 0));
-        var byFile = p.Items.ToDictionary(i => Path.GetFileName(i.Config.Animation.AnimationPath), i => i.DurationMs);
+        var byFile = p.Items.ToDictionary(i => Path.GetFileName(i.Config.Layers[0].Animation.AnimationPath), i => i.DurationMs);
         Assert.Equal(45_000, byFile["short.mp4"]);
         Assert.Equal(PlaylistBuilder.MaxVideoDwellMs, byFile["long.mp4"]);
         Assert.Null(byFile["unknown.mp4"]);

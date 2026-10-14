@@ -95,8 +95,8 @@ public class PresetSeederTests : IDisposable
         foreach (var name in _store.List())
         {
             var scene = await _store.LoadAsync(name);
-            Assert.StartsWith(storeDir, scene.Animation.AnimationPath, StringComparison.OrdinalIgnoreCase);
-            Assert.All(scene.Animation.AdditionalAnimationPaths, p => Assert.StartsWith(storeDir, p, StringComparison.OrdinalIgnoreCase));
+            Assert.StartsWith(storeDir, scene.Layers[0].Animation.AnimationPath, StringComparison.OrdinalIgnoreCase);
+            Assert.All(scene.Layers[0].Animation.AdditionalAnimationPaths, p => Assert.StartsWith(storeDir, p, StringComparison.OrdinalIgnoreCase));
         }
     }
 }
