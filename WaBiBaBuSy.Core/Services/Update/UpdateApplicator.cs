@@ -72,6 +72,15 @@ public class UpdateApplicator
 
             _logger.LogInformation("Found updater: {UpdaterPath}", updaterExePath);
 
+            // Run a temp copy (exe + its dependency DLLs): the installed updater cannot overwrite its own exe or
+            // System.CommandLine.dll while it runs (the update then failed and rolled back), and its self-delete
+            // after a successful run removed it from the install folder (review 2026-10-13, part 8).
+            var tempUpdaterDir = Path.Combine(Path.GetTempPath(), "WaBiBaBuSy_Update", Guid.NewGuid().ToString("N"));
+            var missing = UpdaterFiles.CopyUpdater(Path.GetDirectoryName(updaterExePath)!, tempUpdaterDir);
+            if (missing.Count > 0)
+                _logger.LogWarning("Updater copy is missing {Missing}; it may not start", string.Join(", ", missing));
+            updaterExePath = Path.Combine(tempUpdaterDir, UpdaterFiles.ExeName);
+
             // Get current process ID
             var currentProcessId = Process.GetCurrentProcess().Id;
 
@@ -142,41 +151,6 @@ public class UpdateApplicator
         {
             _logger.LogWarning(ex, "Could not verify package updater dependencies; falling back to the installed updater");
             return false;
-        }
-    }
-
-    /// <summary>
-    /// Copy updater executable from update package to a temporary location
-    /// This ensures the updater can run even if it's replacing its own files
-    /// </summary>
-    /// <param name="updateDirectory">Directory containing update package</param>
-    /// <returns>Path to the copied updater executable, or null if failed</returns>
-    public string? ExtractUpdaterToTemp(string updateDirectory)
-    {
-        try
-        {
-            var sourceUpdater = Path.Combine(updateDirectory, "updater", "WaBiBaBuSy.Updater.exe");
-
-            if (!File.Exists(sourceUpdater))
-            {
-                _logger.LogError("Updater not found in update package: {Path}", sourceUpdater);
-                return null;
-            }
-
-            // Copy to temp directory
-            var tempDir = Path.Combine(Path.GetTempPath(), "WaBiBaBuSy_Update", Guid.NewGuid().ToString());
-            Directory.CreateDirectory(tempDir);
-
-            var tempUpdaterPath = Path.Combine(tempDir, "WaBiBaBuSy.Updater.exe");
-            File.Copy(sourceUpdater, tempUpdaterPath, overwrite: true);
-
-            _logger.LogInformation("Extracted updater to temp location: {TempPath}", tempUpdaterPath);
-            return tempUpdaterPath;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error extracting updater to temp");
-            return null;
         }
     }
 
