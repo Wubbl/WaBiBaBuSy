@@ -70,6 +70,8 @@ Trust model: anything that can answer as "the server" (rogue LAN host, MITM) is 
 
 ### Batch D — player robustness
 
+**Status 2026-10-14: D1–D8 fixed.** Verified in the real app: a player killed mid `smoke-local` run was respawned within 5 s and the following probes stayed within 2 ms spread; the scene switch (Sequential → Simultaneous) ran clean with the frame lock. D2 is handled by exiting the player on device loss (exit 3) and letting the D3 respawn bring up a fresh device — no in-place device recreation. D6/D8 build-verified only.
+
 | # | Sev | Finding | Where |
 |---|---|---|---|
 | D1 | HIGH | LOAD disposes D2D resources / frees video buffers on the stdin thread while the render thread draws → use-after-free crash on scene switch [P3] | `Program.cs:3896-4233` vs `1167-1360` |
@@ -82,6 +84,8 @@ Trust model: anything that can answer as "the server" (rogue LAN host, MITM) is 
 | D8 | MED | LibVLC renderer frees frame buffer before `Stop()`; post-dispose work items [P8] | `VideoWallpaperRenderer.cs:959-1008` |
 
 ### Batch E — correctness / determinism / persistence
+
+**Status 2026-10-14: fixed E1–E11, E13–E17** (E2 with B2). **E12 not changed on purpose**: seeded `System.Random` keeps its legacy algorithm in every .NET version, and replacing it would visibly change every existing RandomWalk scene. **E16 correction**: uninstall deletes `%LOCALAPPDATA%\WaBiBaBuSy` = cache, updates, logs, test runs — presets, playlists and topology live in `%APPDATA%` and are kept; only the version fallback was wrong (now 2.6.5). Unit-tested: E1, E3, E4, E6, E7, E8, E10, E13; build-verified only: E5, E9, E11, E14 (paths), E15, E17. Also fixed from the part reports: tray Exit always shuts down and runs once (P6), topology refreshes never overlap (P5), file-logger open backoff (P8).
 
 | # | Sev | Finding | Where |
 |---|---|---|---|
@@ -104,6 +108,8 @@ Trust model: anything that can answer as "the server" (rogue LAN host, MITM) is 
 | E17 | LOW | Bitmaps never disposed (thumbnails every 2 s, preview), 33 ms preview timer runs while minimized; log retention unbounded [P5,P6,P8] | — |
 
 ### Batch F — dead code (verify no callers, then delete)
+
+**Status 2026-10-14: done** (~3,400 lines removed). Removed: `Player.Image`, `D2DTest`, `D2DVorticeRenderer` + `Direct2DInterop`, `ProcessCommunicator` + legacy messages, host `SetFrame/SetColor/TestMode/StaticMode`, Phase-3 animation stack (5 services, `Models/Animation`) + 6 Phase-3 RPCs and 9 proto messages, `TransferContent` (B1), Models `SyncSchedule / ClientInfo / ClientStatus / ScreenConfiguration` (the live types are the gRPC ones), `ExtractUpdaterToTemp` (replaced: the updater now always runs from a temp copy), `ProcessMonitor` helpers; playlists reuse the preset sanitizer. **Kept — reviewer was wrong**: the legacy coordinator senders and `ServerPlaybackHost.ApplyLocalWallpaperAsync` (the reviewer's "ApplyWallpaperLocally") back the Developer tools "Apply D2D" / "Apply via LibVLC" buttons. Not done: de-duplicating the 4× player teardown loop and the 4× first-frame show block (refactor, no behavior change; left for a quiet day).
 
 - `WaBiBaBuSy.Player.Image/` + UI csproj reference/copy targets (confirmed: never launched) [P8]
 - `WaBiBaBuSy.D2DTest/` + `WallpaperEngine/Direct2D/D2DVorticeRenderer.cs`, `Direct2DInterop.cs` (main-process DXGI — violates the invariant) [P3]

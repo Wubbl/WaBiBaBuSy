@@ -103,7 +103,6 @@ WaBiBaBuSy/
 │   └── Program.cs                      # Win32 window + DXGI swap chain + IPC
 │
 ├── WaBiBaBuSy.Player.Common/     # Shared player IPC protocol
-│   ├── ProcessCommunicator.cs          # stdin/stdout JSON IPC
 │   └── Messages/                       # 11 IPC message types
 │
 ├── WaBiBaBuSy.UI/                # Avalonia User Interface
@@ -175,8 +174,6 @@ WaBiBaBuSy/
 │   ├── ProcessMonitor.cs              # Process lifecycle management
 │   └── FileReplacer.cs               # Safe file replacement + rollback
 │
-├── WaBiBaBuSy.D2DTest/           # D2D diagnostic/test project
-├── WaBiBaBuSy.Player.Image/      # Legacy Windows Forms image player
 └── Installer/                     # Inno Setup installer scripts
 ```
 

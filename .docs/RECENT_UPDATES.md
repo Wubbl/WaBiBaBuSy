@@ -1,8 +1,20 @@
 # WaBiBaBuSy - Recent Updates & Changelog
 
-**Last Updated:** 2026-10-10
+**Last Updated:** 2026-10-14
 
 ---
+
+## 2026-10-13/14 — Full code review (8 parts) and fixes, branch `fix/review-batch-a`
+
+- **Review**: whole codebase in 8 parts, ranked list in `.docs/plans/2026-10-13-full-code-review.md` (batches A–F, statuses per item, coverage gaps). Trust model decided: trusted LAN (no auth / package signing).
+- **A — test results**: `--test-run --exit` now really returns 0/1/2 (`Main` dropped it); exit 1 also for lost nodes, unanswered probes and runs that measured nothing; drift grades render-time-fallback nodes; dead local players count as missing; lost captures fail the probe; scenario JSON rejects unknown fields; `clock-skew.json` needs one client. Video follows the shared clock (seek > 200 ms, ±10 % rate below, LibVLC-internal loop). Bad grading hex no longer throws every frame.
+- **B — security (trusted LAN)**: client download paths can no longer leave the cache (`{cache}\{hash16}\{name}`, hash required, temp + verify + move); unused `TransferContent` upload removed; imports carry only media; probe uploads only during a test run.
+- **C — races**: newest LOAD/STOP wins on the client; server/client players serialized and disposed on failure; Stop / Clear all / Exit wait for a start in flight; item switches stop uncovered seats; playlist Stop vs new Start; bounded command writes + parallel sends + HTTP/2 keep-alive; sweep compare-and-remove; Disconnect during reconnect; single instance.
+- **D — player**: frame holds the composition lock (no use-after-free on scene switch); crashed players respawn in step (verified); device loss → exit → respawn; IPC replies paired with stale-reply skipping and timeouts; no popup without WorkerW; icon reads with timeout.
+- **E — correctness**: auto-update could never start (trailing `\` in a quoted path) — fixed; rollback restores every overwritten file; atomic settings / state writes; cache eviction keeps index + recent files; Endless pattern jitter; Ring lap-snap; stable image count on a missing extra image; editor keeps explicit start / end / orbit points; preview matches players for Traveling + pattern + Linear; duplicate hostnames keep their seats; stores honor the test path redirect; tray Connect uses the saved server; log retention 14 days.
+- **F — dead code**: ~3,400 lines removed (`Player.Image`, `D2DTest`, in-process DXGI renderer, second IPC stack, Phase-3 animation stack and RPCs, unused models).
+- **Verified**: build 0 errors; 961 unit tests green (+94); `smoke-local` passes on the server alone; killing a player mid-run respawns it in step. Multi-machine run still pending — **use a build from this branch** (older builds always exit 0).
+
 
 ## 2026-10-10 — Test mode spec 2a: fault injection (+ two session-recovery fixes)
 
