@@ -61,6 +61,27 @@ public class SceneSuggesterTests
     }
 
     [Fact]
+    public void AVideoMixedWithImagesStillGetsAShowcaseOfTheVideo()
+    {
+        var video = MediaProfile.Create(@"C:\m\clip.mp4", 800, 600, 1920, 1080, PixelFacts.Unknown, 60000);
+        var set = SceneSuggester.Suggest(Sel(F("logo.png", 200, 200), video), Base, 1);
+        Assert.Equal(new[] { "Showcase" }, Names(set));
+        Assert.Equal(@"C:\m\clip.mp4", set.Cards[0].Scene.Animation.AnimationPath);
+        Assert.Equal(SceneSuggester.VideoNote, set.Note);
+    }
+
+    [Fact]
+    public void CardsCarryCentimetreValuesForPhysicalRooms()
+    {
+        var s = new SelectionProfile(new[] { F("logo.png", 200, 200) }, 1920, 1080, pixelsPerCm: 40f);
+        foreach (var card in SceneSuggester.Suggest(s, Base, 1).Cards)
+        {
+            Assert.Equal(card.Scene.Animation.TargetHeight / 40f, card.Scene.Animation.TargetHeightCm, 3);
+            Assert.Equal(card.Scene.Movement.SpeedPixelsPerSecond / 40f, card.Scene.Movement.SpeedCmPerSecond, 3);
+        }
+    }
+
+    [Fact]
     public void BigPlusSmallCarriesTheLayersNote()
     {
         Assert.Equal(SceneSuggester.LayersNote, SceneSuggester.Suggest(Sel(F("s.gif", 200, 200), F("big.gif", 1920, 1080)), Base, 1).Note);

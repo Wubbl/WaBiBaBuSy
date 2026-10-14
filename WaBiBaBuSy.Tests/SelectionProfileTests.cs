@@ -67,6 +67,15 @@ public class SelectionProfileTests
         Assert.Equal("a.png + 2 more", new SelectionProfile(new[] { File("a.png", 200, 200), File("b.png", 200, 200), File("c.png", 200, 200) }, 1920, 1080).Describe());
 
     [Fact]
+    public void DuplicatePathsCountOnce()
+    {
+        // a Fireflies draft holds five copies of one path; re-suggesting must see one file
+        var s = new SelectionProfile(new[] { File("a.png", 200, 200), File("a.png", 200, 200), File("A.PNG", 200, 200) }, 1920, 1080);
+        Assert.Equal(1, s.Count);
+        Assert.Equal(SelectionMix.Single, s.Mix);
+    }
+
+    [Fact]
     public void EmptySelectionThrows() =>
         Assert.Throws<ArgumentException>(() => new SelectionProfile(Array.Empty<MediaProfile>(), 1920, 1080));
 }

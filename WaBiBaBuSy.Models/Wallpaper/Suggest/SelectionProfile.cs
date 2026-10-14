@@ -8,11 +8,16 @@ public sealed class SelectionProfile
 {
     private const int MaxPalette = 5;
 
-    /// <summary>Profile the selection. <paramref name="files"/> must hold at least one file, hero first.</summary>
-    public SelectionProfile(IReadOnlyList<MediaProfile> files, int screenWidth, int screenHeight)
+    /// <summary>
+    /// Profile the selection. <paramref name="files"/> must hold at least one file, hero first; repeated paths count once.
+    /// <paramref name="pixelsPerCm"/> is the primary monitor's reference DPI (0 = unknown) for physical-unit rooms.
+    /// </summary>
+    public SelectionProfile(IReadOnlyList<MediaProfile> files, int screenWidth, int screenHeight, float pixelsPerCm = 0f)
     {
         if (files.Count == 0) throw new ArgumentException("A selection needs at least one file", nameof(files));
+        files = files.DistinctBy(f => f.Path, StringComparer.OrdinalIgnoreCase).ToList();
         Files = files;
+        PixelsPerCm = pixelsPerCm > 0f ? pixelsPerCm : 0f;
         ScreenWidth = screenWidth > 0 ? screenWidth : 1920;
         ScreenHeight = screenHeight > 0 ? screenHeight : 1080;
         Mix = ClassifyMix(files);
@@ -36,6 +41,8 @@ public sealed class SelectionProfile
     public int ScreenWidth { get; }
     /// <summary>Primary monitor height in pixels (1080 when unknown).</summary>
     public int ScreenHeight { get; }
+    /// <summary>Reference pixels per cm of the primary monitor; 0 when unknown (cm values are then not filled).</summary>
+    public float PixelsPerCm { get; }
     /// <summary>How the files relate to each other.</summary>
     public SelectionMix Mix { get; }
     /// <summary>The full-screen file (BigPlusSmall, or a single full-screen file); otherwise null.</summary>

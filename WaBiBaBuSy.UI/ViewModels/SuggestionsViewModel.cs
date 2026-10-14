@@ -65,11 +65,12 @@ public partial class SuggestionsViewModel : ObservableObject
         var selection = await _profileSelection();
         if (selection == null) return;
         _selection = selection;
-        _savedDraft = _captureDraft();
+        if (!IsOpen) _savedDraft = _captureDraft(); // pressed again while open: ✕ still returns to the pre-Suggest scene
         CanKeep = false;
         _seed = Environment.TickCount; // UI-only: the built scenes carry their own seeds, so they stay deterministic
         Title = "✨ Suggestions for: " + selection.Describe();
-        Show(SceneSuggester.Suggest(selection, _savedDraft, _seed));
+        Show(SceneSuggester.Suggest(selection, _savedDraft!, _seed));
+        if (Cards.Count == 0) Note = "No suggestions for this selection";
         IsOpen = true;
     }
 

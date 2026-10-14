@@ -256,10 +256,11 @@ public static class SceneRecipes
         public double Score(SelectionProfile s) =>
             s.Big != null ? (s.Mix == SelectionMix.BigPlusSmall ? 0.9 : 1.0)
             : s.Count == 1 && s.Files[0].Kind == MediaKind.Video ? 0.8
+            : s.HasVideoSprite ? 0.6 // sprite recipes refuse videos: show the video on its own
             : 0;
         public Suggestion Build(SelectionProfile s, CrossScreenConfig b, int seed)
         {
-            var file = s.Big ?? s.Files[0];
+            var file = s.Big ?? s.Sprites.FirstOrDefault(f => f.Kind == MediaKind.Video) ?? s.Files[0];
             var scene = SuggestKit.NewScene(b, s, new[] { file }, 1.0);
             scene.Background.ColorHex = "#000000";
             scene.Animation.FitMode = ContentFitMode.Fill;

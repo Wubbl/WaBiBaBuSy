@@ -75,7 +75,7 @@ public partial class MainWindowViewModel
     {
         try
         {
-            SceneEditor.LoadFromConfig(await _presets.LoadAsync(name));
+            LoadDraft(await _presets.LoadAsync(name));
             PresetNameDraft = name;
             PresetStatus = $"Loaded preset “{name}”";
         }

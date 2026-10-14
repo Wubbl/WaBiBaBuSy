@@ -12,6 +12,9 @@ public static class SceneSuggester
     /// <summary>Shown for a full-screen file picked together with smaller ones.</summary>
     public const string LayersNote = "big + small together needs scene layers";
 
+    /// <summary>Shown when a video is picked together with other files (only Showcase takes videos).</summary>
+    public const string VideoNote = "videos are shown on their own; pick images only for moving sprites";
+
     /// <summary>The best-scoring recipes (ties in <see cref="SceneRecipes.All"/> order).</summary>
     public static SuggestionSet Suggest(SelectionProfile s, CrossScreenConfig baseScene, int seed)
     {
@@ -46,6 +49,21 @@ public static class SceneSuggester
         SceneRecipes.All.Select((r, i) => (recipe: r, score: r.Score(s), index: i)).Where(x => x.score > 0).ToList();
 
     private static SuggestionSet Build(SelectionProfile s, CrossScreenConfig baseScene, int seed, IEnumerable<ISceneRecipe> recipes) =>
-        new(recipes.Select((r, i) => r.Build(s, baseScene, PatternLayout.Hash3(seed, i, 7))).ToList(),
-            s.Mix == SelectionMix.BigPlusSmall ? LayersNote : null);
+        new(recipes.Select((r, i) => WithCentimetres(r.Build(s, baseScene, PatternLayout.Hash3(seed, i, 7)), s.PixelsPerCm)).ToList(),
+            s.Mix == SelectionMix.BigPlusSmall ? LayersNote
+            : s.HasVideoSprite && s.Count > 1 ? VideoNote
+            : null);
+
+    /// <summary>
+    /// Fill the cm twins of the pixel size and speed, so a physical-unit room (which shows and uses the cm values)
+    /// gets the same card as a pixel room. Unknown DPI leaves the defaults.
+    /// </summary>
+    private static Suggestion WithCentimetres(Suggestion suggestion, float pixelsPerCm)
+    {
+        if (pixelsPerCm <= 0f) return suggestion;
+        var scene = suggestion.Scene;
+        scene.Animation.TargetHeightCm = PhysicalUnits.PxToCm(scene.Animation.TargetHeight, pixelsPerCm);
+        scene.Movement.SpeedCmPerSecond = PhysicalUnits.PxToCm(scene.Movement.SpeedPixelsPerSecond, pixelsPerCm);
+        return suggestion;
+    }
 }

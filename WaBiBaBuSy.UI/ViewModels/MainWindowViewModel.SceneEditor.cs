@@ -279,7 +279,7 @@ public partial class MainWindowViewModel
         if (string.IsNullOrWhiteSpace(path)) return PlayDraftAsync(selectionOnly);   // reports "Pick an animation file"
 
         if (item != null) SelectWallpaper(item);
-        SceneEditor.LoadFromConfig(PlainScene.Create(path));
+        LoadDraft(PlainScene.Create(path));
         return PlayDraftAsync(selectionOnly);
     }
 
@@ -320,11 +320,21 @@ public partial class MainWindowViewModel
     }
 
     [RelayCommand]
-    private void RevertScene() => SceneEditor.LoadFromConfig(RevertTarget());
+    private void RevertScene() => LoadDraft(RevertTarget());
 
     /// <summary>What Revert restores: the loaded playlist item, else what is playing now (a running scene,
     /// or the last one played), else the default scene.</summary>
     private CrossScreenConfig RevertTarget() => PlaylistEditor.LoadedItem?.Model.Config ?? ActiveScene ?? _server.LastScene ?? DefaultScene();
+
+    /// <summary>
+    /// Replace the draft from outside the Suggest strip (preset, playlist item, plain wallpaper, editor revert):
+    /// an open strip is closed first, so its ✕ cannot later restore its saved draft over this one.
+    /// </summary>
+    private void LoadDraft(CrossScreenConfig config)
+    {
+        Suggestions.Discard();
+        SceneEditor.LoadFromConfig(config);
+    }
 
     /// <summary>
     /// Profile the draft's animation files for the Suggest strip: gallery facts (type, duration, video resolution)
@@ -335,22 +345,45 @@ public partial class MainWindowViewModel
         var paths = new[] { SceneEditor.AnimationPath }.Concat(SceneEditor.AdditionalAnimationPaths)
             .Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
         if (paths.Count == 0) return null;
-        var items = paths.Select(p => (path: p, item: Wallpapers.FirstOrDefault(w =>
-            string.Equals(w.FilePath, p, StringComparison.OrdinalIgnoreCase)))).ToList();
 
-        var primary = LocalMonitors.Snapshot().Monitors.FirstOrDefault(m => m.IsPrimary);
-        int screenW = primary?.Width ?? 1920, screenH = primary?.Height ?? 1080;
-
-        var files = await Task.Run(() => items.Select(x =>
+        // Gallery facts snapshotted on the UI thread; only the decode runs off it.
+        var facts = paths.Select(p =>
         {
-            bool video = x.item?.Type == WallpaperType.Video;
-            var decodePath = video && !string.IsNullOrEmpty(x.item!.ThumbnailPath) ? x.item.ThumbnailPath : x.path;
-            var (w, h, pixels) = MediaProbe.Read(decodePath);
-            if (video && TryParseResolution(x.item!.Resolution, out int vw, out int vh)) (w, h) = (vw, vh);
-            return MediaProfile.Create(x.path, w, h, screenW, screenH, pixels, x.item?.DurationMs ?? 0);
+            var item = Wallpapers.FirstOrDefault(w => string.Equals(w.FilePath, p, StringComparison.OrdinalIgnoreCase));
+            bool video = item?.Type == WallpaperType.Video;
+            return (path: p, video, thumb: item?.ThumbnailPath, resolution: item?.Resolution, durationMs: item?.DurationMs ?? 0);
+        }).ToList();
+
+        int screenW = 1920, screenH = 1080;
+        float pixelsPerCm = 0f;
+        try
+        {
+            var primary = LocalMonitors.Snapshot().Monitors.FirstOrDefault(m => m.IsPrimary);
+            if (primary != null) (screenW, screenH) = (primary.Width, primary.Height);
+            pixelsPerCm = LocalMonitors.ReferencePixelsPerCm;
+        }
+        catch (Exception ex)
+        {
+            AppLogger.CreateLogger<MainWindowViewModel>().LogWarning(ex, "Suggest: could not read the primary monitor, assuming 1920x1080");
+        }
+
+        var files = await Task.Run(() => facts.Select(x =>
+        {
+            var (w, h, pixels) = (0, 0, PixelFacts.Unknown);
+            try
+            {
+                (w, h, pixels) = MediaProbe.Read(x.video && !string.IsNullOrEmpty(x.thumb) ? x.thumb : x.path);
+            }
+            catch (Exception ex)
+            {
+                // ponytail: any decode failure (OOM on a huge file, a Magick edge case) degrades to "unknown pixels"
+                AppLogger.CreateLogger<MainWindowViewModel>().LogWarning(ex, "Suggest: could not analyse {Path}", x.path);
+            }
+            if (x.video && TryParseResolution(x.resolution, out int vw, out int vh)) (w, h) = (vw, vh);
+            return MediaProfile.Create(x.path, w, h, screenW, screenH, pixels, x.durationMs);
         }).ToList());
 
-        return new SelectionProfile(files, screenW, screenH);
+        return new SelectionProfile(files, screenW, screenH, pixelsPerCm);
     }
 
     private static bool TryParseResolution(string? resolution, out int width, out int height)

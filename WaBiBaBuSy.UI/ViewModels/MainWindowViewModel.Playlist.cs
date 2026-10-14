@@ -17,7 +17,7 @@ public partial class MainWindowViewModel
         PlaylistEditor.StartShow = StartPlaylist;
         PlaylistEditor.StopShow = StopPlaylistAsync;
         PlaylistEditor.CaptureDraft = () => SceneEditor.BuildConfig();
-        PlaylistEditor.LoadIntoEditor = config => SceneEditor.LoadFromConfig(config);
+        PlaylistEditor.LoadIntoEditor = LoadDraft;
         PlaylistEditor.ThumbnailProvider = path =>
             Wallpapers.FirstOrDefault(w => string.Equals(w.FilePath, path, StringComparison.OrdinalIgnoreCase))?.Thumbnail;
         PlaylistEditor.PropertyChanged += (_, e) =>
