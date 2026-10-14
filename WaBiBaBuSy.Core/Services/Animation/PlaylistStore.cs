@@ -26,11 +26,9 @@ public class PlaylistStore
 
     private void EnsureDirectory() => System.IO.Directory.CreateDirectory(Directory);
 
-    private static string Sanitize(string name)
-    {
-        foreach (var c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
-        return string.IsNullOrWhiteSpace(name) ? "playlist" : name;
-    }
+    // Same rules as presets (invalid chars, trailing dots, device names like CON); this copy lacked the last two.
+    private static string Sanitize(string name) =>
+        string.IsNullOrWhiteSpace(name) ? "playlist" : PresetStore.Sanitize(name);
 
     /// <summary>Full path for a playlist name (does not create the file).</summary>
     public string PathFor(string name) => Path.Combine(Directory, Sanitize(name) + ".json");

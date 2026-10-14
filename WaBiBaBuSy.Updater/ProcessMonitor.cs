@@ -133,20 +133,4 @@ public class ProcessMonitor
         }
     }
 
-    /// <summary>
-    /// Check if any process with the given name is running
-    /// </summary>
-    public static bool IsProcessRunning(string processName)
-    {
-        var processes = Process.GetProcessesByName(processName);
-        return processes.Length > 0;
-    }
-
-    /// <summary>
-    /// Get all processes with the given name
-    /// </summary>
-    public static Process[] GetProcessesByName(string processName)
-    {
-        return Process.GetProcessesByName(processName);
-    }
 }
