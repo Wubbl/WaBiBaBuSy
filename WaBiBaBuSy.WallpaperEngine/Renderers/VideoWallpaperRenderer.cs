@@ -27,7 +27,7 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
     private Form? _renderForm;
     private WallpaperConfig? _config;
     private WallpaperState _state = WallpaperState.Uninitialized;
-    private bool _disposed;
+    private volatile bool _disposed;
 
     // LibVLC Memory Callbacks (for composition system)
     // Instead of TakeSnapshot() which uses disk I/O, we use LibVLC's direct memory access
@@ -940,6 +940,7 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
                 try
                 {
                     Thread.Sleep(50); // Brief pause for LibVLC to fully settle after EndReached
+                    if (_disposed) return;   // disposed meanwhile: the player is gone (review 2026-10-13 D8)
                     player.Stop();
                     Thread.Sleep(50); // Brief pause between Stop and Play
                     player.Play();
@@ -959,8 +960,19 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
     public void Dispose()
     {
         if (_disposed) return;
+        _disposed = true;   // first: a queued loop restart checks it before touching the player
 
         _logger.LogInformation("Disposing video wallpaper renderer");
+
+        // Stop LibVLC before freeing anything its decode / display callbacks write into or read from: freeing the
+        // frame buffer first let a callback still running copy from freed memory (review 2026-10-13 D8).
+        if (_mediaPlayer != null)
+        {
+            _mediaPlayer.EndReached -= OnMediaEndReached;
+        }
+        _mediaPlayer?.Stop();
+        _mediaPlayer?.Dispose();
+        _libVLC?.Dispose();
 
         // Clean up GIF frame extraction resources
         if (_gifFrames != null)
@@ -990,20 +1002,9 @@ public class VideoWallpaperRenderer : IWallpaperRenderer
         }
         _frameCache.Clear();
 
-        // Unsubscribe from events
-        if (_mediaPlayer != null)
-        {
-            _mediaPlayer.EndReached -= OnMediaEndReached;
-        }
-
-        _mediaPlayer?.Stop();
-        _mediaPlayer?.Dispose();
-        _libVLC?.Dispose();
-
         _renderForm?.Close();
         _renderForm?.Dispose();
 
-        _disposed = true;
         GC.SuppressFinalize(this);
     }
 }
