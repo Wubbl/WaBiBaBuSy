@@ -1,6 +1,6 @@
 # Scene Layers (multiple sprites per scene) — Design
 
-**Created:** 2026-09-17 · **Revised:** 2026-10-14 (agreed spec for slice 1) · **Status:** Approved for planning
+**Created:** 2026-09-17 · **Revised:** 2026-10-14 (agreed spec for slice 1) · **Status:** Slice 1 implemented 2026-10-14 (branch `feat/scene-layers`, v2.7.0) — see §10
 **Roadmap:** Tier 2.3 (XL) · **Solves:** F4 in [`2026-09-17-lan-party-roadmap.md`](2026-09-17-lan-party-roadmap.md)
 **Depends on:** show reliability (multi-file transfer — done), live preview (done), crossing effects (done)
 
@@ -129,12 +129,12 @@ of `AnimationConfig` / `MovementConfig`.
 replaces `EffectiveMovement` / `EffectiveAnimation`; `PerMonitor` is removed. IconZone A* path is
 computed for layer 0 with its distribution.
 
-**gRPC `SyncParameters`:** new `string scene_json = 33` = resolved scene (`Background` + effective
+**gRPC `SyncParameters`:** new `string scene_json = 38` = resolved scene (`Background` + effective
 `Layers`, no `SelectedMonitorIds`); `layout_json` (25) and `assets` (26) unchanged. Removed and
-`reserved`: 9 `fit_mode`, 10 `virtual_canvas_width`, 11 `monitor_offset_x`, 13 `pixels_per_second`,
+`reserved`: 10 `virtual_canvas_width`, 11 `monitor_offset_x`, 13 `pixels_per_second`,
 14 `per_monitor_mode`, 15 `movement_type`, 16–20 `*_json`, 22 `virtual_canvas_height`,
-23 `monitor_offset_y` (all covered by `layout_json` / `scene_json`; 2026-10-14 grep: outside the
-cross-screen path only a log line in `WallpaperSyncClient` reads `fit_mode`). `CrossScreenApplyRequest` replaces its
+23 `monitor_offset_y`, 24 `node_order` (all covered by `layout_json` / `scene_json`). `fit_mode` (9) stays: the plain
+`d2d` renderer still reads it. `CrossScreenApplyRequest` replaces its
 five `*Json` strings with `SceneJson`; `RemotePlaybackHost` = deserialize → rewrite paths → apply.
 
 **Content:** `SceneAssets.CollectPaths` walks every layer's `AnimationPath` + `AdditionalAnimationPaths`
@@ -214,6 +214,18 @@ Worktree, branch `feat/scene-layers`, one commit per step, each step builds and 
 5. Editor Layers strip + VM split + multi-layer `ScenePainter`.
 6. Docs — this spec's status, `SOFTWARE_ARCHITECTURE.md`, CLAUDE.md capabilities, `RECENT_UPDATES.md`,
    roadmap Tier 2.3.
+
+## 10. As implemented (2026-10-14)
+
+Deviations from the sections above, decided while building:
+- **Player (§3)**: instead of converting ~2 000 lines of single-sprite code to instance methods, `LayerRuntime` is a state bag
+  and each layer's statics are swapped in before its update/draw (`Program.Layers.cs`); layer 0 is the resting state, so probes,
+  IconZone, video and the debug overlay see exactly the old single sprite. Upgrade path (true instance state) noted in a
+  `ponytail:` comment.
+- **Layer clock**: one pure function, `SyncTiming.LayerElapsed`, used by the players and `ScenePainter`.
+- **Background-only scenes** play locally; remotes are not sent them (the LOAD needs a primary file). The editor always keeps ≥ 1 layer.
+- **Version gate**: hard floor `VersionInfo.MinSceneLayersVersion = "2.7.0"` in the coordinator's LOAD send + room tile warning.
+- **Not yet**: debug overlay lists only layer 0's position; the room status line describes the bottom layer.
 
 ## 9. Performance budget
 
