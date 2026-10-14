@@ -21,7 +21,7 @@ public static class SceneRecipes
     public static IReadOnlyList<ISceneRecipe> All { get; } = new ISceneRecipe[]
     {
         new DvdBounce(), new LogoConveyor(), new Marquee(), new Orbit(), new PulseGrid(),
-        new Fireflies(), new Comet(), new Parade(), new Showcase(),
+        new Fireflies(), new Comet(), new Parade(), new Panorama(), new Showcase(),
     };
 
     // Shared helpers -------------------------------------------------------------------------
@@ -249,18 +249,43 @@ public static class SceneRecipes
         }
     }
 
+    /// <summary>A panorama spans the room as the background; picked sprites ride across it.</summary>
+    private sealed class Panorama : ISceneRecipe
+    {
+        public string Name => "Panorama";
+        public double Score(SelectionProfile s) => s.Big?.IsPanorama == true && !s.HasVideoSprite ? 1.0 : 0;
+        public Suggestion Build(SelectionProfile s, CrossScreenConfig b, int seed)
+        {
+            var pano = s.Big ?? s.Files[0];
+            bool riders = s.Mix == SelectionMix.BigPlusSmall && s.Sprites.Count > 0;
+            var scene = riders ? SuggestKit.NewScene(b, s, s.Sprites, 0.15) : new CrossScreenConfig { SelectedMonitorIds = new List<string>(b.SelectedMonitorIds) };
+            scene.Background = new BackgroundLayerConfig { Mode = BackgroundMode.Panorama, ImagePath = pano.Path, ColorHex = "#000000" };
+            string name = Path.GetFileName(pano.Path);
+            if (!riders) return new(Name, $"Spans {name} across all screens", scene);
+
+            var layer = scene.Layers[0];
+            layer.Distribution = AnimationDistributionMode.Sequential;   // the riders cross the same room the picture spans
+            layer.Movement.Type = MovementType.Linear;
+            layer.Movement.SpeedPixelsPerSecond = SuggestKit.Range(seed, 1, 200, 300);
+            layer.Movement.DirectionAngleDegrees = 0;
+            layer.Animation.ColorGrading = new ColorGradingConfig { Mode = ColorGradingMode.None };
+            return new(Name, $"Spans {name} across all screens, " + (s.Sprites.Count > 1 ? $"{s.Sprites.Count} files ride" : "the sprite rides") + " across it", scene);
+        }
+    }
+
     /// <summary>The calm "just show it" option for full-screen files and videos.</summary>
     private sealed class Showcase : ISceneRecipe
     {
         public string Name => "Showcase";
         public double Score(SelectionProfile s) =>
-            s.Big != null ? (s.Mix == SelectionMix.BigPlusSmall ? 0.9 : 1.0)
+            s.Big?.IsPanorama == true ? (s.HasVideoSprite ? 0.6 : 0)   // one screen would squeeze the strip: Panorama shows it
+            : s.Big != null ? (s.Mix == SelectionMix.BigPlusSmall ? 0.9 : 1.0)
             : s.Count == 1 && s.Files[0].Kind == MediaKind.Video ? 0.8
             : s.HasVideoSprite ? 0.6 // sprite recipes refuse videos: show the video on its own
             : 0;
         public Suggestion Build(SelectionProfile s, CrossScreenConfig b, int seed)
         {
-            var file = s.Big ?? s.Sprites.FirstOrDefault(f => f.Kind == MediaKind.Video) ?? s.Files[0];
+            var file = (s.Big?.IsPanorama == true ? null : s.Big) ?? s.Sprites.FirstOrDefault(f => f.Kind == MediaKind.Video) ?? s.Files[0];
             var scene = SuggestKit.NewScene(b, s, new[] { file }, 1.0);
             scene.Background.ColorHex = "#000000";
             scene.Layers[0].Animation.FitMode = ContentFitMode.Fill;

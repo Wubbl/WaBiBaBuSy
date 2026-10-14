@@ -25,6 +25,8 @@ public class SceneRecipeTests
         Sel(F("small.gif", 200, 200, ms: 800), F("big.gif", 1920, 1080, ms: 3000)),
         Sel(F("photo.jpg", 1920, 1080, mono: false, alpha: false)),
         Sel(MediaProfile.Create(@"C:\m\broken.png", 0, 0, 1920, 1080, PixelFacts.Unknown, 0)),
+        Sel(F("pano.jpg", 19200, 1080, mono: false, alpha: false)),
+        Sel(F("pano.jpg", 8192, 460, mono: false, alpha: false), F("cat.gif", 300, 300, ms: 1200)),
     };
 
     private static readonly CrossScreenConfig Base = new()
@@ -35,8 +37,8 @@ public class SceneRecipeTests
     };
 
     [Fact]
-    public void ThereAreNineUniquelyNamedRecipes() =>
-        Assert.Equal(9, SceneRecipes.All.Select(r => r.Name).Distinct().Count());
+    public void ThereAreTenUniquelyNamedRecipes() =>
+        Assert.Equal(10, SceneRecipes.All.Select(r => r.Name).Distinct().Count());
 
     [Theory, MemberData(nameof(Recipes))]
     public void BuildIsDeterministicPerSeed(string name)
@@ -59,7 +61,8 @@ public class SceneRecipeTests
             var sug = R(name).Build(s, Base, 11);
             Assert.Empty(SceneChecks.Validate(sug.Scene, null));
             Assert.Equal(new[] { "m1" }, sug.Scene.SelectedMonitorIds);
-            Assert.Equal(AnimationDistributionMode.Simultaneous, sug.Scene.Layers[0].Distribution);
+            // Panorama: the picture is the background, riders cross the room it spans (Sequential).
+            if (name != "Panorama") Assert.Equal(AnimationDistributionMode.Simultaneous, sug.Scene.Layers[0].Distribution);
             Assert.Equal(name, sug.RecipeName);
             Assert.False(string.IsNullOrWhiteSpace(sug.Why));
         }
@@ -70,7 +73,7 @@ public class SceneRecipeTests
     {
         var s = Sel(MediaProfile.Create(@"C:\m\broken.png", 0, 0, 1920, 1080, PixelFacts.Unknown, 0));
         var scene = R(name).Build(s, Base, 3).Scene;
-        Assert.Equal(@"C:\m\broken.png", scene.Layers[0].Animation.AnimationPath);
+        Assert.Contains(@"C:\m\broken.png", new[] { scene.FirstLayer?.Animation.AnimationPath, scene.Background.ImagePath });
     }
 
     [Fact]
@@ -117,5 +120,41 @@ public class SceneRecipeTests
         var s = Sel(F("a.jpg", 150, 150, alpha: false), F("b.jpg", 150, 150, alpha: false));
         Assert.True(R("Pulse Grid").Score(s) <= 0.3);
         Assert.True(R("Fireflies").Score(s) <= 0.3);
+    }
+
+    [Fact]
+    public void WidePhotoIsAPanorama_WideWordmarkAndSmallStripAreNot()
+    {
+        Assert.True(F("pano.jpg", 19200, 1080, alpha: false).IsPanorama);
+        Assert.True(F("hdri.jpg", 8192, 460, alpha: false).IsPanorama);          // shorter than a screen still spans the room
+        Assert.False(F("word.png", 4000, 800).IsPanorama);                       // transparent: a sprite wordmark
+        Assert.False(F("strip.jpg", 1200, 300, alpha: false).IsPanorama);        // not wider than 1.5 screens
+        Assert.False(F("photo.jpg", 3840, 2160, alpha: false).IsPanorama);       // 16:9
+        Assert.False(F("wide.gif", 6000, 1000, alpha: false).IsPanorama);        // GIFs stay sprites
+    }
+
+    [Fact]
+    public void LonePanorama_IsOnlyOfferedAsPanorama_BackgroundOnly()
+    {
+        var s = Sel(F("pano.jpg", 19200, 1080, mono: false, alpha: false));
+        Assert.Equal(new[] { "Panorama" }, SceneSuggester.Ranked(s).Select(r => r.Name));
+        var scene = R("Panorama").Build(s, Base, 1).Scene;
+        Assert.Equal(BackgroundMode.Panorama, scene.Background.Mode);
+        Assert.Equal(@"C:\m\pano.jpg", scene.Background.ImagePath);
+        Assert.Empty(scene.Layers);
+    }
+
+    [Fact]
+    public void PanoramaWithSprites_RidesTheSpritesAcrossTheRoom()
+    {
+        var s = Sel(F("pano.jpg", 8192, 460, mono: false, alpha: false), F("cat.gif", 300, 300, ms: 1200));
+        Assert.Equal("Panorama", SceneSuggester.Ranked(s)[0].Name);
+        Assert.Null(SceneSuggester.Suggest(s, Base, 1).Note);
+        var scene = R("Panorama").Build(s, Base, 1).Scene;
+        Assert.Equal(@"C:\m\pano.jpg", scene.Background.ImagePath);
+        var layer = Assert.Single(scene.Layers);
+        Assert.Equal(@"C:\m\cat.gif", layer.Animation.AnimationPath);
+        Assert.Equal(AnimationDistributionMode.Sequential, layer.Distribution);
+        Assert.Equal(MovementType.Linear, layer.Movement.Type);
     }
 }

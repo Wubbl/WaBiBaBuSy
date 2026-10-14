@@ -209,6 +209,7 @@ public partial class MainWindowViewModel
             var selected = SceneEditor.SelectedLayerIndex >= 0 && SceneEditor.SelectedLayerIndex < config.Layers.Count
                 ? config.Layers[SceneEditor.SelectedLayerIndex] : config.FirstLayer;
             SceneEditor.SetChecks(warnings, SceneChecks.CrossingReadout(selected, layout));
+            SceneEditor.PanoramaCanvasSize = layout.CanvasWidth > 0 ? $"Sharpest at {layout.CanvasWidth:N0} × {layout.CanvasHeight:N0} px (this room's canvas)" : string.Empty;
 
             _lastDraftUpdateError = null;
         }
@@ -301,7 +302,8 @@ public partial class MainWindowViewModel
         {
             var config = SceneEditor.BuildConfig();
             var missing = MissingLayerFiles(config).ToList();
-            bool anyFile = config.Layers.Any(l => l.Enabled && !string.IsNullOrWhiteSpace(l.Animation.AnimationPath));
+            bool anyFile = config.Layers.Any(l => l.Enabled && !string.IsNullOrWhiteSpace(l.Animation.AnimationPath))
+                || (config.Background.Mode == BackgroundMode.Panorama && !string.IsNullOrWhiteSpace(config.Background.ImagePath));
             if (!anyFile || missing.Count > 0)
             {
                 var warnings = SceneEditor.Warnings.ToList();

@@ -57,7 +57,7 @@ public static class SceneSuggester
 
     private static SuggestionSet Build(SelectionProfile s, CrossScreenConfig baseScene, int seed, IEnumerable<ISceneRecipe> recipes) =>
         new(recipes.Select((r, i) => BuildCard(r, s, baseScene, PatternLayout.Hash3(seed, i, 7))).ToList(),
-            s.Mix == SelectionMix.BigPlusSmall ? LayersNote
+            s.Mix == SelectionMix.BigPlusSmall && s.Big?.IsPanorama != true ? LayersNote
             : s.HasVideoSprite && s.Count > 1 ? VideoNote
             : null);
 

@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-10-14 — Panorama background, branch `feat/scene-layers`
+
+- **What**: background mode **Panorama (spans all screens)**: one wide picture is stretched over the whole seat-map canvas and every player shows its own slice, so it continues across bezel gaps (and around a Ring if its right edge continues into its left). The Background tab shows the size that covers this room 1:1 ("Sharpest at 19,200 × 1,080 px"); the room preview paints each node's slice. ✨ Suggest / Auto from folder detect panoramas (opaque still, ≥ 3:1, ≥ 1.5 screens wide) and offer the **Panorama** recipe: background only, or with the other picked files riding across it (Linear, Sequential). A panorama-only scene is now playable and reaches remotes (the background image travels as the primary content).
+- **Code**: `BackgroundMode.Panorama`, `BackgroundLayerConfig.UsesImage`, `NodeMapping.PanoramaSource` (shared by player and `ScenePainter`); player `CropPanorama` cuts the slice with GDI+ before upload (a 10-screen image exceeds D2D's 16384 px bitmap limit), mirrored nodes flip it; `SceneAssets.RewriteToLocal` never hands the primary to an empty layer 0; `MediaAnalyzer.IsPanorama`, `SelectionProfile` treats a panorama as the big file, `Showcase` no longer takes panoramas.
+- **Verified**: build 0 errors; 1136 unit tests green (+7); local test-mode run on 2 monitors with an 8000 px test image: each player loaded a 1781 × 1080 slice and the exact frames show x 0–1781 and 6219–8000 with the marker on top. Pending: GUI check of the editor hint + preview, multi-machine run.
+
 ## 2026-10-14 — Scene layers (roadmap 2.3, slice 1), branch `feat/scene-layers` — v2.7.0
 
 - **What**: a scene is a background plus N image/GIF layers drawn bottom to top, each with its own file(s), movement, color grading, effects, opacity, Sequential/Simultaneous distribution and phase offset. Scene editor: Layers strip above the tabs (select, enable, rename via right-click, + / ⧉ / ✕ / ◀ ▶); Content / Motion / Look / Effects edit the selected layer; Opacity in Look, Phase offset + per-layer Distribution in Motion. The room preview paints every layer. New showcase scene `16-layers-party.json` (in `showcase.json` and `parity-matrix.json`).

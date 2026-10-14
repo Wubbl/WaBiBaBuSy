@@ -70,8 +70,7 @@ public static class SceneChecks
     {
         var warnings = new List<string>();
 
-        if (scene.Background.Mode is BackgroundMode.StretchedImage or BackgroundMode.TiledImage
-            && string.IsNullOrWhiteSpace(scene.Background.ImagePath))
+        if (scene.Background.UsesImage && string.IsNullOrWhiteSpace(scene.Background.ImagePath))
             warnings.Add("Pick a background image");
 
         if (scene.Layers.Count > MaxLayers)

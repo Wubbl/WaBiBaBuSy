@@ -362,13 +362,13 @@ public partial class RoomView : Control
 
         var sceneBox = ToRect(t.Scene);
         ctx.FillRectangle(SceneBg, sceneBox, 4);
-        if (node != null && ScenePainter.HasSprite(scene))
+        if (node != null && ScenePainter.HasContent(scene))
         {
             double s = Math.Min(sceneBox.Width / node.Width, sceneBox.Height / node.Height);
             var screen = new Rect(sceneBox.X + (sceneBox.Width - node.Width * s) / 2,
                                   sceneBox.Y + (sceneBox.Height - node.Height * s) / 2,
                                   node.Width * s, node.Height * s);
-            _painter.PaintBackground(ctx, screen, s, scene);
+            _painter.PaintBackground(ctx, screen, s, scene, node);
             _painter.PaintLayers(ctx, screen, s, node, scene!, elapsed);
             if (live && ShowEvents is { Count: > 0 } events)
                 _painter.PaintShowEvents(ctx, screen, s, ScenePainter.EffectiveNode(scene!.FirstLayer, node), events, SharedStartUtcMs, elapsed,

@@ -54,7 +54,7 @@ public static class SceneAssets
             Add(anim.AnimationPath, i == 0 ? AssetRole.Primary : AssetRole.Additional);
             foreach (var p in anim.AdditionalAnimationPaths) Add(p, AssetRole.Additional);
         }
-        if (config.Background.Mode is BackgroundMode.StretchedImage or BackgroundMode.TiledImage)
+        if (config.Background.UsesImage)
             Add(config.Background.ImagePath, AssetRole.Background);
         return list;
     }
@@ -82,7 +82,8 @@ public static class SceneAssets
         for (int i = 0; i < clone.Layers.Count; i++)
         {
             var anim = clone.Layers[i].Animation;
-            var primary = i == 0 && !string.IsNullOrEmpty(primaryLocalPath) && File.Exists(primaryLocalPath)
+            // A background-only scene sends the background image as primary: never hand it to an empty layer 0.
+            var primary = i == 0 && !string.IsNullOrWhiteSpace(anim.AnimationPath) && !string.IsNullOrEmpty(primaryLocalPath) && File.Exists(primaryLocalPath)
                 ? primaryLocalPath
                 : Map(anim.AnimationPath);
             if (primary == null)
@@ -98,7 +99,7 @@ public static class SceneAssets
         }
 
         var bg = clone.Background;
-        if (bg.Mode is BackgroundMode.StretchedImage or BackgroundMode.TiledImage)
+        if (bg.UsesImage)
         {
             var local = Map(bg.ImagePath);
             if (local == null)

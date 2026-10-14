@@ -474,7 +474,8 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     public bool HasExtraImages => AdditionalAnimationPaths.Count > 0;
 
     public bool IsSolidColorMode => BackgroundModeIndex == 0;
-    public bool IsImageMode => BackgroundModeIndex == 1 || BackgroundModeIndex == 2;
+    public bool IsImageMode => BackgroundModeIndex is 1 or 2 or 5;
+    public bool IsPanoramaMode => BackgroundModeIndex == 5;
     public bool IsThreeZoneMode => BackgroundModeIndex == 3;
     public bool IsIconZoneMode  => BackgroundModeIndex == 4;
 
@@ -496,6 +497,9 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
 
     /// <summary>Crossing-time readout under the speed slider, e.g. "crosses the room in 12.5 s".</summary>
     [ObservableProperty] private string _speedReadout = string.Empty;
+
+    /// <summary>Panorama background: the image size that covers the target room's canvas pixel for pixel (empty without a room).</summary>
+    [ObservableProperty] private string _panoramaCanvasSize = string.Empty;
 
     /// <summary>Replace the warning chips and the speed readout. Unchanged warnings do not touch the collection.</summary>
     public void SetChecks(IReadOnlyList<string> warnings, string speedReadout)
@@ -551,6 +555,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(IsSolidColorMode));
         OnPropertyChanged(nameof(IsImageMode));
+        OnPropertyChanged(nameof(IsPanoramaMode));
         OnPropertyChanged(nameof(IsThreeZoneMode));
         OnPropertyChanged(nameof(IsIconZoneMode));
         OnPropertyChanged(nameof(IsPatternWithIconZone));
@@ -592,6 +597,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             BackgroundMode.TiledImage    => 2,
             BackgroundMode.ThreeZone     => 3,
             BackgroundMode.IconZone      => 4,
+            BackgroundMode.Panorama      => 5,
             _                            => 0
         };
 
@@ -757,6 +763,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             2 => BackgroundMode.TiledImage,
             3 => BackgroundMode.ThreeZone,
             4 => BackgroundMode.IconZone,
+            5 => BackgroundMode.Panorama,
             _ => BackgroundMode.SolidColor
         };
 

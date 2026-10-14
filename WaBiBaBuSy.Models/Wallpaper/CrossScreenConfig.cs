@@ -84,7 +84,13 @@ public enum BackgroundMode
     /// <summary>
     /// Zones derived from actual desktop icon positions. Path navigates all free bands.
     /// </summary>
-    IconZone
+    IconZone,
+
+    /// <summary>
+    /// One wide image laid over the whole seat-map canvas: every node shows its own slice
+    /// (<see cref="NodeMapping.PanoramaSource"/>), so the picture continues across bezels and around a Ring.
+    /// </summary>
+    Panorama
 }
 
 /// <summary>
@@ -136,9 +142,13 @@ public class BackgroundLayerConfig
     public string ColorHex { get; set; } = "#000000";
 
     /// <summary>
-    /// Path to background image file (for StretchedImage or TiledImage modes)
+    /// Path to background image file (for StretchedImage, TiledImage or Panorama modes)
     /// </summary>
     public string? ImagePath { get; set; }
+
+    /// <summary>True for the modes that draw <see cref="ImagePath"/>.</summary>
+    [JsonIgnore]
+    public bool UsesImage => Mode is BackgroundMode.StretchedImage or BackgroundMode.TiledImage or BackgroundMode.Panorama;
 
     /// <summary>ThreeZone: pixels from top where the corridor starts.</summary>
     public int CorridorTopPx { get; set; } = 324;

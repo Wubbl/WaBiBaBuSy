@@ -1306,12 +1306,13 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         await ReplayEventsAsync(newServices.Select(s => s.service));
 
         // Phase 3: Send cross-screen D2D commands to remote clients. The bottom layer's file is the command's primary
-        // content; every other file travels as an asset.
-        var primaryPath = layers.FirstOrDefault(l => !string.IsNullOrWhiteSpace(l.Animation.AnimationPath))?.Animation.AnimationPath;
+        // content (a background-only scene, e.g. a lone panorama, sends its background image); every other file travels as an asset.
+        var primaryPath = layers.FirstOrDefault(l => !string.IsNullOrWhiteSpace(l.Animation.AnimationPath))?.Animation.AnimationPath
+            ?? (effScene.Background.UsesImage && !string.IsNullOrWhiteSpace(effScene.Background.ImagePath) ? effScene.Background.ImagePath : null);
         if (remoteClients.Count > 0 && _service.SyncCoordinator != null && primaryPath == null)
         {
-            // ponytail: a background-only scene is not sent to remotes (the LOAD needs a primary file); the editor never builds one.
-            Debug.WriteLine("[CrossScreen] Background-only scene: remote nodes keep what they show");
+            // ponytail: a scene without any file (solid color only) is not sent to remotes (the LOAD needs a primary file).
+            Debug.WriteLine("[CrossScreen] Scene without files: remote nodes keep what they show");
         }
         else if (remoteClients.Count > 0 && _service.SyncCoordinator != null)
         {

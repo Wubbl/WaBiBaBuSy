@@ -1809,11 +1809,16 @@ partial class Program
 
             case BackgroundMode.StretchedImage:
             case BackgroundMode.TiledImage:
+            case BackgroundMode.Panorama:
                 if (!string.IsNullOrEmpty(config.ImagePath) && File.Exists(config.ImagePath))
                 {
                     using var gdiBitmap = (Bitmap)Image.FromFile(config.ImagePath);
-                    _backgroundImageBitmap = UploadBitmapToD2D(gdiBitmap);
-                    _logger?.LogInformation("[BG-D2D] Image loaded: {Path} ({W}x{H})", config.ImagePath, gdiBitmap.Width, gdiBitmap.Height);
+                    // Panorama: cut this node's slice on the CPU, so only a monitor-sized bitmap reaches the GPU
+                    // (a 10-screen image is wider than D2D's 16384 px bitmap limit).
+                    using var slice = config.Mode == BackgroundMode.Panorama ? CropPanorama(gdiBitmap) : null;
+                    _backgroundImageBitmap = UploadBitmapToD2D(slice ?? gdiBitmap);
+                    _logger?.LogInformation("[BG-D2D] Image loaded: {Path} ({W}x{H}){Slice}", config.ImagePath, gdiBitmap.Width, gdiBitmap.Height,
+                        slice != null ? $" panorama slice {slice.Width}x{slice.Height}" : string.Empty);
                 }
                 else
                 {
@@ -1914,6 +1919,16 @@ partial class Program
         }
     }
 
+    /// <summary>This node's slice of a panorama image (<see cref="NodeMapping.PanoramaSource"/>), flipped on a mirrored node.</summary>
+    private static Bitmap CropPanorama(Bitmap full)
+    {
+        // ponytail: without a seat-map layout the whole image is uploaded (fails past 16384 px); every LOAD from the server carries one.
+        var (x, y, w, h) = NodeMapping.PanoramaSource(_sequentialLayout, full.Width, full.Height);
+        var slice = full.Clone(new Rectangle(x, y, w, h), System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+        if (_sequentialLayout?.Mirrored == true) slice.RotateFlip(RotateFlipType.RotateNoneFlipX);
+        return slice;
+    }
+
     /// <summary>
     /// Draw background using pure D2D calls (no GDI+).
     /// </summary>
@@ -1928,6 +1943,7 @@ partial class Program
                 break;
 
             case BackgroundMode.StretchedImage:
+            case BackgroundMode.Panorama:   // the bitmap already is this node's slice
                 if (_backgroundImageBitmap != null)
                 {
                     _d2dContext.Clear(new Color4(0, 0, 0, 1)); // Black behind image

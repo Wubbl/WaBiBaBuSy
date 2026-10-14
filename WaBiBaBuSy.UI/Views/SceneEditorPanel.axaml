@@ -645,6 +645,7 @@
                                     <ComboBoxItem Content="Tiled image"/>
                                     <ComboBoxItem Content="Three zone (corridor)"/>
                                     <ComboBoxItem Content="Icon zone (auto-detect)"/>
+                                    <ComboBoxItem Content="Panorama (spans all screens)"/>
                                 </ComboBox>
                             </Grid>
                             <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsSolidColorMode}">
@@ -666,6 +667,10 @@
                                         <ToggleButton Content="Choose from strip" IsChecked="{Binding IsPickingBackgroundImage}"/>
                                         <Button Content="Browse…" Command="{Binding BrowseBackgroundImageCommand}"/>
                                     </StackPanel>
+                                    <TextBlock Classes="hint" TextWrapping="Wrap" IsVisible="{Binding IsPanoramaMode}"
+                                               Text="One wide picture laid over the whole room; every screen shows its slice, bezel gaps included. For a Ring, let the right edge continue into the left."/>
+                                    <TextBlock Classes="hint" IsVisible="{Binding IsPanoramaMode}"
+                                               Text="{Binding PanoramaCanvasSize}"/>
                                 </StackPanel>
                             </Grid>
                             <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsThreeZoneMode}">

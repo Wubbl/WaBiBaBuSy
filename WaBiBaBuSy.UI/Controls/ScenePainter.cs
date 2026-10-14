@@ -55,6 +55,33 @@ public sealed partial class ScenePainter
         return bmp;
     }
 
+    // The preview only needs a few hundred px per tile: decode panoramas at 4096 px wide instead of 20000+.
+    private const int PanoramaPreviewWidth = 4096;
+    private const string PanoramaKeyPrefix = "panorama|";
+
+    private Bitmap? PanoramaBitmap(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return null;
+        string key = PanoramaKeyPrefix + path;
+        if (_bitmaps.TryGetValue(key, out var cached)) return cached;
+        Bitmap? bmp = null;
+        try
+        {
+            if (File.Exists(path))
+            {
+                using var stream = File.OpenRead(path);
+                bmp = Bitmap.DecodeToWidth(stream, PanoramaPreviewWidth);
+            }
+        }
+        catch
+        {
+            bmp = null;
+        }
+        if (_bitmaps.Count >= MaxCachedBitmaps) _bitmaps.Clear();
+        _bitmaps[key] = bmp;
+        return bmp;
+    }
+
     /// <summary>True when the scene has an enabled layer with an animation file to draw.</summary>
     public static bool HasSprite(CrossScreenConfig? scene) =>
         scene != null && scene.Layers.Any(l => l.Enabled && !string.IsNullOrEmpty(l.Animation.AnimationPath));
@@ -63,14 +90,27 @@ public sealed partial class ScenePainter
     public static CrossScreenConfig? Resolve(CrossScreenConfig? scene, SeatMapLayoutResult layout) =>
         scene == null ? null : PhysicalUnits.ResolveScene(scene, layout.RefPixelsPerCm);
 
-    /// <summary>Background color (and ThreeZone bands) of the scene over the node rect.</summary>
-    public void PaintBackground(DrawingContext ctx, Rect rect, double s, CrossScreenConfig? scene)
+    /// <summary>True when the scene has something to paint: a sprite, or a panorama background.</summary>
+    public static bool HasContent(CrossScreenConfig? scene) =>
+        HasSprite(scene) || (scene?.Background is { Mode: BackgroundMode.Panorama } bg && !string.IsNullOrEmpty(bg.ImagePath));
+
+    /// <summary>Background color (ThreeZone bands, this node's panorama slice) of the scene over the node rect.</summary>
+    public void PaintBackground(DrawingContext ctx, Rect rect, double s, CrossScreenConfig? scene, NodeLayout? node = null)
     {
         var bg = scene?.Background;
         var color = ParseHex(bg == null ? "#000000" :
             bg.Mode == BackgroundMode.IconZone ? bg.IconCorridorColorHex :
             bg.Mode == BackgroundMode.ThreeZone ? bg.CorridorColorHex : bg.ColorHex);
         ctx.FillRectangle(new SolidColorBrush(color), rect);
+        if (bg?.Mode == BackgroundMode.Panorama && PanoramaBitmap(bg.ImagePath) is { } pano)
+        {
+            var (px, py, pw, ph) = NodeMapping.PanoramaSource(node, pano.PixelSize.Width, pano.PixelSize.Height);
+            using var flip = node?.Mirrored == true
+                ? ctx.PushTransform(Matrix.CreateTranslation(-rect.Center.X, 0) * Matrix.CreateScale(-1, 1) * Matrix.CreateTranslation(rect.Center.X, 0))
+                : default(DrawingContext.PushedState?);
+            ctx.DrawImage(pano, new Rect(px, py, pw, ph), rect);
+            return;
+        }
         if (bg?.Mode != BackgroundMode.ThreeZone) return;
 
         double top = rect.Top + bg.CorridorTopPx * s;

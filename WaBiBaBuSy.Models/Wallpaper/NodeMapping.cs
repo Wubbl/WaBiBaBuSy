@@ -61,6 +61,23 @@ public static class NodeMapping
     public static bool IsVisible(float localX, float width, NodeLayout layout)
         => localX + width > 0f && localX < layout.Width;
 
+    /// <summary>
+    /// The part of a <see cref="BackgroundMode.Panorama"/> image (in image pixels) this node shows: the image is
+    /// stretched over the whole canvas and the node's slice is cut out. No layout → the whole image. Clamped to
+    /// the image. Mirrored nodes flip the slice horizontally (the caller does that) so seams still meet.
+    /// </summary>
+    public static (int X, int Y, int Width, int Height) PanoramaSource(NodeLayout? layout, int imageWidth, int imageHeight)
+    {
+        if (layout == null || layout.CanvasWidth <= 0 || layout.CanvasHeight <= 0 || layout.Width <= 0 || layout.Height <= 0)
+            return (0, 0, imageWidth, imageHeight);
+        double kx = imageWidth / (double)layout.CanvasWidth, ky = imageHeight / (double)layout.CanvasHeight;
+        int x0 = Math.Clamp((int)Math.Round(layout.OffsetX * kx), 0, imageWidth);
+        int y0 = Math.Clamp((int)Math.Round(layout.OffsetY * ky), 0, imageHeight);
+        int x1 = Math.Clamp((int)Math.Round((layout.OffsetX + layout.Width) * kx), x0, imageWidth);
+        int y1 = Math.Clamp((int)Math.Round((layout.OffsetY + layout.Height) * ky), y0, imageHeight);
+        return x1 > x0 && y1 > y0 ? (x0, y0, x1 - x0, y1 - y0) : (0, 0, imageWidth, imageHeight);
+    }
+
     public static float PositiveModulo(float value, float period)
     {
         if (period <= 0f) return value;

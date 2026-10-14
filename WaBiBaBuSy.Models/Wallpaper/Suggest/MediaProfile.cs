@@ -25,6 +25,9 @@ public sealed record MediaProfile(
     string Path, MediaKind Kind, int PixelWidth, int PixelHeight,
     SizeClass Size, AspectClass Aspect, PixelFacts Pixels, long? LoopMs, long? DurationMs)
 {
+    /// <summary>A room-spanning background picture (<see cref="MediaAnalyzer.IsPanorama"/>).</summary>
+    public bool IsPanorama { get; init; }
+
     /// <summary>
     /// Build a profile. <paramref name="durationMs"/> is the gallery's duration: the loop length for a GIF,
     /// the clip length for a video, ignored for stills; 0 or less means unknown.
@@ -37,6 +40,9 @@ public sealed record MediaProfile(
             MediaAnalyzer.ClassifySize(width, height, screenWidth, screenHeight),
             MediaAnalyzer.ClassifyAspect(width, height), pixels,
             kind == MediaKind.Gif && durationMs > 0 ? durationMs : null,
-            kind == MediaKind.Video && durationMs > 0 ? durationMs : null);
+            kind == MediaKind.Video && durationMs > 0 ? durationMs : null)
+        {
+            IsPanorama = MediaAnalyzer.IsPanorama(kind, width, height, screenWidth, pixels.HasAlpha),
+        };
     }
 }

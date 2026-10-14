@@ -76,6 +76,23 @@ public class NodeMappingTests
     }
 
     [Fact]
+    public void PanoramaSource_CutsTheNodesSliceScaledToTheImage()
+    {
+        // 10 000 px canvas, image at half resolution: node 2 (offset 3840) shows x 1920..2880 of a 5000 px image.
+        Assert.Equal((1920, 0, 960, 540), NodeMapping.PanoramaSource(Node(3840), 5000, 540));
+        // Exactly authored at canvas size: 1:1.
+        Assert.Equal((1920, 0, 1920, 1080), NodeMapping.PanoramaSource(Node(1920), 10000, 1080));
+    }
+
+    [Fact]
+    public void PanoramaSource_ClampsToTheImage_AndFallsBackToWholeImage()
+    {
+        Assert.Equal((9000, 0, 1000, 1080), NodeMapping.PanoramaSource(Node(9000), 10000, 1080));   // slice past the canvas end
+        Assert.Equal((0, 0, 800, 200), NodeMapping.PanoramaSource(null, 800, 200));                  // no layout
+        Assert.Equal((0, 0, 800, 200), NodeMapping.PanoramaSource(Node(20000), 800, 200));           // slice outside the image
+    }
+
+    [Fact]
     public void MirrorLocalX_Roundtrips()
     {
         var m = Node(0, mirrored: true);

@@ -83,6 +83,14 @@ public class PlaylistBuilderTests
     }
 
     [Fact]
+    public void PanoramasStayPanoramas_EvenBackToBack()
+    {
+        var p = Build(SelectionProfileTests.File("p1.jpg", 19200, 1080, alpha: false), SelectionProfileTests.File("p2.jpg", 8192, 460, alpha: false));
+        Assert.Equal(2, p.Items.Count);
+        Assert.All(p.Items, i => Assert.Equal(BackgroundMode.Panorama, i.Config.Background.Mode));
+    }
+
+    [Fact]
     public void UnknownFilesBecomeSoloItems()
     {
         var unknown = MediaProfile.Create(@"C:\m\broken.png", 0, 0, 1920, 1080, PixelFacts.Unknown, 0);
