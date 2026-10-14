@@ -107,9 +107,25 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
             </ScrollViewer>
-            <Button Content="+ Add" Command="{Binding AddWallpaperCommand}"
-                    HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,14,4"
-                    ToolTip.Tip="Add files to the gallery (or drop files onto this panel)"/>
+            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,14,4">
+                <Button Content="Get content ▾" ToolTip.Tip="Where to find or make small animated content (opens your browser)">
+                    <Button.Flyout>
+                        <MenuFlyout ItemsSource="{Binding ContentMenuEntries}">
+                            <MenuFlyout.ItemContainerTheme>
+                                <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}" x:DataType="vm:ContentMenuEntry">
+                                    <Setter Property="Header" Value="{Binding Header}"/>
+                                    <Setter Property="Command" Value="{Binding Command}"/>
+                                    <Setter Property="CommandParameter" Value="{Binding Header}"/>
+                                    <Setter Property="IsEnabled" Value="{Binding IsLink}"/>
+                                    <Setter Property="ToolTip.Tip" Value="{Binding Tip}"/>
+                                </ControlTheme>
+                            </MenuFlyout.ItemContainerTheme>
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
+                <Button Content="+ Add" Command="{Binding AddWallpaperCommand}"
+                        ToolTip.Tip="Add files to the gallery (or drop files onto this panel)"/>
+            </StackPanel>
         </Panel>
 
         <GridSplitter Grid.Row="1" ResizeDirection="Rows" Background="#3E3E42"

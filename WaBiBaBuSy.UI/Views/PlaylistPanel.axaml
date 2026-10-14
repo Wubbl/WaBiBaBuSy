@@ -89,21 +89,27 @@
             </Canvas>
         </Grid>
 
-        <Button Grid.Row="4" Content="＋ Add ▾" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                Margin="0,6,0,0" ToolTip.Tip="Append the Scene editor's draft or a preset as a new item">
-            <Button.Flyout>
-                <MenuFlyout>
-                    <MenuItem Header="Current scene" Command="{Binding AddCurrentSceneCommand}"/>
-                    <MenuItem Header="From preset" ItemsSource="{Binding PresetEntries}" IsEnabled="{Binding HasPresets}">
-                        <MenuItem.ItemContainerTheme>
-                            <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}" x:DataType="vm:PresetMenuEntry">
-                                <Setter Property="Header" Value="{Binding Name}"/>
-                                <Setter Property="Command" Value="{Binding Command}"/>
-                            </ControlTheme>
-                        </MenuItem.ItemContainerTheme>
-                    </MenuItem>
-                </MenuFlyout>
-            </Button.Flyout>
-        </Button>
+        <StackPanel Grid.Row="4">
+            <Button Content="＋ Add ▾" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                    Margin="0,6,0,0" ToolTip.Tip="Append the Scene editor's draft or a preset as a new item">
+                <Button.Flyout>
+                    <MenuFlyout>
+                        <MenuItem Header="Current scene" Command="{Binding AddCurrentSceneCommand}"/>
+                        <MenuItem Header="From preset" ItemsSource="{Binding PresetEntries}" IsEnabled="{Binding HasPresets}">
+                            <MenuItem.ItemContainerTheme>
+                                <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}" x:DataType="vm:PresetMenuEntry">
+                                    <Setter Property="Header" Value="{Binding Name}"/>
+                                    <Setter Property="Command" Value="{Binding Command}"/>
+                                </ControlTheme>
+                            </MenuItem.ItemContainerTheme>
+                        </MenuItem>
+                        <MenuItem Header="Auto from folder…" Command="{Binding AddFromFolderCommand}"
+                                  ToolTip.Tip="Build varied items from every picture, GIF and video in a folder (appended to this playlist)"/>
+                    </MenuFlyout>
+                </Button.Flyout>
+            </Button>
+            <TextBlock Text="{Binding FolderStatus}" IsVisible="{Binding HasFolderStatus}"
+                       FontSize="11" Foreground="#9FC5FF" TextWrapping="Wrap" Margin="0,4,0,0"/>
+        </StackPanel>
     </Grid>
 </UserControl>

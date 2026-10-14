@@ -18,9 +18,16 @@ public static class SceneSuggester
     /// <summary>The best-scoring recipes (ties in <see cref="SceneRecipes.All"/> order).</summary>
     public static SuggestionSet Suggest(SelectionProfile s, CrossScreenConfig baseScene, int seed)
     {
-        var picked = Offered(s).OrderByDescending(x => x.score).ThenBy(x => x.index).Take(CardCount).Select(x => x.recipe);
-        return Build(s, baseScene, seed, picked);
+        return Build(s, baseScene, seed, Ranked(s).Take(CardCount));
     }
+
+    /// <summary>The recipes offered for <paramref name="s"/> (score &gt; 0), best first; ties in <see cref="SceneRecipes.All"/> order.</summary>
+    public static IReadOnlyList<ISceneRecipe> Ranked(SelectionProfile s) =>
+        Offered(s).OrderByDescending(x => x.score).ThenBy(x => x.index).Select(x => x.recipe).ToList();
+
+    /// <summary>Build one recipe's scene for <paramref name="s"/>, with the cm twins filled for physical-unit rooms.</summary>
+    public static Suggestion BuildCard(ISceneRecipe recipe, SelectionProfile s, CrossScreenConfig baseScene, int seed) =>
+        WithCentimetres(recipe.Build(s, baseScene, seed), s.PixelsPerCm);
 
     /// <summary>
     /// Recipes drawn by score, preferring ones not in <paramref name="shownRecipeNames"/>; shown ones fill up when
@@ -49,7 +56,7 @@ public static class SceneSuggester
         SceneRecipes.All.Select((r, i) => (recipe: r, score: r.Score(s), index: i)).Where(x => x.score > 0).ToList();
 
     private static SuggestionSet Build(SelectionProfile s, CrossScreenConfig baseScene, int seed, IEnumerable<ISceneRecipe> recipes) =>
-        new(recipes.Select((r, i) => WithCentimetres(r.Build(s, baseScene, PatternLayout.Hash3(seed, i, 7)), s.PixelsPerCm)).ToList(),
+        new(recipes.Select((r, i) => BuildCard(r, s, baseScene, PatternLayout.Hash3(seed, i, 7))).ToList(),
             s.Mix == SelectionMix.BigPlusSmall ? LayersNote
             : s.HasVideoSprite && s.Count > 1 ? VideoNote
             : null);

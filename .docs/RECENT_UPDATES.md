@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-10-14 — Auto from folder and "Get content", branch `feat/folder-playlist`
+
+- **What**: Playlist tab ＋ Add ▾ → **Auto from folder…** reads a folder's pictures, GIFs and videos (max 200, by name), adds them to the gallery, profiles them like ✨ Suggest and appends a varied party playlist: full-screen files and videos as Showcases (video dwell = its length, max 2 min), look-alike transparent sprites in groups of 3–5, everything else solo; rhythm group / solo / group / showcase, no recipe twice in a row, GIF dwell on whole loops. A status line shows progress and the result. The gallery gets **Get content ▾**: free GIF / sprite sites, AI generators and clean-up tools, opened in the browser.
+- **Code**: pure `PlaylistBuilder` (Models/Wallpaper/Suggest) and `ContentLinks` (Models/Content); `SceneSuggester.Ranked` / `BuildCard`; UI `ProfileFilesAsync` shared by Suggest and the folder flow (reads GIF loops / video lengths the gallery has not measured yet).
+- **Verified**: build 0 errors; 1084 unit tests green (+30); real decode + build on the showcase assets and a 10-file folder from a console. GUI click-through pending. Spec `docs/superpowers/specs/2026-10-14-folder-playlist-and-content-links-design.md`.
+
 ## 2026-10-14 — ✨ Suggest: scenes built for the picked media, branch `feat/auto-suggest`
 
 - **What**: a `✨ Suggest` button in the Scene editor's Content tab. It profiles the picked files (size vs the primary monitor, aspect, transparency, mono vs colourful, dominant colours, brightness, GIF loop length) and shows four cards from nine recipes modelled on the starter presets (DVD Bounce, Logo Conveyor, Marquee, Orbit, Pulse Grid, Fireflies, Comet, Parade, Showcase). Clicking a card makes it the draft (room preview shows it), 🎲 Shuffle offers others, Keep / ✕ close. Mono logos get tinted, colourful ones keep their colours; cycles snap to whole GIF loops; a full-screen file picked with small ones gets a Showcase card and the note "needs scene layers".

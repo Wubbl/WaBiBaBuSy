@@ -87,4 +87,27 @@ public class SceneSuggesterTests
         Assert.Equal(SceneSuggester.LayersNote, SceneSuggester.Suggest(Sel(F("s.gif", 200, 200), F("big.gif", 1920, 1080)), Base, 1).Note);
         Assert.Null(SceneSuggester.Suggest(Sel(F("logo.png", 200, 200)), Base, 1).Note);
     }
+
+    [Fact]
+    public void RankedListsOfferedRecipesBestFirst()
+    {
+        var s = Sel(F("logo.png", 200, 200));
+        var ranked = SceneSuggester.Ranked(s);
+        Assert.Equal("DVD Bounce", ranked[0].Name);
+        Assert.Equal(SceneRecipes.All.Count(r => r.Score(s) > 0), ranked.Count);
+        for (int i = 1; i < ranked.Count; i++) Assert.True(ranked[i - 1].Score(s) >= ranked[i].Score(s));
+    }
+
+    [Fact]
+    public void BuildCardAddsCentimetres()
+    {
+        var s = new SelectionProfile(new[] { F("logo.png", 200, 200) }, 1920, 1080, pixelsPerCm: 40f);
+        var card = SceneSuggester.BuildCard(SceneSuggester.Ranked(s)[0], s, Base, 3);
+        Assert.Equal(card.Scene.Animation.TargetHeight / 40f, card.Scene.Animation.TargetHeightCm, 3);
+    }
+
+    [Fact]
+    public void SuggestIsTheTopOfRanked() =>
+        Assert.Equal(SceneSuggester.Ranked(Sel(F("logo.png", 200, 200))).Take(SceneSuggester.CardCount).Select(r => r.Name),
+                     Names(SceneSuggester.Suggest(Sel(F("logo.png", 200, 200)), Base, 1)));
 }

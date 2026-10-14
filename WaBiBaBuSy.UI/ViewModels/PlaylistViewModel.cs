@@ -242,6 +242,31 @@ public partial class PlaylistViewModel : ViewModelBase
         if (config != null) AddItem(config);
     }
 
+    /// <summary>"＋ Add ▾ → Auto from folder…": set by the host (folder pick, profiling, building).</summary>
+    public Func<Task>? BuildFromFolder { get; set; }
+
+    /// <summary>Progress / result line of the last Auto from folder run (empty = hidden).</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasFolderStatus))] private string _folderStatus = string.Empty;
+
+    /// <summary>True when <see cref="FolderStatus"/> has text.</summary>
+    public bool HasFolderStatus => !string.IsNullOrEmpty(FolderStatus);
+
+    [RelayCommand]
+    private async Task AddFromFolderAsync()
+    {
+        if (BuildFromFolder != null) await BuildFromFolder();
+    }
+
+    /// <summary>Append built items; an empty playlist also takes <paramref name="playlistName"/>. Returns the count added.</summary>
+    public int AppendItems(string playlistName, IEnumerable<PlaylistItem> items)
+    {
+        bool wasEmpty = Items.Count == 0;
+        int added = 0;
+        foreach (var item in items) { Items.Add(new PlaylistItemRow(item)); added++; }
+        if (wasEmpty && added > 0) PlaylistName = playlistName;
+        return added;
+    }
+
     /// <summary>"＋ Add ▾ → From preset" entries (filled by the host).</summary>
     public ObservableCollection<PresetMenuEntry> PresetEntries { get; } = new();
 
