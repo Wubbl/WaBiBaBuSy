@@ -54,10 +54,17 @@ partial class Program
     {
         var evt = cmd.Event;
         if (evt == null || !_showEvents.Add(evt)) return;
+        if (!evt.IsFor(_layout.Id)) return;   // kept (dedupe), but never drawn here: no sprite to decode
         _logger?.LogInformation("[Event] {Type} {Id} T0={T0} ({InMs} ms from now) duration={Duration}ms",
             evt.Type, evt.EventId, evt.T0Utc, evt.T0Utc - NowUtcMs, evt.DurationMs);
         StartEventSpriteDecode(evt);
     }
+
+    /// <summary>The server's label for this seat (room-wide numbering); own order + machine name when it sent none.</summary>
+    private static string IdentifyLabel(ShowEvent evt) =>
+        evt.Labels != null && evt.Labels.TryGetValue(_layout.Id, out var label) && !string.IsNullOrWhiteSpace(label)
+            ? label
+            : $"{_layout.Order + 1}  {Environment.MachineName}";
 
     /// <summary>Decode the event's sprite on a worker task unless it is decoded, decoding or uploaded already.</summary>
     private static void StartEventSpriteDecode(ShowEvent evt)
@@ -73,7 +80,7 @@ partial class Program
             // Each seat renders its own label: the number the room view orders by, and this machine's name.
             ShowEventType.Identify => () => new EventSpriteFrames
             {
-                Frames = new List<Bitmap> { TextSprite.Render($"{_layout.Order + 1}  {Environment.MachineName}", evt.ColorHex) },
+                Frames = new List<Bitmap> { TextSprite.Render(IdentifyLabel(evt), evt.ColorHex) },
                 DelaysMs = new List<int> { 100 },
             },
             _ => null,
@@ -226,7 +233,7 @@ partial class Program
                 for (int i = 0; i < n; i++)
                 {
                     var evt = _showEventScratch[i];
-                    if (EventLayer(evt.Type) != layer) continue;
+                    if (EventLayer(evt.Type) != layer || !evt.IsFor(_layout.Id)) continue;
                     long local = ShowEventMath.LocalMs(evt, sceneStartUtc, sceneRawElapsedMs);
                     if (!ShowEventMath.IsActive(evt, local)) continue;
                     switch (evt.Type)

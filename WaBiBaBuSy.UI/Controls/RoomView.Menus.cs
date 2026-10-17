@@ -27,6 +27,10 @@ public partial class RoomView
             Item("Start new row here", () => host.SplitRowAtAsync(tile.Id), tile.ChainIndex > 0),
             Item("Merge into previous row", () => host.MergeRowIntoPreviousAsync(tile.Row), tile.Row > 0),
             new Separator(),
+            Item("Tags…" + suffix, () => { OpenTagsEditor(ids); return Task.CompletedTask; }),
+            // Also for the first seat of a row (no gap handle there): an empty seat before it.
+            Item("Gap before this seat (cm)…", () => { OpenGapEditor(new GapBox(tile.Id, tile.Row, default)); return Task.CompletedTask; }),
+            new Separator(),
             Item("Clear wallpaper" + suffix, () => host.ClearNodesAsync(ids)),
             Item("Resync" + suffix, () => host.ResyncNodesAsync(ids)),
             Item("View logs", () => host.ShowNodeLogsAsync(tile.Id), host.CanFetchLogs(tile.Id)),
@@ -113,6 +117,36 @@ public partial class RoomView
         ok.Click += (_, _) => Commit();
         input.KeyDown += (_, e) => { if (e.Key == Key.Enter) { Commit(); e.Handled = true; } };
         flyout.Placement = PlacementMode.Pointer;   // Avalonia 12.1.2 has no ShowAt(Control, bool); Placement is the equivalent.
+        flyout.ShowAt(this);
+    }
+
+    /// <summary>Comma-separated tags for the node(s); prefilled with the first node's tags.</summary>
+    private void OpenTagsEditor(IReadOnlyCollection<string> ids)
+    {
+        var host = _host!;
+        var input = new TextBox { Text = string.Join(", ", host.TagsOf(ids.First())), Width = 220, PlaceholderText = "BiBaBu, Guests" };
+        var ok = new Button { Content = "Set" };
+        var flyout = new Flyout
+        {
+            Content = new StackPanel
+            {
+                Spacing = 6,
+                Children =
+                {
+                    new TextBlock { Text = ids.Count > 1 ? $"Tags of {ids.Count} nodes (comma-separated, blank clears)" : "Tags (comma-separated, blank clears)", FontSize = 12 },
+                    new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children = { input, ok } }
+                }
+            }
+        };
+
+        void Commit()
+        {
+            flyout.Hide();
+            _ = RunSafe(host.SetTagsAsync(ids, input.Text ?? string.Empty));
+        }
+        ok.Click += (_, _) => Commit();
+        input.KeyDown += (_, e) => { if (e.Key == Key.Enter) { Commit(); e.Handled = true; } };
+        flyout.Placement = PlacementMode.Pointer;
         flyout.ShowAt(this);
     }
 

@@ -289,6 +289,10 @@
                         <StackPanel Spacing="4">
                             <WrapPanel>
                                 <TextBlock Text="Events" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <TextBlock Text="To" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                <ComboBox ItemsSource="{Binding Events.Targets}" SelectedItem="{Binding Events.SelectedTarget}"
+                                          MinWidth="130" FontSize="11" Margin="0,0,10,0"
+                                          ToolTip.Tip="Who sees the events: everyone, every seat with a tag (right-click a node → Tags…), or one seat. With nothing playing, the seats go black for the event and back afterwards."/>
                                 <Button Content="★ Spotlight" Command="{Binding Events.SpotlightCommand}" Padding="8,3" FontSize="11" Margin="0,0,4,0"
                                         ToolTip.Tip="Spotlight the picked seat: its border pulses, every other seat dims and points to it (Ctrl+Alt+1)"/>
                                 <ComboBox ItemsSource="{Binding Events.Seats}" SelectedItem="{Binding Events.SelectedSeat}"

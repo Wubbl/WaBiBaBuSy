@@ -35,6 +35,11 @@ public partial class ShowEventsViewModel : ObservableObject
 
     public ObservableCollection<SeatChoice> Seats { get; } = new();
 
+    /// <summary>Who the event buttons fire for: Everyone, a tag, or one seat of the room.</summary>
+    public ObservableCollection<EventTarget> Targets { get; } = new() { EventTarget.Everyone };
+
+    [ObservableProperty] private EventTarget? _selectedTarget = EventTarget.Everyone;
+
     [ObservableProperty] private SeatChoice? _selectedSeat;
     [ObservableProperty] private string _announceText;
 
@@ -64,6 +69,23 @@ public partial class ShowEventsViewModel : ObservableObject
         SelectedSeat = Seats.FirstOrDefault(s => s.Id == keep) ?? Seats.FirstOrDefault();
     }
 
+    /// <summary>
+    /// Target picker: Everyone, the tags in use, then every seat of the room (<paramref name="seats"/>: id, label).
+    /// No-op when unchanged; keeps the selection when it still exists, else falls back to Everyone.
+    /// </summary>
+    public void RefreshTargets(IReadOnlyList<(string Id, string Label)> seats)
+    {
+        var choices = EventTarget.Choices(_server.Tags.All(), seats);
+        if (Targets.SequenceEqual(choices)) return;
+        var keep = SelectedTarget;
+        Targets.Clear();
+        foreach (var t in choices) Targets.Add(t);
+        SelectedTarget = Targets.FirstOrDefault(t => keep != null && t.Kind == keep.Kind && t.Value == keep.Value) ?? Targets[0];
+    }
+
+    /// <summary>Node ids of the picked target; null = everyone.</summary>
+    private IReadOnlyList<string>? TargetIds() => (SelectedTarget ?? EventTarget.Everyone).Resolve(_server.Tags.NodesWith);
+
     /// <summary>The room view's selected node becomes the Spotlight target (when it is a seat of the running layout).</summary>
     public void SelectSeat(string? id)
     {
@@ -89,26 +111,26 @@ public partial class ShowEventsViewModel : ObservableObject
     }
 
     [RelayCommand(CanExecute = nameof(CanFire))]
-    private Task Spotlight() => _server.FireEventAsync(ShowEventType.Spotlight, SelectedSeat?.Id);
+    private Task Spotlight() => _server.FireEventAsync(ShowEventType.Spotlight, SelectedSeat?.Id, TargetIds());
 
     [RelayCommand(CanExecute = nameof(CanFire))]
-    private Task Celebration() => _server.FireEventAsync(ShowEventType.Celebration);
+    private Task Celebration() => _server.FireEventAsync(ShowEventType.Celebration, null, TargetIds());
 
     [RelayCommand(CanExecute = nameof(CanFire))]
-    private Task Traversal() => _server.FireEventAsync(ShowEventType.Traversal);
+    private Task Traversal() => _server.FireEventAsync(ShowEventType.Traversal, null, TargetIds());
 
     [RelayCommand(CanExecute = nameof(CanFire))]
-    private Task Blackout() => _server.FireEventAsync(ShowEventType.Blackout);
+    private Task Blackout() => _server.FireEventAsync(ShowEventType.Blackout, null, TargetIds());
 
     [RelayCommand(CanExecute = nameof(CanFire))]
     private Task Announce()
     {
         _server.SaveEventSettings(_server.EventSettings);   // persist the typed text (interrupts and the hotkey use it)
-        return _server.FireEventAsync(ShowEventType.Announce);
+        return _server.FireEventAsync(ShowEventType.Announce, null, TargetIds());
     }
 
     [RelayCommand(CanExecute = nameof(CanFire))]
-    private Task Identify() => _server.FireEventAsync(ShowEventType.Identify);
+    private Task Identify() => _server.FireEventAsync(ShowEventType.Identify, null, TargetIds());
 
     [RelayCommand]
     private async Task PickTraversalImage()

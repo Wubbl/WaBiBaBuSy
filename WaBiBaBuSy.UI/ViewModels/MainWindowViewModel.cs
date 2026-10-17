@@ -711,6 +711,8 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                 .Select(n => new SeatChoice(n.Id, $"{n.Order + 1}. {names.GetValueOrDefault(n.Id, n.Id)}"))
                 .ToList();
         Events.RefreshSeats(seats);
+        Events.RefreshTargets(Clients.GroupBy(c => c.ClientId).Select(g => g.First()).OrderBy(c => c.Order)
+            .Select(c => (c.ClientId, $"#{c.Order} {c.DisplayName}")).ToList());
     }
 
     private void OnServerPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -1031,6 +1033,16 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         SyncRoom();
         await UpdateClientDistance(c);
         SeatMapVersion++;
+    }
+
+    public IReadOnlyList<string> TagsOf(string nodeId) => _server.Tags.Of(nodeId);
+
+    public Task SetTagsAsync(IReadOnlyCollection<string> nodeIds, string tags)
+    {
+        _server.Tags.Set(nodeIds, NodeTagStore.Parse(tags));
+        RefreshEventSeats();   // the target picker lists the tags
+        SeatMapVersion++;      // tiles show their tags
+        return Task.CompletedTask;
     }
 
     public Task ShowNodeLogsAsync(string nodeId)

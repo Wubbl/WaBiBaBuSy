@@ -38,6 +38,14 @@ public sealed class ShowEvent
     /// <summary>Announce: the text.</summary>
     public string? Text { get; set; }
 
+    /// <summary>Seats (node ids) that draw this event; null = every seat. Players and the preview skip the others.</summary>
+    public List<string>? TargetNodeIds { get; set; }
+    /// <summary>Identify: label per node id ("3  GAMING-PC"), numbered over the whole room by the server.</summary>
+    public Dictionary<string, string>? Labels { get; set; }
+
+    /// <summary>True when the seat <paramref name="nodeId"/> draws this event.</summary>
+    public bool IsFor(string nodeId) => TargetNodeIds == null || TargetNodeIds.Contains(nodeId);
+
     /// <summary>Shallow copy (all members are values or immutable strings).</summary>
     public ShowEvent Clone() => (ShowEvent)MemberwiseClone();
 }

@@ -116,8 +116,18 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     /// <summary>An event was fired (after it went to the players and clients).</summary>
     public event Action<ShowEvent>? EventFired;
 
-    /// <summary>True while a scene plays, so events have a canvas and a clock.</summary>
-    public bool CanFireEvents => ActiveScene != null && ActiveLayout != null;
+    /// <summary>
+    /// Events fire with or without a scene: with none playing, a black stand-in scene runs on the target seats for
+    /// the event and stops after it. Only a scene start in flight blocks them.
+    /// </summary>
+    public bool CanFireEvents => !IsStartingScene;
+
+    /// <summary>Tags per node ("BiBaBu", "Guests"): event targets. App-lifetime, persisted in tags.json.</summary>
+    public NodeTagStore Tags { get; } = NodeTagStore.Load();
+
+    // The black stand-in scene of an event fired while nothing played, and when its last event ends (UTC ms).
+    private CrossScreenConfig? _idleScene;
+    private long _idleUntilUtcMs;
 
     /// <summary>The event defaults were saved (the tray re-registers the hotkeys). Raised on the caller's thread.</summary>
     public event Action? EventSettingsChanged;
@@ -130,7 +140,16 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         EventSettingsChanged?.Invoke();
     }
 
-    partial void OnActiveSceneChanged(CrossScreenConfig? value) => OnPropertyChanged(nameof(CanFireEvents));
+    partial void OnActiveSceneChanged(CrossScreenConfig? value)
+    {
+        if (!ReferenceEquals(value, _idleScene)) _idleScene = null;   // a real scene (or none) replaced the stand-in
+        OnPropertyChanged(nameof(CanFireEvents));
+    }
+
+    partial void OnIsStartingSceneChanged(bool value) => OnPropertyChanged(nameof(CanFireEvents));
+
+    /// <summary>True while the black stand-in scene of an event plays.</summary>
+    public bool IsIdleScenePlaying => _idleScene != null && ReferenceEquals(ActiveScene, _idleScene);
 
     /// <summary>The debug overlay switches last sent to the players.</summary>
     public DebugOverlayFlags DebugOverlay { get; private set; } = DebugOverlayFlags.Default;
@@ -224,17 +243,26 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     // ── Show events ─────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Fire a one-shot event on every seat: this machine's players and every connected client. Refused (false, with
-    /// <see cref="EventStatusText"/>) when nothing plays or the event is incomplete. Call on the UI thread.
+    /// Fire a one-shot event on the seats <paramref name="targetNodeIds"/> (null = every seat): this machine's players
+    /// and the connected clients. With nothing playing, a black stand-in scene starts on those seats first and stops
+    /// once the event ends. Refused (false, with <see cref="EventStatusText"/>) when the event is incomplete or no
+    /// seat can show it. Call on the UI thread.
     /// </summary>
-    public async Task<bool> FireEventAsync(ShowEventType type, string? targetSeatId = null)
+    public async Task<bool> FireEventAsync(ShowEventType type, string? targetSeatId = null, IReadOnlyList<string>? targetNodeIds = null)
     {
+        if (targetNodeIds is { Count: 0 })
+        {
+            EventStatusText = "No seat carries that tag.";
+            return false;
+        }
         var scene = ActiveScene;
         var layout = ActiveLayout;
         if (scene == null || layout == null)
         {
-            EventStatusText = "Events need a running scene.";
-            return false;
+            if (!await StartIdleSceneAsync(targetNodeIds)) return false;
+            scene = ActiveScene;
+            layout = ActiveLayout;
+            if (scene == null || layout == null) return false;
         }
 
         var settings = EventSettings;
@@ -265,10 +293,95 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         if (evt == null)
         {
             EventStatusText = error;
+            if (IsIdleScenePlaying && _idleUntilUtcMs == 0) await StopAsync();   // the stand-in started for nothing
             return false;
         }
+        evt.TargetNodeIds = targetNodeIds?.ToList();
+        if (type == ShowEventType.Identify) evt.Labels = IdentifyLabels();
         await DispatchEventAsync(evt);
+        if (IsIdleScenePlaying) KeepIdleSceneUntil(evt);
         return true;
+    }
+
+    /// <summary>"7  GAMING-PC" per node: the number the room view's tile badge shows, and the node's name.</summary>
+    private Dictionary<string, string> IdentifyLabels() =>
+        _nodes.GroupBy(n => n.Id).Select(g => g.First())
+            .ToDictionary(n => n.Id, n => $"{n.Order}  {(string.IsNullOrWhiteSpace(n.Hostname) ? n.Id : n.Hostname)}");
+
+    /// <summary>
+    /// Start the black stand-in scene on <paramref name="nodeIds"/> (null = the whole room) for an event fired while
+    /// nothing plays. Its background is a tiny black image so remote seats get it too (a scene without files is not sent).
+    /// </summary>
+    private async Task<bool> StartIdleSceneAsync(IReadOnlyList<string>? nodeIds)
+    {
+        if (IsShowRunning)
+        {
+            EventStatusText = "The show is switching items, try again in a moment.";
+            return false;
+        }
+        if (!TryBeginStart())
+        {
+            EventStatusText = "A scene is starting, try again in a moment.";
+            return false;
+        }
+        try
+        {
+            EnsureRoom();
+            var idle = new CrossScreenConfig
+            {
+                Background = new BackgroundLayerConfig { Mode = BackgroundMode.StretchedImage, ImagePath = IdleImage.EnsurePath() },
+                Layers = new List<SceneLayer>(),
+                SelectedMonitorIds = nodeIds?.ToList() ?? new List<string>(),
+            };
+            _idleScene = idle;   // before the apply: OnActiveSceneChanged keeps it when the apply sets ActiveScene
+            _idleUntilUtcMs = 0;
+            await ApplyCrossScreenConfigAsync(idle);
+            if (!ReferenceEquals(ActiveScene, idle))
+            {
+                _idleScene = null;
+                EventStatusText = "None of the target seats is in the room.";
+                return false;
+            }
+            IsCrossScreenRunning = true;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _idleScene = null;
+            Debug.WriteLine($"[Events] Stand-in scene failed: {ex}");
+            EventStatusText = $"Could not start the black stand-in scene: {ex.Message}";
+            return false;
+        }
+        finally
+        {
+            EndStart();
+        }
+    }
+
+    /// <summary>Keep the stand-in scene until <paramref name="evt"/> has ended (later events extend it), then stop it.</summary>
+    private void KeepIdleSceneUntil(ShowEvent evt)
+    {
+        long end = evt.T0Utc + ShowEventMath.ClampDuration(evt.DurationMs) + 300;   // + one fade frame of slack
+        if (end <= _idleUntilUtcMs) return;
+        bool waiting = _idleUntilUtcMs > 0;
+        _idleUntilUtcMs = end;
+        if (!waiting) _ = StopIdleSceneWhenDoneAsync();
+    }
+
+    private async Task StopIdleSceneWhenDoneAsync()
+    {
+        try
+        {
+            long wait;
+            while ((wait = _idleUntilUtcMs - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) > 0)
+                await Task.Delay((int)Math.Min(wait, 60_000));
+            _idleUntilUtcMs = 0;
+            if (IsIdleScenePlaying && IsCrossScreenRunning && !IsStartingScene) await StopAsync();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Events] Stopping the stand-in scene failed: {ex.Message}");
+        }
     }
 
     /// <summary>Test runs: send a prepared event (T0 already set by the runner). Call on the UI thread.</summary>
@@ -413,6 +526,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     /// <summary>Start <paramref name="config"/> as the manual scene (toolbar Start; no-op while one runs).</summary>
     public async Task StartSceneAsync(CrossScreenConfig config)
     {
+        if (IsIdleScenePlaying) await StopAsync();   // an event's black stand-in yields to a real scene
         if (IsCrossScreenRunning)
         {
             Debug.WriteLine("[CrossScreen] Already running");
@@ -464,9 +578,10 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             _lastGlobalLap = -1;
 
             // Send stop command to remote clients that were part of this session
-            if (_service.SyncCoordinator != null && LastScene != null && !string.IsNullOrEmpty(_crossScreenContentId))
+            var stopped = ActiveScene ?? LastScene;   // the stand-in of an event is never LastScene
+            if (_service.SyncCoordinator != null && stopped != null && !string.IsNullOrEmpty(_crossScreenContentId))
             {
-                var remoteToStop = RemoteTargetIds(LastScene);
+                var remoteToStop = RemoteTargetIds(stopped);
 
                 foreach (var remoteId in remoteToStop)
                 {

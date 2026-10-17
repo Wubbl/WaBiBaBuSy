@@ -11,7 +11,11 @@ public sealed class LayoutNodeInput
     public required int WidthPx { get; init; }
     public required int HeightPx { get; init; }
 
-    /// <summary>Bezel/physical gap to the previous node in the same row (cm). Ignored for the first node of a row.</summary>
+    /// <summary>
+    /// Bezel/physical gap to the previous node in the same row (cm). On the first node of a row (after a turn, or seat 0
+    /// of a Ring) it is empty space before that seat, e.g. a missing seat, added to the turn gap. Ignored on seat 0 of
+    /// an open path and on Parallel row starts.
+    /// </summary>
     public int GapBeforeCm { get; init; }
 
     /// <summary>Physical pixels per cm; 0 = unknown (no gaps are inserted before this node).</summary>
@@ -133,14 +137,9 @@ public static class SeatMapLayoutBuilder
             for (int i = 0; i < row.Count; i++)
             {
                 var n = row[i];
-                if (i == 0)
-                {
-                    if (r > 0) x += GapPx(map.TurnGapCm, n.Node.PixelsPerCm, refPpcm);
-                }
-                else
-                {
-                    x += GapPx(n.Node.GapBeforeCm, n.Node.PixelsPerCm, refPpcm);
-                }
+                if (i == 0 && r > 0) x += GapPx(map.TurnGapCm, n.Node.PixelsPerCm, refPpcm);
+                // Seat 0 of an open path has nothing before it; on a Ring its gap extends the closing turn.
+                if (i > 0 || r > 0 || wraps) x += GapPx(n.Node.GapBeforeCm, n.Node.PixelsPerCm, refPpcm);
 
                 layouts.Add(new NodeLayout
                 {

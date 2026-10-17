@@ -103,6 +103,7 @@ public partial class RoomView : Control
     private static readonly IBrush ChipFill = new SolidColorBrush(Color.Parse("#2D2D30"));
     private static readonly IPen ChipPen = new Pen(new SolidColorBrush(Color.Parse("#4A4A50")), 1);
     private static readonly IBrush BadgeBrush = new SolidColorBrush(Color.Parse("#0078D4"));
+    private static readonly IBrush TagBrush = new SolidColorBrush(Color.Parse("#B03A7A3A"));
     private static readonly IBrush WarnBrush = new SolidColorBrush(Color.Parse("#FFD080"));
     private static readonly IBrush Accent = new SolidColorBrush(Color.Parse("#0078D4"));
     private static readonly IBrush AccentFaint = new SolidColorBrush(Color.Parse("#0078D4"), 0.2);
@@ -391,6 +392,16 @@ public partial class RoomView : Control
         var badge = new Rect(sceneBox.X + 4, sceneBox.Y + 4, 28, 15);
         ctx.FillRectangle(BadgeBrush, badge, 3);
         DrawText(ctx, $"#{c?.Order ?? t.ChainIndex}", new Point(badge.X + 4, badge.Y + 1), Brushes.White, 9, bold: true);
+
+        var tags = _host?.TagsOf(t.Id);
+        if (tags is { Count: > 0 })
+        {
+            var ft = Format(string.Join(" · ", tags), Brushes.White, 9, bold: true);
+            double tw = Math.Min(ft.Width + 8, sceneBox.Width - 8);
+            var chip = new Rect(sceneBox.X + 4, sceneBox.Bottom - 19, tw, 15);
+            ctx.FillRectangle(TagBrush, chip, 3);
+            DrawText(ctx, string.Join(" · ", tags), new Point(chip.X + 4, chip.Y + 1), Brushes.White, 9, bold: true, maxWidth: tw - 6);
+        }
 
         if (_host?.NodeWarning(t.Id) != null)
             DrawText(ctx, "⚠", new Point(sceneBox.Right - 16, sceneBox.Y + 1), WarnBrush, 12);

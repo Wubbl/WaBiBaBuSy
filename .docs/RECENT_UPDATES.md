@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-10-17 — Targeted events, tags, events without a scene, empty seat at a row start
+
+- **What**: Events strip **To:** picker — Everyone, *Tag: X* or one seat; every event button fires for that target only. **Tags**: right-click a node (or a selection) → *Tags…* (comma-separated, blank clears); tiles show them as a green chip; stored in `%APPDATA%\WaBiBaBuSy\tags.json`. **No scene needed**: an event fired while nothing plays starts a black stand-in scene on the target seats, and stops it once the last event of it has ended (Play replaces it at once). Identify labels are now numbered by the server like the tile badge (`#N` + host name). Right-click a node → *Gap before this seat (cm)…*: on the first seat of a row (after a turn, or seat 0 of a Ring) the gap is now honored — an empty seat at the row start; seat 0 of an open path and Parallel row starts still ignore it.
+- **Code**: `ShowEvent.TargetNodeIds` / `Labels` / `IsFor` — the player (`DrawShowEvents`, sprite decode) and `ScenePainter` skip events not for their node, so resume / Resync replays stay correct; the per-monitor layout of Simultaneous layers now carries the node id. `NodeTagStore`, `EventTarget` (Models). `ServerPlaybackHost.FireEventAsync(type, seat, targetNodeIds)`, `StartIdleSceneAsync` / `KeepIdleSceneUntil` (stand-in = StretchedImage of a 64×36 black PNG, `IdleImage`, so remotes receive it; never `LastScene`; `StopAsync` stops the remotes of the scene actually playing). `CanFireEvents` = no start in flight. `SeatMapLayoutBuilder.BuildPath` row-start gap. Hotkeys and playlist interrupts still fire for everyone.
+- **Verified**: build 0 errors; 1143 unit tests green (+6, `EventTargetingTests`); test-mode run on 2 local monitors: background-only stand-in scene (no layers) plays, an Identify targeted at monitor 0 with a server label shows "7  LABEL-FROM-SERVER" there and nothing on monitor 1. Pending: GUI click-through (To: picker, Tags… editor, tag chip, gap menu, stand-in start/stop from the buttons), multi-machine run.
+
 ## 2026-10-17 — Identify event + installer firewall rules
 
 - **What**: Events strip **# Identify**: every seat dims and shows its seat number (traversal order + 1, as in the room view) and machine name for 10 s, for sorting the room at the party. Like every event it needs a running scene. Installer (admin install) adds Private-profile firewall rules for TCP 50051 (gRPC) and UDP 5353 (mDNS), removed on uninstall; fallback version 2.7.0.

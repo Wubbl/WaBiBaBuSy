@@ -78,6 +78,12 @@ public interface IRoomHost : INotifyPropertyChanged
     /// <summary>Set the bezel gap (cm) between this node and its previous node in the chain.</summary>
     Task SetGapCmAsync(string nodeId, int cm);
 
+    /// <summary>Tags of a node (event targets), empty when none.</summary>
+    IReadOnlyList<string> TagsOf(string nodeId);
+
+    /// <summary>Replace the tags of the given nodes with the comma-separated <paramref name="tags"/> (blank clears).</summary>
+    Task SetTagsAsync(IReadOnlyCollection<string> nodeIds, string tags);
+
     /// <summary>Stop what the given nodes show.</summary>
     Task ClearNodesAsync(IReadOnlyCollection<string> nodeIds);
 

@@ -31,7 +31,7 @@ public sealed partial class ScenePainter
             foreach (var evt in events)
             {
                 int l = evt.Type == ShowEventType.Spotlight ? 1 : evt.Type == ShowEventType.Blackout ? 2 : 0;
-                if (l != layer) continue;
+                if (l != layer || !evt.IsFor(node.Id)) continue;
                 long local = ShowEventMath.LocalMs(evt, sceneStartUtcMs, sceneRawElapsedMs);
                 if (!ShowEventMath.IsActive(evt, local)) continue;
                 switch (evt.Type)

@@ -123,6 +123,7 @@ partial class Program
         if (distribution == AnimationDistributionMode.Sequential && _sequentialLayout != null) return _sequentialLayout;
         return new NodeLayout
         {
+            Id = _sequentialLayout?.Id ?? string.Empty,   // targeted show events match on it
             OffsetX = 0, OffsetY = 0, Width = _width, Height = _height,
             CanvasWidth = _width, CanvasHeight = _height,
             Mirrored = false, Wraps = false, Order = _sequentialLayout?.Order ?? 0, Scale = 1f
