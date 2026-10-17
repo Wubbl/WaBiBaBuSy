@@ -4,7 +4,7 @@
 #define MyAppName "WaBiBaBuSy"
 ; MyAppVersion is passed from Build-Installer.ps1 via /D flag; fallback if building manually
 #ifndef MyAppVersion
-  #define MyAppVersion "2.6.5"
+  #define MyAppVersion "2.7.0"
 #endif
 ; MyBuildNumber is passed from Build-Installer.ps1 via /D flag
 #ifndef MyBuildNumber
@@ -65,6 +65,12 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: startupicon
 
 [Run]
+; Firewall (Private profile only): gRPC sync server TCP 50051 + mDNS discovery UDP 5353. Needs admin; skipped in per-user installs.
+; Delete first so a reinstall does not stack duplicate rules.
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""WaBiBaBuSy gRPC"""; Flags: runhidden; Check: IsAdminInstallMode
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""WaBiBaBuSy mDNS"""; Flags: runhidden; Check: IsAdminInstallMode
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""WaBiBaBuSy gRPC"" dir=in action=allow protocol=TCP localport=50051 profile=private"; Flags: runhidden; Check: IsAdminInstallMode
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""WaBiBaBuSy mDNS"" dir=in action=allow protocol=UDP localport=5353 profile=private"; Flags: runhidden; Check: IsAdminInstallMode
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [Code]
@@ -114,6 +120,10 @@ begin
       CreateDir(ConfigDir);
   end;
 end;
+
+[UninstallRun]
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""WaBiBaBuSy gRPC"""; Flags: runhidden; RunOnceId: "DelFwGrpc"; Check: IsAdminInstallMode
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""WaBiBaBuSy mDNS"""; Flags: runhidden; RunOnceId: "DelFwMdns"; Check: IsAdminInstallMode
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{localappdata}\WaBiBaBuSy"

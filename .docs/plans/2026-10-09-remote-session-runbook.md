@@ -24,8 +24,8 @@ So scenes, steps, exact frames and show events work on one machine. Tonight only
 
 1. **Same commit everywhere** (the updater refuses mismatched versions): `git pull` → `dotnet build -c Release` on
    every machine, or copy the server's `WaBiBaBuSy.UI\bin\Release\net9.0-windows\` folder to the clients. Note the commit.
-2. **Firewall / network:** the network profile must be *Private* on every machine. Neither the dev build nor the installer adds a
-   firewall rule, so the first server start asks Windows for one: allow *Private*. Needed: TCP 50051 inbound on the server,
+2. **Firewall / network:** the network profile must be *Private* on every machine. The installer (2.7.0+, admin install) adds
+   Private-profile rules *WaBiBaBuSy gRPC* / *WaBiBaBuSy mDNS*; a dev build adds none, so the first server start asks Windows for one: allow *Private*. Needed: TCP 50051 inbound on the server,
    UDP 5353 (mDNS) for discovery. If a client cannot find the server, type the IP (§5.1 item 1) and check the rule.
 3. Settings → Logging → **Log to file** on every machine.
 4. Server: Settings → Server → Developer → **Enable test mode**, then restart the server.
