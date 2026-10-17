@@ -17,6 +17,7 @@ import urllib.request
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--server", default="http://127.0.0.1:8188")
+ap.add_argument("--object-info", help="saved /object_info JSON instead of asking a running server")
 ap.add_argument("--out", required=True, help="workflow file (UI format) to write")
 ap.add_argument("--api", help="also write the graph in API format (POST /prompt)")
 ap.add_argument("--screens", type=int, default=10, help="screens the strip spans (1344 px of strip per screen)")
@@ -30,7 +31,8 @@ if args.screens * 1344 > 16384:
     ap.error("ComfyUI image nodes stop at 16384 px (12 screens). For 2 rows, make one strip per row: "
              "the join between them lands in the turn gap, which no screen shows.")
 
-OI = json.loads(urllib.request.urlopen(args.server + "/object_info").read())
+OI = (json.load(open(args.object_info, encoding="utf-8")) if args.object_info
+      else json.loads(urllib.request.urlopen(args.server + "/object_info").read()))
 STEPS, PREFIX = args.steps, args.prefix
 
 PANEL_W, H = 1344, 768
@@ -51,21 +53,26 @@ FILL = "Fill the empty grey area on the right so the image continues seamlessly 
 BEATS = [
     "A large ringed planet low on the left, its rings glowing teal.",
     "Thin nebula filaments in magenta and blue drifting to the right.",
-    "A small space station with a glowing sign on its hull that reads \"BiBaBu\".",
+    "A small space station; a glowing white neon sign on its hull shows the handwritten lettering \"BiBaBu\" exactly as in "
+    "the reference logo image.",
     "An asteroid belt with a few tiny lit mining lights.",
     "A huge spiral galaxy filling the upper area, its bright core glowing white.",
     "A comet with a long pale blue tail crossing the upper area.",
     "A twin-star system casting warm orange light into the nebula clouds.",
-    "A constellation shaped like a sitting cat, its stars connected by faint lines.",
+    "A constellation of bright stars connected by faint glowing lines that trace exactly the beard outline of the reference "
+    "line drawing.",
     "A distant fleet of tiny spaceships with running lights in a row.",
-    "A pink nebula shaped like a cloud of cotton candy.",
+    "A glowing golden nebula shaped exactly like the foaming beer mug of the reference line drawing.",
     "A small moon with a moon base whose dome windows glow in warm light.",
     "Glowing blue gas clouds with a few bright young stars inside.",
     "A golden asteroid shaped like a cat's head drifting slowly.",
-    "A faint purple nebula with a few shooting stars.",
+    "Two round pink moons side by side, outlined by thin glowing white orbit lines shaped exactly like the reference line "
+    "drawing.",
     "The nebula thins out, mostly stars, a faint teal glow.",
 ]
 BEATS = [BEATS[i % len(BEATS)] for i in range(N_EXT + 1)]   # more screens: the beats repeat (edit them in ComfyUI)
+# Club logo (Bier, Bart, Busen) as a second reference image on some beats: beat index -> image in ComfyUI/input
+LOGOS = {2: "bibabu_text.png", 7: "bibabu_bart.png", 9: "bibabu_bier.png", 13: "bibabu_busen.png"}
 RING_PROMPT = "Only an open star field and soft nebula clouds in the grey band, no planets, no asteroids, no spaceships, no objects."
 
 # ---------------------------------------------------------------- graph builder
@@ -142,6 +149,19 @@ ring_txt = N("PrimitiveStringMultiline", (PX, 170 + 130 * (N_EXT + 1)), (480, 11
 fill = N("PrimitiveStringMultiline", (PX, -150), (480, 90), title="Fill instruction (extensions + ring)", value=FILL)
 
 
+# Logo references (each loaded, downsized and encoded once)
+logo_lat = {}
+used = sorted({img for k, img in LOGOS.items() if 1 <= k <= N_EXT})
+if used:
+    LY = 170 + 130 * (N_EXT + 2) + 60
+    group("Logo references (BiBaBu: Bier, Bart, Busen) - swap the images here", PX - 40, LY - 40, 560, 60 + 330 * len(used), "#7a3f5f")
+    for i, img in enumerate(used):
+        y = LY + 330 * i
+        li = N("LoadImage", (PX, y), (240, 300), title=img, image=img)
+        sc = N("ImageScaleToTotalPixels", (PX + 260, y), (220, 106), image=li[0], upscale_method="lanczos", megapixels=0.5, resolution_steps=16)
+        logo_lat[img] = N("VAEEncode", (PX + 260, y + 150), (200, 50), pixels=sc, vae=vae)
+
+
 def encode(text_node, pos, instruct=False):
     head = N("StringConcatenate", (pos[0], pos[1] - 120), (260, 106), string_a=fill, string_b=style, delimiter="") if instruct else style
     cat = N("StringConcatenate", pos, (260, 106), string_a=head, string_b=text_node, delimiter=" ")
@@ -176,6 +196,9 @@ for k in range(1, N_EXT + 1):
     masked = N("SetLatentNoiseMask", (HX + 800, y + 180), (200, 50), samples=canvas, mask=pad[1])
     rpos = N("ReferenceLatent", (HX + 800, y), (200, 50), conditioning=pos, latent=pad_lat)
     rneg = N("ReferenceLatent", (HX + 800, y + 90), (200, 50), conditioning=neg, latent=pad_lat)
+    if k in LOGOS:   # second reference: the logo this beat draws
+        rpos = N("ReferenceLatent", (HX + 800, y + 330), (200, 50), title="+ logo reference", conditioning=rpos, latent=logo_lat[LOGOS[k]])
+        rneg = N("ReferenceLatent", (HX + 800, y + 400), (200, 50), title="+ logo reference", conditioning=rneg, latent=logo_lat[LOGOS[k]])
     g = N("CFGGuider", (HX + 1040, y), (220, 106), model=unet, positive=rpos, negative=rneg, cfg=CFG)
     sm = N("SamplerCustomAdvanced", (HX + 1040, y + 150), (220, 110), noise=noise, guider=g, sampler=sampler, sigmas=sigmas, latent_image=masked)
     ext = N("VAEDecode", (HX + 1300, y), (200, 50), samples=sm[0], vae=vae)
@@ -302,6 +325,8 @@ for order, n in enumerate(nodes):
         wv.append(v)
         if opts.get("control_after_generate"):
             wv.append("fixed")
+        if opts.get("image_upload"):
+            wv.append("image")
     node = {"id": n.id, "type": n.t, "pos": list(n.pos), "size": list(n.size), "flags": {}, "order": order, "mode": 0,
             "inputs": inputs, "outputs": outputs, "properties": {"Node name for S&R": n.t}, "widgets_values": wv}
     if n.title:
