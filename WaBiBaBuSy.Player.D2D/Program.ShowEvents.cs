@@ -70,6 +70,12 @@ partial class Program
                 Frames = new List<Bitmap> { TextSprite.Render(evt.Text!, evt.ColorHex) },
                 DelaysMs = new List<int> { 100 },
             },
+            // Each seat renders its own label: the number the room view orders by, and this machine's name.
+            ShowEventType.Identify => () => new EventSpriteFrames
+            {
+                Frames = new List<Bitmap> { TextSprite.Render($"{_layout.Order + 1}  {Environment.MachineName}", evt.ColorHex) },
+                DelaysMs = new List<int> { 100 },
+            },
             _ => null,
         };
         if (decode == null)
@@ -181,11 +187,12 @@ partial class Program
         }
     }
 
-    /// <summary>Draw order: sprites and confetti, then the spotlight (dims them too), then blackout on top.</summary>
+    /// <summary>Draw order: sprites and confetti, then the spotlight (dims them too), then blackout, then identify on top.</summary>
     private static int EventLayer(ShowEventType type) => type switch
     {
         ShowEventType.Spotlight => 1,
         ShowEventType.Blackout => 2,
+        ShowEventType.Identify => 3,
         _ => 0,
     };
 
@@ -214,7 +221,7 @@ partial class Program
         _d2dContext.Transform = canvas;
         try
         {
-            for (int layer = 0; layer <= 2; layer++)
+            for (int layer = 0; layer <= 3; layer++)
             {
                 for (int i = 0; i < n; i++)
                 {
@@ -229,6 +236,7 @@ partial class Program
                         case ShowEventType.Celebration: DrawCelebration(evt, local, canvas); break;
                         case ShowEventType.Traversal:
                         case ShowEventType.Announce: DrawEventSprite(evt, local); break;
+                        case ShowEventType.Identify: DrawIdentify(evt, local); break;
                     }
                 }
             }
@@ -352,6 +360,23 @@ partial class Program
             if (!NodeMapping.IsVisible(lx, p.Width, _layout)) continue;
             _d2dContext!.DrawBitmap(frame, new System.Drawing.RectangleF(lx, ly, p.Width, p.Height), p.Opacity, BitmapInterpolationMode.Linear, null);
         }
+    }
+
+    /// <summary>Identify: dimmed screen, this seat's label centered at up to 80 % width / 40 % height. Skipped until rendered.</summary>
+    private static void DrawIdentify(ShowEvent evt, long local)
+    {
+        float env = ShowEventMath.Envelope(local, evt.DurationMs);
+        if (env <= 0.005f) return;
+        SetEventBrushBlack(0.7f * env);
+        _d2dContext!.FillRectangle(new System.Drawing.RectangleF(0, 0, _layout.Width, _layout.Height), _eventBrush!);
+        if (!_eventSprites.TryGetValue(evt.EventId, out var sprite)) return;
+        var bmp = sprite.Frames[0];
+        var size = bmp.Size;
+        if (size.Width <= 0 || size.Height <= 0) return;
+        float k = Math.Min(_layout.Width * 0.8f / size.Width, _layout.Height * 0.4f / size.Height);
+        float w = size.Width * k, h = size.Height * k;
+        var dest = new System.Drawing.RectangleF((_layout.Width - w) / 2f, (_layout.Height - h) / 2f, w, h);
+        _d2dContext.DrawBitmap(bmp, dest, env, BitmapInterpolationMode.Linear, null);
     }
 
     /// <summary>Release the event brush and GPU sprites (exit / final cleanup only: scene loads keep the D2D device, so these survive them).</summary>

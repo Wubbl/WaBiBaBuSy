@@ -44,6 +44,15 @@ public class ShowEventFactoryTests
     }
 
     [Fact]
+    public void Identify_UsesItsDurationAndNeedsNoTarget()
+    {
+        var e = ShowEventFactory.Create(Req(ShowEventType.Identify), Settings, out var error)!;
+        Assert.Null(error);
+        Assert.Equal(ShowEventType.Identify, e.Type);
+        Assert.Equal(10000, e.DurationMs);
+    }
+
+    [Fact]
     public void Spotlight_TargetsTheSeatsOrderAndCenter()
     {
         var e = ShowEventFactory.Create(Req(ShowEventType.Spotlight, seat: "b"), Settings, out var error)!;

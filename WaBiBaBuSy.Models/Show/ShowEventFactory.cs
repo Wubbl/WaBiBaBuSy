@@ -52,6 +52,11 @@ public static class ShowEventFactory
                 evt.ColorHex = s.BlackoutColorHex;
                 break;
 
+            case ShowEventType.Identify:
+                evt.DurationMs = s.IdentifyDurationMs;
+                evt.ColorHex = "#FFFFFF";
+                break;
+
             case ShowEventType.Traversal:
                 if (string.IsNullOrWhiteSpace(r.ImagePath)) { error = "No image for the traversal (pick one, or play a scene with a sprite)."; return null; }
                 evt.ImagePath = r.ImagePath;

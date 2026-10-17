@@ -18,6 +18,7 @@ public sealed class ShowEventSettings
     public string AnnounceColorHex { get; set; } = "#FFFFFF";
     public float AnnounceSpeedPxPerSecond { get; set; } = 400f;
     public float AnnounceHeightFraction { get; set; } = 0.25f;
+    public int IdentifyDurationMs { get; set; } = 10000;
     /// <summary>Seat the last Spotlight targeted (the hotkey uses it).</summary>
     public string? LastTargetSeatId { get; set; }
     public bool HotkeysEnabled { get; set; } = true;

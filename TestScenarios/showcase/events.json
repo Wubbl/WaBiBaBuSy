@@ -31,6 +31,10 @@
       "event": { "type": "Announce", "durationMs": 6000, "text": "Round 3 starts in 5 min", "spriteAspect": 8.2, "heightFraction": 0.25, "colorHex": "#FFFFFF" } },
     { "type": "exactFrame", "label": "announce t=+3s", "elapsedMs": 25000 },
 
+    { "type": "showEvent", "label": "identify (seat number + machine name)", "atElapsedMs": 29000,
+      "event": { "type": "Identify", "durationMs": 4000, "colorHex": "#FFFFFF" } },
+    { "type": "exactFrame", "label": "identify t=+1s", "elapsedMs": 30000 },
+
     { "type": "stop" }
   ]
 }

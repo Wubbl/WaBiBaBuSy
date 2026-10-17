@@ -5,7 +5,8 @@ namespace WaBiBaBuSy.Models.Show;
 /// <summary>Kind of one-shot show event (roadmap 2.4, design 2026-10-03-show-events-design.md).</summary>
 /// <remarks>System.Text.Json writes the name, so an old client that does not know a newer type fails to parse it and ignores the event.</remarks>
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum ShowEventType { Spotlight, Celebration, Traversal, Blackout, Announce }
+/// <remarks>Identify: every seat shows its own seat number (<c>NodeLayout.Order</c> + 1) and machine name, for setting up the room.</remarks>
+public enum ShowEventType { Spotlight, Celebration, Traversal, Blackout, Announce, Identify }
 
 /// <summary>
 /// One one-shot moment drawn by every seat above the scene from <see cref="T0Utc"/> for <see cref="DurationMs"/>.

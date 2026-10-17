@@ -107,6 +107,9 @@ public partial class ShowEventsViewModel : ObservableObject
         return _server.FireEventAsync(ShowEventType.Announce);
     }
 
+    [RelayCommand(CanExecute = nameof(CanFire))]
+    private Task Identify() => _server.FireEventAsync(ShowEventType.Identify);
+
     [RelayCommand]
     private async Task PickTraversalImage()
     {
@@ -146,6 +149,7 @@ public partial class ShowEventsViewModel : ObservableObject
                 TraversalCommand.NotifyCanExecuteChanged();
                 BlackoutCommand.NotifyCanExecuteChanged();
                 AnnounceCommand.NotifyCanExecuteChanged();
+                IdentifyCommand.NotifyCanExecuteChanged();
                 break;
             case nameof(ServerPlaybackHost.EventStatusText):
                 OnPropertyChanged(nameof(StatusText));

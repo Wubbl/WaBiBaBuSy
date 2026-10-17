@@ -1,8 +1,14 @@
 # WaBiBaBuSy - Recent Updates & Changelog
 
-**Last Updated:** 2026-10-14
+**Last Updated:** 2026-10-17
 
 ---
+
+## 2026-10-17 — Identify event + installer firewall rules
+
+- **What**: Events strip **# Identify**: every seat dims and shows its seat number (traversal order + 1, as in the room view) and machine name for 10 s, for sorting the room at the party. Like every event it needs a running scene. Installer (admin install) adds Private-profile firewall rules for TCP 50051 (gRPC) and UDP 5353 (mDNS), removed on uninstall; fallback version 2.7.0.
+- **Code**: `ShowEventType.Identify` (appended — older clients ignore it), `ShowEventSettings.IdentifyDurationMs`; player renders its own label with `TextSprite` on receipt and draws it above Blackout (`DrawIdentify`); not drawn in the room preview (tiles already carry the names). No hotkey.
+- **Verified**: build 0 errors; 1137 unit tests green (+1); `showcase/events.json` (new identify step) exit 0 on 2 local monitors, exact frames show "2 SEEPC" / "1 SEEPC". Installer compiles. Pending: multi-machine run, admin install check of the rules.
 
 ## 2026-10-14 — Panorama background, branch `feat/scene-layers`
 

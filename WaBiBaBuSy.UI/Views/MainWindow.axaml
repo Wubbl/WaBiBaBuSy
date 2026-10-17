@@ -306,6 +306,8 @@
                                 <TextBox Text="{Binding Events.AnnounceText}" Watermark="Announcement…" Width="180" FontSize="11" Margin="10,0,4,0"/>
                                 <Button Content="✎ Announce" Command="{Binding Events.AnnounceCommand}" Padding="8,3" FontSize="11"
                                         ToolTip.Tip="The text runs around the room once (Ctrl+Alt+5)"/>
+                                <Button Content="# Identify" Command="{Binding Events.IdentifyCommand}" Padding="8,3" FontSize="11" Margin="10,0,0,0"
+                                        ToolTip.Tip="Every seat shows its seat number and machine name for 10 s — for sorting the room"/>
                                 <CheckBox Content="Hotkeys (Ctrl+Alt+1..5)" IsChecked="{Binding Events.HotkeysEnabled}"
                                           FontSize="11" Margin="10,0,0,0" VerticalAlignment="Center"
                                           ToolTip.Tip="Global hotkeys while the server runs: Ctrl+Alt+1 Spotlight … 5 Announce. On German / Austrian keyboards Ctrl+Alt+digit is AltGr+digit (², ³ …) — switch off to keep those keys for typing."/>
