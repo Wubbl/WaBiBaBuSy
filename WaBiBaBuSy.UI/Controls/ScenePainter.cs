@@ -182,7 +182,11 @@ public sealed partial class ScenePainter
         {
             var layer = scene.Layers[i];
             if (!layer.Enabled || string.IsNullOrEmpty(layer.Animation.AnimationPath)) continue;
-            using var alpha = layer.Opacity < 0.999f ? ctx.PushOpacity(Math.Clamp(layer.Opacity, 0f, 1f)) : default(DrawingContext.PushedState?);
+            float shown = SyncTiming.LayerElapsed(elapsedMs, node.Order, layer) is long le
+                ? LayerSchedule.Visibility(layer.ShowEveryMs, layer.ShowForMs, le) : 1f;   // spawn window, as the players
+            if (shown <= 0f) continue;
+            float opacity = Math.Clamp(layer.Opacity, 0f, 1f) * shown;
+            using var alpha = opacity < 0.999f ? ctx.PushOpacity(opacity) : default(DrawingContext.PushedState?);
             bool h = PaintLayer(ctx, rect, s, node, layer, scene.Background, followsBackground: i == 0, elapsedMs);
             hit ??= h;
         }

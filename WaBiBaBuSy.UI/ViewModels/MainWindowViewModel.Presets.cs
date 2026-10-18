@@ -25,6 +25,9 @@ public partial class MainWindowViewModel
     /// <summary>Editor "Presets ▾": one entry per preset, loads it into the editor.</summary>
     public ObservableCollection<PresetMenuEntry> ScenePresets { get; } = new();
 
+    /// <summary>Layers strip "▾ → Add layers from preset": one entry per preset, appends its layers on top.</summary>
+    public ObservableCollection<PresetMenuEntry> LayerPresets { get; } = new();
+
     [ObservableProperty] private bool _hasPresets;
 
     /// <summary>Name typed in "Save as preset…" (pre-filled with the last loaded preset).</summary>
@@ -64,6 +67,9 @@ public partial class MainWindowViewModel
         ScenePresets.Clear();
         foreach (var name in names)
             ScenePresets.Add(new PresetMenuEntry(name, new AsyncRelayCommand(() => LoadPresetAsync(name))));
+        LayerPresets.Clear();
+        foreach (var name in names)
+            LayerPresets.Add(new PresetMenuEntry(name, new AsyncRelayCommand(() => AddPresetLayersAsync(name))));
         HasPresets = names.Count > 0;
         PlaylistEditor.SetPresetEntries(names.Select(name =>
             new PresetMenuEntry(name, new AsyncRelayCommand(() => AddPresetToPlaylistAsync(name)))));
@@ -83,6 +89,42 @@ public partial class MainWindowViewModel
         {
             LogPresetFailure(ex);
             PresetStatus = $"Could not load “{name}”: {ex.Message}";
+        }
+    }
+
+    /// <summary>Put a preset's layers (not its background) on top of the draft's stack.</summary>
+    private async Task AddPresetLayersAsync(string name)
+    {
+        try
+        {
+            var preset = await _presets.LoadAsync(name);
+            int added = SceneEditor.AppendLayers(preset.Layers);
+            PresetStatus = added == 0 ? $"No room for more layers (max {Models.Wallpaper.SceneChecks.MaxLayers})"
+                : added < preset.Layers.Count ? $"Added {added} of {preset.Layers.Count} layers from “{name}” (max {Models.Wallpaper.SceneChecks.MaxLayers})"
+                : $"Added {added} layer{(added == 1 ? "" : "s")} from “{name}”";
+        }
+        catch (Exception ex)
+        {
+            LogPresetFailure(ex);
+            PresetStatus = $"Could not load “{name}”: {ex.Message}";
+        }
+    }
+
+    /// <summary>The selected layer alone as a new preset (default background), named after the layer; never overwrites.</summary>
+    [RelayCommand]
+    private async Task SaveLayerAsPreset()
+    {
+        var (layer, layerName) = SceneEditor.SelectedLayerSnapshot();
+        var name = _presets.UniqueName(string.IsNullOrWhiteSpace(layerName) ? "Layer" : layerName.Trim());
+        try
+        {
+            var saved = await _presets.SaveAsync(name, new Models.Wallpaper.CrossScreenConfig { Layers = { layer } });
+            PresetStatus = $"Saved layer as preset “{saved}”";
+        }
+        catch (Exception ex)
+        {
+            LogPresetFailure(ex);
+            PresetStatus = $"Could not save “{name}”: {ex.Message}";
         }
     }
 

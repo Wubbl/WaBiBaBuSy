@@ -16,6 +16,23 @@ public static class SceneSuggester
     public const string VideoNote = "videos are shown on their own; pick images only for moving sprites";
 
     /// <summary>The best-scoring recipes (ties in <see cref="SceneRecipes.All"/> order).</summary>
+    /// <summary>
+    /// Suggest "Add as layer": <paramref name="baseScene"/> (its background and its layers that show a file) with the
+    /// card's sprite layers on top; the card's background is ignored. Never more than <see cref="SceneChecks.MaxLayers"/>.
+    /// </summary>
+    public static CrossScreenConfig AddAsLayers(CrossScreenConfig baseScene, CrossScreenConfig card)
+    {
+        var result = Testing.SceneFile.Clone(baseScene);
+        result.Layers.RemoveAll(l => string.IsNullOrWhiteSpace(l.Animation.AnimationPath));   // a fresh draft's empty layer
+        var copy = Testing.SceneFile.Clone(card);
+        foreach (var layer in copy.Layers.Where(l => !string.IsNullOrWhiteSpace(l.Animation.AnimationPath)))
+        {
+            if (result.Layers.Count >= SceneChecks.MaxLayers) break;
+            result.Layers.Add(layer);
+        }
+        return result;
+    }
+
     public static SuggestionSet Suggest(SelectionProfile s, CrossScreenConfig baseScene, int seed)
     {
         return Build(s, baseScene, seed, Ranked(s).Take(CardCount));

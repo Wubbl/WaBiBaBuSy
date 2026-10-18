@@ -3642,7 +3642,21 @@ partial class Program
     /// (single DrawBitmap), multi-source/no-pattern (each image at a seeded offset), and
     /// pattern-fill (infinite world-space grid via PatternLayout).
     /// </summary>
+    /// <summary>Draw the active layer at its elapsed, faded by its spawn window (skipped while hidden).</summary>
     private static void DrawAnimationLayer(long elapsedMs, ID2D1Bitmap? videoBitmapOverride = null)
+    {
+        _layerWindowAlpha = LayerSchedule.Visibility(_layerShowEveryMs, _layerShowForMs, elapsedMs);
+        try
+        {
+            if (_layerWindowAlpha > 0f) DrawAnimationLayerCore(elapsedMs, videoBitmapOverride);
+        }
+        finally
+        {
+            _layerWindowAlpha = 1f;
+        }
+    }
+
+    private static void DrawAnimationLayerCore(long elapsedMs, ID2D1Bitmap? videoBitmapOverride = null)
     {
         if (_d2dContext == null || _animationConfig == null) return;
 
@@ -3925,7 +3939,7 @@ partial class Program
         float rotationDeg, bool gradingActive, float alpha = 1f, bool flipX = false, float spriteScale = 1f)
     {
         if (_d2dContext == null) return;
-        alpha *= _layerOpacity;   // scene layer opacity (1 for a full-opacity layer)
+        alpha *= _layerOpacity * _layerWindowAlpha;   // scene layer opacity × its spawn window (1 for an always-shown, opaque layer)
 
         bool needsRotation = MathF.Abs(rotationDeg) > 0.01f;
         bool needsSpriteScale = MathF.Abs(spriteScale - 1f) > 0.0005f;

@@ -199,6 +199,10 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     /// <summary>Selected layer's clock offset in ms: it runs this far ahead of the scene (Motion tab).</summary>
     [ObservableProperty] private int _layerPhaseOffsetMs;
 
+    /// <summary>Selected layer's spawn window: appears every N s (0 = always shown) for M s (Motion tab).</summary>
+    [ObservableProperty] private double _layerShowEverySeconds;
+    [ObservableProperty] private double _layerShowForSeconds = 10;
+
     /// <summary>More than one layer: the strip shows remove / reorder.</summary>
     public bool HasSeveralLayers => Layers.Count > 1;
 
@@ -299,6 +303,26 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         copy.Name = Layers[SelectedLayerIndex].Name + " copy";
         InsertLayer(SelectedLayerIndex + 1, copy);
     }
+
+    /// <summary>
+    /// Put copies of <paramref name="layers"/> on top of the stack (a preset's layers, a Suggest card's sprite) and select
+    /// the topmost. Returns how many were added: never past <see cref="SceneChecks.MaxLayers"/>.
+    /// </summary>
+    public int AppendLayers(IEnumerable<SceneLayer> layers)
+    {
+        int added = 0;
+        foreach (var layer in layers)
+        {
+            if (Layers.Count >= SceneChecks.MaxLayers) break;
+            InsertLayer(Layers.Count, Clone(layer));
+            added++;
+        }
+        return added;
+    }
+
+    /// <summary>The selected layer with its current edits, and its name (Save layer as preset).</summary>
+    public (SceneLayer Layer, string Name) SelectedLayerSnapshot() =>
+        (Clone(BuildLayer()), SelectedLayerIndex >= 0 && SelectedLayerIndex < Layers.Count ? Layers[SelectedLayerIndex].Name : "Layer");
 
     /// <summary>Remove the selected layer (never the last one).</summary>
     [RelayCommand]
@@ -648,6 +672,8 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         var anim = layer.Animation;
         LayerOpacityPercent = (int)MathF.Round(Math.Clamp(layer.Opacity, 0f, 1f) * 100f);
         LayerPhaseOffsetMs = (int)Math.Clamp(layer.PhaseOffsetMs, int.MinValue, int.MaxValue);
+        LayerShowEverySeconds = layer.ShowEveryMs / 1000.0;
+        LayerShowForSeconds = layer.ShowForMs / 1000.0;
         RotateWithPath = anim.RotateWithPath;
         AnimationPath = anim.AnimationPath;
         AnimationHeight = anim.TargetHeight;
@@ -827,6 +853,8 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             Enabled = row?.Enabled ?? true,
             Opacity = Math.Clamp(LayerOpacityPercent, 0, 100) / 100f,
             PhaseOffsetMs = LayerPhaseOffsetMs,
+            ShowEveryMs = (long)Math.Round(Math.Max(0, LayerShowEverySeconds) * 1000),
+            ShowForMs = (long)Math.Round(Math.Max(0, LayerShowForSeconds) * 1000),
             Distribution = distributionMode,
             Animation = new AnimationLayerConfig
             {

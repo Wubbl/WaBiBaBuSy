@@ -157,6 +157,8 @@
                                     ToolTip.Tip="Four other suggestions (the draft stays until you click one)"/>
                             <Button Content="Keep" Command="{Binding Suggestions.KeepCommand}"
                                     ToolTip.Tip="Close and keep the clicked suggestion as the draft"/>
+                            <Button Content="＋ as layer" Command="{Binding Suggestions.KeepAsLayerCommand}"
+                                    ToolTip.Tip="Close and put the clicked suggestion's sprite on top of the scene you had before, as a new layer"/>
                             <Button Content="✕" Command="{Binding Suggestions.RevertCommand}"
                                     ToolTip.Tip="Close and go back to the scene from before Suggest"/>
                         </StackPanel>
@@ -242,6 +244,23 @@
                 </ItemsControl>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Top">
                     <Button Content="+" Command="{Binding AddLayerCommand}" ToolTip.Tip="Add an empty layer on top"/>
+                    <Button Content="▾" ToolTip.Tip="Add layers from a preset, or save the selected layer as a preset">
+                        <Button.Flyout>
+                            <MenuFlyout>
+                                <MenuItem Header="Add layers from preset" IsEnabled="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).HasPresets}"
+                                          ItemsSource="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).LayerPresets}">
+                                    <MenuItem.ItemContainerTheme>
+                                        <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}" x:DataType="vm:PresetMenuEntry">
+                                            <Setter Property="Header" Value="{Binding Name}"/>
+                                            <Setter Property="Command" Value="{Binding Command}"/>
+                                        </ControlTheme>
+                                    </MenuItem.ItemContainerTheme>
+                                </MenuItem>
+                                <MenuItem Header="Save selected layer as preset"
+                                          Command="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).SaveLayerAsPresetCommand}"/>
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
                     <Button Content="⧉" Command="{Binding DuplicateLayerCommand}" ToolTip.Tip="Duplicate the selected layer"/>
                     <Button Content="✕" Command="{Binding RemoveLayerCommand}" IsEnabled="{Binding HasSeveralLayers}"
                             ToolTip.Tip="Remove the selected layer"/>
@@ -442,6 +461,18 @@
                                                    ToolTip.Tip="ms this layer runs ahead of the scene clock, so two layers with the same motion do not move in lockstep. Same on every machine."/>
                                         <NumericUpDown Grid.Column="1" Value="{Binding LayerPhaseOffsetMs}" Minimum="-600000" Maximum="600000"
                                                        Increment="500" Width="130" HorizontalAlignment="Left"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*">
+                                        <TextBlock Classes="label" Text="Appears every ⓘ"
+                                                   ToolTip.Tip="Spawn window: the layer shows up once every N seconds of its clock and stays for the second value (fades in and out). 0 = always shown. Its motion keeps running while it is hidden, so it reappears where it is by then. Same on every machine."/>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                            <NumericUpDown Value="{Binding LayerShowEverySeconds}" Minimum="0" Maximum="3600" Increment="5"
+                                                           FormatString="0.#" Width="110"/>
+                                            <TextBlock Classes="label" Text="s, for"/>
+                                            <NumericUpDown Value="{Binding LayerShowForSeconds}" Minimum="0.5" Maximum="3600" Increment="1"
+                                                           FormatString="0.#" Width="110"/>
+                                            <TextBlock Classes="label" Text="s"/>
+                                        </StackPanel>
                                     </Grid>
                                     <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsSimultaneousMode}">
                                         <TextBlock Classes="label" Text="Wave delay ⓘ"

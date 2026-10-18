@@ -48,6 +48,7 @@ partial class Program
         public bool PerMonitorMode;
         public float Opacity = 1f;
         public long PhaseOffsetMs;
+        public long ShowEveryMs, ShowForMs;
         public bool FollowsBackground;
 
         public LayerRuntime ShallowCopy() => (LayerRuntime)MemberwiseClone();
@@ -60,6 +61,10 @@ partial class Program
     private static float _layerOpacity = 1f;
     /// <summary>This layer's clock offset: it updates and draws at elapsed + this.</summary>
     private static long _layerPhaseOffsetMs;
+    /// <summary>This layer's spawn window (LayerSchedule; 0 every = always shown).</summary>
+    private static long _layerShowEveryMs, _layerShowForMs;
+    /// <summary>Spawn-window visibility of the layer being drawn right now (set per DrawAnimationLayer, else 1).</summary>
+    private static float _layerWindowAlpha = 1f;
     /// <summary>Layer 0 only: follows the IconZone path, the corridor clamp and the zone mask.</summary>
     private static bool _layerFollowsBackground = true;
 
@@ -85,6 +90,7 @@ partial class Program
         l.Layout = _layout; l.Cw = _cw; l.Ch = _ch; l.VirtualCanvasWidth = _virtualCanvasWidth; l.VirtualCanvasHeight = _virtualCanvasHeight;
         l.MonitorOffsetX = _monitorOffsetX; l.CanvasOffsetY = _canvasOffsetY; l.NodeOrder = _nodeOrder; l.PerMonitorMode = _perMonitorMode;
         l.Opacity = _layerOpacity; l.PhaseOffsetMs = _layerPhaseOffsetMs; l.FollowsBackground = _layerFollowsBackground;
+        l.ShowEveryMs = _layerShowEveryMs; l.ShowForMs = _layerShowForMs;
     }
 
     private static void LoadFrom(LayerRuntime l)
@@ -103,6 +109,7 @@ partial class Program
         _layout = l.Layout; _cw = l.Cw; _ch = l.Ch; _virtualCanvasWidth = l.VirtualCanvasWidth; _virtualCanvasHeight = l.VirtualCanvasHeight;
         _monitorOffsetX = l.MonitorOffsetX; _canvasOffsetY = l.CanvasOffsetY; _nodeOrder = l.NodeOrder; _perMonitorMode = l.PerMonitorMode;
         _layerOpacity = l.Opacity; _layerPhaseOffsetMs = l.PhaseOffsetMs; _layerFollowsBackground = l.FollowsBackground;
+        _layerShowEveryMs = l.ShowEveryMs; _layerShowForMs = l.ShowForMs;
     }
 
     /// <summary>Swap layer <paramref name="index"/>'s state into the statics (the current one is saved first).</summary>
@@ -160,6 +167,8 @@ partial class Program
         _facingLeft = false; _hasPrevFacingX = false; _lastFlipX = false; _prevFacingX = 0; _traverseCount = 0;
         _layerOpacity = Math.Clamp(layer.Opacity, 0f, 1f);
         _layerPhaseOffsetMs = layer.PhaseOffsetMs;
+        _layerShowEveryMs = layer.ShowEveryMs;
+        _layerShowForMs = layer.ShowForMs;
         _layerFollowsBackground = isBottom;
         bool perMonitor = layer.Distribution == AnimationDistributionMode.Simultaneous;
         ApplyLayout(LayoutFor(layer.Distribution), perMonitor);

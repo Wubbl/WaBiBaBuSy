@@ -37,6 +37,7 @@ public partial class SuggestionsViewModel : ObservableObject
     private readonly Func<Task<SelectionProfile?>> _profileSelection;
     private CrossScreenConfig? _savedDraft;
     private SelectionProfile? _selection;
+    private SuggestionCardViewModel? _appliedCard;
     private int _seed;
 
     public SuggestionsViewModel(Func<CrossScreenConfig> captureDraft, Action<CrossScreenConfig> loadDraft,
@@ -53,7 +54,10 @@ public partial class SuggestionsViewModel : ObservableObject
     [ObservableProperty] private bool _isOpen;
     [ObservableProperty] private string _title = string.Empty;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasNote))] private string? _note;
-    [ObservableProperty] [NotifyCanExecuteChangedFor(nameof(KeepCommand))] private bool _canKeep;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(KeepCommand))]
+    [NotifyCanExecuteChangedFor(nameof(KeepAsLayerCommand))]
+    private bool _canKeep;
 
     /// <summary>True when the info line has text.</summary>
     public bool HasNote => !string.IsNullOrEmpty(Note);
@@ -91,7 +95,17 @@ public partial class SuggestionsViewModel : ObservableObject
         if (card == null) return;
         foreach (var c in Cards) c.IsSelected = c == card;
         _loadDraft(SceneFile.Clone(card.Suggestion.Scene));
+        _appliedCard = card;
         CanKeep = true;
+    }
+
+    /// <summary>Close the strip with the scene from before Suggest plus the clicked card's sprite on top as new layer(s).</summary>
+    [RelayCommand(CanExecute = nameof(CanKeep))]
+    private void KeepAsLayer()
+    {
+        if (_appliedCard != null && _savedDraft != null)
+            _loadDraft(SceneSuggester.AddAsLayers(_savedDraft, _appliedCard.Suggestion.Scene));
+        Close();
     }
 
     /// <summary>Close the strip, keeping the clicked card as the draft.</summary>
@@ -124,6 +138,7 @@ public partial class SuggestionsViewModel : ObservableObject
         IsOpen = false;
         CanKeep = false;
         Cards.Clear();
+        _appliedCard = null;
         _savedDraft = null;
         _selection = null;
     }
