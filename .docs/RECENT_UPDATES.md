@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-10-18 — Panorama content: clean seams, native resolution, LAN party, logo styles
+
+- **What**: new ComfyUI scripts (FLUX.2 Klein 9B through the ComfyUI API) replace the one-click workflow for finished wallpapers. Panoramas are rendered at **1920 × 1088 per screen** (no upscale, no 16,384 px limit) and the hard vertical lines at the repainted seam bands are gone: the band is blended with a per-row colour correction over a 96 px ramp instead of a 24 px blur with a per-column gain. New concept **LAN Party** (pixel art gym hall full of gamers, BiBaBu banner, Bart banner, Bier and Busen neons); Pixel Quest, Neon Harbour, Mountains and Fantasy Realm re-done with denser beats and more BiBaBu. **Logo styles**: the Bier, Bart and Busen line drawings redrawn in 20 styles each (gold, chrome, pixel, LEGO, stained glass, neon, origami, gingerbread, …) as transparent sprites; **BiBaBu Swarm** preset (all styles drifting in a grid, a Bier parade, bouncing Barts, orbiting Busen, a neon Bier comet with portals) and one *Panorama – …* preset per wallpaper.
+- **Code**: `tools/comfyui/panorama.py` (+ `panorama_concepts.py`; `--coarse N` coarse-to-fine mode, untested), `logo_styles.py` (flood-fill background keying, glow alpha for neon), `swarm_preset.py` (copies sprites / rooms into the preset assets, writes the presets), `comfy_api.py` (shared API client). Guide §9–§10.
+- **Verified**: LAN Party 10 screens rendered (19,200 × 1,080, 4 px pixel grid), joins and ring join checked by eye; presets load through `SceneFile.Load` with no `SceneChecks` warnings. Pending: look at them on the real room, Pixel Quest panels 3/5 re-render (a lighter box around the logo subject), coarse-to-fine test.
+
 ## 2026-10-18 — Ghost seats: a machine that leaves keeps its seat
 
 - **What**: a client that disconnects (closed, asleep, network gone) stays in the room as a greyed **ghost seat** ("offline 12 min") with its old place, size and gap, so Play, playlist items and event stand-in scenes no longer shrink the ring or shift the other seats. Nothing is sent to a ghost; its scene command is parked, so when the machine comes back mid-scene the session resume puts it exactly where the sprite is. Right-click a ghost → **Forget seat** (the ring closes). Seats not seen for 14 days are not loaded (old parties).
