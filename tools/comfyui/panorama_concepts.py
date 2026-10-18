@@ -72,6 +72,42 @@ CONCEPTS = {
         neg="perspective, vanishing point, blurry, smooth gradients, photo, 3d render, watermark",
         pixel=4,
     ),
+    "cat_world": dict(
+        style="Seamless segment of an ultra-wide 16-bit pixel art panorama of a busy world run entirely by cats, flat side "
+              "view like a classic side-scrolling game, no vanishing point. Upper half: a sunny blue sky with pixel clouds. "
+              "The grassy surface runs at exactly 55 percent of the image height everywhere. Below it, the bottom 40 percent "
+              "is a cut-away view of the underground: brown earth with tunnels, roots, stones and little cat burrows. Every "
+              "cat is the same small size, about one tenth of the image height, many cats of all colours (orange, black, "
+              "white, grey, calico) busy everywhere. Crisp pixels, limited colour palette, flat shading, rich tiny details.",
+        beats=[
+            "A red farm barn with a big wooden sign showing " + TEXT_REF + "; cats driving a tiny tractor, cats milking "
+            "a cow, chickens. Underground: a cat storing carrots in a burrow.",
+            "A fishing pier at a small pond, cats with fishing rods, a fish market stall with fish hanging. Underground: "
+            "a cat sleeping in a cozy burrow full of cushions.",
+            "The entrance of a mine in a rocky hill. Underground: cat miners with headlamps and pickaxes in the tunnels, "
+            "mine carts full of shining gems, and a stone statue of a cat king whose beard is shaped " + REF + ".",
+            "A cat city street with small shops, a cat café with cats drinking milk at little tables, a bakery selling "
+            "fish-shaped bread. Underground: a subway train full of cats.",
+            "A cat brewery with copper kettles and barrels, cats in lederhosen toasting, under a big wooden sign of a "
+            "foaming beer mug shaped " + REF + ". Underground: a beer cellar with stacked barrels.",
+            "A garage LAN party: cats with headsets at glowing computer monitors, pizza boxes and cables. Underground: "
+            "a server room with blinking lights run by a cat admin.",
+            "A knitting shop with two giant round balls of yarn side by side in front of it, outlined like the bra "
+            "drawing " + REF + "; kittens playing with yarn. Underground: an ant-sized cat tailor workshop.",
+            "A construction site: cats with yellow hard hats, a crane lifting a giant fish, scaffolding. Underground: "
+            "pipes and a cat plumber.",
+            "A park with a fountain, cats having a picnic, a cat band playing on a little stage with a \"BiBaBu\" banner. "
+            "Underground: a treasure chest full of cat toys.",
+            "Sunny rooftops of little houses with cats sleeping on them, a cat flying a kite. Underground: a cozy cat "
+            "library with tiny books.",
+        ],
+        logos={0: TEXT, 2: BART, 4: BIER, 6: BUSEN},
+        seam="Pixel art grass surface with sky and clouds above and the cut-away underground with tunnels and earth "
+             "below, a few cats, continuing straight across at the same heights.",
+        seam_neg="text, letters, signs, buildings, statue, perspective, blurry, smooth gradients",
+        neg="perspective, vanishing point, blurry, smooth gradients, photo, 3d render, watermark, humans, people",
+        pixel=4,
+    ),
     "neon_harbour": dict(
         style="Seamless segment of an ultra-wide panorama of a cozy synthwave harbour city at night, neon magenta and cyan "
               "with warm orange windows, wet quays reflecting the lights, light rain haze, horizon line exactly at 62 "

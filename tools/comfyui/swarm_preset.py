@@ -86,7 +86,7 @@ print(path, {k: len(v) for k, v in parts.items()})
 
 # Panorama presets: the styles that suit each wallpaper ride across it (missing styles are skipped).
 RIDERS = {
-    "lan_party": ["pixel", "voxel", "lego"], "pixel_quest": ["pixel", "voxel", "lego"],
+    "lan_party": ["pixel", "voxel", "lego"], "pixel_quest": ["pixel", "voxel", "lego"], "cat_world": ["pixel", "plush", "sticker"],
     "neon_harbour": ["neon", "chrome", "stainedglass"], "mountains": ["wood", "gingerbread", "patch"],
     "fantasy_realm": ["gold", "stainedglass", "wood"], "deep_space": ["neon", "chrome", "ice"],
 }

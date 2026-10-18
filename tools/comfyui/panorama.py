@@ -42,7 +42,9 @@ ap.add_argument("--reseed", default="", help="pieces that get a new seed: panel 
 ap.add_argument("--match", choices=["edge", "inner"], default="edge", help="seam colour match, see blend()")
 ap.add_argument("--coarse", type=int, default=0, help="coarse-to-fine: one ~1.8 MP panel per N screens, lanczos up to "
                 "room size, then a tiled img2img detail pass (0 = off, one native panel per screen)")
-ap.add_argument("--detail", type=float, default=0.4, help="--coarse: denoise of the detail pass (0.3 soft .. 0.55 inventive)")
+ap.add_argument("--detail", type=float, default=0.3, help="--coarse: denoise of the detail pass (0.3 keeps the look .. 0.55 inventive)")
+ap.add_argument("--logo-detail", type=float, default=0.55, help="--coarse: denoise of the one tile per logo screen that gets "
+                "the logo reference again at full resolution (the coarse panels draw logos too small to follow it)")
 args = ap.parse_args()
 
 SCREEN_W, H_FULL, ROOM_H = 1920, 1088, 1080   # Klein latents are 16 px cells: 1088 = 68 x 16, cropped to 1080 at the end
@@ -163,17 +165,22 @@ def blend(win, gen):
     return o * (1 - m) + fixed * m
 
 
-def detail_tile(j, tile, screen):
-    """img2img of one room-size tile at --detail denoise: the composition stays, the model adds fine detail."""
+def detail_tile(j, tile, screen, logo):
+    """img2img of one room-size tile at --detail denoise: the composition stays, the model adds fine detail. A logo tile
+    gets its screen's logo reference and --logo-detail, so the sign or statue is redrawn after the line drawing."""
     name = upload(tile, f"{args.concept}_tile{j}.png", "panorama2")
     g = Graph()
     unet, clip, vae = klein(g)
     lat = g("VAEEncode", pixels=g("LoadImage", image=name), vae=vae)
     pos = g("CLIPTextEncode", clip=clip, text=" ".join([C["style"], EDGES, beat(screen), "Sharp, highly detailed."]))
     neg = g("CLIPTextEncode", clip=clip, text=C.get("neg", "") + ", blurry, soft, upscaled")
+    refs = C.get("logos", {}).get(screen % len(C["beats"]), []) if logo else []
+    for ref in [refs] if isinstance(refs, str) else refs:
+        pos, neg = reference(g, vae, pos, neg, ref)
     guider = g("CFGGuider", model=unet, positive=pos, negative=neg, cfg=5.0)
     sig = g("Flux2Scheduler", steps=args.steps, width=SCREEN_W, height=H_FULL)
-    low = (g("SplitSigmasDenoise", sigmas=sig, denoise=args.detail)[0], 1)      # output 1: the low (late) sigmas
+    denoise = args.logo_detail if refs else args.detail
+    low = (g("SplitSigmasDenoise", sigmas=sig, denoise=denoise)[0], 1)      # output 1: the low (late) sigmas
     sm = g("SamplerCustomAdvanced", noise=g("RandomNoise", noise_seed=args.seed + 200 + j), guider=guider,
            sampler=g("KSamplerSelect", sampler_name="euler"), sigmas=low, latent_image=lat)
     g("SaveImage", images=g("VAEDecode", samples=sm, vae=vae), filename_prefix=f"panorama2/{args.concept}_detail")
@@ -188,11 +195,15 @@ def detail_pass(room):
     ov = SCREEN_W - (total / t)
     ramp = np.minimum(1.0, np.minimum(np.arange(SCREEN_W) + 0.5, SCREEN_W - np.arange(SCREEN_W) - 0.5) / ov)
     acc, wsum = np.zeros_like(room), np.zeros(total, np.float32)
+    centre = lambda j: (xs[j] + SCREEN_W / 2) % total
+    ring = lambda a, b: min(abs(a - b), total - abs(a - b))
+    logo_tiles = {min(range(t), key=lambda j: ring(centre(j), (s + 0.5) * SCREEN_W))
+                  for s in range(args.screens) if s % len(C["beats"]) in C.get("logos", {})}
     for j, x in enumerate(xs):
         cols = (x + np.arange(SCREEN_W)) % total
         tile = Image.fromarray(np.clip(room[:, cols] + 0.5, 0, 255).astype(np.uint8))
         out = piece(os.path.join(DIR, f"detail_{j + 1:02d}.png"), f"d{j + 1}",
-                    lambda: detail_tile(j, tile, int((x + SCREEN_W // 2) % total) // SCREEN_W))
+                    lambda: detail_tile(j, tile, int(centre(j)) // SCREEN_W, j in logo_tiles))
         if out is None:
             raise SystemExit("detail tiles missing (--only)")
         acc[:, cols] += np.asarray(out, np.float32) * ramp[None, :, None]
