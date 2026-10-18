@@ -79,14 +79,60 @@ public class PlaylistTests
     }
 
     [Fact]
-    public void ComputeLapMs_NonLinear_ReturnsZero()
+    public void ComputeLapMs_NoPeriod_ForStaticRandomWalkAndTheIconZonePath()
     {
-        foreach (var t in new[] { MovementType.Static, MovementType.Bounce, MovementType.SineWave,
-                                  MovementType.Circular, MovementType.RandomWalk })
+        foreach (var t in new[] { MovementType.Static, MovementType.RandomWalk })
         {
             var mv = new MovementConfig { Type = t, SpeedPixelsPerSecond = 500f, Loop = true };
             Assert.Equal(0, PlaylistScheduler.ComputeLapMs(mv, 4000, 200));
         }
+        var linear = new MovementConfig { Type = MovementType.Linear, SpeedPixelsPerSecond = 500f, Loop = true };
+        Assert.Equal(0, PlaylistScheduler.ComputeLapMs(linear, Geo(), BackgroundMode.IconZone));
+    }
+
+    private static PlaylistScheduler.LapGeometry Geo(bool wraps = false) => new(4000, 1080, 200, 150, 0f, wraps);
+
+    /// <summary>The period is real when the movement is back at the same position one period later (MovementCalculator).</summary>
+    private static void AssertPeriodic(MovementConfig m, int periodMs, bool checkY, bool wraps = false)
+    {
+        Assert.True(periodMs > 0);
+        foreach (long t0 in new long[] { 0, 1234, 98_765 })
+        {
+            var a = MovementCalculator.Calculate(m, t0, 200, 150, 4000, 1080, canvasWraps: wraps);
+            var b = MovementCalculator.Calculate(m, t0 + periodMs, 200, 150, 4000, 1080, canvasWraps: wraps);
+            Assert.True(Math.Abs(a.X - b.X) < 1.5f, $"{m.Type} x {a.X} vs {b.X} at t={t0}");
+            if (checkY) Assert.True(Math.Abs(a.Y - b.Y) < 1.5f, $"{m.Type} y {a.Y} vs {b.Y} at t={t0}");
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ComputeLapMs_SineWave_IsTheHorizontalLap(bool wraps)
+    {
+        var m = new MovementConfig { Type = MovementType.SineWave, SpeedPixelsPerSecond = 500f, Loop = true, WaveFrequencyHz = 0.3f, WaveAmplitudePixels = 100 };
+        int lap = PlaylistScheduler.ComputeLapMs(m, Geo(wraps));
+        Assert.Equal(wraps ? 8000 : 8400, lap);
+        AssertPeriodic(m, lap, checkY: false, wraps);
+    }
+
+    [Theory]
+    [InlineData(33f)]
+    [InlineData(90f)]   // straight up and down: the vertical round trip
+    public void ComputeLapMs_Bounce_IsTheRoundTrip(float angle)
+    {
+        var m = new MovementConfig { Type = MovementType.Bounce, SpeedPixelsPerSecond = 420f, DirectionAngleDegrees = angle };
+        int lap = PlaylistScheduler.ComputeLapMs(m, Geo());
+        AssertPeriodic(m, lap, checkY: angle == 90f);
+    }
+
+    [Fact]
+    public void ComputeLapMs_Circular_IsOneOrbit()
+    {
+        var m = new MovementConfig { Type = MovementType.Circular, SpeedPixelsPerSecond = 300f, OrbitRadiusPixels = 250f };
+        int lap = PlaylistScheduler.ComputeLapMs(m, Geo());
+        Assert.Equal((int)Math.Round(2 * Math.PI * 250 / 300 * 1000), lap);
+        AssertPeriodic(m, lap, checkY: true);
     }
 
     [Fact]

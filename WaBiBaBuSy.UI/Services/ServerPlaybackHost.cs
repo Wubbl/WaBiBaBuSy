@@ -779,7 +779,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
                 {
                     var r = await ApplyCrossScreenConfigAsync(config, _playlistOrchestrator?.CurrentTransition);
                     SceneApplied?.Invoke(config);   // the room paints the live sprite on animating tiles only
-                    return new ApplyMetrics(r.VirtualCanvasWidth, r.ContentWidthPx, r.StartLeadMs, r.EffectiveSpeedPx, r.CanvasWraps);
+                    return new ApplyMetrics(r.VirtualCanvasWidth, r.ContentWidthPx, r.StartLeadMs, r.EffectiveSpeedPx, r.CanvasWraps,
+                        r.CanvasHeight, r.ContentHeightPx);
                 }),
                 seedProvider: () => Environment.TickCount,
                 prefetch: PrefetchShowAssetsAsync,
@@ -1282,8 +1283,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
                 // Effective animation height depends on FitMode. Using the actual rendered height
                 // keeps the server-side path padding in sync with what Player.D2D will compute
                 // locally (pathPaddingPx = _animHeight / 2 + optional wave amplitude).
-                int effectiveHeight = ComputeEffectiveAnimationHeight(
-                    bottom.Animation, firstScreen.Bounds.Width, virtualH);
+                int effectiveHeight = ComputeEffectiveAnimationSize(
+                    bottom.Animation, firstScreen.Bounds.Width, virtualH).H;
                 int pathPaddingPx = effectiveHeight / 2;
                 if (effMovement.Type == MovementType.SineWave)
                     pathPaddingPx += (int)Math.Ceiling(effMovement.WaveAmplitudePixels);
@@ -1502,6 +1503,10 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             SetupThumbnailCapture(monitorIndex, d2dService.PlayerHwnd, animName);
         }
 
+        // Lap-snap geometry: the bottom layer's sprite as drawn (first screen for the fit modes).
+        var firstBounds = screens.Length > 0 ? screens[0].Bounds : new System.Drawing.Rectangle(0, 0, 1920, 1080);
+        var contentSize = bottom == null ? (W: 0, H: 0) : ComputeEffectiveAnimationSize(bottom.Animation, firstBounds.Width, firstBounds.Height);
+
         // Feed the live preview: same layout, same config, same shared epoch as the players.
         // Epoch and layout first so the room never paints the new scene on a stale clock/layout.
         ActiveSharedStartMs = sharedStartTimestamp;
@@ -1514,7 +1519,9 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         return new CrossScreenApplyResult
         {
             VirtualCanvasWidth = layout.CanvasWidth,
-            ContentWidthPx = 0, // best-effort; wire a real value later if a service exposes it
+            ContentWidthPx = contentSize.W,
+            ContentHeightPx = contentSize.H,
+            CanvasHeight = layout.CanvasHeight,
             EffectiveSpeedPx = effMovement.SpeedPixelsPerSecond,
             StartLeadMs = startLeadMs,
             SharedStartTimestampMs = sharedStartTimestamp,
@@ -1566,7 +1573,9 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     /// matching the sizing logic in Player.D2D's CalculateAnimationLayout. Used to size
     /// the server-side A* path padding to the actual animation bitmap.
     /// </summary>
-    private static int ComputeEffectiveAnimationHeight(AnimationLayerConfig anim, int screenWidth, int screenHeight)
+    // ponytail: native size via System.Drawing (images / GIFs); a video falls back to TargetHeight × TargetHeight —
+    // only the IconZone padding and lap-snap use this, read the size from the player's READY if they need it exact.
+    private static (int W, int H) ComputeEffectiveAnimationSize(AnimationLayerConfig anim, int screenWidth, int screenHeight)
     {
         try
         {
@@ -1579,21 +1588,23 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             }
 
             if (nativeW <= 0 || nativeH <= 0)
-                return anim.TargetHeight;
+                return (anim.TargetHeight, anim.TargetHeight);
 
-            return anim.FitMode switch
+            double aspect = nativeW / (double)nativeH;
+            if (anim.FitMode == ContentFitMode.Stretch) return (screenWidth, screenHeight);
+            int h = anim.FitMode switch
             {
                 ContentFitMode.Center  => nativeH,
                 ContentFitMode.Fit     => (int)(nativeH * Math.Min((double)screenWidth / nativeW, (double)screenHeight / nativeH)),
                 ContentFitMode.Fill    => (int)(nativeH * Math.Max((double)screenWidth / nativeW, (double)screenHeight / nativeH)),
-                ContentFitMode.Stretch => screenHeight,
                 _                      => anim.TargetHeight
             };
+            return ((int)Math.Round(h * aspect), h);
         }
         catch (Exception ex)
         {
             Debug.WriteLine($"[CrossScreen] Native-size probe failed for '{anim.AnimationPath}': {ex.Message}. Falling back to TargetHeight.");
-            return anim.TargetHeight;
+            return (anim.TargetHeight, anim.TargetHeight);
         }
     }
 
@@ -1661,12 +1672,14 @@ public sealed partial class ServerPlaybackHost : ObservableObject
 
 /// <summary>
 /// Metrics returned by applying a cross-screen config, used by the playlist orchestrator
-/// to compute lap-snap timing. ContentWidthPx is best-effort (0 when unknown).
+/// to compute lap-snap timing. The content size is the bottom layer's sprite as the server estimates it.
 /// </summary>
 public sealed class CrossScreenApplyResult
 {
     public int VirtualCanvasWidth { get; init; }
     public int ContentWidthPx { get; init; }
+    public int ContentHeightPx { get; init; }
+    public int CanvasHeight { get; init; }
     /// <summary>How far in the future the shared start was scheduled (Tier 0.4).</summary>
     public int StartLeadMs { get; init; }
     /// <summary>Canvas speed in px/s after cm→px resolution (Tier 1.2); drives playlist lap timing.</summary>

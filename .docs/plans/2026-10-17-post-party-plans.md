@@ -24,7 +24,7 @@ Related: [`2026-09-17-lan-party-roadmap.md`](2026-09-17-lan-party-roadmap.md),
 | 2 | ~~**Per-client opt-out** (§2.1)~~ **dropped 2026-10-18** — quitting the app is the opt-out; its seat becomes a ghost | — | — |
 | 3 | ~~**Standby / two-phase switch** (§5.2)~~ **done 2026-10-18**, simpler than designed (see §5.2) | S | Needed for gapless item switches and for transitions |
 | 4 | ~~**Cross-item transitions** (§2.2)~~ **Fade (through black) + ring Wipe done 2026-10-18**; true crossfade open (needs both scenes in one player) | M | Rides on 3 |
-| 5 | **Lap-snap for every movement** (§2.3) | S–M | Small math, but only noticeable once transitions exist |
+| 5 | ~~**Lap-snap for every movement** (§2.3)~~ **done 2026-10-18** (Bounce snaps to the horizontal round trip only; no lcm of both axes) | S–M | Small math, but only noticeable once transitions exist |
 | 6 | **Portal** (§3) | M | Needs the analytic crossing time (§3.1), which also feeds lap-snap |
 | 7 | **Layer follow-ups** (§4) | S each, video M | Independent slices, pick by demand |
 | 8 | **Per-seat DPI override** (§5.1) | S | Only if a seat's reported DPI turns out wrong at the party |
@@ -119,7 +119,11 @@ From the effects design §6, on top of the two-phase switch (§5.2):
   a Cut when the regular start command arrives.
 - GPU: two scenes at once for `TransitionMs`; with video layers (§4.1) cap to one video per runtime.
 
-### 2.3 Lap-snap for every movement
+### 2.3 Lap-snap for every movement — implemented 2026-10-18
+
+Done as below, simplified: Bounce uses the horizontal round trip only (no lcm search), the sprite size is the
+server's estimate (`ComputeEffectiveAnimationSize`, images/GIFs exact, video = TargetHeight square), the dwell is
+rounded up without a cap (as before for Linear). Original plan:
 
 Today lap-snap rounds an item's dwell to whole laps for **Linear** only, using `ContentWidthPx = 0`
 ("best-effort"). Goal: the item ends when the motion is at a natural rest point for every movement type.

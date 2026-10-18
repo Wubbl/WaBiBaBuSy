@@ -83,7 +83,7 @@
                                                      ToolTip.Tip="Seconds (blank = 1.5). Ignored for Playlist default and Cut."/>
                                         </StackPanel>
                                         <CheckBox Content="Lap-snap" IsChecked="{Binding SnapToLap}" FontSize="11"
-                                                  ToolTip.Tip="Wait for the current movement lap to finish before switching (Linear without a pattern; otherwise hard-cut)."/>
+                                                  ToolTip.Tip="Round the duration up to whole movement laps, so the switch comes when the sprite is back where it started (Linear / SineWave lap, Bounce round trip, Circular orbit; Static, Random walk and the IconZone path switch on time)."/>
                                     </StackPanel>
                                 </Expander>
                             </StackPanel>
