@@ -1,8 +1,8 @@
 """Render the BiBaBu logo parts (Bier, Bart, Busen) in many styles as transparent sprites, through a running ComfyUI.
 
 FLUX.2 Klein 9B gets the white-on-black line drawing (ComfyUI/input/bibabu_<part>.png) as reference image and a style
-prompt; the object is drawn on a flat background, which is keyed out here (flood fill from the border, so enclosed
-areas such as the beard's mouth stay). Each sprite is trimmed to its content and saved as <out>/<part>_<style>.png.
+prompt; the object is drawn on a flat background, which is keyed out here: background-coloured areas touching the
+border, plus enclosed ones large enough to be holes (the beard's mouth, the cups, the mug handle) - small highlights stay. Each sprite is trimmed to its content and saved as <out>/<part>_<style>.png.
 Existing sprites are skipped; delete one to re-key it from its raw_ render, delete both to re-render it, or change --seed for a whole new take.
 
     python logo_styles.py                                   # every part x every style
@@ -12,10 +12,9 @@ import argparse
 import os
 import sys
 import time
-from collections import deque
-
 import numpy as np
 from PIL import Image, ImageFilter
+from scipy import ndimage
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import comfy_api  # noqa: E402
@@ -80,26 +79,21 @@ def render(part, style, seed):
     return run(g)
 
 
-def key_out(img, glow=False, tol=40.0):
-    """Alpha = 0 for background pixels connected to the image border (colour within `tol` of the border's median
-    colour), soft 1 px edge. glow (neon on black): alpha also follows the distance from black, so the glow fades out."""
+def key_out(img, glow=False, tol=40.0, hole=0.004):
+    """Alpha = 0 for background-coloured regions (within `tol` of the border's median colour) that touch the border or
+    cover more than `hole` of the image, soft 1 px edge. glow (neon on black): alpha also follows the distance from
+    black, so the glow fades out."""
     a = np.asarray(img, np.float32)
     h, w, _ = a.shape
     border = np.concatenate([a[0], a[-1], a[:, 0], a[:, -1]])
     bg = np.median(border, axis=0)
     dist = np.sqrt(((a - bg) ** 2).sum(axis=2))
-    near = dist < tol
-    seen = np.zeros((h, w), bool)
-    q = deque((y, x) for y in range(h) for x in (0, w - 1) if near[y, x])
-    q.extend((y, x) for x in range(w) for y in (0, h - 1) if near[y, x])
-    for y, x in q:
-        seen[y, x] = True
-    while q:
-        y, x = q.popleft()
-        for ny, nx in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
-            if 0 <= ny < h and 0 <= nx < w and near[ny, nx] and not seen[ny, nx]:
-                seen[ny, nx] = True
-                q.append((ny, nx))
+    labels, _ = ndimage.label(dist < tol)
+    sizes = np.bincount(labels.ravel())
+    drop = sizes > hole * h * w
+    drop[np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))] = True
+    drop[0] = False                                   # label 0 = the object itself
+    seen = drop[labels]
     alpha = Image.fromarray(np.where(seen, 0, 255).astype(np.uint8)).filter(ImageFilter.MinFilter(3)).filter(ImageFilter.GaussianBlur(0.8))
     al = np.asarray(alpha, np.float32) / 255.0
     rgb = a

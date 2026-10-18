@@ -39,6 +39,7 @@ ap.add_argument("--colors", type=int, default=64)
 ap.add_argument("--only", help="comma-separated pieces to render, e.g. p3,s3 (others must exist or are skipped)")
 ap.add_argument("--reseed", default="", help="comma-separated panel numbers that get a new seed (delete their "
                 "panel_XX.png and the two neighbouring seam files first)")
+ap.add_argument("--match", choices=["edge", "inner"], default="edge", help="seam colour match, see blend()")
 ap.add_argument("--coarse", type=int, default=0, help="coarse-to-fine: one ~1.8 MP panel per N screens, lanczos up to "
                 "room size, then a tiled img2img detail pass (0 = off, one native panel per screen)")
 ap.add_argument("--detail", type=float, default=0.4, help="--coarse: denoise of the detail pass (0.3 soft .. 0.55 inventive)")
@@ -132,12 +133,21 @@ def smooth_rows(v, sigma=6.0):
 
 
 def blend(win, gen):
-    """The band from `gen`, everything else from `win`. The band's colour is corrected per row so it meets the original
-    pixels at both band edges (difference measured just outside the band, linearly interpolated across it)."""
+    """The band from `gen`, everything else from `win`. The band's colour is corrected per row so it meets the panels,
+    interpolated across the band. --match edge: difference between original and generated pixels just outside the
+    band (same content, only the VAE's tone shift). --match inner: original just outside vs generated just inside the
+    full-strength core - also fixes a sky the model painted in another colour inside the soft ramp, but tints the band
+    where the two sides show different things in the same rows (sky next to a hill)."""
     o, g = np.asarray(win, np.float32), np.asarray(gen, np.float32)
-    a, b, probe = HALF - BAND // 2, HALF + BAND // 2, 24
-    d_l = smooth_rows((o[:, a - probe:a] - g[:, a - probe:a]).mean(axis=1))
-    d_r = smooth_rows((o[:, b:b + probe] - g[:, b:b + probe]).mean(axis=1))
+    a, b = HALF - BAND // 2, HALF + BAND // 2
+    if args.match == "inner":
+        probe = 48
+        d_l = smooth_rows(o[:, a - probe:a].mean(axis=1) - g[:, a + RAMP:a + RAMP + probe].mean(axis=1), 20.0)
+        d_r = smooth_rows(o[:, b:b + probe].mean(axis=1) - g[:, b - RAMP - probe:b - RAMP].mean(axis=1), 20.0)
+    else:
+        probe = 24
+        d_l = smooth_rows((o[:, a - probe:a] - g[:, a - probe:a]).mean(axis=1))
+        d_r = smooth_rows((o[:, b:b + probe] - g[:, b:b + probe]).mean(axis=1))
     t = np.clip((np.arange(W) + 0.5 - a) / (b - a), 0.0, 1.0)[None, :, None]
     fixed = g + d_l[:, None, :] * (1 - t) + d_r[:, None, :] * t
     m = band_mask()[None, :, None]
