@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Avalonia.Media.Imaging;
@@ -17,7 +18,21 @@ public partial class PlaylistItemRow : ViewModelBase
         _name = model.Name;
         _durationText = PlaylistEditing.FormatMsAsSeconds(model.DurationMs);
         _snapToLap = model.SnapToLap;
+        _transitionChoice = model.Transition?.Kind.ToString() ?? PlaylistDefaultChoice;
+        _transitionSecondsText = model.Transition == null ? string.Empty : PlaylistEditing.FormatMsAsSeconds(model.Transition.ClampedMs);
     }
+
+    private const string PlaylistDefaultChoice = "Playlist default";
+
+    /// <summary>Picker entries for how this item comes in.</summary>
+    public static IReadOnlyList<string> TransitionChoices { get; } =
+        new[] { PlaylistDefaultChoice, nameof(TransitionKind.Cut), nameof(TransitionKind.Fade), nameof(TransitionKind.Wipe) };
+
+    /// <summary>"Playlist default" or a <see cref="TransitionKind"/> name.</summary>
+    [ObservableProperty] private string _transitionChoice;
+
+    /// <summary>Transition length in seconds as typed; blank = 1.5 s.</summary>
+    [ObservableProperty] private string _transitionSecondsText;
 
     [ObservableProperty] private string _name;
     [ObservableProperty] private bool _snapToLap;
@@ -179,6 +194,9 @@ public partial class PlaylistItemRow : ViewModelBase
         Model.Name = Name;
         Model.SnapToLap = SnapToLap;
         Model.DurationMs = ParseDuration();
+        Model.Transition = Enum.TryParse<TransitionKind>(TransitionChoice, out var kind)
+            ? new SceneTransition { Kind = kind, DurationMs = PlaylistEditing.ParseSecondsToMs(TransitionSecondsText) ?? 1500 }
+            : null;
     }
 
     /// <summary>Replace the item's scene (Save to playlist → Update) and refresh the detail lines.</summary>

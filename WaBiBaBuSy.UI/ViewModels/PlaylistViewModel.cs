@@ -52,6 +52,12 @@ public partial class PlaylistViewModel : ViewModelBase
     /// <summary>Event types offered for the timed interrupt.</summary>
     public ShowEventType[] InterruptTypes { get; } = { ShowEventType.Traversal, ShowEventType.Celebration, ShowEventType.Blackout };
 
+    /// <summary>How items replace each other unless an item sets its own (Cut / Fade through black / ring Wipe).</summary>
+    public TransitionKind[] TransitionKinds { get; } = { TransitionKind.Cut, TransitionKind.Fade, TransitionKind.Wipe };
+
+    [ObservableProperty] private TransitionKind _defaultTransitionKind = TransitionKind.Cut;
+    [ObservableProperty] private double _defaultTransitionSeconds = 1.5;
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(StartPlaylistShowCommand))]
     private bool _isShowRunning;
@@ -342,6 +348,9 @@ public partial class PlaylistViewModel : ViewModelBase
             Loop = Loop,
             Shuffle = Shuffle,
             DefaultItemDurationMs = DefaultDurationMs,
+            DefaultTransition = DefaultTransitionKind == TransitionKind.Cut
+                ? null
+                : new SceneTransition { Kind = DefaultTransitionKind, DurationMs = (int)Math.Round(DefaultTransitionSeconds * 1000) },
             Items = Items.Select(r => r.Model).ToList(),
             Interrupts = InterruptEnabled
                 ? new List<PlaylistInterrupt> { new() { EveryMs = Math.Clamp(InterruptEveryMinutes, 1, 24 * 60) * 60_000, Type = InterruptType } }
@@ -378,6 +387,8 @@ public partial class PlaylistViewModel : ViewModelBase
         Loop = playlist.Loop;
         Shuffle = playlist.Shuffle;
         DefaultDurationMs = playlist.DefaultItemDurationMs;
+        DefaultTransitionKind = playlist.DefaultTransition?.Kind ?? TransitionKind.Cut;
+        DefaultTransitionSeconds = (playlist.DefaultTransition?.ClampedMs ?? 1500) / 1000.0;
         var interrupt = playlist.Interrupts?.FirstOrDefault();
         InterruptEnabled = interrupt?.Enabled == true;
         InterruptEveryMinutes = Math.Max(1, (interrupt?.EveryMs ?? 1_800_000) / 60_000);

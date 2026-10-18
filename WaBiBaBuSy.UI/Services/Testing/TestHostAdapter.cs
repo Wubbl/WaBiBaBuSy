@@ -26,8 +26,9 @@ public sealed class TestHostAdapter : ITestHost
     public Task<SceneStartInfo> PlaySceneAsync(CrossScreenConfig scene, IReadOnlyList<string> targetNodeIds, CancellationToken ct) =>
         _host.PlaySceneForTestAsync(scene, targetNodeIds);
 
-    public Task<SceneStartInfo> SwitchSceneAsync(CrossScreenConfig scene, IReadOnlyList<string> targetNodeIds, CancellationToken ct) =>
-        _host.PlaySceneForTestAsync(scene, targetNodeIds, switchScene: true);
+    public Task<SceneStartInfo> SwitchSceneAsync(CrossScreenConfig scene, IReadOnlyList<string> targetNodeIds, CancellationToken ct,
+        string? transition = null) =>
+        _host.PlaySceneForTestAsync(scene, targetNodeIds, switchScene: true, SceneTransition.Parse(transition));
 
     public Task StopAllAsync() => _host.StopAllForTestAsync();
 

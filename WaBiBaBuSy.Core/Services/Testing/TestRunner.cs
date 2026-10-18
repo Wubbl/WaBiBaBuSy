@@ -324,7 +324,7 @@ public sealed class TestRunner
                 ctx.Active = null;
                 ctx.ActiveScene = null;
                 ctx.Active = play.Switch
-                    ? await _host.SwitchSceneAsync(scene, targets ?? new List<string>(), ct)
+                    ? await _host.SwitchSceneAsync(scene, targets ?? new List<string>(), ct, play.Transition)
                     : await _host.PlaySceneAsync(scene, targets ?? new List<string>(), ct);
                 ctx.ActiveScene = scene;
                 ctx.ActiveTargets = targets?.ToHashSet();

@@ -777,7 +777,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
                 AppLogger.CreateLogger<PlaylistOrchestrator>(),
                 apply: config => Dispatcher.UIThread.InvokeAsync(async () =>
                 {
-                    var r = await ApplyCrossScreenConfigAsync(config);
+                    var r = await ApplyCrossScreenConfigAsync(config, _playlistOrchestrator?.CurrentTransition);
                     SceneApplied?.Invoke(config);   // the room paints the live sprite on animating tiles only
                     return new ApplyMetrics(r.VirtualCanvasWidth, r.ContentWidthPx, r.StartLeadMs, r.EffectiveSpeedPx, r.CanvasWraps);
                 }),
@@ -1123,7 +1123,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     }).GetTask();
 
     /// <summary>Same teardown + start as ▶ Play, holding the Play guard across the awaits.</summary>
-    public Task<SceneStartInfo> PlaySceneForTestAsync(CrossScreenConfig config, IReadOnlyList<string> targetNodeIds, bool switchScene = false) =>
+    public Task<SceneStartInfo> PlaySceneForTestAsync(CrossScreenConfig config, IReadOnlyList<string> targetNodeIds, bool switchScene = false,
+        SceneTransition? transition = null) =>
         Dispatcher.UIThread.InvokeAsync(async () =>
         {
             if (!TryBeginStart())
@@ -1136,7 +1137,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
                 {
                     // The playlist item path: apply over the running scene, no stop first (standby switch).
                     LastScene = config;
-                    await ApplyCrossScreenConfigAsync(config);
+                    await ApplyCrossScreenConfigAsync(config, transition);
                 }
                 else
                 {
@@ -1231,8 +1232,9 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     /// in the caller so items can be applied repeatedly.
     /// The applied config comes from the <paramref name="config"/> parameter.
     /// </summary>
-    private async Task<CrossScreenApplyResult> ApplyCrossScreenConfigAsync(CrossScreenConfig config)
+    private async Task<CrossScreenApplyResult> ApplyCrossScreenConfigAsync(CrossScreenConfig config, SceneTransition? transition = null)
     {
+        string transitionWire = (transition ?? SceneTransition.Cut).Encode();
         // Targets, local start order, per-node size/DPI, seat-map layout and cm→px (pure, CrossScreenPlanner).
         // Remote clients without a reported DPI are assumed to have the first local monitor's.
         var nativeMonitors = WaBiBaBuSy.WallpaperEngine.Native.NativeMonitorInfo.GetAllMonitors();
@@ -1425,6 +1427,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         {
             foreach (var (monitorIndex, d2dService) in newServices)
             {
+                await d2dService.SendTransitionAsync(incoming: true, transitionWire, sharedStartTimestamp);   // before its start
                 await d2dService.StartAsync(startTimestampMs: sharedStartTimestamp, pixelsPerSecond: pixelsPerSecond);
                 _players[monitorIndex] = d2dService;
             }
@@ -1436,7 +1439,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             throw;
         }
 
-        _retiring.RetireAt(retiring, sharedStartTimestamp, NowMs);
+        foreach (var old in retiring) await old.SendTransitionAsync(incoming: false, transitionWire, sharedStartTimestamp);
+        _retiring.RetireAt(retiring, sharedStartTimestamp + TransitionMath.OutgoingHoldMs(transition ?? SceneTransition.Cut), NowMs);
 
         // An event still running (e.g. across a playlist item switch) continues on the new players at its position.
         await ReplayEventsAsync(newServices.Select(s => s.service));
@@ -1479,7 +1483,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
                     // MonitorIndex is -1 for whole-machine nodes → render on primary.
                     targetMonitorIndex: Math.Max(0, remoteClient.MonitorIndex),
                     assets: sceneAssets,
-                    parkOnly: park));
+                    parkOnly: park,
+                    transition: transitionWire));
             }
             await Task.WhenAll(sends);
         }

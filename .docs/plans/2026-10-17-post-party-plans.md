@@ -23,7 +23,7 @@ Related: [`2026-09-17-lan-party-roadmap.md`](2026-09-17-lan-party-roadmap.md),
 | 1 | ~~**Ghost seats** (§1)~~ **done 2026-10-17** (`29d3659`) | S–M | Dropouts happen all night; today they reshape the ring. Everything else builds on a stable layout |
 | 2 | ~~**Per-client opt-out** (§2.1)~~ **dropped 2026-10-18** — quitting the app is the opt-out; its seat becomes a ghost | — | — |
 | 3 | ~~**Standby / two-phase switch** (§5.2)~~ **done 2026-10-18**, simpler than designed (see §5.2) | S | Needed for gapless item switches and for transitions |
-| 4 | **Cross-item transitions** (§2.2) | M | Rides on 3 |
+| 4 | ~~**Cross-item transitions** (§2.2)~~ **Fade (through black) + ring Wipe done 2026-10-18**; true crossfade open (needs both scenes in one player) | M | Rides on 3 |
 | 5 | **Lap-snap for every movement** (§2.3) | S–M | Small math, but only noticeable once transitions exist |
 | 6 | **Portal** (§3) | M | Needs the analytic crossing time (§3.1), which also feeds lap-snap |
 | 7 | **Layer follow-ups** (§4) | S each, video M | Independent slices, pick by demand |
@@ -96,7 +96,13 @@ A player who wants their own wallpaper (or to free GPU while gaming) opts out; t
   persistent version. Persist per client id in `topology.json` (survives restarts), cleared with *Rejoin show*.
 - Tile: "on a break" badge. Health strip counts it separately from offline.
 
-### 2.2 Cross-item transitions (roadmap 2.5)
+### 2.2 Cross-item transitions (roadmap 2.5) — Fade + Wipe implemented 2026-10-18
+
+Built on the standby switch instead of a second runtime: **Fade** = each player darkens its own frame (old one before
+the switch, new one after — a dip through black, not a crossfade); **Wipe** = the incoming player clips its *window*
+with `SetWindowRgn` to the part of its slice the boundary has passed. Measured: window alpha is ignored for the
+flip-model swap chain, regions are honored. Open: a true crossfade (both scenes in one player, as designed below),
+BezelByBezel (trivial now: a per-seat show delay), tile dissolve (region of seeded tiles). Original design:
 
 From the effects design §6, on top of the two-phase switch (§5.2):
 

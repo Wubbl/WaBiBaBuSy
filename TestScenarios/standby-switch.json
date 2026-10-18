@@ -2,7 +2,8 @@
   // Standby switch (2026-10-18): change scenes like a playlist item does ("switch": true = no stop first).
   // Every seat keeps the old scene until the new one appears at the shared start, then both swap on the same
   // frame. Probes after each switch check the new scene is in sync everywhere (marker positions, drift spread).
-  // Watch the wall during the switches: no seat may flash the desktop wallpaper.
+  // Watch the wall during the switches: no seat may flash the desktop wallpaper. The last two switches add a Fade and
+  // a ring Wipe ("transition" on playScene).
   "name": "standby-switch",
   "requires": { "minRemoteNodes": 1 },
   "steps": [
@@ -16,6 +17,14 @@
     { "type": "wait", "label": "dwell", "ms": 3000 },
     { "type": "playScene", "label": "switch 2", "scene": "scenes/linear-sequential.json", "marker": true, "switch": true },
     { "type": "probe", "label": "right after switch 2", "at": "start+150ms", "capture": true },
+    { "type": "wait", "label": "dwell", "ms": 3000 },
+    // Transitions (roadmap 2.5): watch the wall — a dip through black on every seat at once, then a boundary that runs
+    // once around the room in 6 s (old item ahead of it, new item behind it).
+    { "type": "playScene", "label": "fade switch", "scene": "scenes/linear-sequential.json", "marker": true, "switch": true, "transition": "Fade:2000" },
+    { "type": "probe", "label": "fade done", "at": "start+1500ms", "capture": true },
+    { "type": "wait", "label": "dwell", "ms": 3000 },
+    { "type": "playScene", "label": "wipe switch", "scene": "scenes/linear-sequential.json", "marker": true, "switch": true, "transition": "Wipe:6000" },
+    { "type": "probe", "label": "wipe done", "at": "start+6500ms", "capture": true },
     { "type": "stop" }
   ]
 }

@@ -16,7 +16,8 @@ public interface ITestHost
     Task<SceneStartInfo> PlaySceneAsync(CrossScreenConfig scene, IReadOnlyList<string> targetNodeIds, CancellationToken ct);
 
     /// <summary>Like a playlist item switch: the running scene keeps showing until the new one starts (standby).</summary>
-    Task<SceneStartInfo> SwitchSceneAsync(CrossScreenConfig scene, IReadOnlyList<string> targetNodeIds, CancellationToken ct) =>
+    Task<SceneStartInfo> SwitchSceneAsync(CrossScreenConfig scene, IReadOnlyList<string> targetNodeIds, CancellationToken ct,
+        string? transition = null) =>
         PlaySceneAsync(scene, targetNodeIds, ct);
 
     Task StopAllAsync();

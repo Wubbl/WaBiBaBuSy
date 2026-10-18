@@ -442,7 +442,8 @@ public class WallpaperSyncCoordinator
         long sharedStartTimestampMs,
         int targetMonitorIndex,
         IReadOnlyList<ContentAssetRef>? assets = null,
-        bool parkOnly = false)
+        bool parkOnly = false,
+        string transition = "")
     {
         if (_syncService == null)
         {
@@ -482,7 +483,9 @@ public class WallpaperSyncCoordinator
                 TargetMonitorIndex = targetMonitorIndex,
                 // The whole resolved scene: remote players must compute the exact same deterministic math.
                 SceneJson = JsonSerializer.Serialize(scene),
-                LayoutJson = layout != null ? JsonSerializer.Serialize(layout) : string.Empty
+                LayoutJson = layout != null ? JsonSerializer.Serialize(layout) : string.Empty,
+                // Item transition ("Fade:1500", "" = Cut); a resume replays it after T0, where it is over already.
+                TransitionEffect = transition ?? string.Empty
             }
         };
         if (assets != null)

@@ -65,6 +65,9 @@ public class PlaylistOrchestrator
     /// <summary>The item currently on screen (for session-resume + UI), or null when stopped.</summary>
     public PlaylistItem? CurrentItem { get; private set; }
 
+    /// <summary>How <see cref="CurrentItem"/> replaces the item before it (its own, else the playlist default). Set before the apply.</summary>
+    public SceneTransition CurrentTransition { get; private set; } = SceneTransition.Cut;
+
     /// <summary>Index of the current item within the playlist's Items list, or -1.</summary>
     public int CurrentItemIndex { get; private set; } = -1;
 
@@ -255,6 +258,7 @@ public class PlaylistOrchestrator
 
                     CurrentItem = item;
                     CurrentItemIndex = index;
+                    CurrentTransition = item.Transition ?? playlist.DefaultTransition ?? SceneTransition.Cut;
                     _position = new PlaylistResumePoint(playlist, order, k);
                     try { ItemChanged?.Invoke(item, index); }
                     catch (Exception ex) { _logger.LogWarning(ex, "ItemChanged handler failed for '{Name}'", item.Name); }

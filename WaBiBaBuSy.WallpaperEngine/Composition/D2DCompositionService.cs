@@ -82,6 +82,18 @@ public class D2DCompositionService : IDisposable, ITestProbeTarget
         }
     }
 
+    /// <summary>Item transition for every player of this service (see <c>PlayerCommandTransition</c>); "" = Cut, nothing sent.</summary>
+    public async Task SendTransitionAsync(bool incoming, string transition, long startUtcMs)
+    {
+        if (string.IsNullOrEmpty(transition)) return;
+        foreach (var host in _playerHosts.Values)
+        {
+            if (!host.IsRunning) continue;
+            try { await host.SendTransitionAsync(incoming, transition, startUtcMs); }
+            catch (Exception ex) { _logger.LogError(ex, "Failed to send a transition to a player host"); }
+        }
+    }
+
     /// <inheritdoc />
     public async Task<PlayerProbeReply?> ProbeAsync(PlayerProbeRequest request, TimeSpan timeout, CancellationToken ct)
     {

@@ -24,6 +24,9 @@ public class CrossScreenApplyRequest
     /// <summary>JSON <c>NodeLayout</c> from the server's seat map — the canvas of Sequential layers. Empty = this monitor alone.</summary>
     public string LayoutJson { get; init; } = "";
 
+    /// <summary>Item transition in <see cref="SceneTransition.Encode"/> form; "" = Cut.</summary>
+    public string TransitionEffect { get; init; } = "";
+
     /// <summary>Every file the scene references, as sent by the server (Tier 1.3).</summary>
     public IReadOnlyList<ContentAssetRef> Assets { get; init; } = System.Array.Empty<ContentAssetRef>();
 

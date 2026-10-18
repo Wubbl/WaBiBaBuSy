@@ -206,13 +206,16 @@ public sealed class RemotePlaybackHost
                 if (testMode.Timecode || testMode.ClockSkewMs != 0)
                     await d2dService.SetTestModeAsync(testMode.Timecode, testMode.ClockSkewMs);
 
+                await d2dService.SendTransitionAsync(incoming: true, req.TransitionEffect, req.SharedStartTimestampMs);   // before its start
+
                 Debug.WriteLine($"[D2D-CrossScreen] Starting playback at ts={req.SharedStartTimestampMs}ms, speed={pixelsPerSecond}px/s");
                 await d2dService.StartAsync(startTimestampMs: req.SharedStartTimestampMs, pixelsPerSecond: pixelsPerSecond);
             });
 
             _players[monitorIndex] = d2dService;
             applied = true;
-            _retiring.RetireAt(retiring, req.SharedStartTimestampMs, NowMs);
+            foreach (var old in retiring) await old.SendTransitionAsync(incoming: false, req.TransitionEffect, req.SharedStartTimestampMs);
+            _retiring.RetireAt(retiring, req.SharedStartTimestampMs + TransitionMath.OutgoingHoldMs(SceneTransition.Parse(req.TransitionEffect)), NowMs);
             await ReplayEventsAsync(d2dService);
             await CatchUpTestModeAsync(d2dService, testMode);
             AdoptRemoteThumbnail(monitorIndex, d2dService, req.FilePath);

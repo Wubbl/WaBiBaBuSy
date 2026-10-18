@@ -1056,6 +1056,10 @@ partial class Program
                     DispatchMessage(ref msg);
                 }
 
+                // Item transition: the incoming window's wipe region (window thread = this thread).
+                try { UpdateWipeRegion(); }
+                catch (Exception ex) { _logger?.LogWarning(ex, "[Transition] Wipe region update failed"); }
+
                 // Check for pending PARENT command
                 string? parentCmd = null;
                 lock (_parentLock)
@@ -1306,6 +1310,7 @@ partial class Program
                             // Show window on first frame
                             if (!_windowShown && ReachedSharedStart)
                             {
+                                DrawTransitionVeil();   // the first visible frame of a Fade is already veiled
                                 _windowShown = true;
                                 _d2dContext.EndDraw();
                                 _d2dContext.Target = null;
@@ -1367,6 +1372,7 @@ partial class Program
 
                             if (!_windowShown && ReachedSharedStart)
                             {
+                                DrawTransitionVeil();
                                 _windowShown = true;
                                 _d2dContext.EndDraw();
                                 _d2dContext.Target = null;
@@ -1402,6 +1408,7 @@ partial class Program
                     RecordMovementTrailSample();
                     // Show events: above the scene, below the debug overlay and the timecode strip. Raw = un-phased elapsed.
                     if (_lastFrameElapsedMs != long.MinValue) DrawShowEvents(_lastFrameElapsedMs + _lastFramePhaseMs);
+                    DrawTransitionVeil();
                     DrawDebugOverlay();
                     if (_testTimecode) DrawTimecodeStrip(_lastFrameElapsedMs);
 
@@ -3304,6 +3311,11 @@ partial class Program
                     if (eventCmd != null) HandleShowEventCommand(eventCmd);
                     break;
 
+                case "cmd_transition":
+                    var transitionCmd = JsonConvert.DeserializeObject<PlayerCommandTransition>(json);
+                    if (transitionCmd != null) HandleTransitionCommand(transitionCmd);
+                    break;
+
                 default:
                     Console.WriteLine($"ERROR:Unknown JSON message type: {wrapper.MessageType}");
                     Console.Out.Flush();
@@ -3316,7 +3328,7 @@ partial class Program
             // cmd_test_mode / cmd_probe get no stdout reply: the host does not read one, so an ERROR line here
             // would be taken as the reply to its next command. A broken probe is answered on stderr instead.
             if (messageType == "cmd_probe") RejectMalformedProbe(json, ex);
-            if (messageType is "cmd_test_mode" or "cmd_probe" or "cmd_show_event") return;
+            if (messageType is "cmd_test_mode" or "cmd_probe" or "cmd_show_event" or "cmd_transition") return;
             Console.WriteLine($"ERROR:JSON parsing failed: {ex.Message}");
             Console.Out.Flush();
         }

@@ -24,6 +24,9 @@ public class Playlist
     /// <summary>Items in author order.</summary>
     public List<PlaylistItem> Items { get; set; } = new();
 
+    /// <summary>How items replace each other unless an item sets its own <see cref="PlaylistItem.Transition"/>.</summary>
+    public SceneTransition? DefaultTransition { get; set; }
+
     /// <summary>Show events fired on a timer while the show runs (roadmap 2.4); they never advance the item.</summary>
     public List<PlaylistInterrupt> Interrupts { get; set; } = new();
 }
@@ -58,6 +61,9 @@ public class PlaylistItem
     /// (Linear movement without a Pattern only; otherwise falls back to hard-cut). See PlaylistScheduler.
     /// </summary>
     public bool SnapToLap { get; set; } = false;
+
+    /// <summary>How this item replaces the one before it; null = the playlist's <see cref="Playlist.DefaultTransition"/>.</summary>
+    public SceneTransition? Transition { get; set; }
 
     /// <summary>Resolve the effective dwell for this item given the playlist default.</summary>
     public int GetEffectiveDurationMs(int playlistDefault) => DurationMs ?? playlistDefault;

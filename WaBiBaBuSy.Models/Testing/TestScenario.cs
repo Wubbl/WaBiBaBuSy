@@ -81,6 +81,8 @@ public sealed class PlaySceneStep : TestStep
     public bool Marker { get; set; }
     /// <summary>Change scenes like a playlist item switch (standby: the running scene is not stopped first).</summary>
     public bool Switch { get; set; }
+    /// <summary>With <see cref="Switch"/>: the item transition, e.g. "Fade:1500" or "Wipe:4000" (default Cut).</summary>
+    public string? Transition { get; set; }
     public override string Kind => "playScene";
 }
 

@@ -385,7 +385,8 @@ public class WallpaperPlaybackService : IDisposable
                         MonitorIndex = command.Params?.TargetMonitorIndex ?? 0,
                         SharedStartTimestampMs = command.Params?.SharedStartTimestampMs ?? 0L,
                         SceneJson = command.Params?.SceneJson ?? string.Empty,
-                        LayoutJson = command.Params?.LayoutJson ?? string.Empty
+                        LayoutJson = command.Params?.LayoutJson ?? string.Empty,
+                        TransitionEffect = command.Params?.TransitionEffect ?? string.Empty
                     };
                     _logger.LogInformation(
                         "[Playback:LOAD] Cross-screen D2D: ts={Ts}ms, monitor={Monitor}, scene={SceneLen} chars, layout={HasLayout}, assets={Assets}",
