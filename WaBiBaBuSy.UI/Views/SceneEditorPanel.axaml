@@ -610,6 +610,7 @@
                                     <ComboBoxItem Content="Glow"/>
                                     <ComboBoxItem Content="Flash"/>
                                     <ComboBoxItem Content="Ripple"/>
+                                    <ComboBoxItem Content="Portal"/>
                                 </ComboBox>
                             </Grid>
                             <Grid ColumnDefinitions="120,*">
@@ -619,6 +620,7 @@
                                     <ComboBoxItem Content="Glow"/>
                                     <ComboBoxItem Content="Flash"/>
                                     <ComboBoxItem Content="Ripple"/>
+                                    <ComboBoxItem Content="Portal"/>
                                 </ComboBox>
                             </Grid>
                             <Grid ColumnDefinitions="120,*">

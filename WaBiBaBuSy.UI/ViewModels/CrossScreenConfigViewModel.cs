@@ -177,7 +177,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     [ObservableProperty] private int _pulseAmplitudePercent = 8;
     [ObservableProperty] private float _pulseFrequencyHz = 0.8f;
     [ObservableProperty] private float _spinDegPerSecond;
-    [ObservableProperty] private int _bezelEntryIndex;      // BezelEffect: 0 None, 1 Glow, 2 Flash, 3 Ripple
+    [ObservableProperty] private int _bezelEntryIndex;      // BezelEffect: 0 None, 1 Glow, 2 Flash, 3 Ripple, 4 Portal
     [ObservableProperty] private int _bezelExitIndex;
     [ObservableProperty] private string _bezelColorHex = "#FFFFFF";
     [ObservableProperty] private int _bezelDurationMs = 350;

@@ -70,4 +70,9 @@ public enum BezelEffect
     Flash,
     /// <summary>A ring expands from the crossing point.</summary>
     Ripple,
+    /// <summary>
+    /// A door at the screen edge: opens before the sprite arrives, stays open while it passes through, closes after.
+    /// The next seat opens its door on the same frame (roadmap 2.4).
+    /// </summary>
+    Portal,
 }

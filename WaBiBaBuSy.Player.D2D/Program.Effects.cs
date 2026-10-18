@@ -80,6 +80,27 @@ partial class Program
         _bezelBrushColor = colorHex;
     }
 
+    /// <summary>The portal door: a translucent ellipse with a bright rim, centered on the screen edge.</summary>
+    private static void DrawPortal(SpriteEffectsConfig fx, PortalVisual v)
+    {
+        if (v.RadiusY < 0.5f) return;
+        EnsureBezelBrushes(fx.BezelColorHex);
+        var prior = _d2dContext!.Transform;
+        _d2dContext.Transform = Matrix3x2.CreateScale(Scale) * prior;   // canvas units → device px
+        try
+        {
+            var e = new Ellipse(new Vector2(v.X, v.Y), v.RadiusX, v.RadiusY);
+            _bezelSolidBrush!.Opacity = 0.28f * v.Openness;
+            _d2dContext.FillEllipse(e, _bezelSolidBrush);
+            _bezelSolidBrush.Opacity = v.Openness;
+            _d2dContext.DrawEllipse(e, _bezelSolidBrush, 3f + 5f * v.Openness);
+        }
+        finally
+        {
+            _d2dContext.Transform = prior;
+        }
+    }
+
     /// <summary>Release the bezel brushes (reload / device loss / exit).</summary>
     private static void DisposeEffectBrushes()
     {
@@ -96,6 +117,7 @@ partial class Program
     private static void DrawBezelEffect(SpriteEffectsConfig fx, long elapsedMs)
     {
         if (_d2dContext == null) return;
+        if (SpriteEffects.FindPortal(PoseInput(), fx, elapsedMs) is { } portal) DrawPortal(fx, portal);
         var ev = SpriteEffects.FindBezelEvent(PoseInput(), fx, elapsedMs);
         if (ev == null) return;
         var v = SpriteEffects.Visual(ev.Value, _layout);

@@ -25,7 +25,7 @@ Related: [`2026-09-17-lan-party-roadmap.md`](2026-09-17-lan-party-roadmap.md),
 | 3 | ~~**Standby / two-phase switch** (§5.2)~~ **done 2026-10-18**, simpler than designed (see §5.2) | S | Needed for gapless item switches and for transitions |
 | 4 | ~~**Cross-item transitions** (§2.2)~~ **Fade (through black) + ring Wipe done 2026-10-18**; true crossfade open (needs both scenes in one player) | M | Rides on 3 |
 | 5 | ~~**Lap-snap for every movement** (§2.3)~~ **done 2026-10-18** (Bounce snaps to the horizontal round trip only; no lcm of both axes) | S–M | Small math, but only noticeable once transitions exist |
-| 6 | **Portal** (§3) | M | Needs the analytic crossing time (§3.1), which also feeds lap-snap |
+| 6 | ~~**Portal** (§3)~~ **done 2026-10-18** — forward scan on the 16 ms grid instead of an analytic crossing time; no sprite clipping to the door | M | Needs the analytic crossing time (§3.1), which also feeds lap-snap |
 | 7 | **Layer follow-ups** (§4) | S each, video M | Independent slices, pick by demand |
 | 8 | **Per-seat DPI override** (§5.1) | S | Only if a seat's reported DPI turns out wrong at the party |
 
@@ -144,7 +144,12 @@ Today lap-snap rounds an item's dwell to whole laps for **Linear** only, using `
 
 ---
 
-## 3. Roadmap 2.4 — Portal
+## 3. Roadmap 2.4 — Portal — implemented 2026-10-18 (simplified)
+
+Built without §3.1: positions are pure functions of time, so `SpriteEffects.FindPortal` simply scans the 16 ms grid
+±400 ms around now (ahead as well as back) for the sprite straddling this node's edge — works for every movement type,
+deterministic on every seat. The door is drawn over the sprite at the edge; the sprite is **not** clipped to the
+ellipse (the screen edge already cuts it). Original plan:
 
 A sprite leaving a screen looks like it goes through a door and comes out of a matching door on the next seat.
 

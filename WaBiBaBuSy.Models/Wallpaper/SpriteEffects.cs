@@ -27,6 +27,14 @@ public readonly record struct BezelEvent(
 public readonly record struct BezelVisual(
     BezelEffect Effect, float Opacity, float X, float Y, float Width, float Height, float Radius, float StrokeWidth, bool EdgeOnRight);
 
+/// <summary>A portal at one screen edge of a node, in node-local canvas units (drawn as an ellipse centered on the edge).</summary>
+/// <param name="Openness">0 closed … 1 fully open (eased).</param>
+/// <param name="X">The edge: 0 or the node width.</param>
+/// <param name="Y">Center Y: the sprite's center at the nearest crossing sample.</param>
+/// <param name="RadiusX">Half width at the current openness.</param>
+/// <param name="RadiusY">Half height at the current openness.</param>
+public readonly record struct PortalVisual(float Openness, float X, float Y, float RadiusX, float RadiusY);
+
 /// <summary>
 /// Pure math of the sprite effects (<see cref="SpriteEffectsConfig"/>), shared by the D2D players and the room
 /// preview so both draw the same thing. Every function depends only on its arguments.
@@ -198,7 +206,7 @@ public static class SpriteEffects
             {
                 var kind = newerVisible ? BezelEventKind.Entry : BezelEventKind.Exit;
                 var effect = kind == BezelEventKind.Entry ? fx.Entry : fx.Exit;
-                if (effect != BezelEffect.None)
+                if (effect is not (BezelEffect.None or BezelEffect.Portal))   // a portal is drawn by FindPortal
                 {
                     float x = newerVisible ? newerX : olderX;       // the copy that is (entry) / was (exit) on the node
                     float y = newerVisible ? newerY : olderY;
@@ -212,6 +220,78 @@ public static class SpriteEffects
         }
         return null;
     }
+
+    /// <summary>How long before the sprite reaches an edge the portal starts to open (and how long it takes to close).</summary>
+    public const int PortalLeadMs = 400;
+
+    /// <summary>
+    /// The portal at this node's edge, or null: the nearest sample on the shared 16 ms grid within ±<see cref="PortalLeadMs"/>
+    /// where the sprite straddles an edge of the node (partly on it) — looking ahead as well as back, since the position is
+    /// a pure function of time. Fully open while it straddles, eased open / shut over the lead time around it. Only
+    /// crossings into the node (Entry = Portal) or out of it (Exit = Portal) count. Every node agrees on every frame.
+    /// </summary>
+    public static PortalVisual? FindPortal(in SpritePoseInput p, SpriteEffectsConfig fx, long elapsedMs)
+    {
+        bool entry = fx.Entry == BezelEffect.Portal, exit = fx.Exit == BezelEffect.Portal;
+        if (elapsedMs < 0 || (!entry && !exit)) return null;
+        long grid = elapsedMs - SyncTiming.PositiveModulo(elapsedMs, BezelScanStepMs);
+        for (int k = 0; k * BezelScanStepMs <= PortalLeadMs + BezelScanStepMs; k++)
+        {
+            // Nearest first: the sample at or before now, then alternately ahead and behind.
+            for (int side = 0; side < (k == 0 ? 1 : 2); side++)
+            {
+                long t = side == 0 ? grid + k * BezelScanStepMs : grid - k * BezelScanStepMs;
+                if (t < 0) continue;
+                if (!Straddles(p, t, out bool atRight, out float overlap, out float centerVy)) continue;
+                bool coming = VisibleOverlap(p, t + BezelScanStepMs) > overlap;   // more of it on the node next: entering
+                if (coming ? !entry : !exit) continue;
+
+                float dist = Math.Abs(t - elapsedMs) <= BezelScanStepMs && k == 0 ? 0f : Math.Abs(t - elapsedMs);
+                float open = SmoothStep(Math.Clamp(1f - dist / PortalLeadMs, 0f, 1f));
+                if (open <= 0f) return null;
+                float ry = Math.Min(p.AnimH * 0.65f, p.Node.Height / 2f) * open;
+                return new PortalVisual(open, atRight ? p.Node.Width : 0f, NodeMapping.ToLocalY(centerVy, p.Node), ry * 0.32f, ry);
+            }
+        }
+        return null;
+    }
+
+    /// <summary>True when a copy of the sprite is partly on the node at <paramref name="elapsedMs"/> (crossing an edge).</summary>
+    private static bool Straddles(in SpritePoseInput p, long elapsedMs, out bool atRight, out float overlap, out float centerVirtualY)
+    {
+        var (vx, vy) = Pose(p, elapsedMs);
+        centerVirtualY = vy + p.AnimH / 2f;
+        Span<float> copies = stackalloc float[2];
+        int n = NodeMapping.WrapCopies(vx, p.AnimW, p.Node, copies);
+        for (int i = 0; i < n; i++)
+        {
+            float lx = NodeMapping.ToLocalX(copies[i], p.AnimW, p.Node);
+            if (!NodeMapping.IsVisible(lx, p.AnimW, p.Node)) continue;
+            if (lx >= 0f && lx + p.AnimW <= p.Node.Width) continue;   // fully on the node
+            atRight = lx + p.AnimW / 2f > p.Node.Width / 2f;
+            overlap = Math.Min(lx + p.AnimW, p.Node.Width) - Math.Max(lx, 0f);
+            return true;
+        }
+        atRight = false;
+        overlap = 0f;
+        return false;
+    }
+
+    /// <summary>How much of the sprite's width is on the node (0 = not on it, AnimW = fully on it).</summary>
+    private static float VisibleOverlap(in SpritePoseInput p, long elapsedMs)
+    {
+        Span<float> copies = stackalloc float[2];
+        int n = NodeMapping.WrapCopies(Pose(p, elapsedMs).VirtualX, p.AnimW, p.Node, copies);
+        float best = 0f;
+        for (int i = 0; i < n; i++)
+        {
+            float lx = NodeMapping.ToLocalX(copies[i], p.AnimW, p.Node);
+            best = Math.Max(best, Math.Min(lx + p.AnimW, p.Node.Width) - Math.Max(lx, 0f));
+        }
+        return best;
+    }
+
+    private static float SmoothStep(float x) => x * x * (3f - 2f * x);
 
     /// <summary>Geometry and opacity of <paramref name="e"/> on <paramref name="node"/> (design section 3 table).</summary>
     public static BezelVisual Visual(in BezelEvent e, NodeLayout node)

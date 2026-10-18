@@ -305,6 +305,15 @@ public sealed partial class ScenePainter
             if (center >= 0 && center < eff.Width) hit = true;
         }
 
+        if (fx != null && SpriteEffects.FindPortal(input, fx, e) is { } portal && portal.RadiusY >= 0.5f)
+        {
+            var (pr, pg, pb) = SpriteEffects.ParseBezelColor(fx.BezelColorHex);
+            var pc = Color.FromRgb(pr, pg, pb);
+            var center = new Point(rect.Left + portal.X * s, rect.Top + portal.Y * s);
+            ctx.DrawEllipse(new SolidColorBrush(pc, 0.28 * portal.Openness),
+                new Pen(new SolidColorBrush(pc, portal.Openness), Math.Max(1, (3 + 5 * portal.Openness) * s)),
+                center, portal.RadiusX * s, portal.RadiusY * s);
+        }
         if (fx != null && SpriteEffects.FindBezelEvent(input, fx, e) is { } ev)
         {
             var (cr, cg, cb) = SpriteEffects.ParseBezelColor(fx.BezelColorHex);   // same fallback as the players
