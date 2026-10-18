@@ -37,6 +37,9 @@ public static class SceneChecks
     /// <summary>Soft limit: more pattern layers than this get a warning (hundreds of cells each).</summary>
     public const int MaxPatternLayers = 2;
 
+    /// <summary>Videos per scene (bottom layer included): each one decodes on every seat; players skip the rest.</summary>
+    public const int MaxVideoLayers = 2;
+
     /// <summary>
     /// Seconds the layer's sprite needs to travel the full canvas width once at its effective speed
     /// (cm/s resolved with the layout's reference DPI). 0 for Static movement, zero speed or no canvas.
@@ -77,6 +80,8 @@ public static class SceneChecks
             warnings.Add($"More than {MaxLayers} layers: every node draws them all each frame");
         if (scene.Layers.Count(l => l.Enabled && l.Animation.Pattern != null) > MaxPatternLayers)
             warnings.Add($"More than {MaxPatternLayers} pattern layers: hundreds of cells each");
+        if (scene.Layers.Count(l => l.Enabled && IsVideo(l.Animation.AnimationPath)) > MaxVideoLayers)
+            warnings.Add($"More than {MaxVideoLayers} video layers: every seat decodes each one — the ones above the {MaxVideoLayers}nd are skipped");
 
         bool prefix = scene.Layers.Count > 1;
         for (int i = 0; i < scene.Layers.Count; i++)
@@ -96,9 +101,6 @@ public static class SceneChecks
 
         if (string.IsNullOrWhiteSpace(anim.AnimationPath))
             yield return "Pick an animation file from the strip";
-
-        if (index > 0 && IsVideo(anim.AnimationPath))
-            yield return "Only the bottom layer can play a video — this layer is skipped";
 
         var grading = anim.ColorGrading?.Mode ?? ColorGradingMode.None;
         if (layer.Movement.Type == MovementType.Linear && layer.Movement.Endless

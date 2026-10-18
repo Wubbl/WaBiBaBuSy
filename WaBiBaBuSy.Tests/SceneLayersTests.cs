@@ -161,13 +161,13 @@ public class SceneLayersTests : IDisposable
     }
 
     [Fact]
-    public void Validate_VideoAboveTheBottom_Warns()
+    public void Validate_VideoOnAnUpperLayerIsFine_UpToTwoVideos()
     {
-        var scene = new CrossScreenConfig { Layers = { Layer("logo.png"), Layer("clip.mp4") } };
-        Assert.Contains(SceneChecks.Validate(scene, null), w => w.StartsWith("Layer 2 (clip): Only the bottom layer can play a video"));
+        var two = new CrossScreenConfig { Layers = { Layer("bg.mp4"), Layer("logo.png"), Layer("clip.mp4") } };
+        Assert.DoesNotContain(SceneChecks.Validate(two, null), w => w.Contains("video"));
 
-        var bottomVideo = new CrossScreenConfig { Layers = { Layer("clip.mp4") } };
-        Assert.DoesNotContain(SceneChecks.Validate(bottomVideo, null), w => w.Contains("Only the bottom layer"));
+        var three = new CrossScreenConfig { Layers = { Layer("bg.mp4"), Layer("a.mp4"), Layer("b.webm") } };
+        Assert.Contains(SceneChecks.Validate(three, null), w => w.StartsWith($"More than {SceneChecks.MaxVideoLayers} video layers"));
     }
 
     [Fact]

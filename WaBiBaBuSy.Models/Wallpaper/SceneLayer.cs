@@ -4,7 +4,7 @@ namespace WaBiBaBuSy.Models.Wallpaper;
 /// One independent sprite (or pattern grid) of a scene: its own source file(s), movement, look,
 /// effects, opacity, distribution and clock offset. Layers draw in list order (index 0 = bottom)
 /// and never read each other's state, so each stays a pure function of the shared clock.
-/// Only the bottom layer may be a video and only it follows the IconZone path / corridor.
+/// Up to two layers may be videos (SceneChecks.MaxVideoLayers); only the bottom layer follows the IconZone path / corridor.
 /// </summary>
 public class SceneLayer
 {

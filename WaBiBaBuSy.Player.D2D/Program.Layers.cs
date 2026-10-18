@@ -49,6 +49,8 @@ partial class Program
         public float Opacity = 1f;
         public long PhaseOffsetMs;
         public long ShowEveryMs, ShowForMs;
+        /// <summary>An upper layer's video (layer 0's video uses its own render branch). Not swapped; read via the runtime.</summary>
+        public LayerVideo? Video;
         public bool FollowsBackground;
 
         public LayerRuntime ShallowCopy() => (LayerRuntime)MemberwiseClone();
@@ -187,14 +189,15 @@ partial class Program
             {
                 if (!_layers[i].Config.Enabled) continue;
                 ActivateLayer(i);
-                if (_d2dFramesPerSource.Count == 0) continue;   // nothing loaded (missing file, unsupported format)
+                var video = _layers[i].Video;
+                if (_d2dFramesPerSource.Count == 0 && video == null) continue;   // nothing loaded (missing file, unsupported format)
                 // Same clock as the room preview (SyncTiming.LayerElapsed); exact frames skip the node phase.
                 long? clock = applyNodePhase
                     ? SyncTiming.LayerElapsed(rawElapsedMs, _nodeOrder, _layers[i].Config)
                     : SyncTiming.ShouldDrawAnimation(rawElapsedMs) ? rawElapsedMs + _layerPhaseOffsetMs : null;
                 if (clock is not long t) continue;
                 UpdateAnimationPosition(t);
-                DrawAnimationLayer(t);
+                DrawAnimationLayer(t, videoBitmapOverride: video?.CurrentFrame());
             }
         }
         finally
@@ -222,6 +225,8 @@ partial class Program
         for (int i = 1; i < _layers.Count; i++)
         {
             var l = _layers[i];
+            l.Video?.Dispose();
+            l.Video = null;
             if (l.GifFrames != null)
                 foreach (var f in l.GifFrames) f?.Dispose();
             for (int s = 1; s < l.FramesPerSource.Count; s++)   // index 0 shares storage with GifFrames

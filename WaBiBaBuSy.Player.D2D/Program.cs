@@ -4058,6 +4058,7 @@ partial class Program
 
                 // Background-only scene: an empty, disabled layer 0 keeps every "layer 0 is active" path valid.
                 var layers = cmd.Layers.Count > 0 ? cmd.Layers : new List<SceneLayer> { new() { Enabled = false } };
+                int videosLeft = SceneChecks.MaxVideoLayers;
                 for (int i = 0; i < layers.Count; i++)
                 {
                     if (i > 0) SaveInto(_layers[i - 1]);
@@ -4077,7 +4078,14 @@ partial class Program
                     {
                         try
                         {
-                            LoadActiveLayerSprite(layers[i].Animation, allowVideo: i == 0);
+                            bool video = SceneChecks.IsVideo(layers[i].Animation.AnimationPath);
+                            if (video && videosLeft <= 0)
+                                _logger?.LogWarning("[LOAD] Layer {Index}: more than {Max} videos in the scene — skipped", i, SceneChecks.MaxVideoLayers);
+                            else
+                            {
+                                runtime.Video = LoadActiveLayerSprite(layers[i], isBottom: i == 0);
+                                if (video) videosLeft--;
+                            }
                         }
                         catch (Exception ex) when (i > 0)
                         {
@@ -4105,11 +4113,14 @@ partial class Program
     }
 
     /// <summary>
-    /// Load the active layer's sprite: frames (GIF / still image) or LibVLC video (layer 0 only), FitMode layout,
-    /// extra source images and the Traveling tile-align step.
+    /// Load the active layer's sprite: frames (GIF / still image) or a video (layer 0: its own LibVLC render branch;
+    /// a layer above it: a <see cref="LayerVideo"/>, returned for its runtime), FitMode layout, extra source images
+    /// and the Traveling tile-align step.
     /// </summary>
-    private static void LoadActiveLayerSprite(AnimationLayerConfig anim, bool allowVideo)
+    private static LayerVideo? LoadActiveLayerSprite(SceneLayer layer, bool isBottom)
     {
+        var anim = layer.Animation;
+        LayerVideo? upperVideo = null;
         var filePath = anim.AnimationPath;
         var extension = Path.GetExtension(filePath).ToLowerInvariant();
 
@@ -4124,10 +4135,14 @@ partial class Program
         }
         else if (extension is ".mp4" or ".avi" or ".mkv" or ".mov" or ".wmv" or ".webm" or ".flv")
         {
-            if (!allowVideo)
+            if (!isBottom)
             {
-                _logger?.LogWarning("[LOAD] Video on a layer above the bottom one is not supported — skipped: {Path}", filePath);
-                return;
+                upperVideo = new LayerVideo(filePath, layer, _d2dContext!);
+                _contentNativeWidth = upperVideo.Width;
+                _contentNativeHeight = upperVideo.Height;
+                CalculateAnimationLayout(anim);
+                _logger?.LogInformation("[LOAD] Upper-layer video ready: {W}x{H}", upperVideo.Width, upperVideo.Height);
+                return upperVideo;
             }
             // Stage 6: Native D2D path for videos (LibVLC → raw buffer → CopyFromMemory)
             _logger?.LogInformation("[LOAD] Video detected ({Ext}), using native D2D video", extension);
@@ -4200,6 +4215,7 @@ partial class Program
         {
             _tileAlignStepX = 0f;
         }
+        return upperVideo;
     }
 
     private static void HandleStartAnimationCommand(PlayerCommandStartAnimation cmd)

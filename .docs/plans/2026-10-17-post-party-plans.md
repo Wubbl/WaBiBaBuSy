@@ -26,7 +26,7 @@ Related: [`2026-09-17-lan-party-roadmap.md`](2026-09-17-lan-party-roadmap.md),
 | 4 | ~~**Cross-item transitions** (§2.2)~~ **Fade (through black) + ring Wipe done 2026-10-18**; true crossfade open (needs both scenes in one player) | M | Rides on 3 |
 | 5 | ~~**Lap-snap for every movement** (§2.3)~~ **done 2026-10-18** (Bounce snaps to the horizontal round trip only; no lcm of both axes) | S–M | Small math, but only noticeable once transitions exist |
 | 6 | ~~**Portal** (§3)~~ **done 2026-10-18** — forward scan on the 16 ms grid instead of an analytic crossing time; no sprite clipping to the door | M | Needs the analytic crossing time (§3.1), which also feeds lap-snap |
-| 7 | **Layer follow-ups** (§4) — 4.2 spawn windows, 4.3 layer presets, 4.4 Suggest add-as-layer **done 2026-10-18**; open: 4.1 video on upper layers, 4.5 debug overlay | S each, video M | Independent slices, pick by demand |
+| 7 | **Layer follow-ups** (§4) — 4.2 spawn windows, 4.3 layer presets, 4.4 Suggest add-as-layer **done 2026-10-18**, 4.1 video on upper layers **done 2026-10-18**; open: 4.5 debug overlay | S each, video M | Independent slices, pick by demand |
 | 8 | **Per-seat DPI override** (§5.1) | S | Only if a seat's reported DPI turns out wrong at the party |
 
 ---
@@ -190,7 +190,9 @@ Portal at `tEntry − 200 ms`, `tEntry`, `tExit + 200 ms`.
 
 Independent slices; each keeps the layer invariants (CLAUDE.md "Scene Layers").
 
-### 4.1 Video on upper layers (M)
+### 4.1 Video on upper layers (M) — implemented 2026-10-18
+
+As planned, with one LibVLC instance per upper video (`LayerVideo`) so layer 0's working branch stays untouched.
 
 - Player: a `LayerRuntime` gets its own LibVLC media player when `Animation.AnimationPath` is a video; **cap 2
   video layers per scene** (SceneChecks error above), decode to a D2D bitmap per layer as layer 0 does.
