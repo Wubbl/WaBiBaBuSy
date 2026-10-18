@@ -24,6 +24,7 @@ The bundled files are copied next to the exe (`TestScenarios\` in the build/inst
 | `parity-matrix.json` | 1+ client | Linear, SineWave, Static, Bounce wave, pattern + traveling colors, face direction, IconZone: marker positions and exact-frame pixel parity |
 | `clock-skew.json` | 1+ client | Simulated client clock skew: start and drift stay within tolerance |
 | `recovery.json` | 1+ client | Fault injection (~3 min): a 6 s link loss (reconnect time after the link is back, limit 5 s) and a 45 s silence (time until the server drops the node, limit 45 s); a probe after each checks the node rejoined at the right position |
+| `standby-switch.json` | 1+ client | Standby switch: two scene changes made like playlist item switches (`"switch": true` on `playScene` = the running scene is not stopped first); probes 150 ms and 3 s after each switch check the new scene is in sync. Watch the wall: no seat may flash the desktop wallpaper |
 | `showcase/showcase.json` | server only | Not a pass/fail check: plays 12 showcase scenes and renders exact frames at 1/4/9/20 s as a contact sheet for tuning animation settings |
 | `showcase/events.json` | server only | Not a pass/fail check: fires the five one-shot show events (Celebration, Spotlight, Traversal, Blackout — in white, so the frame differs from the dark scene —, Announce) at fixed scene times and renders exact frames inside each event; waits 3 s after the Traversal so remote clients have its image |
 

@@ -583,6 +583,12 @@ partial class Program
     private static long _startTimestampMs = 0;
     private static int _pixelsPerSecond = 0;
     private static DateTime _renderLoopStart = DateTime.MinValue;
+
+    /// <summary>
+    /// The window stays hidden until the shared start: a new scene's player then never covers the previous scene's
+    /// player early with a sprite-less background, so the host can keep the old one until this moment (standby switch).
+    /// </summary>
+    private static bool ReachedSharedStart => NowUtc >= _renderLoopStart;
     private static long _frameCount = 0;
     private static DateTime _lastLoopLogTime = DateTime.MinValue;
 
@@ -1298,7 +1304,7 @@ partial class Program
                             }
 
                             // Show window on first frame
-                            if (!_windowShown)
+                            if (!_windowShown && ReachedSharedStart)
                             {
                                 _windowShown = true;
                                 _d2dContext.EndDraw();
@@ -1359,7 +1365,7 @@ partial class Program
                                     _animationConfig?.ColorGrading?.Mode != ColorGradingMode.None);
                             }
 
-                            if (!_windowShown)
+                            if (!_windowShown && ReachedSharedStart)
                             {
                                 _windowShown = true;
                                 _d2dContext.EndDraw();

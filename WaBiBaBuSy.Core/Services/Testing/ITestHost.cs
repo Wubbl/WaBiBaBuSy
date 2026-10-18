@@ -15,6 +15,10 @@ public interface ITestHost
     /// <summary>Play <paramref name="scene"/> on the node ids (empty = all), like ▶ Play; returns once local players started.</summary>
     Task<SceneStartInfo> PlaySceneAsync(CrossScreenConfig scene, IReadOnlyList<string> targetNodeIds, CancellationToken ct);
 
+    /// <summary>Like a playlist item switch: the running scene keeps showing until the new one starts (standby).</summary>
+    Task<SceneStartInfo> SwitchSceneAsync(CrossScreenConfig scene, IReadOnlyList<string> targetNodeIds, CancellationToken ct) =>
+        PlaySceneAsync(scene, targetNodeIds, ct);
+
     Task StopAllAsync();
 
     /// <summary>What plays now (a scene, a running show, or nothing); captured before the run, restored after it.</summary>

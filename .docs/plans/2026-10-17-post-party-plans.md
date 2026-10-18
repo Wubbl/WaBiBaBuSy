@@ -20,9 +20,9 @@ Related: [`2026-09-17-lan-party-roadmap.md`](2026-09-17-lan-party-roadmap.md),
 
 | # | Item | Size | Why this position |
 |---|---|---|---|
-| 1 | **Ghost seats** (§1) | S–M | Dropouts happen all night; today they reshape the ring. Everything else builds on a stable layout |
-| 2 | **Per-client opt-out** (§2.1) | S | Cheapest visible win; a gamer who wants their own wallpaper just clicks it |
-| 3 | **Standby / two-phase switch** (§5.2) | L | Needed for gapless item switches and for transitions |
+| 1 | ~~**Ghost seats** (§1)~~ **done 2026-10-17** (`29d3659`) | S–M | Dropouts happen all night; today they reshape the ring. Everything else builds on a stable layout |
+| 2 | ~~**Per-client opt-out** (§2.1)~~ **dropped 2026-10-18** — quitting the app is the opt-out; its seat becomes a ghost | — | — |
+| 3 | ~~**Standby / two-phase switch** (§5.2)~~ **done 2026-10-18**, simpler than designed (see §5.2) | S | Needed for gapless item switches and for transitions |
 | 4 | **Cross-item transitions** (§2.2) | M | Rides on 3 |
 | 5 | **Lap-snap for every movement** (§2.3) | S–M | Small math, but only noticeable once transitions exist |
 | 6 | **Portal** (§3) | M | Needs the analytic crossing time (§3.1), which also feeds lap-snap |
@@ -78,7 +78,10 @@ not loaded.
 
 ## 2. Playlist extras
 
-### 2.1 Per-client opt-out
+### 2.1 Per-client opt-out — dropped 2026-10-18
+
+Not needed: someone who wants out quits WaBiBaBuSy; thanks to ghost seats (§1) their seat keeps its place and the
+show goes on around it. Kept below for reference.
 
 A player who wants their own wallpaper (or to free GPU while gaming) opts out; the show goes on around them.
 
@@ -219,7 +222,16 @@ projectors, EDID without size) → that seat's sprite is too big or small in cm.
 - Planner uses override ?? reported. Persisted with the seat, so it also applies to a ghost (§1).
 - Quick check at the party: show a 10 cm ruler event on all seats and measure (could be an Identify variant).
 
-### 5.2 Standby / two-phase switch (L)
+### 5.2 Standby / two-phase switch — implemented 2026-10-18 (simplified)
+
+**What was built** (not the design below): no `LOAD_NEXT` message, no second runtime inside the player. Each host
+keeps the monitor's old *player process* while it spawns the new one; the new player keeps its window hidden until
+the shared start (`ReachedSharedStart`), then shows on top, and the host stops the old one 250 ms later
+(`RetiringPlayers`). The start lead every switch already has (0.8–4 s, ≥ 3 × worst RTT) is the standby window.
+Dropouts need nothing extra: a rejoining seat gets the active command as before. Two processes per monitor for the
+lead time is the cost. Transitions (§2.2) can build on it: Fade = ramp the new window's layered alpha
+(`SetLayeredWindowAttributes`) over `TransitionMs` instead of showing it at once; wipes need the in-player
+design below. The original design, for reference:
 
 What it means: today every item switch is "stop old players → start new players at a future T0" — each node
 spawns and decodes the next item in the lead time, then reveals on the same frame. That already looks

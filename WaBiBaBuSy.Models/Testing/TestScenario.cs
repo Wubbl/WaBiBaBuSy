@@ -79,6 +79,8 @@ public sealed class PlaySceneStep : TestStep
     public string Targets { get; set; } = "all";
     /// <summary>The scene shows the marker sprite: captured probes run the position check.</summary>
     public bool Marker { get; set; }
+    /// <summary>Change scenes like a playlist item switch (standby: the running scene is not stopped first).</summary>
+    public bool Switch { get; set; }
     public override string Kind => "playScene";
 }
 

@@ -1,0 +1,21 @@
+{
+  // Standby switch (2026-10-18): change scenes like a playlist item does ("switch": true = no stop first).
+  // Every seat keeps the old scene until the new one appears at the shared start, then both swap on the same
+  // frame. Probes after each switch check the new scene is in sync everywhere (marker positions, drift spread).
+  // Watch the wall during the switches: no seat may flash the desktop wallpaper.
+  "name": "standby-switch",
+  "requires": { "minRemoteNodes": 1 },
+  "steps": [
+    { "type": "testMode", "timecode": true },
+    { "type": "playScene", "label": "first scene", "scene": "scenes/linear-sequential.json", "marker": true },
+    { "type": "probe", "label": "first scene", "at": "start+2000ms", "capture": true },
+    { "type": "wait", "label": "dwell", "ms": 5000 },
+    { "type": "playScene", "label": "switch 1", "scene": "scenes/linear-sequential.json", "marker": true, "switch": true },
+    { "type": "probe", "label": "right after switch 1", "at": "start+150ms", "capture": true },
+    { "type": "probe", "label": "switch 1 settled", "at": "start+3000ms", "capture": true },
+    { "type": "wait", "label": "dwell", "ms": 3000 },
+    { "type": "playScene", "label": "switch 2", "scene": "scenes/linear-sequential.json", "marker": true, "switch": true },
+    { "type": "probe", "label": "right after switch 2", "at": "start+150ms", "capture": true },
+    { "type": "stop" }
+  ]
+}

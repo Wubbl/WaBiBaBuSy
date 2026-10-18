@@ -32,6 +32,8 @@ public sealed class RemotePlaybackHost
     private readonly DesktopWindowManager _desktopManager;
     private readonly ConcurrentDictionary<int, D2DCompositionService> _players = new();
     private readonly ShowEventLog _showEvents = new();
+    /// <summary>Players of the previous scene, kept until the new ones appear (standby switch).</summary>
+    private readonly RetiringPlayers _retiring = new();
     // Apply / stop run on separate command tasks: one at a time, so two applies for one monitor cannot both
     // create a player (one orphaned) and a stop cannot slip in before a running apply registers its player.
     private readonly System.Threading.SemaphoreSlim _gate = new(1, 1);
@@ -134,85 +136,93 @@ public sealed class RemotePlaybackHost
         var monitorIndex = req.MonitorIndex;
         Debug.WriteLine($"[D2D-CrossScreen] Received: file={req.FilePath}, monitor={monitorIndex}, ts={req.SharedStartTimestampMs}ms");
 
-        // Dispose previous cross-screen service for this monitor
-        if (_players.TryRemove(monitorIndex, out var existing))
+        // Standby switch: the previous player keeps showing until the new one appears at the shared start (a player
+        // keeps its window hidden until then); it is retired after that, or right away if this apply fails.
+        _players.TryRemove(monitorIndex, out var existing);
+        var retiring = existing == null ? new List<D2DCompositionService>() : new List<D2DCompositionService> { existing };
+        long NowMs() => _service.Client?.NowUtcMs ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        bool applied = false;
+        try
         {
-            existing.Dispose();
-            await Task.Delay(300);
+            var monitors = NativeMonitorInfo.GetAllMonitors();
+            if (monitorIndex < 0 || monitorIndex >= monitors.Length)
+            {
+                Debug.WriteLine($"[D2D-CrossScreen] ERROR: Invalid monitor index {monitorIndex} (have {monitors.Length} monitors)");
+                return;
+            }
+
+            var screen = monitors[monitorIndex];
+            var actualBounds = new System.Drawing.Rectangle(
+                screen.Bounds.X, screen.Bounds.Y,
+                screen.Bounds.Width, screen.Bounds.Height);
+
+            // Build a single-screen canvas manager (used for player host init only; the canvas comes from the layout)
+            var screenConfig = new WaBiBaBuSy.WallpaperEngine.Composition.ScreenConfiguration
+            {
+                ClientId = $"REMOTE_CLIENT_MONITOR_{monitorIndex}",
+                Order = monitorIndex,
+                Width = screen.Bounds.Width,
+                Height = screen.Bounds.Height,
+                PhysicalDistanceCm = 0
+            };
+            var canvasManager = new VirtualCanvasManager(AppLogger.CreateLogger<VirtualCanvasManager>());
+            canvasManager.CalculateLayout(new[] { screenConfig });
+
+            // ── Scene (background + layers, cm already resolved): every server-side path is rewritten to this
+            //    client's cache (Tier 1.3). A layer whose file could not be fetched is disabled here, a missing extra
+            //    image falls back to its layer's file and a missing background image degrades to solid color. ──
+            var remoteScene = DeserializeRemoteConfig<CrossScreenConfig>(req.SceneJson, "CrossScreenConfig");
+            if (remoteScene == null)
+            {
+                Debug.WriteLine("[D2D-CrossScreen] ERROR: no scene in the LOAD command (server too old?) — nothing to play");
+                return;
+            }
+            var scene = SceneAssets.RewriteToLocal(remoteScene, req.LocalAssetPaths, req.FilePath);
+            Debug.WriteLine($"[D2D-CrossScreen] Assets: {req.LocalAssetPaths.Count} mapped, {scene.Layers.Count} layer(s) ({scene.Layers.Count(l => !l.Enabled)} disabled), bg={scene.Background.Mode}");
+
+            // ── Node layout (seat map: offset, mirroring, ring wrap) — the canvas of Sequential layers ──
+            var remoteNodeLayout = DeserializeRemoteConfig<NodeLayout>(req.LayoutJson, "NodeLayout");
+
+            Debug.WriteLine($"[D2D-CrossScreen] Initializing D2D service: bounds={actualBounds}, canvas={remoteNodeLayout?.CanvasWidth ?? 0}, offsetX={remoteNodeLayout?.OffsetX ?? 0}");
+            var d2dService = new D2DCompositionService(
+                AppLogger.CreateLogger<D2DCompositionService>(),
+                AppLogger.Factory,
+                _desktopManager);
+
+            // Test mode (timecode / simulated skew) must reach a new player before its start command:
+            // the skew shifts the player's clock, and the start is converted with the skewed offset.
+            var testMode = _service.Client?.TestModeState ?? default;
+
+            // Same speed convention as the local start path: the bottom layer's speed, Static → 0.
+            var bottom = scene.FirstLayer?.Movement;
+            var pixelsPerSecond = bottom == null || bottom.Type == MovementType.Static ? 0 : (int)bottom.SpeedPixelsPerSecond;
+
+            await StartOrDisposeAsync(d2dService, async () =>
+            {
+                await d2dService.InitializeAsync(canvasManager, scene.Background, scene.Layers, actualBounds, monitorIndex, remoteNodeLayout);
+
+                await Task.Delay(100);
+
+                if (testMode.Timecode || testMode.ClockSkewMs != 0)
+                    await d2dService.SetTestModeAsync(testMode.Timecode, testMode.ClockSkewMs);
+
+                Debug.WriteLine($"[D2D-CrossScreen] Starting playback at ts={req.SharedStartTimestampMs}ms, speed={pixelsPerSecond}px/s");
+                await d2dService.StartAsync(startTimestampMs: req.SharedStartTimestampMs, pixelsPerSecond: pixelsPerSecond);
+            });
+
+            _players[monitorIndex] = d2dService;
+            applied = true;
+            _retiring.RetireAt(retiring, req.SharedStartTimestampMs, NowMs);
+            await ReplayEventsAsync(d2dService);
+            await CatchUpTestModeAsync(d2dService, testMode);
+            AdoptRemoteThumbnail(monitorIndex, d2dService, req.FilePath);
+
+            Debug.WriteLine($"[D2D-CrossScreen] SUCCESS: Cross-screen D2D started on monitor {monitorIndex}");
         }
-
-        var monitors = NativeMonitorInfo.GetAllMonitors();
-        if (monitorIndex < 0 || monitorIndex >= monitors.Length)
+        finally
         {
-            Debug.WriteLine($"[D2D-CrossScreen] ERROR: Invalid monitor index {monitorIndex} (have {monitors.Length} monitors)");
-            return;
+            if (!applied) _retiring.RetireAt(retiring, 0, NowMs);   // no new player: the old one goes now (as before)
         }
-
-        var screen = monitors[monitorIndex];
-        var actualBounds = new System.Drawing.Rectangle(
-            screen.Bounds.X, screen.Bounds.Y,
-            screen.Bounds.Width, screen.Bounds.Height);
-
-        // Build a single-screen canvas manager (used for player host init only; the canvas comes from the layout)
-        var screenConfig = new WaBiBaBuSy.WallpaperEngine.Composition.ScreenConfiguration
-        {
-            ClientId = $"REMOTE_CLIENT_MONITOR_{monitorIndex}",
-            Order = monitorIndex,
-            Width = screen.Bounds.Width,
-            Height = screen.Bounds.Height,
-            PhysicalDistanceCm = 0
-        };
-        var canvasManager = new VirtualCanvasManager(AppLogger.CreateLogger<VirtualCanvasManager>());
-        canvasManager.CalculateLayout(new[] { screenConfig });
-
-        // ── Scene (background + layers, cm already resolved): every server-side path is rewritten to this
-        //    client's cache (Tier 1.3). A layer whose file could not be fetched is disabled here, a missing extra
-        //    image falls back to its layer's file and a missing background image degrades to solid color. ──
-        var remoteScene = DeserializeRemoteConfig<CrossScreenConfig>(req.SceneJson, "CrossScreenConfig");
-        if (remoteScene == null)
-        {
-            Debug.WriteLine("[D2D-CrossScreen] ERROR: no scene in the LOAD command (server too old?) — nothing to play");
-            return;
-        }
-        var scene = SceneAssets.RewriteToLocal(remoteScene, req.LocalAssetPaths, req.FilePath);
-        Debug.WriteLine($"[D2D-CrossScreen] Assets: {req.LocalAssetPaths.Count} mapped, {scene.Layers.Count} layer(s) ({scene.Layers.Count(l => !l.Enabled)} disabled), bg={scene.Background.Mode}");
-
-        // ── Node layout (seat map: offset, mirroring, ring wrap) — the canvas of Sequential layers ──
-        var remoteNodeLayout = DeserializeRemoteConfig<NodeLayout>(req.LayoutJson, "NodeLayout");
-
-        Debug.WriteLine($"[D2D-CrossScreen] Initializing D2D service: bounds={actualBounds}, canvas={remoteNodeLayout?.CanvasWidth ?? 0}, offsetX={remoteNodeLayout?.OffsetX ?? 0}");
-        var d2dService = new D2DCompositionService(
-            AppLogger.CreateLogger<D2DCompositionService>(),
-            AppLogger.Factory,
-            _desktopManager);
-
-        // Test mode (timecode / simulated skew) must reach a new player before its start command:
-        // the skew shifts the player's clock, and the start is converted with the skewed offset.
-        var testMode = _service.Client?.TestModeState ?? default;
-
-        // Same speed convention as the local start path: the bottom layer's speed, Static → 0.
-        var bottom = scene.FirstLayer?.Movement;
-        var pixelsPerSecond = bottom == null || bottom.Type == MovementType.Static ? 0 : (int)bottom.SpeedPixelsPerSecond;
-
-        await StartOrDisposeAsync(d2dService, async () =>
-        {
-            await d2dService.InitializeAsync(canvasManager, scene.Background, scene.Layers, actualBounds, monitorIndex, remoteNodeLayout);
-
-            await Task.Delay(100);
-
-            if (testMode.Timecode || testMode.ClockSkewMs != 0)
-                await d2dService.SetTestModeAsync(testMode.Timecode, testMode.ClockSkewMs);
-
-            Debug.WriteLine($"[D2D-CrossScreen] Starting playback at ts={req.SharedStartTimestampMs}ms, speed={pixelsPerSecond}px/s");
-            await d2dService.StartAsync(startTimestampMs: req.SharedStartTimestampMs, pixelsPerSecond: pixelsPerSecond);
-        });
-
-        _players[monitorIndex] = d2dService;
-        await ReplayEventsAsync(d2dService);
-        await CatchUpTestModeAsync(d2dService, testMode);
-        AdoptRemoteThumbnail(monitorIndex, d2dService, req.FilePath);
-
-        Debug.WriteLine($"[D2D-CrossScreen] SUCCESS: Cross-screen D2D started on monitor {monitorIndex}");
     }
 
     /// <summary>
@@ -254,6 +264,7 @@ public sealed class RemotePlaybackHost
     private async Task StopAllCoreAsync()
     {
         Debug.WriteLine($"[D2D-CrossScreen] Stopping {_players.Count} remote D2D service(s)");
+        await _retiring.StopAllNowAsync();
         foreach (var kvp in _players)
         {
             try { await kvp.Value.StopAsync(); } catch { }

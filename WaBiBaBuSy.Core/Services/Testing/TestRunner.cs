@@ -323,7 +323,9 @@ public sealed class TestRunner
                 ctx.ScenePlayed = true;   // before the await: a failed / timed-out play still gets the previous scene restored
                 ctx.Active = null;
                 ctx.ActiveScene = null;
-                ctx.Active = await _host.PlaySceneAsync(scene, targets ?? new List<string>(), ct);
+                ctx.Active = play.Switch
+                    ? await _host.SwitchSceneAsync(scene, targets ?? new List<string>(), ct)
+                    : await _host.PlaySceneAsync(scene, targets ?? new List<string>(), ct);
                 ctx.ActiveScene = scene;
                 ctx.ActiveTargets = targets?.ToHashSet();
                 ctx.Marker = play.Marker;

@@ -53,6 +53,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     // Local players by monitor index (thread-safe for gRPC callbacks): D2D for scenes and plain D2D, LibVLC for plain wallpapers
     private readonly ConcurrentDictionary<int, D2DCompositionService> _players = new();
     private readonly ConcurrentDictionary<int, IWallpaperRenderer> _renderers = new();
+    /// <summary>Players of the previous scene / show item, kept until the new ones appear (standby switch).</summary>
+    private readonly RetiringPlayers _retiring = new();
     // Thumbnail capture per monitor for the room's live tiles
     private readonly ConcurrentDictionary<int, ThumbnailCaptureService> _thumbnailCaptureServices = new();
     // Hides the players while a fullscreen app runs (created and started with the first local player)
@@ -567,7 +569,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         {
             Debug.WriteLine("[CrossScreen] Stopping cross-screen animation...");
 
-            // Stop and dispose all D2D composition services
+            // Stop and dispose all D2D composition services (and the previous item's, if a switch is in flight)
+            await _retiring.StopAllNowAsync();
             foreach (var kvp in _players)
             {
                 kvp.Value.GlobalLapCompleted -= OnSequentialLapCompleted;
@@ -659,6 +662,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
 
         // Stop and dispose all D2D composition services
         // Must await StopAsync before Dispose to avoid sync-over-async deadlock
+        await _retiring.StopAllNowAsync();
         foreach (var kvp in _players)
         {
             kvp.Value.GlobalLapCompleted -= OnSequentialLapCompleted;
@@ -710,6 +714,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             catch (Exception ex) { Debug.WriteLine($"[Shutdown] Stopping the show failed: {ex.Message}"); }
         }
 
+        await _retiring.StopAllNowAsync();
         foreach (var kvp in _players)
         {
             kvp.Value.GlobalLapCompleted -= OnSequentialLapCompleted;
@@ -1118,7 +1123,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     }).GetTask();
 
     /// <summary>Same teardown + start as ▶ Play, holding the Play guard across the awaits.</summary>
-    public Task<SceneStartInfo> PlaySceneForTestAsync(CrossScreenConfig config, IReadOnlyList<string> targetNodeIds) =>
+    public Task<SceneStartInfo> PlaySceneForTestAsync(CrossScreenConfig config, IReadOnlyList<string> targetNodeIds, bool switchScene = false) =>
         Dispatcher.UIThread.InvokeAsync(async () =>
         {
             if (!TryBeginStart())
@@ -1127,7 +1132,16 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             {
                 config.SelectedMonitorIds = targetNodeIds.ToList();
                 var previousStart = ActiveSharedStartMs;
-                await PlaySceneAsync(config);
+                if (switchScene && IsCrossScreenRunning)
+                {
+                    // The playlist item path: apply over the running scene, no stop first (standby switch).
+                    LastScene = config;
+                    await ApplyCrossScreenConfigAsync(config);
+                }
+                else
+                {
+                    await PlaySceneAsync(config);
+                }
                 // A fresh start always moves the shared epoch; the reference check alone would pass when
                 // the very same config object was left running after a failed stop.
                 if (!ReferenceEquals(ActiveScene, config) || ActiveSharedStartMs == previousStart)
@@ -1304,6 +1318,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
 
         // Phase 1: Initialize all D2D players (load animation, extract GIF frames)
         var newServices = new List<(int monitorIndex, D2DCompositionService service)>();
+        var retiring = new List<D2DCompositionService>();
+        static long NowMs() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var phase1Timer = System.Diagnostics.Stopwatch.StartNew();
 
         try
@@ -1312,11 +1328,12 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         {
             var monitorIndex = NodeIds.MonitorIndex(planned.Node.Id);
 
-            // Clean up existing D2D service for this monitor if any
+            // Standby switch: the monitor's current player keeps showing until the new one appears at the shared
+            // start (it keeps its window hidden until then); RetiringPlayers stops it after that.
             if (_players.TryRemove(monitorIndex, out var existingService))
             {
-                try { await existingService.StopAsync(); } catch { }
-                existingService.Dispose();
+                existingService.GlobalLapCompleted -= OnSequentialLapCompleted;
+                retiring.Add(existingService);
             }
 
             // Find actual screen bounds
@@ -1378,6 +1395,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         catch
         {
             await DisposeUnstartedAsync(newServices);
+            _retiring.RetireAt(retiring, 0, NowMs);   // failed switch: the old players go now (as before)
             throw;
         }
 
@@ -1414,8 +1432,11 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         catch
         {
             await DisposeUnstartedAsync(newServices);
+            _retiring.RetireAt(retiring, 0, NowMs);   // failed switch: the old players go now (as before)
             throw;
         }
+
+        _retiring.RetireAt(retiring, sharedStartTimestamp, NowMs);
 
         // An event still running (e.g. across a playlist item switch) continues on the new players at its position.
         await ReplayEventsAsync(newServices.Select(s => s.service));
