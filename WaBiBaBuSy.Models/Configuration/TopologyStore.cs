@@ -13,6 +13,14 @@ public class TopologyEntry
     public string? Hostname { get; set; }
     public int OrderPosition { get; set; }
     public int PhysicalDistanceCm { get; set; }
+
+    // Last reported monitor of this node, so an offline machine keeps its seat ("ghost") with the same size in the
+    // layout. A multi-monitor client stores them on its `{id}_MONITOR_n` entries instead; 0 = none known.
+    public int LastWidthPx { get; set; }
+    public int LastHeightPx { get; set; }
+    public float LastPixelsPerCm { get; set; }
+    /// <summary>When the machine last registered or disconnected; ghosts not seen for a while are dropped.</summary>
+    public DateTime? LastSeenUtc { get; set; }
 }
 
 /// <summary>
@@ -97,6 +105,10 @@ public class TopologyStore
             && isConnected?.Invoke(e.ClientId) != true);
         if (byHost == null) return null;
 
+        // Its expanded monitor entries follow the seat to the new id.
+        var oldPrefix = byHost.ClientId + MonitorInfix;
+        foreach (var e in _entries.Where(e => e.ClientId.StartsWith(oldPrefix, StringComparison.Ordinal)))
+            e.ClientId = clientId + MonitorInfix + e.ClientId[oldPrefix.Length..];
         byHost.ClientId = clientId;
         return byHost;
     }
@@ -119,6 +131,60 @@ public class TopologyStore
     {
         var e = GetOrCreate(clientId, hostname);
         e.PhysicalDistanceCm = distanceCm;
+    }
+
+    /// <summary>Id infix of a multi-monitor client's per-monitor nodes (<c>{client}_MONITOR_n</c>).</summary>
+    public const string MonitorInfix = "_MONITOR_";
+
+    /// <summary>
+    /// Remember a registering client's monitors (size + DPI) and when it was seen. Single-monitor clients
+    /// (<paramref name="expanded"/> false) store the first monitor on their own entry; expanded clients store one per
+    /// <c>{id}_MONITOR_n</c> entry (created at the end of the chain when missing). Stale sizes are cleared. No-op for an
+    /// unknown id. Returns the client's monitor entries (their order feeds the server's expanded-node orders).
+    /// </summary>
+    public List<TopologyEntry> RecordMonitors(string clientId, IReadOnlyList<(int WidthPx, int HeightPx, float PixelsPerCm)> monitors,
+        bool expanded, DateTime nowUtc)
+    {
+        var parent = _entries.FirstOrDefault(e => e.ClientId == clientId);
+        if (parent == null) return new List<TopologyEntry>();
+        var prefix = clientId + MonitorInfix;
+        foreach (var e in _entries.Where(e => e.ClientId == clientId || e.ClientId.StartsWith(prefix, StringComparison.Ordinal)))
+            SetMonitor(e, default);
+        parent.LastSeenUtc = nowUtc;
+
+        if (!expanded)
+        {
+            if (monitors.Count > 0) SetMonitor(parent, monitors[0]);
+            return new List<TopologyEntry>();
+        }
+        var result = new List<TopologyEntry>();
+        for (int m = 0; m < monitors.Count; m++)
+        {
+            var e = GetOrCreate(prefix + m, null);
+            SetMonitor(e, monitors[m]);
+            e.LastSeenUtc = nowUtc;
+            result.Add(e);
+        }
+        return result;
+    }
+
+    /// <summary>A client disconnected: stamp it and its monitor entries, so the ghost tile can say since when.</summary>
+    public void MarkSeen(string clientId, DateTime nowUtc)
+    {
+        var prefix = clientId + MonitorInfix;
+        foreach (var e in _entries.Where(e => e.ClientId == clientId || e.ClientId.StartsWith(prefix, StringComparison.Ordinal)))
+            e.LastSeenUtc = nowUtc;
+    }
+
+    /// <summary>Forget a machine's seat: its entry and its monitor entries. The ring closes on the next layout.</summary>
+    public int Remove(string clientId) =>
+        _entries.RemoveAll(e => e.ClientId == clientId || e.ClientId.StartsWith(clientId + MonitorInfix, StringComparison.Ordinal));
+
+    private static void SetMonitor(TopologyEntry e, (int WidthPx, int HeightPx, float PixelsPerCm) m)
+    {
+        e.LastWidthPx = m.WidthPx;
+        e.LastHeightPx = m.HeightPx;
+        e.LastPixelsPerCm = m.PixelsPerCm;
     }
 
     /// <summary>One above the highest stored order, so a brand-new machine lands at the end of the chain.</summary>

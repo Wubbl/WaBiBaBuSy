@@ -1,8 +1,14 @@
 # WaBiBaBuSy - Recent Updates & Changelog
 
-**Last Updated:** 2026-10-17
+**Last Updated:** 2026-10-18
 
 ---
+
+## 2026-10-18 — Ghost seats: a machine that leaves keeps its seat
+
+- **What**: a client that disconnects (closed, asleep, network gone) stays in the room as a greyed **ghost seat** ("offline 12 min") with its old place, size and gap, so Play, playlist items and event stand-in scenes no longer shrink the ring or shift the other seats. Nothing is sent to a ghost; its scene command is parked, so when the machine comes back mid-scene the session resume puts it exactly where the sprite is. Right-click a ghost → **Forget seat** (the ring closes). Seats not seen for 14 days are not loaded (old parties).
+- **Code**: `TopologyEntry.LastWidthPx/LastHeightPx/LastPixelsPerCm/LastSeenUtc`, `TopologyStore.RecordMonitors` (on register; multi-monitor clients per `{id}_MONITOR_n` entry, created at the chain end when missing) / `MarkSeen` (on disconnect) / `Remove`; `Resolve` moves monitor entries along on a hostname re-bind. `WallpaperSyncService.GetSeats` / `ForgetSeat`; ghost order edits persist. `RoomNodeSources.ServerNodes(..., seats, now)` appends ghosts (`ClientDisconnected`) → `RoomNode.IsGhost`; `CrossScreenPlanner` keeps ghosts in the layout, `plan.Ghosts` instead of `plan.Remote`; `StartCrossScreenD2DOnClientAsync(parkOnly)`. UI: `ClientNodeViewModel.IsGhost/OfflineSinceUtc`, tile at 45 % opacity, `IRoomHost.ForgetSeatAsync`.
+- **Verified**: build 0 errors; 1146 unit tests green (+3, `GhostSeatTests`: node layouts of all seats identical with two machines — one dual-monitor — connected vs offline; 14-day cutoff; forget). Pending: GUI check (greyed tile, Forget seat), multi-machine drop / rejoin. Not done from §1: *Mark empty seat…*, *Forget offline seats* button, health-strip ghost count, "n of m targets online" event status, 14 days as a setting.
 
 ## 2026-10-17 — Targeted events, tags, events without a scene, empty seat at a row start
 

@@ -215,6 +215,16 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                     });
                 }
                 _nextClientOrder = Math.Max(_nextClientOrder, orderPosition + 1);
+                // Its monitors, so the seat keeps its size in the layout while the machine is away (ghost seat).
+                var screen = request.ScreenConfig;
+                var monitors = screen?.Monitors.Select(m => (m.Width, m.Height, m.PixelsPerCm)).ToList()
+                    ?? new List<(int, int, float)>();
+                bool expanded = (screen?.MonitorCount ?? 1) > 1 && monitors.Count > 0;   // as RoomNodeSources expands it
+                foreach (var e in _topology.RecordMonitors(clientId, monitors, expanded, DateTime.UtcNow))
+                {
+                    _serverLocalMonitorOrders[e.ClientId] = e.OrderPosition;
+                    _nextClientOrder = Math.Max(_nextClientOrder, e.OrderPosition + 1);
+                }
                 _topology.Save();
             }
 
@@ -545,6 +555,11 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                     _serverLocalMonitorOrders[clientId] = newPosition;
                     PersistClientOrder(clientId, null, newPosition, save: false);
                 }
+                else if (!clientId.Contains("_MONITOR_"))
+                {
+                    // An offline machine's seat (ghost): only its stored order moves.
+                    PersistClientOrder(clientId, null, newPosition, save: false);
+                }
                 else
                 {
                     // Could be a per-monitor expanded node (e.g., "guid_MONITOR_0")
@@ -598,6 +613,37 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     private void SaveTopology()
     {
         lock (_topologyLock) _topology.Save();
+    }
+
+    /// <summary>A copy of every stored seat (the room lays offline machines out as ghost seats from these).</summary>
+    public IReadOnlyList<TopologyEntry> GetSeats()
+    {
+        lock (_topologyLock)
+            return _topology.Entries.Select(e => new TopologyEntry
+            {
+                ClientId = e.ClientId, Hostname = e.Hostname, OrderPosition = e.OrderPosition, PhysicalDistanceCm = e.PhysicalDistanceCm,
+                LastWidthPx = e.LastWidthPx, LastHeightPx = e.LastHeightPx, LastPixelsPerCm = e.LastPixelsPerCm, LastSeenUtc = e.LastSeenUtc
+            }).ToList();
+    }
+
+    /// <summary>
+    /// Forget an offline machine's seat (a <c>{client}_MONITOR_n</c> id forgets the whole machine). False when the
+    /// machine is connected or nothing was stored.
+    /// </summary>
+    public bool ForgetSeat(string nodeId)
+    {
+        var idx = nodeId.LastIndexOf("_MONITOR_", StringComparison.Ordinal);
+        var clientId = idx >= 0 && !nodeId.StartsWith("SERVER_LOCALHOST_MONITOR_") ? nodeId[..idx] : nodeId;
+        if (_connectedClients.ContainsKey(clientId)) return false;
+        lock (_topologyLock)
+        {
+            if (_topology.Remove(clientId) == 0) return false;
+            foreach (var key in _serverLocalMonitorOrders.Keys.Where(k => k.StartsWith(clientId + "_MONITOR_", StringComparison.Ordinal)))
+                _serverLocalMonitorOrders.TryRemove(key, out _);
+            _topology.Save();
+        }
+        _logger.LogInformation("Forgot seat of offline machine {ClientId}", clientId);
+        return true;
     }
 
     /// <summary>
@@ -654,6 +700,11 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         if (removed)
         {
             _logger.LogInformation("Client {ClientId} removed", clientId);
+            lock (_topologyLock)
+            {
+                _topology.MarkSeen(clientId, DateTime.UtcNow);
+                _topology.Save();
+            }
         }
         ForgetClientState(clientId);
         return removed;

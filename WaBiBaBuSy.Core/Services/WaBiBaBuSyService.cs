@@ -549,6 +549,13 @@ public class WaBiBaBuSyService : IDisposable
         return _serverHost?.SyncService?.GetPersistedDistance(clientId);
     }
 
+    /// <summary>Every stored seat (ghost seats for offline machines); empty without a server.</summary>
+    public IReadOnlyList<WaBiBaBuSy.Models.Configuration.TopologyEntry> GetSeats() =>
+        _serverHost?.SyncService?.GetSeats() ?? Array.Empty<WaBiBaBuSy.Models.Configuration.TopologyEntry>();
+
+    /// <summary>Forget an offline machine's seat; false when it is connected, unknown or no server runs.</summary>
+    public bool ForgetSeat(string nodeId) => _serverHost?.SyncService?.ForgetSeat(nodeId) ?? false;
+
     /// <summary>
     /// Update client physical distance (when in client mode)
     /// </summary>

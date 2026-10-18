@@ -356,7 +356,7 @@ public partial class RoomView : Control
     private void DrawTile(DrawingContext ctx, TileBox t, ClientNodeViewModel? c, NodeLayout? node, CrossScreenConfig? scene, long elapsed, bool live)
     {
         bool dragged = _gesture == Gesture.DraggingTile && t.Id == _pressedId;
-        using var opacity = ctx.PushOpacity(dragged ? 0.35 : 1.0);
+        using var opacity = ctx.PushOpacity(dragged ? 0.35 : c?.IsGhost == true ? 0.45 : 1.0);
 
         var (fill, pen) = TileStyle(c, t.Id == _hoverId);
         ctx.DrawRectangle(fill, pen, ToRect(t.Tile), 8, 8);
@@ -425,6 +425,7 @@ public partial class RoomView : Control
     private static (string Text, IBrush Brush) StatusLine(ClientNodeViewModel? c)
     {
         if (c == null) return ("", Dim);
+        if (c.IsGhost) return ("offline" + OfflineFor(c.OfflineSinceUtc), Dim);
         switch (c.DriftState)
         {
             case DriftState.Stale: return ("sync: —", Dim);
@@ -437,6 +438,13 @@ public partial class RoomView : Control
             return c.IsPrefetchComplete ? ("✓ cached", Green) : ($"⬇ {c.PrefetchReady}/{c.PrefetchTotal}", Yellow);
         if (c.IsAnimating && !string.IsNullOrEmpty(c.ActiveAnimationName)) return (c.ActiveAnimationName!, Green);
         return ("", Dim);
+    }
+
+    private static string OfflineFor(DateTime? since)
+    {
+        if (since is not { } t) return "";
+        var d = DateTime.UtcNow - t;
+        return d.TotalMinutes < 1 ? "" : d.TotalHours < 1 ? $" {d.TotalMinutes:F0} min" : d.TotalDays < 1 ? $" {d.TotalHours:F0} h" : $" {d.TotalDays:F0} d";
     }
 
     private static (IBrush Fill, IPen Pen) TileStyle(ClientNodeViewModel? c, bool hover)

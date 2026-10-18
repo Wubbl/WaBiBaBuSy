@@ -87,6 +87,9 @@ public interface IRoomHost : INotifyPropertyChanged
     /// <summary>Stop what the given nodes show.</summary>
     Task ClearNodesAsync(IReadOnlyCollection<string> nodeIds);
 
+    /// <summary>Forget an offline (ghost) seat: its stored place is removed and the ring closes.</summary>
+    Task ForgetSeatAsync(string nodeId);
+
     /// <summary>Re-send the running animation to the given remote nodes.</summary>
     Task ResyncNodesAsync(IReadOnlyCollection<string> nodeIds);
 

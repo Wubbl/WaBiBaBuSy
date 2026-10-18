@@ -24,6 +24,11 @@ public sealed record RoomNode
     /// <summary>Pixels per cm the node reported; 0 = unknown.</summary>
     public float PixelsPerCm { get; init; }
     public bool IsConnected { get; init; }
+    /// <summary>
+    /// An offline machine's seat: it keeps its place and size in the layout, but nothing is sent to it (the
+    /// command is only parked for its session resume).
+    /// </summary>
+    public bool IsGhost { get; init; }
     public double RttMs { get; init; }
     public double ClockOffsetMs { get; init; }
 

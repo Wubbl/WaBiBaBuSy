@@ -441,7 +441,8 @@ public class WallpaperSyncCoordinator
         NodeLayout? layout,
         long sharedStartTimestampMs,
         int targetMonitorIndex,
-        IReadOnlyList<ContentAssetRef>? assets = null)
+        IReadOnlyList<ContentAssetRef>? assets = null,
+        bool parkOnly = false)
     {
         if (_syncService == null)
         {
@@ -451,8 +452,9 @@ public class WallpaperSyncCoordinator
 
         // Scene layers changed the LOAD format: a client older than the floor would show an empty scene. It gets no
         // scene until auto-update brings it level (the room flags the seat "needs update").
+        // parkOnly (an offline seat): nothing to check or send now — the command waits for its session resume.
         var version = _syncService.GetConnectedClients().FirstOrDefault(c => c.ClientId == clientId)?.AppVersion;
-        if (!WaBiBaBuSy.Common.Version.VersionInfo.SupportsSceneLayers(version))
+        if (!parkOnly && !WaBiBaBuSy.Common.Version.VersionInfo.SupportsSceneLayers(version))
         {
             _logger.LogWarning("Client {ClientId} runs {Version}, scenes need {Min}+ — not sent until it updates",
                 clientId, version ?? "(unknown)", WaBiBaBuSy.Common.Version.VersionInfo.MinSceneLayersVersion);
@@ -489,6 +491,7 @@ public class WallpaperSyncCoordinator
 
         // Remember the command so a reconnecting client resumes the animation.
         _activeCrossScreenCommands[clientId] = command;
+        if (parkOnly) return;
 
         _logger.LogInformation(
             "Starting cross-screen D2D on client {ClientId}: {Layers} layer(s), canvas={VCW}px, offset={Offset}px, ts={Ts}ms",

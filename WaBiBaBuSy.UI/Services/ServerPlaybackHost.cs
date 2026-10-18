@@ -213,7 +213,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         var local = LocalMonitors.Snapshot();
         var sources = _service.IsServerRunning
             ? RoomNodeSources.ServerNodes(local, _service.GetConnectedClients(),
-                _service.GetServerLocalMonitorOrder, _service.GetServerLocalMonitorDistance, SessionGapCm)
+                _service.GetServerLocalMonitorOrder, _service.GetServerLocalMonitorDistance, SessionGapCm, _service.GetSeats())
             : RoomNodeSources.StandaloneNodes(local, SessionGapCm);
         _nodes = sources.Select(RoomNodeSources.ToRoomNode).OrderBy(n => n.Order).ToList();
         _seatMap = SeatMapStore.Load();
@@ -1233,7 +1233,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         var localClients = plan.Local;
         var remoteClients = plan.Remote;
         await StopNodesOutsideAsync(localClients.Select(c => NodeIds.MonitorIndex(c.Node.Id)).ToHashSet(),
-            remoteClients.Select(c => c.Node.Id).ToHashSet());
+            remoteClients.Concat(plan.Ghosts).Select(c => c.Node.Id).ToHashSet());
         lock (_seqLapLock) _lastGlobalLap = -1;   // a new scene counts its laps from the start
         _activeSceneHasRemotes = remoteClients.Count > 0;
         var layout = plan.Layout;
@@ -1429,7 +1429,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             // ponytail: a scene without any file (solid color only) is not sent to remotes (the LOAD needs a primary file).
             Debug.WriteLine("[CrossScreen] Scene without files: remote nodes keep what they show");
         }
-        else if (remoteClients.Count > 0 && _service.SyncCoordinator != null)
+        else if (remoteClients.Count + plan.Ghosts.Count > 0 && _service.SyncCoordinator != null)
         {
             // Tier 1.3: ids identify bytes (name + hash) so renamed/re-exported files are never served stale.
             var contentId = ContentIdentity.ComputeId(primaryPath!);
@@ -1439,7 +1439,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
 
             // All sends at once: a slow client (bounded by the write timeout) must not push the others past the shared start.
             var sends = new List<Task>();
-            foreach (var remote in remoteClients)
+            // Ghost seats get their command parked, not sent: a machine that comes back resumes at its seat mid-scene.
+            foreach (var (remote, park) in remoteClients.Select(r => (r, false)).Concat(plan.Ghosts.Select(g => (g, true))))
             {
                 var remoteClient = remote.Node;
                 var remoteLayout = layout.Get(remoteClient.Id);
@@ -1456,7 +1457,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
                     sharedStartTimestampMs: sharedStartTimestamp,
                     // MonitorIndex is -1 for whole-machine nodes → render on primary.
                     targetMonitorIndex: Math.Max(0, remoteClient.MonitorIndex),
-                    assets: sceneAssets));
+                    assets: sceneAssets,
+                    parkOnly: park));
             }
             await Task.WhenAll(sends);
         }

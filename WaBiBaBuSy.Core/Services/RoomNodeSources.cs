@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using WaBiBaBuSy.Grpc;
+using WaBiBaBuSy.Models.Configuration;
 using WaBiBaBuSy.Models.Topology;
 
 namespace WaBiBaBuSy.Core.Services;
@@ -13,8 +14,68 @@ namespace WaBiBaBuSy.Core.Services;
 /// </summary>
 public static class RoomNodeSources
 {
-    /// <summary>Server mode: one node per server monitor, then the clients (multi-monitor clients expanded).</summary>
+    /// <summary>Stored seats not seen for longer than this are not laid out as ghosts (old parties).</summary>
+    public static readonly TimeSpan GhostMaxAge = TimeSpan.FromDays(14);   // ponytail: fixed, a setting when someone asks
+
+    /// <summary>
+    /// Server mode: one node per server monitor, then the clients (multi-monitor clients expanded), then a ghost
+    /// seat for every stored seat (<paramref name="seats"/>) whose machine is offline — same place, size and gap as
+    /// when it was there, so the layout does not depend on who is connected.
+    /// </summary>
     public static List<ConnectedClient> ServerNodes(LocalScreens local, IEnumerable<ConnectedClient> clients,
+        Func<string, int?> persistedOrder, Func<string, int?> persistedGapCm, IReadOnlyDictionary<string, int> sessionGapCm,
+        IReadOnlyList<TopologyEntry>? seats = null, DateTime? nowUtc = null)
+    {
+        var clientList = clients.ToList();
+        var nodes = ConnectedNodes(local, clientList, persistedOrder, persistedGapCm, sessionGapCm);
+        if (seats != null) nodes.AddRange(GhostNodes(seats, nodes, clientList, nowUtc ?? DateTime.UtcNow));
+        return nodes;
+    }
+
+    /// <summary>
+    /// Offline seats as disconnected nodes: a stored entry with a known monitor size that is neither in the room
+    /// already nor belongs to a connected machine, seen within <see cref="GhostMaxAge"/>.
+    /// </summary>
+    private static IEnumerable<ConnectedClient> GhostNodes(IReadOnlyList<TopologyEntry> seats, List<ConnectedClient> nodes,
+        List<ConnectedClient> clients, DateTime nowUtc)
+    {
+        var present = nodes.Select(n => n.ClientId).ToHashSet();
+        var live = clients.Select(c => c.ClientId).ToHashSet();
+        foreach (var seat in seats)
+        {
+            var id = seat.ClientId;
+            if (seat.LastWidthPx <= 0 || NodeIds.IsLocalMonitor(id) || present.Contains(id)) continue;
+            if (seat.LastSeenUtc is not { } seen || nowUtc - seen > GhostMaxAge) continue;
+            int infix = id.LastIndexOf(TopologyStore.MonitorInfix, StringComparison.Ordinal);
+            var baseId = infix >= 0 ? id[..infix] : id;
+            if (live.Contains(baseId)) continue;
+            int monitor = infix >= 0 && int.TryParse(id[(infix + TopologyStore.MonitorInfix.Length)..], out var m) ? m : 0;
+            var host = infix >= 0
+                ? $"{seats.FirstOrDefault(s => s.ClientId == baseId)?.Hostname ?? baseId} - Monitor {monitor + 1}"
+                : seat.Hostname ?? id;
+
+            // Monitor n sits at index n, so MonitorFor finds it like on a live expanded node.
+            var screen = new ScreenConfiguration { MonitorCount = monitor + 1 };
+            for (int i = 0; i < monitor; i++) screen.Monitors.Add(new MonitorInfo { Index = i });
+            screen.Monitors.Add(new MonitorInfo
+            {
+                Index = monitor, Width = seat.LastWidthPx, Height = seat.LastHeightPx, PixelsPerCm = seat.LastPixelsPerCm
+            });
+            yield return new ConnectedClient
+            {
+                ClientId = id,
+                Hostname = host,
+                IpAddress = "offline",
+                Status = ClientStatusEnum.ClientDisconnected,
+                LastHeartbeat = new DateTimeOffset(DateTime.SpecifyKind(seen, DateTimeKind.Utc)).ToUnixTimeSeconds(),
+                OrderPosition = seat.OrderPosition,
+                PhysicalDistanceCm = seat.PhysicalDistanceCm,
+                ScreenConfig = screen
+            };
+        }
+    }
+
+    private static List<ConnectedClient> ConnectedNodes(LocalScreens local, List<ConnectedClient> clients,
         Func<string, int?> persistedOrder, Func<string, int?> persistedGapCm, IReadOnlyDictionary<string, int> sessionGapCm)
     {
         var screen = ScreenConfig(local);
@@ -140,6 +201,7 @@ public static class RoomNodeSources
             PixelsPerCm = monitor?.PixelsPerCm ?? 0f,
             // Syncing = it just acknowledged a command (until its next heartbeat): still a live node.
             IsConnected = client.Status is ClientStatusEnum.ClientConnected or ClientStatusEnum.ClientPlaying or ClientStatusEnum.ClientSyncing,
+            IsGhost = client.Status == ClientStatusEnum.ClientDisconnected,
             RttMs = client.RttMs,
             ClockOffsetMs = client.ClockOffsetMs
         };

@@ -73,6 +73,14 @@ public partial class ClientNodeViewModel : ObservableObject
     [ObservableProperty]
     private float _pixelsPerCm;
 
+    /// <summary>An offline machine's seat: kept in the layout, drawn greyed, nothing is sent to it.</summary>
+    [ObservableProperty]
+    private bool _isGhost;
+
+    /// <summary>When a ghost seat's machine was last seen (UTC); null for live nodes.</summary>
+    [ObservableProperty]
+    private System.DateTime? _offlineSinceUtc;
+
     [ObservableProperty]
     private bool _isAnimating;
 

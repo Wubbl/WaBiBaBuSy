@@ -12,6 +12,8 @@ public sealed class CrossScreenPlan
     public IReadOnlyList<PlannedNode> Local { get; init; } = Array.Empty<PlannedNode>();
     /// <summary>Remote nodes, in the order the room lists them.</summary>
     public IReadOnlyList<PlannedNode> Remote { get; init; } = Array.Empty<PlannedNode>();
+    /// <summary>Offline seats among the targets: in the layout, never sent to.</summary>
+    public IReadOnlyList<PlannedNode> Ghosts { get; init; } = Array.Empty<PlannedNode>();
     /// <summary>Seat-map layout of every target (chain order).</summary>
     public SeatMapLayoutResult Layout { get; init; } = new();
     /// <summary>The scene with every layer's cm values resolved to canvas px (what the players receive).</summary>
@@ -61,11 +63,13 @@ public static class CrossScreenPlanner
                 : (n.PixelsPerCm > 0f ? n.PixelsPerCm : fallbackPpcm));
 
         var local = localNodes.Select(Planned).ToList();
-        var remote = targets.Where(n => !n.IsLocal).Select(Planned).ToList();
+        var remote = targets.Where(n => !n.IsLocal && !n.IsGhost).Select(Planned).ToList();
+        var ghosts = targets.Where(n => !n.IsLocal && n.IsGhost).Select(Planned).ToList();
         if (local.Count == 0 && remote.Count == 0)
             return new CrossScreenPlan { EffectiveScene = config };
 
-        var layoutInputs = local.Concat(remote).OrderBy(p => p.Node.Order).Select(p => new LayoutNodeInput
+        // Ghosts keep their seat: the canvas is the same whether their machine is on or not.
+        var layoutInputs = local.Concat(remote).Concat(ghosts).OrderBy(p => p.Node.Order).Select(p => new LayoutNodeInput
         {
             Id = p.Node.Id,
             WidthPx = p.WidthPx,
@@ -82,6 +86,7 @@ public static class CrossScreenPlanner
         {
             Local = local,
             Remote = remote,
+            Ghosts = ghosts,
             Layout = layout,
             EffectiveScene = effectiveScene,
             MaxRemoteRttMs = remote.Count > 0 ? remote.Max(p => p.Node.RttMs) : 0.0

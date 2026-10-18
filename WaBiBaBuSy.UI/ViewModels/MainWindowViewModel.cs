@@ -944,6 +944,19 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     /// </summary>
     public Task ClearNodesAsync(IReadOnlyCollection<string> nodeIds) => _server.ClearNodesAsync(nodeIds);
 
+    /// <summary>Forget an offline seat (and the rest of its machine); the ring closes on the next refresh.</summary>
+    public Task ForgetSeatAsync(string nodeId)
+    {
+        if (_service.ForgetSeat(nodeId)) RefreshTopology();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>A ghost seat (offline machine, see RoomNodeSources) and since when it is offline.</summary>
+    private static (bool IsGhost, DateTime? Since) GhostState(WaBiBaBuSy.Grpc.ConnectedClient c) =>
+        c.Status == WaBiBaBuSy.Grpc.ClientStatusEnum.ClientDisconnected
+            ? (true, DateTimeOffset.FromUnixTimeSeconds(c.LastHeartbeat).UtcDateTime)
+            : (false, null);
+
     /// <summary>Re-send the running animation to the given remote nodes (local monitors are in-process and need no resync).</summary>
     public async Task ResyncNodesAsync(IReadOnlyCollection<string> nodeIds)
     {
@@ -1094,6 +1107,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         GapBeforeCm = c.PhysicalDistanceCm,
         PixelsPerCm = c.PixelsPerCm,
         IsConnected = c.IsConnected,
+        IsGhost = c.IsGhost,
         RttMs = c.RttMs,
         ClockOffsetMs = c.DriftMs
     }).ToList();
@@ -1920,7 +1934,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
 
                 // The server's local monitors first, then the clients (multi-monitor clients expanded)
                 var allNodes = RoomNodeSources.ServerNodes(LocalMonitors.Snapshot(), connectedClients,
-                    _service.GetServerLocalMonitorOrder, _service.GetServerLocalMonitorDistance, _server.SessionGapCm);
+                    _service.GetServerLocalMonitorOrder, _service.GetServerLocalMonitorDistance, _server.SessionGapCm, _service.GetSeats());
 
                 if (_enableNetworkTopologyDebugOutput)
                     Debug.WriteLine($"Total nodes to display: {allNodes.Count}");
@@ -2053,6 +2067,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                     existing.IsConnected = grpcClient.Status == WaBiBaBuSy.Grpc.ClientStatusEnum.ClientConnected ||
                                           grpcClient.Status == WaBiBaBuSy.Grpc.ClientStatusEnum.ClientPlaying;
                     existing.Status = grpcClient.Status.ToString();
+                    (existing.IsGhost, existing.OfflineSinceUtc) = GhostState(grpcClient);
                     existing.Order = grpcClient.OrderPosition;
                     existing.PhysicalDistanceCm = grpcClient.PhysicalDistanceCm;
                     existing.DriftMs = grpcClient.ClockOffsetMs;
@@ -2092,6 +2107,8 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                         IsConnected = grpcClient.Status == WaBiBaBuSy.Grpc.ClientStatusEnum.ClientConnected ||
                                      grpcClient.Status == WaBiBaBuSy.Grpc.ClientStatusEnum.ClientPlaying,
                         Status = grpcClient.Status.ToString(),
+                        IsGhost = GhostState(grpcClient).IsGhost,
+                        OfflineSinceUtc = GhostState(grpcClient).Since,
                         Order = grpcClient.OrderPosition,
                         PhysicalDistanceCm = grpcClient.PhysicalDistanceCm,
                         X = x,

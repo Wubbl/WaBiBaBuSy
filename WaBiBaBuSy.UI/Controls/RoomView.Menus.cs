@@ -35,6 +35,11 @@ public partial class RoomView
             Item("Resync" + suffix, () => host.ResyncNodesAsync(ids)),
             Item("View logs", () => host.ShowNodeLogsAsync(tile.Id), host.CanFetchLogs(tile.Id)),
         };
+        if (host.Clients.FirstOrDefault(c => c.ClientId == tile.Id)?.IsGhost == true)
+        {
+            items.Add(new Separator());
+            items.Add(Item("Forget seat", () => host.ForgetSeatAsync(tile.Id)));
+        }
         new ContextMenu { ItemsSource = items }.Open(this);
     }
 
