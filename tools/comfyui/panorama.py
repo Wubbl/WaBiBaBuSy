@@ -37,8 +37,8 @@ ap.add_argument("--ramp", type=int, default=96, help="soft edge inside the band 
 ap.add_argument("--pixel-size", type=int, help="snap to a pixel grid (2, 3, 4, 5, 6, 8; 0 = off; default: the concept's)")
 ap.add_argument("--colors", type=int, default=64)
 ap.add_argument("--only", help="comma-separated pieces to render, e.g. p3,s3 (others must exist or are skipped)")
-ap.add_argument("--reseed", default="", help="comma-separated panel numbers that get a new seed (delete their "
-                "panel_XX.png and the two neighbouring seam files first)")
+ap.add_argument("--reseed", default="", help="pieces that get a new seed: panel numbers (3) or seams (s3); move "
+                "their files away first (for a panel also the two neighbouring seams)")
 ap.add_argument("--match", choices=["edge", "inner"], default="edge", help="seam colour match, see blend()")
 ap.add_argument("--coarse", type=int, default=0, help="coarse-to-fine: one ~1.8 MP panel per N screens, lanczos up to "
                 "room size, then a tiled img2img detail pass (0 = off, one native panel per screen)")
@@ -100,7 +100,16 @@ def band_mask():
     return np.clip((BAND / 2 - d) / RAMP, 0.0, 1.0)
 
 
-def seam(k, left, right):
+def split_score(img):
+    """How much harder the band's centre column edge is than the rest of the band. Klein sometimes copies the reference
+    (left half | grey | right half) and closes the band with a cut in the middle instead of painting a transition;
+    good seams score 1-3, those cuts 4-9."""
+    a = np.asarray(img.convert("L"), np.float32)
+    d = np.abs(np.diff(a, axis=1)).mean(axis=0)
+    return float(d[HALF - 3:HALF + 2].max() / max(np.median(d[HALF - BAND // 2 + RAMP:HALF + BAND // 2 - RAMP]), 1e-3))
+
+
+def seam(k, left, right, seed):
     """Window = right half of `left` + left half of `right`; the band in the middle is repainted."""
     win = Image.new("RGB", (W, H))
     win.paste(left.crop((HALF, 0, W, H)), (0, 0))
@@ -118,7 +127,7 @@ def seam(k, left, right):
     neg = g("CLIPTextEncode", clip=clip, text=C["seam_neg"])
     ref_lat = g("VAEEncode", pixels=g("LoadImage", image=names[1]), vae=vae)
     pos, neg = g("ReferenceLatent", conditioning=pos, latent=ref_lat), g("ReferenceLatent", conditioning=neg, latent=ref_lat)
-    sm = comfy_api.sample(g, unet, pos, neg, lat, args.seed + 100 + k, W, H, args.steps)
+    sm = comfy_api.sample(g, unet, pos, neg, lat, seed, W, H, args.steps)
     g("SaveImage", images=g("VAEDecode", samples=sm, vae=vae), filename_prefix=f"panorama2/{args.concept}_seam")
     return run(g), win
 
@@ -213,9 +222,16 @@ for k in range(P):
     path = os.path.join(DIR, f"seam_{k + 1:02d}.png")
     if not os.path.exists(path) and (ONLY is None or f"s{k + 1}" in ONLY):
         t0 = time.time()
-        gen, _ = seam(k, panels[k], panels[(k + 1) % P])
+        seed = args.seed + 100 + k + (1000 if f"s{k + 1}" in args.reseed.split(",") else 0)
+        tries = []
+        for attempt in range(3):     # a band closed with a cut in the middle gets another seed (keep the best)
+            gen, _ = seam(k, panels[k], panels[(k + 1) % P], seed + 7919 * attempt)
+            tries.append((split_score(gen), attempt, gen))
+            if tries[-1][0] <= 3.0:
+                break
+        score, attempt, gen = min(tries, key=lambda t: t[0])
         gen.save(path)
-        print(f"s{k + 1} {time.time() - t0:.0f}s", flush=True)
+        print(f"s{k + 1} {time.time() - t0:.0f}s split {score:.1f} (try {attempt + 1}/{len(tries)})", flush=True)
     if not os.path.exists(path):
         continue
     win = np.concatenate([np.asarray(panels[k], np.float32)[:, HALF:], np.asarray(panels[(k + 1) % P], np.float32)[:, :HALF]], axis=1)
