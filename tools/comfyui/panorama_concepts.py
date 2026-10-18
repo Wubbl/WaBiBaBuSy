@@ -103,8 +103,10 @@ CONCEPTS = {
         ],
         logos={0: TEXT, 2: BART, 4: BIER, 6: BUSEN},
         seam="Pixel art grass surface with sky and clouds above and the cut-away underground with tunnels and earth "
-             "below, a few cats, continuing straight across at the same heights.",
-        seam_neg="text, letters, signs, buildings, statue, perspective, blurry, smooth gradients",
+             "below, a few cats. The grass surface line is one continuous line: where the left and right parts sit at "
+             "different heights it slopes gently from one to the other, like a small hill.",
+        seam_neg="text, letters, signs, buildings, statue, cliff, step, vertical wall, gap, perspective, blurry, "
+                 "smooth gradients",
         neg="perspective, vanishing point, blurry, smooth gradients, photo, 3d render, watermark, humans, people",
         pixel=4,
     ),
