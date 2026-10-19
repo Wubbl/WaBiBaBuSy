@@ -292,15 +292,15 @@
                                 <TextBlock Text="To" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"/>
                                 <ComboBox ItemsSource="{Binding Events.Targets}" SelectedItem="{Binding Events.SelectedTarget}"
                                           MinWidth="130" FontSize="11" Margin="0,0,10,0"
-                                          ToolTip.Tip="Who sees the events: everyone, every seat with a tag (right-click a node → Tags…), or one seat. With nothing playing, the seats go black for the event and back afterwards."/>
-                                <Button Content="★ Spotlight" Command="{Binding Events.SpotlightCommand}" Padding="8,3" FontSize="11" Margin="0,0,4,0"
-                                        ToolTip.Tip="Spotlight the picked seat: its border pulses, every other seat dims and points to it (Ctrl+Alt+1)"/>
-                                <ComboBox ItemsSource="{Binding Events.Seats}" SelectedItem="{Binding Events.SelectedSeat}"
-                                          MinWidth="140" FontSize="11" Margin="0,0,10,0" ToolTip.Tip="Spotlight target (the selected node in the room)"/>
+                                          ToolTip.Tip="Who sees the events: everyone, every seat with a tag (right-click a node → Tags…), or one seat. With nothing playing, the seats show their own Windows wallpaper under the event and go back afterwards."/>
+                                <Button Content="{Binding Events.SpotlightLabel}" Command="{Binding Events.SpotlightCommand}" Padding="8,3" FontSize="11" Margin="0,0,10,0"
+                                        ToolTip.ShowOnDisabled="True"
+                                        ToolTip.Tip="Spotlight the node selected in the room: its border pulses, every other seat dims and points to it (Ctrl+Alt+1: the last spotlighted seat). Select a node to enable."/>
                                 <Button Content="✦ Celebration" Command="{Binding Events.CelebrationCommand}" Padding="8,3" FontSize="11" Margin="0,0,4,0"
                                         ToolTip.Tip="Confetti burst over the whole room (Ctrl+Alt+2)"/>
                                 <Button Content="↻ Traversal" Command="{Binding Events.TraversalCommand}" Padding="8,3" FontSize="11" Margin="0,0,2,0"
-                                        ToolTip.Tip="The image runs around the room exactly once (Ctrl+Alt+3)"/>
+                                        ToolTip.ShowOnDisabled="True"
+                                        ToolTip.Tip="The image runs around the room exactly once (Ctrl+Alt+3). Needs a picked image, or a running scene whose sprite is a picture."/>
                                 <Button Content="{Binding Events.TraversalImageName}" Command="{Binding Events.PickTraversalImageCommand}"
                                         Padding="6,3" FontSize="10" Margin="0,0,2,0" ToolTip.Tip="Pick the traversal image (default: the scene's sprite)"/>
                                 <Button Content="✕" Command="{Binding Events.ClearTraversalImageCommand}" Padding="4,3" FontSize="10" Margin="0,0,10,0"

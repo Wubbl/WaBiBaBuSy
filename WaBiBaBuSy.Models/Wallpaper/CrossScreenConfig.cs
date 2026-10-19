@@ -146,6 +146,13 @@ public class BackgroundLayerConfig
     /// </summary>
     public string? ImagePath { get; set; }
 
+    /// <summary>
+    /// StretchedImage: every player draws its own machine's Windows wallpaper (cropped to fill) instead of
+    /// <see cref="ImagePath"/>, or the desktop color without one. The event stand-in uses it so a seat looks unchanged
+    /// until the event reaches it; <see cref="ImagePath"/> stays the fallback (and makes remote seats receive the scene).
+    /// </summary>
+    public bool UseLocalDesktopWallpaper { get; set; }
+
     /// <summary>True for the modes that draw <see cref="ImagePath"/>.</summary>
     [JsonIgnore]
     public bool UsesImage => Mode is BackgroundMode.StretchedImage or BackgroundMode.TiledImage or BackgroundMode.Panorama;

@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-10-19 — Usability: full-fidelity preview, events without a scene, layer presets
+
+- **Room preview**: pattern layers draw the real images per cell (source pick + rotation as on the players) instead of grey boxes, and multi-image layers draw every image at its seeded spread offset. The spread math moved to `PatternLayout.MultiImageOffset`, which the player now calls too. Sprites are cached downscaled to 256 px with their native size (`ScenePainter.Sprite`); the cache now holds 256 images instead of 32 (BiBaBu Swarm has 80).
+- **Event stand-in**: with nothing playing, the stand-in scene's background is each seat's own Windows wallpaper (`BackgroundLayerConfig.UseLocalDesktopWallpaper`; the player reads `SPI_GETDESKWALLPAPER` and crops it to fill, uses the desktop colour without a picture and falls back to the black image). A seat now looks unchanged until the event reaches it. Ceiling: one wallpaper per machine (per-monitor wallpapers would need `IDesktopWallpaper`).
+- **Events strip**: the Spotlight seat combobox is gone. Spotlight aims at the node selected in the room (the button reads "★ Spotlight #2") and is disabled with no selection. Before, the picker was filled only from a running layout, so Spotlight without a scene always failed. Traversal is disabled when there is no picked image and no picture sprite in the running scene.
+- **Presets**: "Save selected layer as layer preset" writes to `presets\layers\` (`PresetStore.Layers`). The Layers ▾ menu has *Add layer preset* and *Add layers from scene preset*, and layer presets no longer appear in the scene Presets ▾ list. Layer presets saved earlier stay in `presets\` (move them by hand). The *Showcase Tour (all scenes)* playlist preset was dropped; the showcase scenes stay as the starter presets.
+- **Verified**: build + 1171 tests (new: `LayerPresets_LiveInTheirOwnFolder_NotInTheSceneList`). Not checked in the GUI: preview of BiBaBu Swarm, events over the desktop wallpaper, Spotlight button label.
+
 ## 2026-10-19 — Playlist rows: thumbnails, colored chips, mode icons
 
 - **What**: playlist rows drop the "Details" expander. Each row shows a 16:9 thumbnail on the scene's background color (green frame while playing), a full-width name box and colored chips: source file blue, motion + speed amber, distribution violet, background / grid / grading / effects teal, transition override + lap-snap pink (hover a chip for the full detail line). The transition picker and Lap-snap appear on the selected row only. Thumbnails now load for every item (gallery thumbnail, else a video frame, else the file decoded at 192 px), not only for gallery files. The Scene editor's Pattern, Distribution and Background pickers show the same icons and colors.

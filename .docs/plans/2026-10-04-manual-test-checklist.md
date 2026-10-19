@@ -48,7 +48,7 @@ automated runs (§4) are quick and cover timing + pixel parity, so §5 only need
 - [ ] Drag ≡ of the first row below the last → marker follows, row moves, its duration box still updates the summary
 - [ ] Right-click → Duplicate ("name copy" below) / Remove
 - [ ] Duration "12,5" → "12.5s"; "abc" → "(default)"
-- [ ] Toolbar picker lists playlists (incl. the presets: BiBaBu Party, Chill Lounge, Hype, Showcase Tour — `dotnet run tools/build-playlist-presets.cs` if missing); picking one loads it into the tab
+- [ ] Toolbar picker lists playlists (incl. the presets: BiBaBu Party, Chill Lounge, Hype — `dotnet run tools/build-playlist-presets.cs` if missing); picking one loads it into the tab
 - [ ] ▶ starts the show: ■ and ⏭ appear, label "Now: A · next: B in 0:1x", playing row has a green ▶
 - [ ] ⏭ switches immediately; ■ stops the show, ⏭ and label disappear
 - [ ] Play from the editor during a show → the show stops first, then the scene plays; ■ stops it

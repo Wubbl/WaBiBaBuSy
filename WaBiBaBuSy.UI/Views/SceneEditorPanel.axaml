@@ -224,10 +224,10 @@
                 </ItemsControl>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Top">
                     <Button Content="+" Command="{Binding AddLayerCommand}" ToolTip.Tip="Add an empty layer on top"/>
-                    <Button Content="▾" ToolTip.Tip="Add layers from a preset, or save the selected layer as a preset">
+                    <Button Content="▾" ToolTip.Tip="Add a layer preset or the layers of a scene preset, or save the selected layer as a layer preset">
                         <Button.Flyout>
                             <MenuFlyout>
-                                <MenuItem Header="Add layers from preset" IsEnabled="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).HasPresets}"
+                                <MenuItem Header="Add layer preset" IsEnabled="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).HasLayerPresets}"
                                           ItemsSource="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).LayerPresets}">
                                     <MenuItem.ItemContainerTheme>
                                         <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}" x:DataType="vm:PresetMenuEntry">
@@ -236,7 +236,17 @@
                                         </ControlTheme>
                                     </MenuItem.ItemContainerTheme>
                                 </MenuItem>
-                                <MenuItem Header="Save selected layer as preset"
+                                <MenuItem Header="Add layers from scene preset" IsEnabled="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).HasPresets}"
+                                          ItemsSource="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).SceneLayerPresets}">
+                                    <MenuItem.ItemContainerTheme>
+                                        <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}" x:DataType="vm:PresetMenuEntry">
+                                            <Setter Property="Header" Value="{Binding Name}"/>
+                                            <Setter Property="Command" Value="{Binding Command}"/>
+                                        </ControlTheme>
+                                    </MenuItem.ItemContainerTheme>
+                                </MenuItem>
+                                <Separator/>
+                                <MenuItem Header="Save selected layer as layer preset"
                                           Command="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).SaveLayerAsPresetCommand}"/>
                             </MenuFlyout>
                         </Button.Flyout>

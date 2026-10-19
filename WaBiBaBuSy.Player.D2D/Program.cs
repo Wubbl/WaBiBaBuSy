@@ -1820,17 +1820,26 @@ partial class Program
                 _logger?.LogInformation("[BG-D2D] Solid color: {Color}", config.ColorHex);
                 break;
 
+            case BackgroundMode.StretchedImage when config.UseLocalDesktopWallpaper && LocalDesktopWallpaper() == null:
+                _backgroundMode = BackgroundMode.SolidColor;   // no wallpaper picture: the desktop's plain color
+                int rgb = GetSysColor(COLOR_DESKTOP);
+                _backgroundColor = new Color4((rgb & 0xFF) / 255f, ((rgb >> 8) & 0xFF) / 255f, ((rgb >> 16) & 0xFF) / 255f, 1f);
+                break;
+
             case BackgroundMode.StretchedImage:
             case BackgroundMode.TiledImage:
             case BackgroundMode.Panorama:
-                if (!string.IsNullOrEmpty(config.ImagePath) && File.Exists(config.ImagePath))
+                var imagePath = config.Mode == BackgroundMode.StretchedImage && config.UseLocalDesktopWallpaper
+                    ? LocalDesktopWallpaper() : config.ImagePath;
+                if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
                 {
-                    using var gdiBitmap = (Bitmap)Image.FromFile(config.ImagePath);
+                    using var gdiBitmap = (Bitmap)Image.FromFile(imagePath);
                     // Panorama: cut this node's slice on the CPU, so only a monitor-sized bitmap reaches the GPU
-                    // (a 10-screen image is wider than D2D's 16384 px bitmap limit).
-                    using var slice = config.Mode == BackgroundMode.Panorama ? CropPanorama(gdiBitmap) : null;
+                    // (a 10-screen image is wider than D2D's 16384 px bitmap limit). The desktop wallpaper is cropped to fill.
+                    using var slice = config.Mode == BackgroundMode.Panorama ? CropPanorama(gdiBitmap)
+                        : config.UseLocalDesktopWallpaper ? CropToFill(gdiBitmap) : null;
                     _backgroundImageBitmap = UploadBitmapToD2D(slice ?? gdiBitmap);
-                    _logger?.LogInformation("[BG-D2D] Image loaded: {Path} ({W}x{H}){Slice}", config.ImagePath, gdiBitmap.Width, gdiBitmap.Height,
+                    _logger?.LogInformation("[BG-D2D] Image loaded: {Path} ({W}x{H}){Slice}", imagePath, gdiBitmap.Width, gdiBitmap.Height,
                         slice != null ? $" panorama slice {slice.Width}x{slice.Height}" : string.Empty);
                 }
                 else
@@ -1933,6 +1942,40 @@ partial class Program
     }
 
     /// <summary>This node's slice of a panorama image (<see cref="NodeMapping.PanoramaSource"/>), flipped on a mirrored node.</summary>
+    private const int COLOR_DESKTOP = 1;
+    private const uint SPI_GETDESKWALLPAPER = 0x73;
+
+    [DllImport("user32.dll")]
+    private static extern int GetSysColor(int nIndex);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool SystemParametersInfo(uint uiAction, uint uiParam, System.Text.StringBuilder pvParam, uint fWinIni);
+
+    /// <summary>
+    /// This machine's Windows wallpaper file, or null (plain color desktop). Falls back to Windows' own transcoded
+    /// copy when the original file is gone.
+    /// </summary>
+    // ponytail: one wallpaper per machine (SPI); per-monitor wallpapers need IDesktopWallpaper + monitor device paths.
+    private static string? LocalDesktopWallpaper()
+    {
+        var sb = new System.Text.StringBuilder(1024);
+        if (SystemParametersInfo(SPI_GETDESKWALLPAPER, (uint)sb.Capacity, sb, 0) && File.Exists(sb.ToString()))
+            return sb.ToString();
+        if (sb.Length == 0) return null;   // no wallpaper set
+        var transcoded = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "Microsoft", "Windows", "Themes", "TranscodedWallpaper");
+        return File.Exists(transcoded) ? transcoded : null;
+    }
+
+    /// <summary>The centered part of <paramref name="full"/> with this monitor's aspect (Windows' "Fill").</summary>
+    private static Bitmap CropToFill(Bitmap full)
+    {
+        double target = (double)Math.Max(1, _width) / Math.Max(1, _height);
+        int w = full.Width, h = full.Height;
+        if ((double)w / h > target) w = Math.Max(1, (int)(h * target)); else h = Math.Max(1, (int)(w / target));
+        return full.Clone(new Rectangle((full.Width - w) / 2, (full.Height - h) / 2, w, h), System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+    }
+
     private static Bitmap CropPanorama(Bitmap full)
     {
         // ponytail: without a seat-map layout the whole image is uploaded (fails past 16384 px); every LOAD from the server carries one.
@@ -3796,15 +3839,11 @@ partial class Program
         {
             // Multi-image without pattern: draw each source at a seeded offset around the anchor.
             int seed = _animationConfig.Pattern?.Seed ?? 0;
-            float spread = Math.Max(0f, _animationConfig.MultiImageSpread);
-            float jitterMs = Math.Max(0f, _animationConfig.MultiImagePhaseJitterMs);
 
             for (int srcIdx = 0; srcIdx < sourceCount; srcIdx++)
             {
-                int hash = Hash2(seed, srcIdx);
-                float dx = ((((hash & 0xFFFF) / 65535f) * 2f) - 1f) * spread;
-                float dy = (((((hash >> 16) & 0xFFFF) / 65535f) * 2f) - 1f) * spread;
-                long phase = (long)(((srcIdx * 0.6180339887) % 1.0) * jitterMs);
+                var (dx, dy, phase) = PatternLayout.MultiImageOffset(seed, srcIdx,
+                    _animationConfig.MultiImageSpread, _animationConfig.MultiImagePhaseJitterMs);
 
                 int frameIdx = GetCurrentFrameIndexForSource(srcIdx, elapsedMs + phase);
                 var frames = _d2dFramesPerSource[srcIdx];
@@ -4018,19 +4057,6 @@ partial class Program
         }
 
         if (needsTransform) _d2dContext.Transform = prior;
-    }
-
-    private static int Hash2(int seed, int k)
-    {
-        unchecked
-        {
-            uint h = (uint)seed;
-            h ^= (uint)k * 2654435761u;
-            h ^= h >> 13;
-            h *= 2246822519u;
-            h ^= h >> 16;
-            return (int)h;
-        }
     }
 
     private static void HandleLoadAnimationCommand(PlayerCommandLoadAnimation cmd)
