@@ -92,9 +92,17 @@ public partial class MainWindowViewModel
         }
     }
 
-    /// <summary>Put a preset's layers (not its background) on top of the draft's stack.</summary>
+    /// <summary>
+    /// Put a preset's layers (not its background) on top of the draft's stack. A draft without any sprite takes the
+    /// whole preset instead: its empty placeholder layer and default background would hide e.g. a Panorama.
+    /// </summary>
     private async Task AddPresetLayersAsync(string name)
     {
+        if (SceneEditor.BuildConfig().Layers.All(l => string.IsNullOrEmpty(l.Animation.AnimationPath)))
+        {
+            await LoadPresetAsync(name);
+            return;
+        }
         try
         {
             var preset = await _presets.LoadAsync(name);
@@ -102,6 +110,8 @@ public partial class MainWindowViewModel
             PresetStatus = added == 0 ? $"No room for more layers (max {Models.Wallpaper.SceneChecks.MaxLayers})"
                 : added < preset.Layers.Count ? $"Added {added} of {preset.Layers.Count} layers from “{name}” (max {Models.Wallpaper.SceneChecks.MaxLayers})"
                 : $"Added {added} layer{(added == 1 ? "" : "s")} from “{name}”";
+            if (added > 0 && preset.Background.UsesImage)
+                PresetStatus += " — background kept, Presets ▾ loads it with its picture";
         }
         catch (Exception ex)
         {
