@@ -1,8 +1,14 @@
 # WaBiBaBuSy - Recent Updates & Changelog
 
-**Last Updated:** 2026-10-18
+**Last Updated:** 2026-10-19
 
 ---
+
+## 2026-10-19 — Playlist rows: thumbnails, colored chips, mode icons
+
+- **What**: playlist rows drop the "Details" expander. Each row shows a 16:9 thumbnail on the scene's background color (green frame while playing), a full-width name box and colored chips: source file blue, motion + speed amber, distribution violet, background / grid / grading / effects teal, transition override + lap-snap pink (hover a chip for the full detail line). The transition picker and Lap-snap appear on the selected row only. Thumbnails now load for every item (gallery thumbnail, else a video frame, else the file decoded at 192 px), not only for gallery files. The Scene editor's Pattern, Distribution and Background pickers show the same icons and colors.
+- **Code**: `ViewModels/SceneGlyphs.cs` (icons + category brushes, `SceneChip`), `PlaylistItemRow.Chips / ThumbnailSource / SceneBackground`, `PlaylistViewModel.ThumbnailProvider` now async, `MainWindowViewModel.PlaylistThumbnailAsync`.
+- **Verified**: screenshots of the Playlist tab (selected row on a dark blue highlight so the chips stay readable) and the Scene editor Motion / Background tabs on the showcase playlist. Not checked: a video-only item thumbnail, a running show (green frame).
 
 ## 2026-10-19 — Party content moved to a private repo
 

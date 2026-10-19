@@ -18,7 +18,11 @@ using WaBiBaBuSy.Models.Topology;
 
 namespace WaBiBaBuSy.UI.ViewModels;
 
-public record MovementTypeOption(string Name, MovementType Type);
+public record MovementTypeOption(string Name, MovementType Type)
+{
+    /// <summary>Same icon as the Playlist rows' motion chip.</summary>
+    public string Glyph => SceneGlyphs.Movement(Type);
+}
 
 public partial class ZoneColorItem : ViewModelBase
 {
