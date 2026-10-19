@@ -373,22 +373,46 @@
 
             <!-- Splitter -->
             <GridSplitter Grid.Column="1" Name="PanelSplitter" Background="#3E3E42"/>
+            <!-- Collapse handle on the splitter (overhangs it a little on both sides) -->
+            <Button Grid.Column="1" Content="›" Command="{Binding ToggleRightPanelCommand}" IsVisible="{Binding IsRightPanelOpen}"
+                    Width="16" Height="56" Margin="-5,0" Padding="0" ZIndex="1" FontSize="14" CornerRadius="4"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                    ToolTip.Tip="Collapse the panel (the room then shows the live scene)"/>
 
             <!-- Right panel: [Scene | Playlist], collapsible to a thin rail. Files dropped here join the gallery. -->
             <Border Grid.Column="2" Background="#1E1E1E" DragDrop.AllowDrop="True">
                 <Panel>
                     <Grid IsVisible="{Binding IsRightPanelOpen}" Margin="10,4,10,10">
                         <TabControl SelectedIndex="{Binding RightPanelTabIndex}" Padding="0">
-                            <TabItem Header="Scene" FontSize="15">
+                            <TabItem Name="SceneTab" Header="Scene" FontSize="15">
                                 <views:SceneEditorPanel/>
                             </TabItem>
                             <TabItem Header="Playlist" FontSize="15">
                                 <views:PlaylistPanel DataContext="{Binding PlaylistEditor}"/>
                             </TabItem>
                         </TabControl>
-                        <Button Content="⟩" Command="{Binding ToggleRightPanelCommand}"
-                                HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,0,0" Padding="8,2"
-                                ToolTip.Tip="Collapse the panel (the room then shows the live scene)"/>
+                        <!-- Gallery actions of the Scene tab, in the tab header row -->
+                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,0,0"
+                                    IsVisible="{Binding #SceneTab.IsSelected}">
+                            <Button Content="Get content ▾" ToolTip.Tip="Where to find or make small animated content (opens your browser)">
+                                <Button.Flyout>
+                                    <MenuFlyout ItemsSource="{Binding ContentMenuEntries}">
+                                        <MenuFlyout.ItemContainerTheme>
+                                            <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}" x:DataType="vm:ContentMenuEntry">
+                                                <Setter Property="Header" Value="{Binding Header}"/>
+                                                <Setter Property="Command" Value="{Binding Command}"/>
+                                                <Setter Property="CommandParameter" Value="{Binding Header}"/>
+                                                <Setter Property="IsEnabled" Value="{Binding IsLink}"/>
+                                                <Setter Property="ToolTip.Tip" Value="{Binding Tip}"/>
+                                            </ControlTheme>
+                                        </MenuFlyout.ItemContainerTheme>
+                                    </MenuFlyout>
+                                </Button.Flyout>
+                            </Button>
+                            <Button Content="+ Add" Command="{Binding AddWallpaperCommand}"
+                                    ToolTip.Tip="Add files to the gallery (or drop files onto this panel)"/>
+                        </StackPanel>
                     </Grid>
                     <Button IsVisible="{Binding !IsRightPanelOpen}" Content="⟨" Command="{Binding ToggleRightPanelCommand}"
                             HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,8,0,0" Padding="6,4"
