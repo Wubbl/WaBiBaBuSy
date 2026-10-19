@@ -4,6 +4,10 @@
 
 ---
 
+## 2026-10-19 — Party content moved to a private repo
+
+- **What**: the ComfyUI content scripts (`tools/comfyui/`), the Panorama content guide and `tools/get-cat-content.ps1` moved to the private repo `Wubbl/BiBaBu`, with their history. The app does not use them; the showcase logo and cat GIF stay here for the starter presets and tests. The entry below describes that work; its paths now refer to the content repo.
+
 ## 2026-10-18 — Panorama content: clean seams, native resolution, LAN party, logo styles
 
 - **What**: new ComfyUI scripts (FLUX.2 Klein 9B through the ComfyUI API) replace the one-click workflow for finished wallpapers. Panoramas are rendered at **1920 × 1088 per screen** (no upscale, no 16,384 px limit) and the hard vertical lines at the repainted seam bands are gone: the band is blended with a per-row colour correction over a 96 px ramp instead of a 24 px blur with a per-column gain. New concept **LAN Party** (pixel art gym hall full of gamers, BiBaBu banner, Bart banner, Bier and Busen neons); Pixel Quest, Neon Harbour, Mountains and Fantasy Realm re-done with denser beats and more BiBaBu. **Logo styles**: the Bier, Bart and Busen line drawings redrawn in 20 styles each (gold, chrome, pixel, LEGO, stained glass, neon, origami, gingerbread, …) as transparent sprites; **BiBaBu Swarm** preset (all styles drifting in a grid, a Bier parade, bouncing Barts, orbiting Busen, a neon Bier comet with portals) and one *Panorama – …* preset per wallpaper.

@@ -62,7 +62,6 @@ Other: `TestScenarios/` (test-mode scenarios), `Installer/` (Inno Setup), `tools
 
 ### Project Tracking
 - **[Open Items / Session Handoff](.docs/2026.07_OPEN_ITEMS.md)** — Consolidated validation list, code follow-ups, limitations, roadmap pointer (start here, refreshed 2026-10-09)
-- **[Panorama Content Guide](.docs/2026.10_PANORAMA_CONTENT_GUIDE.md)** — ComfyUI models, outpainting chain, ring closure, upscale and prompts for room-spanning Panorama wallpapers (3 BiBaBu concepts)
 - **[Feature Overview & Roadmap](.docs/2026.07_FEATURE_OVERVIEW.md)** — Verified inventory of all animation features + feature-completeness roadmap (2026-07 audit)
 - **[Open Issues](.docs/2025.12_OpenIssues.md)** — Active bugs and items needing validation
 - **[Missing Features](.docs/2025.12_MissingFeatures.md)** — Feature roadmap and TODO tracking
