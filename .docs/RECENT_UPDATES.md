@@ -1,8 +1,15 @@
 # WaBiBaBuSy - Recent Updates & Changelog
 
-**Last Updated:** 2026-10-19
+**Last Updated:** 2026-10-20
 
 ---
+
+## 2026-10-20 — Panorama: tallest screen per row; preset fixes; coherent rooms
+
+- **Panorama on mixed heights**: the image now fills the tallest screen of each row (`NodeLayout.RowHeight`, set by `SeatMapLayoutBuilder` for Path and Parallel), shorter screens show the vertically centred part. Before, it was stretched over the whole canvas height: on a Parallel room every row got only its own horizontal band of the picture. Older servers (RowHeight 0) keep the old mapping. Test `PanoramaSource_FillsTheRowsTallestScreen_ShorterScreensCropCentred`.
+- **Add layers from preset on an empty draft** loads the whole preset (background included): adding a Panorama preset to the default scene kept the empty placeholder layer and the IconZone background, so the panorama never showed. A draft with sprites still keeps its background; the status line says so.
+- **Content (BiBaBu repo)**: the "2× logo on the first spot" in the Panorama presets and the scattered Bier parade came from `MultiImageSpread` (a ±px scatter in X and Y) used as a spacing; parades are now one-row pattern grids. BiBaBu Swarm: Busen orbit and the lone comet replaced by a neon Bier/Bart/Busen convoy with Portals, Logo drift and Bier parade sparser, 16 new logo styles (108 sprites). All six panoramas re-rendered with `panorama.py --whole` (one coherent landscape for the whole ring, guide §11 in the BiBaBu repo) and a BiBaBu hint on every screen.
+- **Verified**: 65 NodeMapping / SeatMap / Panorama tests; UI build. Not checked in the GUI: the room preview / players with a mixed-height row, the new presets on the wall.
 
 ## 2026-10-19 — Usability: full-fidelity preview, events without a scene, layer presets
 
