@@ -57,6 +57,12 @@ public class WallpaperSyncClient : IDisposable
         set => _thumbnailCaptureService = value;
     }
 
+    /// <summary>
+    /// Supplies this machine's monitor layout when set. Required on non-Windows platforms,
+    /// where the WinForms screen enumeration below is unavailable (e.g. the Linux client).
+    /// </summary>
+    public static Func<ScreenConfiguration>? ScreenConfigurationProvider { get; set; }
+
     public event EventHandler<ConnectionStatusChangedEventArgs>? ConnectionStatusChanged;
     public event EventHandler<SyncCommandReceivedEventArgs>? SyncCommandReceived;
     public event EventHandler<UpdateAvailableEventArgs>? UpdateAvailable;
@@ -933,6 +939,15 @@ public class WallpaperSyncClient : IDisposable
     /// </summary>
     private ScreenConfiguration GetScreenConfiguration()
     {
+        if (ScreenConfigurationProvider != null)
+        {
+            var provided = ScreenConfigurationProvider();
+            _logger.LogInformation("Detected {MonitorCount} monitor(s), total resolution: {Width}x{Height}",
+                provided.MonitorCount, provided.TotalWidth, provided.TotalHeight);
+            return provided;
+        }
+
+#if WINDOWS
         var config = new ScreenConfiguration();
 
         // Get all screens
@@ -984,6 +999,10 @@ public class WallpaperSyncClient : IDisposable
             config.MonitorCount, config.TotalWidth, config.TotalHeight);
 
         return config;
+#else
+        _logger.LogWarning("No ScreenConfigurationProvider set on this platform; reporting no monitors");
+        return new ScreenConfiguration();
+#endif
     }
 
     // EnumDisplaySettings P/Invoke for querying refresh rate (Hz) per monitor.

@@ -1,0 +1,7 @@
+{
+  "uuid": "wabibabusy-wallpaper@bibabu",
+  "name": "WaBiBaBuSy Wallpaper",
+  "description": "Keeps the WaBiBaBuSy Linux client's wallpaper windows at the bottom of the stack on every workspace. Only needed if the client's default desktop placement does not work on your GNOME version.",
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
+  "url": "https://github.com/dainikkal/WaBiBaBuSy"
+}
