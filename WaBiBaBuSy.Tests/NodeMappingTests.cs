@@ -85,6 +85,16 @@ public class NodeMappingTests
     }
 
     [Fact]
+    public void PanoramaSource_FillsTheRowsTallestScreen_ShorterScreensCropCentred()
+    {
+        // Row of a 1440 px and a 1080 px screen on a 19 200 px canvas, image 19200 × 1080: ky = 1080 / 1440.
+        var tall = new NodeLayout { OffsetX = 0, Width = 2560, Height = 1440, RowHeight = 1440, CanvasWidth = 19200, CanvasHeight = 2600 };
+        var low = new NodeLayout { OffsetX = 2560, OffsetY = 1200, Width = 1920, Height = 1080, RowHeight = 1440, CanvasWidth = 19200, CanvasHeight = 2600 };
+        Assert.Equal((0, 0, 2560, 1080), NodeMapping.PanoramaSource(tall, 19200, 1080));
+        Assert.Equal((2560, 135, 1920, 810), NodeMapping.PanoramaSource(low, 19200, 1080));   // 180 px trimmed top and bottom
+    }
+
+    [Fact]
     public void PanoramaSource_ClampsToTheImage_AndFallsBackToWholeImage()
     {
         Assert.Equal((9000, 0, 1000, 1080), NodeMapping.PanoramaSource(Node(9000), 10000, 1080));   // slice past the canvas end
