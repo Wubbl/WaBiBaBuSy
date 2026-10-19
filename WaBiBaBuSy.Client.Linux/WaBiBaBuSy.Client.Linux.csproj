@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>wabibabusy-client</AssemblyName>
+    <RootNamespace>WaBiBaBuSy.Client.Linux</RootNamespace>
+    <RuntimeIdentifiers>linux-x64;linux-arm64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.2" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.2" />
+    <PackageReference Include="Avalonia.Skia" Version="12.1.2" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.2" />
+    <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="14.17.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WaBiBaBuSy.Core\WaBiBaBuSy.Core.csproj" />
+    <ProjectReference Include="..\WaBiBaBuSy.Models\WaBiBaBuSy.Models.csproj" />
+    <ProjectReference Include="..\WaBiBaBuSy.Grpc\WaBiBaBuSy.Grpc.csproj" />
+    <ProjectReference Include="..\WaBiBaBuSy.Player.Common\WaBiBaBuSy.Player.Common.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Pure C# A* planner; shared with the Windows player (WallpaperEngine is Windows-only) -->
+    <Compile Include="..\WaBiBaBuSy.WallpaperEngine\Desktop\ZonePlanner.cs" Link="Shared\ZonePlanner.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="WaBiBaBuSy.Client.Linux.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="packaging\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

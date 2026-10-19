@@ -74,6 +74,10 @@ below 5% CPU.
 - A GPU with Direct3D 11 / Direct2D support (any card from the last decade)
 - All machines on the same LAN, with TCP **50051** reachable on the server
 
+**Linux clients (new):** a headless Linux client can join the wall (GNOME/KDE, X11 or Wayland via
+XWayland). The server stays on Windows. See [Linux Client](.docs/LINUX_CLIENT.md) for setup and current
+limits (no video yet).
+
 Optional: FFmpeg (`ffmpeg.exe` + `ffprobe.exe`) for video thumbnails — see
 [`WaBiBaBuSy.UI/ffmpeg/README.md`](WaBiBaBuSy.UI/ffmpeg/README.md). Without it everything works,
 you just don't get video previews in the picker.
@@ -133,6 +137,8 @@ how the virtual canvas width and per-monitor offset are computed.
 | `WaBiBaBuSy.Updater` | Auto-update and rollback |
 | `WaBiBaBuSy.Common` | Cross-cutting helpers and logging |
 | `WaBiBaBuSy.Tests` | xUnit test suite |
+| `WaBiBaBuSy.Client.Linux` | Headless Linux client: Avalonia/X11 windows + SkiaSharp port of the D2D player |
+| `WaBiBaBuSy.Client.Linux.Tests` | Offscreen rendering tests for the Linux client |
 | `Installer/` | Inno Setup script and build automation |
 
 Rendering runs in **separate processes on purpose**: DXGI swap-chain windows parented to the desktop
@@ -149,6 +155,7 @@ Deeper documentation lives in [`.docs/`](.docs/):
 - [Distributed Animation System](.docs/2025.11_DISTRIBUTED_ANIMATION_SYSTEM.md) — how the sync actually works
 - [Animation Movement System](.docs/ANIMATION_MOVEMENT_SYSTEM.md) — deterministic position math
 - [UI Architecture](.docs/UI_ARCHITECTURE.md) — views, view models, user flows
+- [Linux Client](.docs/LINUX_CLIENT.md) — headless Linux client, desktop placement on GNOME/KDE, limitations
 
 **The one rule:** everything on the visual path must be a pure function of
 `(config, elapsedMs, cell identity)`. No `Random` without a shared seed, no `DateTime.Now`, no
