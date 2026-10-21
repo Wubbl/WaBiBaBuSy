@@ -32,18 +32,37 @@ public sealed class ShowEventLog
 
     public bool Contains(string eventId) { lock (_gate) return _events.Any(e => e.EventId == eventId); }
 
-    /// <summary>Events not yet ended at <paramref name="nowUtcMs"/>, including ones whose T0 is still ahead.</summary>
+    /// <summary>
+    /// Events not yet ended at <paramref name="nowUtcMs"/>, including ones whose T0 is still ahead. A BiBaBo game whose
+    /// outcome has started is over, however long the Bomb event was booked for.
+    /// </summary>
     public IReadOnlyList<ShowEvent> Active(long nowUtcMs)
     {
-        lock (_gate) return _events.Where(e => !ShowEventMath.Ended(e, nowUtcMs)).ToList();
+        lock (_gate) return _events.Where(e => !ShowEventMath.Ended(e, nowUtcMs) && !OutcomeStarted(e, nowUtcMs)).ToList();
     }
 
-    /// <summary>Drop events that ended at least <see cref="KeepAfterEndMs"/> ago; returns how many.</summary>
+    /// <summary>
+    /// Drop events that ended at least <see cref="KeepAfterEndMs"/> ago; returns how many. A Bomb goes together with its
+    /// outcome (the outcome is what hides it — dropping the outcome first would bring the bomb back).
+    /// </summary>
     public int Prune(long nowUtcMs)
     {
         lock (_gate)
-            return _events.RemoveAll(e => nowUtcMs >= e.T0Utc + ShowEventMath.ClampDuration(e.DurationMs) + KeepAfterEndMs);
+        {
+            bool Gone(ShowEvent e) => nowUtcMs >= e.T0Utc + ShowEventMath.ClampDuration(e.DurationMs) + KeepAfterEndMs;
+            var finishedGames = _events.Where(e => e.Type == ShowEventType.BombOutcome && Gone(e) && e.Bomb != null).Select(e => e.Bomb!.GameId).ToHashSet();
+            return _events.RemoveAll(e => e.Type switch
+            {
+                ShowEventType.Bomb => Gone(e) || finishedGames.Contains(e.EventId),
+                ShowEventType.BombOutcome => Gone(e) && (e.Bomb == null || finishedGames.Contains(e.Bomb.GameId)),
+                _ => Gone(e),
+            });
+        }
     }
+
+    /// <summary>A Bomb event whose BombOutcome is in the log and has started (call under the lock).</summary>
+    private bool OutcomeStarted(ShowEvent e, long nowUtcMs) =>
+        e.Type == ShowEventType.Bomb && _events.Any(o => o.Type == ShowEventType.BombOutcome && o.Bomb?.GameId == e.EventId && o.T0Utc <= nowUtcMs);
 
     /// <summary>Copy the events into <paramref name="target"/> (no allocation; for the render loop); returns how many.</summary>
     public int CopyTo(ShowEvent[] target)

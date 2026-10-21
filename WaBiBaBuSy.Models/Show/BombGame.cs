@@ -76,4 +76,14 @@ public sealed class BombGame
 
     /// <summary>BombOutcome only: the timer when it ended.</summary>
     public int RemainingMs { get; set; }
+
+    /// <summary>A copy for the BombOutcome event (cables and riddles shared, read-only).</summary>
+    public BombGame WithOutcome(BombResult result, int cutCable, int remainingMs)
+    {
+        var copy = (BombGame)MemberwiseClone();
+        copy.Result = result;
+        copy.CutCable = cutCable;
+        copy.RemainingMs = remainingMs;
+        return copy;
+    }
 }

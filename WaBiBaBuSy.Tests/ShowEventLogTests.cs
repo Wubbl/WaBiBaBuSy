@@ -69,4 +69,36 @@ public class ShowEventLogTests
         log.Clear();
         Assert.Equal(0, log.Count);
     }
+
+    private static (ShowEvent Bomb, ShowEvent Outcome) BombPair()
+    {
+        var bomb = new ShowEvent { EventId = "game", Type = ShowEventType.Bomb, T0Utc = 0, DurationMs = 323_000, Bomb = new BombGame { GameId = "game" } };
+        var outcome = new ShowEvent { EventId = "out", Type = ShowEventType.BombOutcome, T0Utc = 60_000, DurationMs = 8000, Bomb = new BombGame { GameId = "game" } };
+        return (bomb, outcome);
+    }
+
+    [Fact]
+    public void Active_DropsTheBombOnceItsOutcomeStarted()
+    {
+        var log = new ShowEventLog();
+        var (bomb, outcome) = BombPair();
+        log.Add(bomb);
+        log.Add(outcome);
+        Assert.Equal(2, log.Active(59_000).Count);                       // outcome still ahead: both replay
+        Assert.Equal(new[] { "out" }, log.Active(61_000).Select(e => e.EventId));
+        Assert.Empty(log.Active(70_000));                                  // outcome over: the bomb must not come back
+    }
+
+    [Fact]
+    public void Prune_KeepsTheOutcomeWhileItsBombLives_ThenDropsBoth()
+    {
+        var log = new ShowEventLog();
+        var (bomb, outcome) = BombPair();
+        log.Add(bomb);
+        log.Add(outcome);
+        log.Prune(60_000 + 8000 + ShowEventLog.KeepAfterEndMs - 1);
+        Assert.Equal(2, log.Count);
+        log.Prune(60_000 + 8000 + ShowEventLog.KeepAfterEndMs);
+        Assert.Equal(0, log.Count);                                        // the bomb goes with its outcome, not 4 min later
+    }
 }
