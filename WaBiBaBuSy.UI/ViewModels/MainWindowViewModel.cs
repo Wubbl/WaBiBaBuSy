@@ -701,6 +701,9 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     /// <summary>Live one-shot events for the room preview.</summary>
     public IReadOnlyList<ShowEvent> RoomShowEvents => _server.ActiveShowEvents;
 
+    /// <summary>The room agenda for the room view (null = none).</summary>
+    public Agenda? RoomAgenda => _server.CurrentAgenda;
+
     /// <summary>Events strip: the room's seats (Spotlight follows the room selection) and the target picker.</summary>
     private void RefreshEventSeats()
     {
@@ -720,6 +723,9 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                 break;
             case nameof(ServerPlaybackHost.ActiveShowEvents):
                 OnPropertyChanged(nameof(RoomShowEvents));
+                break;
+            case nameof(ServerPlaybackHost.CurrentAgenda):
+                OnPropertyChanged(nameof(RoomAgenda));
                 break;
             case nameof(ServerPlaybackHost.ActiveSharedStartMs):
                 OnPropertyChanged(nameof(ActiveSharedStartMs));

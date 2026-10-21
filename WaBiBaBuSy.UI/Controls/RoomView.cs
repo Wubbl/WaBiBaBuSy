@@ -50,6 +50,10 @@ public partial class RoomView : Control
     public static readonly StyledProperty<IReadOnlyList<ShowEvent>?> ShowEventsProperty =
         AvaloniaProperty.Register<RoomView, IReadOnlyList<ShowEvent>?>(nameof(ShowEvents));
     /// <summary>Defines the <see cref="IsClockPaused"/> property.</summary>
+    /// <summary>Defines the <see cref="Agenda"/> property.</summary>
+    public static readonly StyledProperty<Agenda?> AgendaProperty =
+        AvaloniaProperty.Register<RoomView, Agenda?>(nameof(Agenda));
+
     public static readonly StyledProperty<bool> IsClockPausedProperty =
         AvaloniaProperty.Register<RoomView, bool>(nameof(IsClockPaused));
     /// <summary>Defines the <see cref="ClockSpeed"/> property.</summary>
@@ -80,6 +84,9 @@ public partial class RoomView : Control
 
     /// <summary>Live one-shot events drawn over the animating tiles (Live mode only).</summary>
     public IReadOnlyList<ShowEvent>? ShowEvents { get => GetValue(ShowEventsProperty); set => SetValue(ShowEventsProperty, value); }
+
+    /// <summary>The room agenda, painted over every tile (corner panel, or full size on agenda screens).</summary>
+    public Agenda? Agenda { get => GetValue(AgendaProperty); set => SetValue(AgendaProperty, value); }
     /// <summary>Freeze the design clock (draft preview). No effect while live.</summary>
     public bool IsClockPaused { get => GetValue(IsClockPausedProperty); set => SetValue(IsClockPausedProperty, value); }
     /// <summary>Design-clock speed multiplier (1×, 4×, 16× in the preview bar). No effect while live.</summary>
@@ -116,6 +123,7 @@ public partial class RoomView : Control
     private readonly ScenePainter _painter = new();
     private readonly SceneClock _clock = new();
     private DispatcherTimer? _timer;
+    private int _agendaPaintQuarter = -1;   // 15-s slot of the last paint while only the agenda changes
     private SeatMapLayoutResult _layout = new();
     private RoomGrid _grid = RoomGrid.Build(SeatMap.SingleRow(), new SeatMapLayoutResult());
     private IRoomHost? _host;
@@ -134,7 +142,7 @@ public partial class RoomView : Control
 
     static RoomView()
     {
-        AffectsRender<RoomView>(SceneProperty, SharedStartUtcMsProperty, SpriteImageResolverProperty, ActiveLayoutProperty, ShowEventsProperty);
+        AffectsRender<RoomView>(SceneProperty, SharedStartUtcMsProperty, SpriteImageResolverProperty, ActiveLayoutProperty, ShowEventsProperty, AgendaProperty);
         FocusableProperty.OverrideDefaultValue<RoomView>(true);
         ClipToBoundsProperty.OverrideDefaultValue<RoomView>(true);
     }
@@ -239,6 +247,8 @@ public partial class RoomView : Control
             bool minimized = TopLevel.GetTopLevel(this) is Window { WindowState: WindowState.Minimized };
             if (IsEffectivelyVisible && !minimized && (_gesture != Gesture.None || (ScenePainter.HasSprite(Scene) && AnyTileAnimating())))
                 InvalidateVisual();
+            else if (IsEffectivelyVisible && !minimized && Agenda is { Enabled: true } && DateTime.UtcNow.Second / 15 != _agendaPaintQuarter)
+                InvalidateVisual();   // "now / next" and the countdowns move on even when nothing animates
         });
         _timer.Start();
     }
@@ -387,6 +397,15 @@ public partial class RoomView : Control
         {
             var ft = Format("idle", Faint, 10, bold: false);
             ctx.DrawText(ft, new Point(sceneBox.Center.X - ft.Width / 2, sceneBox.Center.Y - ft.Height / 2));
+        }
+
+        if (Agenda is { Enabled: true } agenda)
+        {
+            double mw = c?.MonitorWidth > 0 ? c.MonitorWidth : 1920, mh = c?.MonitorHeight > 0 ? c.MonitorHeight : 1080;
+            double k = Math.Min(sceneBox.Width / mw, sceneBox.Height / mh);
+            var monitor = new Rect(sceneBox.Center.X - mw * k / 2, sceneBox.Center.Y - mh * k / 2, mw * k, mh * k);
+            _painter.PaintAgenda(ctx, monitor, mw, mh, t.Id, agenda, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            _agendaPaintQuarter = DateTime.UtcNow.Second / 15;
         }
 
         var badge = new Rect(sceneBox.X + 4, sceneBox.Y + 4, 28, 15);
