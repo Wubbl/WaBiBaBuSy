@@ -24,7 +24,6 @@ public sealed class AgendaDisplay
     private readonly Func<int, IReadOnlyList<string>> _nodeIdsOfMonitor;
     private readonly Dictionary<int, D2DCompositionService> _standIns = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private volatile bool _visible = true;
 
     /// <param name="nodeIdsOfMonitor">The room ids a monitor may be known by (agenda screens are tagged by node id).</param>
     public AgendaDisplay(DesktopWindowManager desktopManager, Func<int, IReadOnlyList<string>> nodeIdsOfMonitor)
@@ -44,11 +43,10 @@ public sealed class AgendaDisplay
     /// <summary>Raised after stand-ins started or stopped (any thread).</summary>
     public event Action? StandInsChanged;
 
-    /// <summary>Hide / show the stand-ins (a fullscreen app is in front), like the scene players.</summary>
-    public void SetVisible(bool visible)
+    /// <summary>Pause / resume the stand-ins per monitor (a fullscreen app covers it), like the scene players.</summary>
+    public async Task PauseMonitorsAsync(Func<int, bool> paused)
     {
-        _visible = visible;
-        foreach (var (_, player) in Snapshot()) player.SetPlayersVisible(visible);
+        foreach (var (monitor, player) in Snapshot()) await player.SetPausedAsync(paused(monitor));
     }
 
     /// <summary>
@@ -158,7 +156,6 @@ public sealed class AgendaDisplay
             throw;
         }
         lock (_standIns) _standIns[monitorIndex] = player;
-        if (!_visible) player.SetPlayersVisible(false);
         await SendCoreAsync(monitorIndex, player);
         Debug.WriteLine($"[Agenda] Stand-in started on monitor {monitorIndex}");
     }

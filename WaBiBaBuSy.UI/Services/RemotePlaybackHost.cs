@@ -144,12 +144,12 @@ public sealed class RemotePlaybackHost
         }
     }
 
-    /// <summary>Hide or show every remote-driven player window (pause on fullscreen apps).</summary>
-    public void SetPlayersVisible(bool visible)
+    /// <summary>Pause / resume the remote-driven players and agenda stand-ins per monitor (pause on fullscreen apps).</summary>
+    public async Task PauseMonitorsAsync(Func<int, bool> paused)
     {
-        foreach (var player in _players.Values)
-            player.SetPlayersVisible(visible);
-        _agenda.SetVisible(visible);
+        foreach (var (monitor, player) in _players)
+            await player.SetPausedAsync(paused(monitor));
+        await _agenda.PauseMonitorsAsync(paused);
     }
 
     /// <summary>

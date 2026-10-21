@@ -131,6 +131,11 @@
                     <TextBlock Classes="section" Text="Wallpaper"/>
                     <CheckBox Content="Pause wallpaper when a fullscreen app is detected (games, video players)"
                               IsChecked="{Binding PauseOnFullscreen}" Foreground="White"/>
+                    <CheckBox Content="Pause only the screen the fullscreen app is on (other screens keep playing)"
+                              IsChecked="{Binding PauseOnlyFullscreenMonitor}" IsEnabled="{Binding PauseOnFullscreen}"
+                              Foreground="White" Margin="24,0,0,0"/>
+                    <TextBlock Text="While paused nothing renders (no CPU / GPU load); the machine stays connected and online."
+                               Foreground="#AAAAAA" FontSize="12" Margin="24,2,0,0" TextWrapping="Wrap"/>
                 </StackPanel>
 
                 <!-- Logging -->

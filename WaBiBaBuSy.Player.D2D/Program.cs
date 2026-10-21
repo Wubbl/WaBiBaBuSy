@@ -1072,6 +1072,13 @@ partial class Program
                     ProcessParentCommand(parentCmd);
                 }
 
+                // Pause on fullscreen: no draw, no Present, no z-order upkeep while a game covers this monitor.
+                if (PauseGate())
+                {
+                    WaitWhilePaused();
+                    continue;
+                }
+
                 // Periodic IconZone icon-position check — runs every 5 s.
                 // Compare live icon positions against the cached set; rebuild zones ONLY
                 // if icons actually moved. Never touches window parenting or Z-order.
@@ -1726,6 +1733,7 @@ partial class Program
             {
                 var player = _vlcPlayer;
                 if (!_running || player == null || !_isPlaying || _videoDurationMs <= 0) return;
+                if (HoldVideoWhilePaused(player)) return;
                 bool loop = _animationConfig?.Loop == true;
                 long elapsed = SyncTiming.ApplyNodePhase((long)(NowUtc - _renderLoopStart).TotalMilliseconds,
                     _nodeOrder, _movementConfig?.NodePhaseDelayMs ?? 0, _perMonitorMode);
@@ -2304,6 +2312,7 @@ partial class Program
         {
             string why = stopping ? "player render loop stopped"
                 : _testModeEnabled ? "player is in swap-chain TEST MODE"
+                : _paused ? "player is paused (fullscreen app on its monitor)"
                 : "no frame was rendered since the probe was due";
             _logger?.LogWarning("[Probe] {Id} answered without a frame: {Why}", req.ProbeId, why);
             _ = EmitProbeReplyAsync(new PlayerProbeReply
@@ -3368,6 +3377,11 @@ partial class Program
                     if (transitionCmd != null) HandleTransitionCommand(transitionCmd);
                     break;
 
+                case "cmd_pause":
+                    var pauseCmd = JsonConvert.DeserializeObject<PlayerCommandPause>(json);
+                    if (pauseCmd != null) HandlePauseCommand(pauseCmd);
+                    break;
+
                 default:
                     Console.WriteLine($"ERROR:Unknown JSON message type: {wrapper.MessageType}");
                     Console.Out.Flush();
@@ -3380,7 +3394,7 @@ partial class Program
             // cmd_test_mode / cmd_probe get no stdout reply: the host does not read one, so an ERROR line here
             // would be taken as the reply to its next command. A broken probe is answered on stderr instead.
             if (messageType == "cmd_probe") RejectMalformedProbe(json, ex);
-            if (messageType is "cmd_test_mode" or "cmd_probe" or "cmd_show_event" or "cmd_agenda" or "cmd_transition") return;
+            if (messageType is "cmd_test_mode" or "cmd_probe" or "cmd_show_event" or "cmd_agenda" or "cmd_transition" or "cmd_pause") return;
             Console.WriteLine($"ERROR:JSON parsing failed: {ex.Message}");
             Console.Out.Flush();
         }

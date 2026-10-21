@@ -55,6 +55,12 @@ public class ClientConfiguration
     public bool PauseOnFullscreen { get; set; } = true;
 
     /// <summary>
+    /// With <see cref="PauseOnFullscreen"/>: pause only the monitor the fullscreen app covers, keep the others playing
+    /// (light games). Off = any fullscreen app pauses every monitor of this machine, so a game gets all resources.
+    /// </summary>
+    public bool PauseOnlyFullscreenMonitor { get; set; }
+
+    /// <summary>
     /// Answer automated test runs from the server (timecode strip, probes with wallpaper screenshots).
     /// Captures contain only the wallpaper back buffer, never other windows.
     /// </summary>

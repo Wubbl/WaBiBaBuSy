@@ -58,9 +58,11 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     private readonly RetiringPlayers _retiring = new();
     // Thumbnail capture per monitor for the room's live tiles
     private readonly ConcurrentDictionary<int, ThumbnailCaptureService> _thumbnailCaptureServices = new();
-    // Hides the players while a fullscreen app runs (created and started with the first local player)
+    // Pauses the players of a monitor a fullscreen app covers (created and started with the first local player)
     private FullscreenDetectionService? _fullscreenDetection;
-    private bool _wallpaperPausedByFullscreen;
+    private volatile bool _pauseOnlyFullscreenMonitor;
+    // Legacy renderers paused by the detection loop (its thread only; Stop clears it once the loop is gone)
+    private readonly HashSet<IWallpaperRenderer> _pausedRenderers = new();
     private PlaylistOrchestrator? _playlistOrchestrator;
     private string? _crossScreenContentId;         // ContentId sent to remote clients at start (used for stop)
 
@@ -1274,15 +1276,18 @@ public sealed partial class ServerPlaybackHost : ObservableObject
 
     private void StartFullscreenDetectionIfNeeded()
     {
-        // Read when playback starts, so "Pause on fullscreen" set in Settings applies without an app restart.
+        if (_fullscreenDetection?.IsRunning == true) return;
+        // Read when detection starts, so the "Pause on fullscreen" settings apply without an app restart.
+        var config = ConfigurationManager.LoadClientConfiguration();
+        if (!config.PauseOnFullscreen) return;
+        _pauseOnlyFullscreenMonitor = config.PauseOnlyFullscreenMonitor;
         if (_fullscreenDetection == null)
         {
-            if (!ConfigurationManager.LoadClientConfiguration().PauseOnFullscreen) return;
-            _fullscreenDetection = new FullscreenDetectionService(AppLogger.CreateLogger<FullscreenDetectionService>());
-            _fullscreenDetection.FullscreenStateChanged += OnFullscreenStateChanged;
+            _fullscreenDetection = new FullscreenDetectionService(
+                AppLogger.CreateLogger<FullscreenDetectionService>(), MonitorBusyProbe.FullscreenMonitors);
+            _fullscreenDetection.FullscreenMonitorsChecked += OnFullscreenMonitorsChecked;
         }
-        if (!_fullscreenDetection.IsRunning)
-            _fullscreenDetection.Start();
+        _fullscreenDetection.Start();
     }
 
     private void StopFullscreenDetectionIfIdle()
@@ -1299,44 +1304,44 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         if (!hasActiveWallpaper)
         {
             _fullscreenDetection.Stop();
-            _wallpaperPausedByFullscreen = false;
+            _pausedRenderers.Clear();
             Debug.WriteLine("[Fullscreen] Detection stopped (no active wallpapers)");
         }
     }
 
-    private void OnFullscreenStateChanged(object? sender, FullscreenStateChangedEventArgs e)
+    /// <summary>
+    /// Every detection check (its loop thread): re-apply the pause to every player on this machine — scene players, the
+    /// remote-driven ones, agenda stand-ins. Players dedupe, so this only sends changes and also catches players started
+    /// since the last check. Networking is untouched: a paused seat stays connected and online.
+    /// </summary>
+    // ponytail: a player started mid-game renders until the next check (≤ 2 s, hidden behind the game anyway) and a
+    // retiring one is not paused (stopped ≤ 15 s later); pause at creation if that ever shows up in the numbers.
+    private void OnFullscreenMonitorsChecked(IReadOnlyList<int> fullscreen)
     {
-        if (e.IsFullscreen)
+        bool only = _pauseOnlyFullscreenMonitor;
+        bool Paused(int monitor) => BusyRule.IsPausedMonitor(monitor, fullscreen, only);
+        // Task.Run: Stop() raises the last check on the caller's (maybe UI) thread; blocking it on its own context would deadlock.
+        try { Task.Run(() => PauseMonitorsAsync(Paused)).GetAwaiter().GetResult(); }
+        catch (Exception ex) { Debug.WriteLine($"[Fullscreen] Pause update failed: {ex.Message}"); }
+    }
+
+    private async Task PauseMonitorsAsync(Func<int, bool> paused)
+    {
+        foreach (var (monitor, player) in _players)
+            await player.SetPausedAsync(paused(monitor));
+        await _agenda.PauseMonitorsAsync(paused);
+        await _remotePlayback.PauseMonitorsAsync(paused);
+
+        foreach (var (monitor, renderer) in _renderers)
         {
-            foreach (var kvp in _players)
-                kvp.Value.SetPlayersVisible(false);
-            _remotePlayback.SetPlayersVisible(false);
-            _agenda.SetVisible(false);
-
-            foreach (var kvp in _renderers)
+            bool pause = paused(monitor);
+            if (pause == _pausedRenderers.Contains(renderer)) continue;
+            try
             {
-                try { kvp.Value.PauseAsync().GetAwaiter().GetResult(); }
-                catch { /* best effort */ }
+                if (pause) { await renderer.PauseAsync(); _pausedRenderers.Add(renderer); }
+                else { await renderer.StartAsync(); _pausedRenderers.Remove(renderer); }
             }
-
-            _wallpaperPausedByFullscreen = true;
-            Debug.WriteLine($"[Fullscreen] Wallpaper hidden — fullscreen app: {e.ProcessName}");
-        }
-        else if (_wallpaperPausedByFullscreen)
-        {
-            foreach (var kvp in _players)
-                kvp.Value.SetPlayersVisible(true);
-            _remotePlayback.SetPlayersVisible(true);
-            _agenda.SetVisible(true);
-
-            foreach (var kvp in _renderers)
-            {
-                try { kvp.Value.StartAsync().GetAwaiter().GetResult(); }
-                catch { /* best effort */ }
-            }
-
-            _wallpaperPausedByFullscreen = false;
-            Debug.WriteLine("[Fullscreen] Wallpaper restored — fullscreen app closed");
+            catch { /* best effort */ }
         }
     }
 

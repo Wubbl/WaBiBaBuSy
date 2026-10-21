@@ -428,19 +428,16 @@ public class D2DCompositionService : IDisposable, ITestProbeTarget
     }
 
     /// <summary>
-    /// Show or hide all D2D player windows. Used for pause-on-fullscreen.
+    /// Pause / resume rendering of every player of this service (pause on fullscreen). Idempotent: each player is
+    /// sent only a change, so callers may re-apply the wanted state on every check.
     /// </summary>
-    public void SetPlayersVisible(bool visible)
+    public async Task SetPausedAsync(bool paused)
     {
-        foreach (var playerHost in _playerHosts.Values)
+        foreach (var host in _playerHosts.Values)
         {
-            if (playerHost.IsRunning && playerHost.PlayerHwnd != IntPtr.Zero)
-            {
-                Win32Interop.ShowWindow(playerHost.PlayerHwnd, visible ? Win32Interop.SW_SHOW : Win32Interop.SW_HIDE);
-            }
+            try { await host.SendPauseAsync(paused); }
+            catch (Exception ex) { _logger.LogError(ex, "Failed to send pause={Paused} to a player host", paused); }
         }
-
-        _logger.LogDebug("D2D players visibility set to {Visible}", visible);
     }
 
     public void Dispose()

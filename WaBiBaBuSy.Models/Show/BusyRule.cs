@@ -25,4 +25,18 @@ public static class BusyRule
             }
         return covered >= BusyCoverage * total;
     }
+
+    /// <summary>
+    /// Pause on fullscreen: one window covers the whole monitor (exclusive or borderless fullscreen). Stricter than
+    /// <see cref="IsBusy"/> — a maximised window leaves the taskbar free, two snapped halves are two windows.
+    /// </summary>
+    public static bool IsFullscreen(Rectangle monitor, IEnumerable<Rectangle> windows) =>
+        monitor.Width > 0 && monitor.Height > 0 && windows.Any(w => w.Contains(monitor));
+
+    /// <summary>
+    /// Pause on fullscreen: is <paramref name="monitor"/> paused while a fullscreen app covers <paramref name="fullscreen"/>?
+    /// <paramref name="onlyThatMonitor"/> = the setting "pause only the busy screen"; off = any one pauses the whole machine.
+    /// </summary>
+    public static bool IsPausedMonitor(int monitor, IReadOnlyCollection<int> fullscreen, bool onlyThatMonitor) =>
+        fullscreen.Count > 0 && (!onlyThatMonitor || fullscreen.Contains(monitor));
 }

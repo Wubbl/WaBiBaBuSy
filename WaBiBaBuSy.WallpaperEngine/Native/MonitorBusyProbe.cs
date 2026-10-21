@@ -20,9 +20,15 @@ public static class MonitorBusyProbe
     private static readonly HashSet<string> ShellClasses = new(StringComparer.Ordinal)
     {
         "Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd",
+        "XamlExplorerHostIslandWindow", "ForegroundStaging",   // shell windows that can span a whole monitor
     };
 
-    public static IReadOnlyList<int> BusyMonitors()
+    public static IReadOnlyList<int> BusyMonitors() => Monitors(BusyRule.IsBusy);
+
+    /// <summary>Monitors one window covers completely (pause on fullscreen, <see cref="BusyRule.IsFullscreen"/>).</summary>
+    public static IReadOnlyList<int> FullscreenMonitors() => Monitors(BusyRule.IsFullscreen);
+
+    private static IReadOnlyList<int> Monitors(Func<Rectangle, IEnumerable<Rectangle>, bool> rule)
     {
         try
         {
@@ -32,7 +38,7 @@ public static class MonitorBusyProbe
             for (int i = 0; i < monitors.Length; i++)
             {
                 var b = monitors[i].Bounds;
-                if (BusyRule.IsBusy(new Rectangle(b.X, b.Y, b.Width, b.Height), windows)) busy.Add(i);
+                if (rule(new Rectangle(b.X, b.Y, b.Width, b.Height), windows)) busy.Add(i);
             }
             return busy;
         }

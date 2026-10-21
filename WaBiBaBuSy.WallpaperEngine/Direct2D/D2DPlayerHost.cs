@@ -572,6 +572,16 @@ public class D2DPlayerHost : IDisposable
         await SendCommandAsync(JsonConvert.SerializeObject(new PlayerCommandTransition { Incoming = incoming, Transition = transition, StartUtcMs = startUtcMs }));
     }
 
+    private bool _paused;   // what this player process was last told (a respawned player is a new host: false)
+
+    /// <summary>Pause / resume rendering (fullscreen app on this monitor); sent only on a change. Fire-and-forget.</summary>
+    public async Task SendPauseAsync(bool paused)
+    {
+        if (!IsRunning || paused == _paused) return;
+        await SendCommandAsync(JsonConvert.SerializeObject(new PlayerCommandPause { Paused = paused }));
+        _paused = paused;
+    }
+
     /// <summary>
     /// Probe the player; completes when its SIGNAL:PROBE arrives on stderr, null on timeout.
     /// A cancelled <paramref name="ct"/> throws <see cref="OperationCanceledException"/>.
