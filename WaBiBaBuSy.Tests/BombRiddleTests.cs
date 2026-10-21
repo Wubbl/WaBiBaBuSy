@@ -5,70 +5,185 @@ using Xunit;
 
 namespace WaBiBaBuSy.Tests;
 
-/// <summary>BiBaBo riddles: every math card evaluates to its intended value; tangles end where they say.</summary>
+/// <summary>BiBaBo riddles: every card, solved independently, yields exactly the value it was made for.</summary>
 public class BombRiddleTests
 {
-    public static IEnumerable<object[]> Seeds() => Enumerable.Range(1, 200).Select(i => new object[] { i });
+    private const int SeedsPerValue = 30;
 
-    [Theory, MemberData(nameof(Seeds))]
-    public void Math_LiveEvaluatesToOne(int seed)
+    private static IEnumerable<(int Value, int Seed, BombRiddle Riddle)> All(RiddleKind kind)
     {
-        var r = BombRiddles.Math(new Random(seed), live: true);
-        Assert.Equal(RiddleKind.Math, r.Kind);
-        Assert.True(Math.Abs(TestFormula.Evaluate(r.Formula!) - 1) < 1e-9, $"{r.Formula} = {TestFormula.Evaluate(r.Formula!)}");
+        var (min, max) = BombRiddles.Range(kind);
+        for (int v = min; v <= max; v++)
+            for (int seed = 0; seed < SeedsPerValue; seed++)
+                yield return (v, seed, BombRiddles.Make(kind, v, new Random(seed * 1000 + v)));
     }
 
-    [Theory, MemberData(nameof(Seeds))]
-    public void Math_DeadNeverOne(int seed)
+    [Theory]
+    [InlineData(RiddleKind.Math), InlineData(RiddleKind.Sequence), InlineData(RiddleKind.Tangle), InlineData(RiddleKind.Maze),
+     InlineData(RiddleKind.Logic), InlineData(RiddleKind.Clock), InlineData(RiddleKind.Dots)]
+    public void EveryKind_SolvesToItsValue(RiddleKind kind)
     {
-        var r = BombRiddles.Math(new Random(seed), live: false);
-        double v = TestFormula.Evaluate(r.Formula!);
-        Assert.True(Math.Abs(v - 1) > 1e-6, $"{r.Formula} = {v}");
+        foreach (var (v, seed, r) in All(kind))
+        {
+            Assert.Equal(kind, r.Kind);
+            Assert.True(TestRiddle.Value(r) == v, $"{kind} seed {seed} value {v}: solver says {TestRiddle.Value(r)} ({r.Formula})");
+            Assert.False(string.IsNullOrWhiteSpace(BombRiddles.Subtitle(r)));
+        }
     }
 
     [Fact]
-    public void Math_UsesEveryTemplate()
+    public void Ranges()
+    {
+        Assert.Equal((0, 9), BombRiddles.Range(RiddleKind.Math));
+        Assert.Equal((0, 7), BombRiddles.Range(RiddleKind.Logic));
+        Assert.Equal((1, 9), BombRiddles.Range(RiddleKind.Clock));
+    }
+
+    [Fact]
+    public void Math_UsesManyShapes()
     {
         var shapes = new HashSet<string>();
-        for (int seed = 0; seed < 500; seed++)
-            foreach (bool live in new[] { true, false })
-                shapes.Add(Shape(BombRiddles.Math(new Random(seed), live).Formula!));
+        for (int seed = 0; seed < 300; seed++)
+            shapes.Add(Shape(BombRiddles.Make(RiddleKind.Math, seed % 10, new Random(seed)).Formula!));
         Assert.True(shapes.Count >= 7, string.Join(" | ", shapes));
     }
 
-    [Theory, MemberData(nameof(Seeds))]
-    public void Tangle_StrandZeroEndsAtDetonatorIffLive(int seed)
+    [Fact]
+    public void Maze_HasExactlyOneReachableExit_AndDistinctLabels()
     {
-        foreach (bool live in new[] { true, false })
+        foreach (var (_, _, r) in All(RiddleKind.Maze))
         {
-            var r = BombRiddles.Tangle(new Random(seed), live);
-            Assert.Equal(RiddleKind.Tangle, r.Kind);
-            Assert.Equal(live, r.StrandExits![0] == 0);
+            Assert.Single(TestRiddle.ReachableExits(r));
+            Assert.Equal(3, r.ExitLabels!.Distinct().Count());
+            Assert.Equal(3, r.ExitRows!.Distinct().Count());
         }
     }
 
     [Fact]
-    public void Tangle_EachExitUsedOnce()
+    public void Tangle_ExitsArePermuted_LabelsDistinct()
     {
-        for (int seed = 0; seed < 50; seed++)
+        foreach (var (_, _, r) in All(RiddleKind.Tangle))
         {
-            var r = BombRiddles.Tangle(new Random(seed), seed % 2 == 0);
-            Assert.Equal(3, r.Strands!.Length);
             Assert.Equal(new[] { 0, 1, 2 }, r.StrandExits!.OrderBy(e => e));
-            Assert.All(r.Strands, s => Assert.All(s, v => Assert.InRange(v, 0f, 1f)));
-            // strands that end at different exits end at different heights
-            var endYs = r.Strands.Select(s => s[^1]).ToArray();
-            Assert.Equal(3, endYs.Distinct().Count());
+            Assert.Equal(3, r.ExitLabels!.Distinct().Count());
+            Assert.All(r.Strands!, s => Assert.All(s, y => Assert.InRange(y, 0f, 1f)));
         }
     }
 
-    /// <summary>The formula with numbers replaced, so templates can be told apart.</summary>
+    [Fact]
+    public void Dots_AreApart_AndTheTargetColourIsNamed()
+    {
+        foreach (var (_, _, r) in All(RiddleKind.Dots))
+        {
+            var d = r.Dots!;
+            for (int i = 0; i < d.Length / 2; i++)
+                for (int j = i + 1; j < d.Length / 2; j++)
+                    Assert.True(MathF.Abs(d[2 * i] - d[2 * j]) + MathF.Abs(d[2 * i + 1] - d[2 * j + 1]) > 0.05f, "dots overlap");
+            Assert.Contains(r.DotTargetName!, BombRiddles.Subtitle(r));
+            Assert.InRange(d.Length / 2, 20, 40);
+        }
+    }
+
+    [Fact]
+    public void Clock_MinutesStayClearOfTheNextHour()
+    {
+        foreach (var (_, _, r) in All(RiddleKind.Clock))
+            Assert.True(r.ClockMinute % 5 == 0 && r.ClockMinute <= 45);
+    }
+
+    /// <summary>The formula with numbers and superscripts removed, so templates can be told apart.</summary>
     private static string Shape(string formula)
     {
         var sb = new StringBuilder();
         foreach (char c in TestFormula.Normalize(formula))
-            if (!char.IsDigit(c) && (sb.Length == 0 || sb[^1] != c)) sb.Append(c);
+            if (!char.IsDigit(c) && !"⁰¹²³⁴⁵⁶⁷⁸⁹".Contains(c) && (sb.Length == 0 || sb[^1] != c)) sb.Append(c);
         return sb.ToString();
+    }
+}
+
+/// <summary>Independent solvers for the riddle cards (what a person at the seat works out).</summary>
+internal static class TestRiddle
+{
+    public static int Value(BombRiddle r) => r.Kind switch
+    {
+        RiddleKind.Math => (int)Math.Round(TestFormula.Evaluate(r.Formula!)) is var m && Math.Abs(TestFormula.Evaluate(r.Formula!) - m) < 1e-9 ? m : int.MinValue,
+        RiddleKind.Sequence => Sequence(r),
+        RiddleKind.Tangle => r.ExitLabels![r.StrandExits![0]],
+        RiddleKind.Maze => ReachableExits(r) is [var only] ? r.ExitLabels![only] : int.MinValue,
+        RiddleKind.Logic => Logic(r),
+        RiddleKind.Clock => r.ClockHour,
+        RiddleKind.Dots => r.DotColors!.Count(c => c == r.DotTarget),
+        _ => int.MinValue,
+    };
+
+    /// <summary>The next term if the shown terms follow one of the patterns people know; MinValue otherwise.</summary>
+    private static int Sequence(BombRiddle r)
+    {
+        var t = r.SequenceTerms!;
+        Assert.Equal(string.Join(", ", t) + ", ?", r.Formula);
+        int n = t.Length;
+        if (t.Zip(t.Skip(1)).All(p => p.First == 2 * p.Second)) return t[^1] / 2;                       // halving
+        var d = t.Zip(t.Skip(1), (a, b) => b - a).ToArray();
+        if (d.Distinct().Count() == 1) return t[^1] + d[0];                                                // arithmetic
+        var dd = d.Zip(d.Skip(1), (a, b) => b - a).ToArray();
+        if (dd.Distinct().Count() == 1) return t[^1] + d[^1] + dd[0];                                      // growing differences
+        if (n % 2 == 1)                                                                                     // interleaved: odd positions arithmetic
+        {
+            var odd = t.Where((_, i) => i % 2 == 0).ToArray();
+            var even = t.Where((_, i) => i % 2 == 1).ToArray();
+            var od = odd.Zip(odd.Skip(1), (a, b) => b - a).Distinct().ToArray();
+            var ed = even.Zip(even.Skip(1), (a, b) => b - a).Distinct().ToArray();
+            if (od.Length == 1 && ed.Length == 1) return even[^1] + ed[0];
+        }
+        else
+        {
+            var odd = t.Where((_, i) => i % 2 == 0).ToArray();
+            var even = t.Where((_, i) => i % 2 == 1).ToArray();
+            var od = odd.Zip(odd.Skip(1), (a, b) => b - a).Distinct().ToArray();
+            var ed = even.Zip(even.Skip(1), (a, b) => b - a).Distinct().ToArray();
+            if (od.Length == 1 && ed.Length == 1) return odd[^1] + od[0];
+        }
+        return int.MinValue;
+    }
+
+    private static int Logic(BombRiddle r)
+    {
+        int In(string name) => r.LogicInputs!["ABC".IndexOf(name[0])];
+        int value = 0;
+        for (int k = 0; k < 3; k++)
+        {
+            var parts = r.LogicGates![k].Split(' ');
+            int a = In(parts[1]), b = In(parts[2]);
+            int o = parts[0] switch
+            {
+                "AND" => a & b, "OR" => a | b, "XOR" => a ^ b, "NAND" => 1 - (a & b), "NOR" => 1 - (a | b),
+                _ => throw new InvalidOperationException(parts[0]),
+            };
+            value += o * (4 >> k);
+        }
+        return value;
+    }
+
+    /// <summary>Exits (indices into ExitRows) reachable from the entry, walking through open walls.</summary>
+    public static List<int> ReachableExits(BombRiddle r)
+    {
+        int w = r.MazeW, h = r.MazeH;
+        var walls = r.MazeWalls!;
+        var seen = new bool[w * h];
+        var queue = new Queue<int>();
+        int start = r.MazeEntryRow * w;
+        seen[start] = true;
+        queue.Enqueue(start);
+        while (queue.Count > 0)
+        {
+            int c = queue.Dequeue(), x = c % w, y = c / w;
+            void Go(int nx, int ny) { int n = ny * w + nx; if (!seen[n]) { seen[n] = true; queue.Enqueue(n); } }
+            if (x + 1 < w && (walls[c] & 1) == 0) Go(x + 1, y);
+            if (y + 1 < h && (walls[c] & 2) == 0) Go(x, y + 1);
+            if (x > 0 && (walls[c - 1] & 1) == 0) Go(x - 1, y);
+            if (y > 0 && (walls[c - w] & 2) == 0) Go(x, y - 1);
+        }
+        return Enumerable.Range(0, r.ExitRows!.Length).Where(e => seen[r.ExitRows[e] * w + (w - 1)]).ToList();
     }
 }
 
@@ -114,7 +229,12 @@ internal static class TestFormula
             return v;
         }
 
-        private double Unary() => Peek == '-' ? (Pos++ > -1 ? -Unary() : 0) : Power();
+        private double Unary()
+        {
+            if (Peek != '-') return Power();
+            Pos++;
+            return -Unary();
+        }
 
         private double Power()
         {
@@ -123,9 +243,7 @@ internal static class TestFormula
             {
                 var sb = new StringBuilder();
                 while (Pos < Text.Length && Sup.Contains(Text[Pos])) sb.Append(Plain[Sup.IndexOf(Text[Pos++])]);
-                var inner = new Parser(sb.ToString());
-                double e = inner.Expr();
-                return Math.Pow(b, e);
+                return Math.Pow(b, new Parser(sb.ToString()).Expr());
             }
             return b;
         }

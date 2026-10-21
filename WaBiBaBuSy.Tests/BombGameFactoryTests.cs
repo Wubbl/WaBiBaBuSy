@@ -111,9 +111,7 @@ public class BombGameFactoryTests
         for (int i = 0; i < 3; i++)
         {
             var r = g.Cables[i].Riddle;
-            bool cardSaysLive = r.Kind == RiddleKind.Math
-                ? Math.Abs(TestFormula.Evaluate(r.Formula!) - 1) < 1e-9
-                : r.StrandExits![0] == 0;
+            bool cardSaysLive = TestRiddle.Value(r) == 1;
             Assert.Equal(i == live, cardSaysLive);
         }
     }

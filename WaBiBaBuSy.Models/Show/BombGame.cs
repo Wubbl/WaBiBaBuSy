@@ -4,8 +4,8 @@ namespace WaBiBaBuSy.Models.Show;
 [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
 public enum BombResult { None, Defused, Recycled, WrongCable, Timeout, Aborted }
 
-/// <summary>The riddle at a cable's end.</summary>
-public enum RiddleKind { Math, Tangle }
+/// <summary>The riddle at a cable's end; every kind yields a digit (design §14.1).</summary>
+public enum RiddleKind { Math, Tangle, Maze, Logic, Sequence, Clock, Dots }
 
 /// <summary>What a riddle card shows. Live is never stored: it is what solving the card tells you.</summary>
 public sealed class BombRiddle
@@ -21,8 +21,36 @@ public sealed class BombRiddle
     /// <summary>Tangle: three polylines (y values at evenly spaced x from 0.05 to 0.95, card-local 0..1); strand 0 continues this cable.</summary>
     public float[][]? Strands { get; set; }
 
-    /// <summary>Tangle: the exit each strand ends at — 0 = DETONATOR, 1 and 2 = GROUND.</summary>
+    /// <summary>Tangle: the exit each strand ends at (index into <see cref="ExitLabels"/>).</summary>
     public int[]? StrandExits { get; set; }
+
+    /// <summary>Tangle / Maze: the digit written at each exit.</summary>
+    public int[]? ExitLabels { get; set; }
+
+    /// <summary>Sequence: the shown terms (the card text is them + "?").</summary>
+    public int[]? SequenceTerms { get; set; }
+
+    /// <summary>Maze: cells (W × H, row-major); bit 1 = wall on the right, bit 2 = wall below. Entry on the left at <see cref="MazeEntryRow"/>, exits on the right at <see cref="ExitRows"/>.</summary>
+    public int MazeW { get; set; }
+    public int MazeH { get; set; }
+    public int[]? MazeWalls { get; set; }
+    public int MazeEntryRow { get; set; }
+    public int[]? ExitRows { get; set; }
+
+    /// <summary>Logic: inputs A B C (0/1) and three gates ("XOR A C") driving the lamps 4, 2, 1.</summary>
+    public int[]? LogicInputs { get; set; }
+    public string[]? LogicGates { get; set; }
+
+    /// <summary>Clock: the real time; the card draws it mirrored.</summary>
+    public int ClockHour { get; set; }
+    public int ClockMinute { get; set; }
+
+    /// <summary>Dots: centres (x, y in 0..1), colour index per dot, the palette, which colour to count and its name.</summary>
+    public float[]? Dots { get; set; }
+    public int[]? DotColors { get; set; }
+    public string[]? DotPalette { get; set; }
+    public int DotTarget { get; set; }
+    public string? DotTargetName { get; set; }
 }
 
 /// <summary>One cable: from a bomb terminal across the seats to its riddle card.</summary>

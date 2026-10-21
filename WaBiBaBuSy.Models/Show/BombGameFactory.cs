@@ -76,7 +76,7 @@ public static class BombGameFactory
                 CardY = end.OffsetY + end.Height / 2f - h / 2f,
                 CardW = w,
                 CardH = h,
-                Riddle = rng.Next(2) == 0 ? BombRiddles.Math(rng, i == live) : BombRiddles.Tangle(rng, i == live),
+                Riddle = InterimRiddle(rng, i == live),
             };
 
             float dx = cable.CardX + w / 2f - game.BombX;
@@ -90,6 +90,14 @@ public static class BombGameFactory
             game.Cables.Add(cable);
         }
         return (game, live);
+    }
+
+    // ponytail: interim until the rule roll (variation Task 2): Math or Tangle, 1 = live.
+    private static BombRiddle InterimRiddle(Random rng, bool live)
+    {
+        var kind = rng.Next(2) == 0 ? RiddleKind.Math : RiddleKind.Tangle;
+        int value = live ? 1 : new[] { 0, 2, 3, 4, 5, 6, 7, 8, 9 }[rng.Next(9)];
+        return BombRiddles.Make(kind, value, rng);
     }
 
     /// <summary>
