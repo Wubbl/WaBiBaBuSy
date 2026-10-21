@@ -18,13 +18,13 @@ public class BombMathTests
     };
 
     [Fact]
-    public void LogoTimerRect_FollowsTheFittedLogo()
+    public void LogoTimerRect_ScalesWithTheBomb()
     {
         var g = Game();
         g.BombSize = 100;
-        Assert.Null(BombMath.LogoTimerRect(g, 800, 1000));                       // no box
-        g.LogoTimerBox = new[] { 0.25f, 0.8f, 0.5f, 0.1f };
-        var r = BombMath.LogoTimerRect(g, 800, 1000)!.Value;                     // drawn 80 × 100, centred
+        Assert.Null(BombMath.LogoTimerRect(g));                                  // no box
+        g.LogoTimerBox = new[] { -0.2f, 0.3f, 0.4f, 0.1f };
+        var r = BombMath.LogoTimerRect(g)!.Value;
         Assert.Equal(-20f, r.Dx, 3);
         Assert.Equal(30f, r.Dy, 3);
         Assert.Equal(40f, r.W, 3);

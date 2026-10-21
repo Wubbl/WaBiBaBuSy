@@ -92,7 +92,7 @@ public sealed partial class ScenePainter
             if (node.Id == g.BombNodeId && g.Result == BombResult.Defused)
             {
                 var center = new Point(rect.X + NodeMapping.ToLocalX(g.BombX, 0, node) * s, rect.Y + (g.BombY - node.OffsetY) * s);
-                PaintBombBody(ctx, center, g.BombSize * s, evt.ImagePath);
+                PaintBombBody(ctx, center, g.BombSize * s * Math.Max(1f, g.OutcomeImageScale), evt.ImagePath);   // the beer's first frame = the logo
                 PaintBombTimer(ctx, rect, s, node, g, g.RemainingMs, BombGreen, evt.ImagePath);
             }
         }
@@ -138,7 +138,7 @@ public sealed partial class ScenePainter
     private void PaintBombTimer(DrawingContext ctx, Rect rect, double s, NodeLayout node, BombGame g, int remainingMs, IBrush brush, string? logoPath)
     {
         double bx = rect.X + NodeMapping.ToLocalX(g.BombX, 0, node) * s, by = rect.Y + (g.BombY - node.OffsetY) * s;
-        if (node.Id == g.BombNodeId && EventImage(logoPath) is { } logo && BombMath.LogoTimerRect(g, (float)logo.Size.Width, (float)logo.Size.Height) is { } r)
+        if (node.Id == g.BombNodeId && EventImage(logoPath) != null && BombMath.LogoTimerRect(g) is { } r)
         {
             PaintFittedText(ctx, new Rect(bx + r.Dx * s, by + r.Dy * s, r.W * s, r.H * s).Deflate(0.12 * r.H * s), BombMath.FormatTimer(remainingMs), brush);
         }

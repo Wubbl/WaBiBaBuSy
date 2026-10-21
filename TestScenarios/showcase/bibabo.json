@@ -31,6 +31,8 @@
     { "type": "showEvent", "label": "defused", "atElapsedMs": 100000, "event": { "type": "BombOutcome" }, "bombOutcome": "Defused" },
     { "type": "wait", "label": "text sprites", "ms": 2000 },
     { "type": "exactFrame", "label": "DEFUSED t=+2s", "elapsedMs": 102000 },
+    { "type": "exactFrame", "label": "DEFUSED t=+3s (beer morph)", "elapsedMs": 103000 },
+    { "type": "exactFrame", "label": "DEFUSED t=+6s (beer)", "elapsedMs": 106000 },
 
     { "type": "stop" }
   ]

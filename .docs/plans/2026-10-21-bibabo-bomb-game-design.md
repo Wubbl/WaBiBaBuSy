@@ -305,7 +305,9 @@ the existing foreground-only `FullscreenDetectionService` into a per-monitor `Mo
   the bomb seat's countdown is drawn into the box (`BombGame.LogoTimerBox`, fractions of the image) instead of above
   the bomb; an APPDATA override has no box and keeps the timer above. BOOM outcomes carry an explosion GIF instead of
   the logo (`bibabo-boom.gif`: fireball + BiBaBu logo styles bursting out, BiBaBu `tools/bibabo/boom_art.py`), played
-  once over the bomb seat.
+  once over the bomb seat; DEFUSED outcomes carry `bibabo-beer.gif` (the logo's Bier morphs into a cartoon beer,
+  "YOU EARNED A BEER!", BiBaBu `tools/bibabo/beer_art.py`), held on its last frame. `BombGame.OutcomeImageScale` sizes
+  both; `LogoTimerBox` is in bomb sizes.
 - **Busy rule** *[call]*: "covered by a window ≥ 80 %" (§8.1) — a small chat window doesn't make a seat busy, a
   maximised browser does.
 

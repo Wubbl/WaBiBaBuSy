@@ -437,7 +437,7 @@ public sealed class TestRunner
                     evt.Bomb = g.WithOutcome(result, result is BombResult.Defused or BombResult.WrongCable ? 0 : -1,
                         BombMath.RemainingMs(g, evt.T0Utc - _lastBomb.T0Utc));
                     evt.DurationMs = result == BombResult.Aborted ? BombMath.AbortDurationMs : BombMath.OutcomeDurationMs;
-                    evt.ImagePath = BombLogo.OutcomeImage(result, _lastBomb.ImagePath);
+                    (evt.ImagePath, evt.Bomb.OutcomeImageScale) = BombLogo.OutcomeImage(result, _lastBomb.ImagePath, shippedLogo: g.LogoTimerBox.Length == 4);
                 }
                 await _host.FireShowEventAsync(evt, ct);
                 sr.Verdict = Verdict.Pass;

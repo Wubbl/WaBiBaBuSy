@@ -158,6 +158,9 @@ public sealed class BombGameService
         var bomb = _bomb!;
         var g = bomb.Bomb!.WithProgress(_cut, _typed);
         _bomb = null;
+        var (image, scale) = BombLogo.OutcomeImage(result, bomb.ImagePath, shippedLogo: g.LogoTimerBox.Length == 4);
+        var decided = g.WithOutcome(result, cut, BombMath.RemainingMs(g, now - bomb.T0Utc));
+        decided.OutcomeImageScale = scale;
         var outcome = new ShowEvent
         {
             EventId = Guid.NewGuid().ToString("N"),
@@ -166,9 +169,9 @@ public sealed class BombGameService
             DurationMs = result == BombResult.Aborted ? BombMath.AbortDurationMs : BombMath.OutcomeDurationMs,
             Seed = bomb.Seed,
             ColorHex = bomb.ColorHex,
-            ImagePath = BombLogo.OutcomeImage(result, bomb.ImagePath),
+            ImagePath = image,
             TargetNodeIds = bomb.TargetNodeIds,
-            Bomb = g.WithOutcome(result, cut, BombMath.RemainingMs(g, now - bomb.T0Utc)),
+            Bomb = decided,
         };
         await _dispatch(outcome);
     }

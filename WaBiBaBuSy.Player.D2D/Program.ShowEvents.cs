@@ -152,7 +152,7 @@ partial class Program
             }
             frames.Add(frame.ToBitmap());
             int delay = (int)(frame.AnimationDelay * 10);
-            delays.Add(delay <= 0 ? 100 : Math.Min(delay, 1000));
+            delays.Add(delay <= 0 ? 100 : Math.Min(delay, 5000));   // BiBaBo's beer holds its first frame 2.5 s
         }
         return new EventSpriteFrames { Frames = frames, DelaysMs = delays };
     }

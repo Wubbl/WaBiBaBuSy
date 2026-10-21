@@ -315,16 +315,25 @@ partial class Program
         }
     }
 
-    /// <summary>BOOM: the outcome's image (the explosion GIF) over the bomb, played once from the outcome's T0.</summary>
-    private static void DrawBoomOnce(ShowEvent evt, BombGame g, long local)
+    /// <summary>
+    /// The outcome's animation (explosion on BOOM, beer on DEFUSED) over the bomb, played once from the outcome's T0 and
+    /// fitted into OutcomeImageScale bomb sizes; BOOM ends with it, the beer holds its last frame. False = none.
+    /// </summary>
+    private static bool DrawOutcomeAnimation(ShowEvent evt, BombGame g, long local, bool holdLast)
     {
-        if (!_eventSprites.TryGetValue(IdsOf(evt).Logo, out var boom) || local < 0 || local >= boom.TotalMs) return;
-        var frame = SpriteFrame(boom, local);
+        if (g.OutcomeImageScale <= 0 || local < 0 || !_eventSprites.TryGetValue(IdsOf(evt).Logo, out var sprite)) return false;
+        if (local >= sprite.TotalMs && !holdLast) return true;
+        var frame = local >= sprite.TotalMs ? sprite.Frames[^1] : SpriteFrame(sprite, local);
         var bs = frame.Size;
-        float size = 3f * g.BombSize, k = Math.Min(size / bs.Width, size / bs.Height);
+        float size = g.OutcomeImageScale * g.BombSize, k = Math.Min(size / bs.Width, size / bs.Height);
         float w = bs.Width * k, h = bs.Height * k, cx = LocalX(g.BombX), cy = g.BombY - _layout.OffsetY;
         _d2dContext!.DrawBitmap(frame, new RectangleF(cx - w / 2f, cy - h / 2f, w, h), 1f, BitmapInterpolationMode.Linear, null);
+        return true;
     }
+
+    /// <summary>The beer's first frame is the logo: the frozen timer stays in its box until the morph starts.</summary>
+    private static bool OnOutcomeFirstFrame(ShowEvent evt, long local) =>
+        _eventSprites.TryGetValue(IdsOf(evt).Logo, out var sprite) && local < sprite.DelaysMs[0];
 
     private static ID2D1Bitmap SpriteFrame(EventSpriteGpu sprite, long local)
     {
@@ -591,9 +600,7 @@ partial class Program
     /// <summary>The countdown inside the logo's timer box (the shipped BiBaBo logo); false = no box or logo yet, draw it elsewhere.</summary>
     private static bool DrawTimerInLogo(ShowEvent evt, BombGame g, int remainingMs, Color4 color)
     {
-        if (!_eventSprites.TryGetValue(IdsOf(evt).Logo, out var logo)) return false;
-        var size = logo.Frames[0].Size;
-        if (BombMath.LogoTimerRect(g, size.Width, size.Height) is not { } r) return false;
+        if (!_eventSprites.ContainsKey(IdsOf(evt).Logo) || BombMath.LogoTimerRect(g) is not { } r) return false;
         float h = Math.Min(0.72f * r.H, 0.9f * r.W / SevenSegAspect);
         float cx = LocalX(g.BombX) + r.Dx + r.W / 2f, cy = g.BombY - _layout.OffsetY + r.Dy + r.H / 2f;
         DrawSevenSegTimer(remainingMs, cx - h * SevenSegAspect / 2f, cy - h / 2f, h, color, centred: false);
@@ -699,7 +706,7 @@ partial class Program
                         _d2dContext.DrawEllipse(new Ellipse(center, radius, radius), _eventBrush, 60f);
                     }
                 }
-                if (_layout.Id == g.BombNodeId) DrawBoomOnce(evt, g, local);
+                if (_layout.Id == g.BombNodeId) DrawOutcomeAnimation(evt, g, local, holdLast: false);
                 DrawCelebration(evt, local, canvas, FirePalette);
                 if (local >= 300)
                     DrawBombText(IdsOf(evt).Text, 0.1f * _layout.Width, 0.35f * _layout.Height, 0.8f * _layout.Width, 0.3f * _layout.Height, fadeOut, centred: true);
@@ -717,9 +724,16 @@ partial class Program
         {
             bool recycled = g.Result == BombResult.Recycled;
             float scale = recycled ? Math.Max(0f, 1f - local / 1200f) : 1f;
-            DrawBombBody(evt, g, local, 0f, scale, recycled ? local * 0.4f : 0f);
-            if (recycled || !DrawTimerInLogo(evt, g, g.RemainingMs, BombTimerGreen))
-                DrawSevenSegTimer(g.RemainingMs, g.BombX, g.BombY - _layout.OffsetY - 1.05f * g.BombSize, 0.4f * g.BombSize, BombTimerGreen, centred: true);
+            if (!recycled && DrawOutcomeAnimation(evt, g, local, holdLast: true))
+            {
+                if (OnOutcomeFirstFrame(evt, local)) DrawTimerInLogo(evt, g, g.RemainingMs, BombTimerGreen);
+            }
+            else
+            {
+                DrawBombBody(evt, g, local, 0f, scale, recycled ? local * 0.4f : 0f);
+                if (recycled || !DrawTimerInLogo(evt, g, g.RemainingMs, BombTimerGreen))
+                    DrawSevenSegTimer(g.RemainingMs, g.BombX, g.BombY - _layout.OffsetY - 1.05f * g.BombSize, 0.4f * g.BombSize, BombTimerGreen, centred: true);
+            }
         }
         DrawCornerTimer(g.RemainingMs, BombTimerGreen);
         DrawCelebration(evt, local, canvas, null);

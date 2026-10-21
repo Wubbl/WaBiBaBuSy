@@ -133,17 +133,11 @@ public static class BombMath
     }
 
     /// <summary>
-    /// The logo's timer box as (dx, dy) from the bomb's local centre + size, canvas units, for a logo of
-    /// <paramref name="imageW"/> × <paramref name="imageH"/> fitted into the BombSize square (as the players draw it);
-    /// null without a <see cref="BombGame.LogoTimerBox"/>.
+    /// The logo's timer box as (dx, dy) from the bomb's local centre + size, canvas units (not mirrored); null without a
+    /// <see cref="BombGame.LogoTimerBox"/>.
     /// </summary>
-    public static (float Dx, float Dy, float W, float H)? LogoTimerRect(BombGame g, float imageW, float imageH)
-    {
-        if (g.LogoTimerBox is not { Length: 4 } b || imageW <= 0 || imageH <= 0) return null;
-        float k = Math.Min(g.BombSize / imageW, g.BombSize / imageH);
-        float w = imageW * k, h = imageH * k;
-        return (-w / 2f + b[0] * w, -h / 2f + b[1] * h, b[2] * w, b[3] * h);
-    }
+    public static (float Dx, float Dy, float W, float H)? LogoTimerRect(BombGame g) =>
+        g.LogoTimerBox is { Length: 4 } b ? (b[0] * g.BombSize, b[1] * g.BombSize, b[2] * g.BombSize, b[3] * g.BombSize) : null;
 
     /// <summary>The bomb is drawn from the drop until its outcome's T0.</summary>
     public static bool BombVisible(BombGame g, long bombLocalMs, ShowEvent? outcome, long outcomeLocalMs) =>

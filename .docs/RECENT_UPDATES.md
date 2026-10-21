@@ -4,7 +4,9 @@
 
 ---
 
-## 2026-10-21 (night) — BiBaBo logo: bombs instead of Busen, countdown in the timer box; explosion GIF
+## 2026-10-21 (night) — BiBaBo logo: bombs instead of Busen, countdown in the timer box; explosion and beer GIFs
+
+- **Beer on DEFUSED**: the bomb seat plays `Content/bibabo-beer.gif` once and holds its last frame (8 s, 2 × the bomb size): the logo with the frozen green time for 2.5 s, then the logo's Bier glides to the middle, grows and morphs into the cartoon beer (`bier_sticker`), which bobs among sparkles under "YOU EARNED A BEER!". Only with the shipped logo (its first frame is that logo); RECYCLED unchanged. `BombGame.OutcomeImageScale` (outcome animation size in bomb sizes: boom 3, beer 2) drives the player's `DrawOutcomeAnimation` for both; `LogoTimerBox` is now in bomb sizes (no image size needed); GIF frame delays are capped at 5 s (was 1 s). Made by BiBaBu `tools/bibabo/beer_art.py` (`--text` for other wording). Showcase frames DEFUSED +3 s / +6 s show the morph and the beer.
 
 - **Explosion**: on BOOM the bomb seat plays `Content/bibabo-boom.gif` **once** (1.7 s, 3 × the bomb size, over the flash / shockwave / fire): a Klein-rendered cartoon fireball swells and turns to smoke while 22 BiBaBu logo styles (gold Bart, neon Bier, pretzel Busen, … from `bibabu_styles`) burst out spinning. The BOOM outcome carries it as its image (`BombLogo.OutcomeImage`; DEFUSED / RECYCLED keep the logo), player `DrawBoomOnce`; `%APPDATA%\WaBiBaBuSy\bibabo-boom.gif` overrides. Made by BiBaBu `tools/bibabo/boom_art.py`. Verified in the showcase (new exact frame "BOOM t=+1.2s"); the "BOOM!" text covers the fireball's centre.
 
