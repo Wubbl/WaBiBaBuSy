@@ -53,6 +53,20 @@ public static class BombHit
         return -1;
     }
 
+    /// <summary>
+    /// The keypad key (0–9, 10 = C) for a typed key: the number row, the numpad (with Num Lock off too — its keys then
+    /// arrive without the E0 prefix the cursor block has), Backspace / Delete / C = clear; −1 for any other key.
+    /// </summary>
+    public static int KeyFromVirtualKey(int vkey, bool extended) => vkey switch
+    {
+        >= 0x30 and <= 0x39 => vkey - 0x30,                 // number row
+        >= 0x60 and <= 0x69 => vkey - 0x60,                 // numpad, Num Lock on
+        0x08 or 0x2E or 0x43 => 10,                         // Backspace, Delete (numpad "," with Num Lock off too), C
+        _ when extended => -1,                              // cursor block: Insert, Home, arrows … are never digits
+        0x2D => 0, 0x23 => 1, 0x28 => 2, 0x22 => 3, 0x25 => 4, 0x0C => 5, 0x27 => 6, 0x24 => 7, 0x26 => 8, 0x21 => 9,   // numpad, Num Lock off
+        _ => -1,
+    };
+
     /// <summary>True when the centre of an icon (node-local device pixels) lies on the bomb.</summary>
     public static bool CoversBomb(BombGame g, NodeLayout node, (float X, float Y, float W, float H) localPxRect)
     {

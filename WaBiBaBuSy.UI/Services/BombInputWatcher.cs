@@ -9,15 +9,16 @@ using WaBiBaBuSy.WallpaperEngine.Native;
 namespace WaBiBaBuSy.UI.Services;
 
 /// <summary>
-/// BiBaBo input on this machine when it holds the bomb (design §8): desktop clicks on a cable's cut zone, and the Recycle
-/// Bin icon moved onto the bomb (polled 4× a second). Started for a Bomb event whose bomb node is one of this machine's
+/// BiBaBo input on this machine when it holds the bomb (design §8): desktop clicks on a cable's cut zone or a keypad key,
+/// number keys typed while the desktop has the focus (keypad games), and the Recycle Bin icon moved onto the bomb
+/// (polled 4× a second). Started for a Bomb event whose bomb node is one of this machine's
 /// monitors, stopped at the outcome or shortly after the deadline. Observes only; reports through <c>report</c>
 /// ("cut", cable) / ("recycle", −1) — the server referees.
 /// </summary>
 public sealed class BombInputWatcher : IDisposable
 {
     private readonly Func<string, string, int, Task> _report;   // (game id, action, cable)
-    private RawMouseSink? _mouse;
+    private RawInputSink? _input;
     private CancellationTokenSource? _cts;
     private string? _gameId;
 
@@ -39,10 +40,10 @@ public sealed class BombInputWatcher : IDisposable
         long untilMs = bomb.T0Utc + game.IntroMs + game.TimerMs + 1000 - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         _cts.CancelAfter(TimeSpan.FromMilliseconds(Math.Max(1000, untilMs)));
         var token = _cts.Token;
-        token.Register(() => _mouse?.Stop());
+        token.Register(() => _input?.Stop());
 
-        _mouse = new RawMouseSink();
-        _mouse.LeftButtonDown += (x, y) =>
+        _input = new RawInputSink();
+        _input.LeftButtonDown += (x, y) =>
         {
             if (token.IsCancellationRequested || !bounds.Contains(x, y)) return;
             float px = (x - bounds.X) * scaleX, py = (y - bounds.Y) * scaleY;
@@ -57,7 +58,13 @@ public sealed class BombInputWatcher : IDisposable
             Debug.WriteLine($"[BiBaBo] Desktop click at {x},{y} → cable {cable}");
             if (cable >= 0) _ = Report(bomb.EventId, "cut", cable);
         };
-        _mouse.Start();
+        _input.KeyDown += (vkey, extended) =>
+        {
+            if (token.IsCancellationRequested || game.Mode != BombMode.Keypad) return;
+            int key = BombHit.KeyFromVirtualKey(vkey, extended);
+            if (key >= 0) _ = Report(bomb.EventId, "key", key);
+        };
+        _input.Start();
 
         var thread = new Thread(() => WatchRecycleBin(bomb.EventId, game, node, bounds, scaleX, scaleY, token)) { IsBackground = true, Name = "BiBaBoRecycleBin" };
         thread.SetApartmentState(ApartmentState.STA);   // shell COM
@@ -95,8 +102,8 @@ public sealed class BombInputWatcher : IDisposable
         _cts?.Cancel();
         _cts?.Dispose();
         _cts = null;
-        _mouse?.Stop();
-        _mouse = null;
+        _input?.Stop();
+        _input = null;
         _gameId = null;
     }
 

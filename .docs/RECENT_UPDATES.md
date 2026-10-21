@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-10-21 (late night) — BiBaBo after the first hands-on test: bigger bomb, rules beside it, typed keypad codes
+
+- **Bigger bomb**: 50 % of the seat's height (was 35 %), centred at 42 % so the keypad fits below; the countdown in the box grows with it. Rules (or "RULES: somewhere in the room") moved **left of the bomb**, right-aligned beside the bombs below the cable terminals, on a dark panel so cables pass behind; keypad keys keep their on-screen size. The timer above a custom logo moved into the space above (`BombMath.TimerAboveTop/Height`).
+- **Fixes**: the logo's bombs were cut off at the bottom of `bibabo-bomb.gif` (the SVG page ended at the bra's bottom; now 12 mm more, `LogoTimerBox` re-measured); "YOU EARNED A BEER!" was cut at the top of the beer GIF (now top-anchored and height-capped; the beer GIF is 1.6 bomb sizes for the bigger bomb, the explosion 2.2).
+- **Typing the keypad code**: the keypad only took clicks on the drawn keys. `RawMouseSink` → `RawInputSink` also observes the keyboard: number row, numpad (Num Lock on or off), Backspace / Delete / C = clear — only while the desktop has the focus (like clicks: typing into a chat or game never counts), only on the bomb machine during a keypad game, auto-repeat ignored (`BombHit.KeyFromVirtualKey`). Rule line now says "click or type it on the keypad".
+- **Verified**: build + 1305 tests (key mapping); showcase frames on this machine: bigger bomb with intact logo, rules beside it, keypad below, BOOM, beer with the full title. **Not verified**: typing on a real keyboard (needs a person at the desktop).
+
 ## 2026-10-21 (night) — BiBaBo logo: bombs instead of Busen, countdown in the timer box; explosion and beer GIFs
 
 - **Beer on DEFUSED**: the bomb seat plays `Content/bibabo-beer.gif` once and holds its last frame (8 s, 2 × the bomb size): the logo with the frozen green time for 2.5 s, then the logo's Bier glides to the middle, grows and morphs into the cartoon beer (`bier_sticker`), which bobs among sparkles under "YOU EARNED A BEER!". Only with the shipped logo (its first frame is that logo); RECYCLED unchanged. `BombGame.OutcomeImageScale` (outcome animation size in bomb sizes: boom 3, beer 2) drives the player's `DrawOutcomeAnimation` for both; `LogoTimerBox` is now in bomb sizes (no image size needed); GIF frame delays are capped at 5 s (was 1 s). Made by BiBaBu `tools/bibabo/beer_art.py` (`--text` for other wording). Showcase frames DEFUSED +3 s / +6 s show the morph and the beer.

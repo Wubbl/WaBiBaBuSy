@@ -9,10 +9,10 @@ namespace WaBiBaBuSy.Core.Services.Show;
 public static class BombLogo
 {
     /// <summary>The shipped logo's timer box (dx, dy, w, h in bomb sizes), as printed by BiBaBu tools/bibabo/bomb_art.py.</summary>
-    private static readonly float[] ShippedTimerBox = { -0.1776f, 0.3612f, 0.1304f, 0.0665f };
+    private static readonly float[] ShippedTimerBox = { -0.1715f, 0.3319f, 0.1260f, 0.0643f };
 
-    /// <summary>Outcome animations' size in bomb sizes (the beer starts with the logo at exactly 1 bomb size).</summary>
-    private const float BoomScale = 3f, BeerScale = 2f;
+    /// <summary>Outcome animations' size in bomb sizes (the beer starts with the logo at exactly 1 bomb size: beer_art.py).</summary>
+    private const float BoomScale = 2.2f, BeerScale = 1.6f;
 
     /// <summary>
     /// %APPDATA%\WaBiBaBuSy\bibabo-bomb.gif (or .png), else the shipped Content\bibabo-bomb.gif with its timer box;

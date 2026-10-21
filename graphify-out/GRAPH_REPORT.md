@@ -1,16 +1,16 @@
 # Graph Report - WaBiBaBuSy  (2026-10-21)
 
 ## Corpus Check
-- 398 files · ~632,396 words
+- 398 files · ~632,347 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 5034 nodes · 8412 edges · 368 communities (137 shown, 231 thin omitted)
+- 5035 nodes · 8412 edges · 369 communities (138 shown, 231 thin omitted)
 - Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 178 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `75141526`
+- Built from commit: `e80fb04d`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -373,7 +373,7 @@
 - `D2DCompositionService` --references--> `VirtualCanvasManager`  [EXTRACTED]
   WaBiBaBuSy.WallpaperEngine/Composition/D2DCompositionService.cs → _archive/legacy-gdi-composition/CompositionRenderer.cs
 
-## Communities (368 total, 231 thin omitted)
+## Communities (369 total, 231 thin omitted)
 
 ### Community 0 - "Community 0"
 Cohesion: 0.03
@@ -792,11 +792,11 @@ Nodes (3): Archived files, Archived: Legacy GDI+ Composition & Frame-Streaming S
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `int` connect `Community 61` to `Community 0`, `Community 1`, `Community 2`, `Community 3`, `Community 4`, `Community 5`, `Community 6`, `Community 7`, `Community 8`, `Community 9`, `Community 10`, `Community 12`, `Community 13`, `Community 14`, `Community 15`, `Community 19`, `Community 21`, `Community 22`, `Community 25`, `Community 26`, `Community 28`, `Community 31`, `Community 32`, `Community 39`, `Community 43`, `Community 48`, `Community 50`, `Community 53`, `Community 56`, `Community 59`, `Community 63`, `Community 64`, `Community 67`, `Community 68`, `Community 69`, `Community 78`, `Community 85`, `Community 87`, `Community 90`, `Community 97`, `Community 99`, `Community 100`, `Community 109`, `Community 111`, `Community 116`, `Community 118`, `Community 124`, `Community 131`, `Community 132`, `Community 145`, `Community 153`, `Community 155`, `Community 157`, `Community 162`, `Community 163`, `Community 174`, `Community 176`, `Community 185`, `Community 186`, `Community 187`, `Community 188`, `Community 198`, `Community 199`, `Community 201`, `Community 203`, `Community 204`, `Community 212`, `Community 228`, `Community 229`, `Community 236`, `Community 247`, `Community 248`, `Community 251`, `Community 260`, `Community 263`, `Community 267`, `Community 268`, `Community 276`, `Community 281`?**
-  _High betweenness centrality (0.192) - this node is a cross-community bridge._
+  _High betweenness centrality (0.183) - this node is a cross-community bridge._
 - **Why does `string` connect `Community 65` to `Community 0`, `Community 1`, `Community 2`, `Community 4`, `Community 6`, `Community 7`, `Community 8`, `Community 9`, `Community 10`, `Community 12`, `Community 13`, `Community 15`, `Community 19`, `Community 22`, `Community 24`, `Community 26`, `Community 28`, `Community 29`, `Community 31`, `Community 38`, `Community 42`, `Community 44`, `Community 47`, `Community 49`, `Community 50`, `Community 51`, `Community 55`, `Community 57`, `Community 64`, `Community 66`, `Community 68`, `Community 71`, `Community 72`, `Community 78`, `Community 83`, `Community 87`, `Community 90`, `Community 95`, `Community 105`, `Community 106`, `Community 111`, `Community 113`, `Community 116`, `Community 125`, `Community 131`, `Community 132`, `Community 134`, `Community 135`, `Community 136`, `Community 138`, `Community 146`, `Community 147`, `Community 148`, `Community 151`, `Community 157`, `Community 165`, `Community 172`, `Community 173`, `Community 178`, `Community 188`, `Community 192`, `Community 193`, `Community 198`, `Community 201`, `Community 203`, `Community 204`, `Community 205`, `Community 210`, `Community 218`, `Community 221`, `Community 225`, `Community 229`, `Community 231`, `Community 235`, `Community 240`, `Community 241`, `Community 242`, `Community 243`, `Community 245`, `Community 251`, `Community 260`, `Community 269`, `Community 285`, `Community 289`, `Community 290`, `Community 291`?**
-  _High betweenness centrality (0.140) - this node is a cross-community bridge._
+  _High betweenness centrality (0.164) - this node is a cross-community bridge._
 - **Why does `MainWindowViewModel` connect `Community 0` to `Community 256`, `Community 3`, `Community 4`, `Community 15`, `Community 22`, `Community 155`, `Community 28`, `Community 29`, `Community 43`, `Community 172`, `Community 173`, `Community 47`, `Community 50`, `Community 53`, `Community 182`, `Community 58`, `Community 60`, `Community 61`, `Community 65`, `Community 68`, `Community 204`, `Community 78`, `Community 86`, `Community 87`, `Community 96`, `Community 97`, `Community 238`, `Community 111`, `Community 110`, `Community 116`?**
-  _High betweenness centrality (0.067) - this node is a cross-community bridge._
+  _High betweenness centrality (0.071) - this node is a cross-community bridge._
 - **What connects `BombSolution`, `TestRunStatus`, `BombSolution` to the rest of the system?**
   _371 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Community 0` be split into smaller, more focused modules?**

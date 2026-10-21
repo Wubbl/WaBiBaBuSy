@@ -214,7 +214,7 @@ partial class Program
         {
             int remaining = BombMath.RemainingMs(g, local);
             if (onBomb && !DrawTimerInLogo(evt, g, remaining, BombTimerRed))
-                DrawSevenSegTimer(remaining, g.BombX, g.BombY - _layout.OffsetY - 0.5f * g.BombSize - 0.55f * g.BombSize, 0.4f * g.BombSize, BombTimerRed, centred: true);
+                DrawSevenSegTimer(remaining, g.BombX, g.BombY - _layout.OffsetY + BombMath.TimerAboveTop * g.BombSize, BombMath.TimerAboveHeight * g.BombSize, BombTimerRed, centred: true);
             DrawCornerTimer(remaining, BombTimerRed);
         }
     }
@@ -347,8 +347,8 @@ partial class Program
         return sprite.Frames[0];
     }
 
-    /// <summary>A text sprite into a box: height = box height, width by aspect (squeezed to the box), centred or left.</summary>
-    private static void DrawBombText(string spriteId, float x, float y, float w, float h, float opacity, bool centred)
+    /// <summary>A text sprite into a box: height = box height, width by aspect (squeezed to the box), centred, left or right.</summary>
+    private static void DrawBombText(string spriteId, float x, float y, float w, float h, float opacity, bool centred, bool right = false)
     {
         if (!_eventSprites.TryGetValue(spriteId, out var sprite)) return;
         var bmp = sprite.Frames[0];
@@ -356,28 +356,27 @@ partial class Program
         if (s.Width <= 0 || s.Height <= 0) return;
         float tw = Math.Min(h * s.Width / s.Height, w);
         float th = tw * s.Height / s.Width;
-        float tx = centred ? x + (w - tw) / 2f : x;
+        float tx = centred ? x + (w - tw) / 2f : right ? x + w - tw : x;
         _d2dContext!.DrawBitmap(bmp, new RectangleF(tx, y + (h - th) / 2f, tw, th), opacity, BitmapInterpolationMode.Linear, null);
     }
 
-    /// <summary>The rules under the bomb (left of the keypad in keypad games), or where to find them.</summary>
+    /// <summary>
+    /// The rules left of the bomb, beside its lower half (below the cable terminals), or where to find them; on a dark
+    /// panel, so cables leaving to the left pass behind the text.
+    /// </summary>
     private static void DrawBombRules(ShowEvent evt, BombGame g)
     {
         var ids = IdsOf(evt);
-        float cx = LocalX(g.BombX), top = g.BombY - _layout.OffsetY + 0.62f * g.BombSize;
-        float w = 2.6f * g.BombSize, h = 0.1f * g.BombSize, x = cx - w / 2f;
-        if (g.Mode == BombMode.Keypad)
-        {
-            w = 1.3f * g.BombSize;
-            x = cx - 0.4f * g.BombSize - w;
-        }
-        if (g.RuleNodeId.Length > 0)
-        {
-            DrawBombText(ids.Away, x, top, w, h, 1f, centred: g.Mode != BombMode.Keypad);
-            return;
-        }
-        for (int k = 0; k < ids.Rules.Length; k++)
-            DrawBombText(ids.Rules[k], x, top + 1.3f * h * k, w, h, 1f, centred: g.Mode != BombMode.Keypad);
+        float s = g.BombSize, h = 0.085f * s, gap = 0.3f * h;
+        float right = LocalX(g.BombX) - 0.45f * s, left = Math.Max(0.03f * _layout.Width, right - 1.6f * s);
+        if (right - left < 4 * h) return;
+        string[] lines = g.RuleNodeId.Length > 0 ? new[] { ids.Away } : ids.Rules;
+        float blockH = lines.Length * h + (lines.Length - 1) * gap;
+        float top = g.BombY - _layout.OffsetY + 0.33f * s - blockH / 2f, pad = 0.4f * h;
+        SetEventBrush("#000000", 0.75f);
+        _d2dContext!.FillRectangle(new RectangleF(left - pad, top - pad, right - left + 2 * pad, blockH + 2 * pad), _eventBrush!);
+        for (int k = 0; k < lines.Length; k++)
+            DrawBombText(lines[k], left, top + k * (h + gap), right - left, h, 1f, centred: false, right: true);   // flush against the bomb
     }
 
     /// <summary>The RULES card on its seat.</summary>
@@ -732,7 +731,7 @@ partial class Program
             {
                 DrawBombBody(evt, g, local, 0f, scale, recycled ? local * 0.4f : 0f);
                 if (recycled || !DrawTimerInLogo(evt, g, g.RemainingMs, BombTimerGreen))
-                    DrawSevenSegTimer(g.RemainingMs, g.BombX, g.BombY - _layout.OffsetY - 1.05f * g.BombSize, 0.4f * g.BombSize, BombTimerGreen, centred: true);
+                    DrawSevenSegTimer(g.RemainingMs, g.BombX, g.BombY - _layout.OffsetY + BombMath.TimerAboveTop * g.BombSize, BombMath.TimerAboveHeight * g.BombSize, BombTimerGreen, centred: true);
             }
         }
         DrawCornerTimer(g.RemainingMs, BombTimerGreen);

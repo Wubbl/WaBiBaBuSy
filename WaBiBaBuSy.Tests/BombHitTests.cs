@@ -28,6 +28,21 @@ public class BombHitTests
     private static (float X, float Y) Px(NodeLayout node, float vx, float vy) =>
         (NodeMapping.ToLocalX(vx, 0, node) * node.Scale, (vy - node.OffsetY) * node.Scale);
 
+    [Theory]
+    [InlineData(0x37, false, 7)]    // number row 7
+    [InlineData(0x30, false, 0)]
+    [InlineData(0x63, false, 3)]    // numpad 3, Num Lock on
+    [InlineData(0x22, false, 3)]    // numpad 3, Num Lock off (Page Down without E0)
+    [InlineData(0x22, true, -1)]    // the real Page Down
+    [InlineData(0x26, true, -1)]    // arrow up
+    [InlineData(0x2D, false, 0)]    // numpad 0, Num Lock off
+    [InlineData(0x08, false, 10)]   // Backspace = C
+    [InlineData(0x43, false, 10)]   // C
+    [InlineData(0x2E, true, 10)]    // Delete
+    [InlineData(0x41, false, -1)]   // A
+    public void KeyFromVirtualKey_NumberRowAndNumpad(int vkey, bool extended, int key) =>
+        Assert.Equal(key, BombHit.KeyFromVirtualKey(vkey, extended));
+
     [Fact]
     public void CableAt_TerminalHit()
     {

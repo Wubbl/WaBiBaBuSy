@@ -144,8 +144,8 @@ public sealed partial class ScenePainter
         }
         else if (node.Id == g.BombNodeId)
         {
-            double h = 0.4 * g.BombSize * s, w = 2.2 * h;
-            PaintFittedText(ctx, new Rect(bx - w / 2, by - 1.05 * g.BombSize * s, w, h), BombMath.FormatTimer(remainingMs), brush);
+            double h = BombMath.TimerAboveHeight * g.BombSize * s, w = 2.2 * h;
+            PaintFittedText(ctx, new Rect(bx - w / 2, by + BombMath.TimerAboveTop * g.BombSize * s, w, h), BombMath.FormatTimer(remainingMs), brush);
         }
         double ch = 0.05 * node.Height * s, cw = 2.2 * ch, m = 0.03 * node.Height * s;
         PaintFittedText(ctx, new Rect(rect.Right - m - cw, rect.Bottom - m - ch, cw, ch), BombMath.FormatTimer(remainingMs), brush);

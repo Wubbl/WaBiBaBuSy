@@ -113,7 +113,7 @@ public static class BombMath
 
     // ── keypad (design §14.2): below the bomb, offsets from the bomb's on-screen centre so it reads 1 2 3 even mirrored ──
 
-    private const float KeySize = 0.11f, KeyGap = 0.025f, KeypadTop = 0.58f;   // × BombSize
+    private const float KeySize = 0.077f, KeyGap = 0.0175f, KeypadTop = 0.52f;   // × BombSize (right under the logo)
 
     /// <summary>Key 0–9 or 10 (C): its box as (dx, dy) from the bomb's local centre + size, canvas units (not mirrored).</summary>
     public static (float Dx, float Dy, float W, float H) KeyRect(BombGame g, int key)
@@ -131,6 +131,9 @@ public static class BombMath
         float s = KeySize * g.BombSize, gap = KeyGap * g.BombSize, w = 3 * s + 2 * gap;
         return (-w / 2f, KeypadTop * g.BombSize, w, s);
     }
+
+    /// <summary>The countdown above the bomb (a logo without a timer box): top offset from the bomb's centre and height, × BombSize.</summary>
+    public const float TimerAboveTop = -0.8f, TimerAboveHeight = 0.25f;
 
     /// <summary>
     /// The logo's timer box as (dx, dy) from the bomb's local centre + size, canvas units (not mirrored); null without a

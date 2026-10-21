@@ -4,25 +4,30 @@ using System.Runtime.InteropServices;
 namespace WaBiBaBuSy.WallpaperEngine.Native;
 
 /// <summary>
-/// Left clicks on the desktop, observed — never blocked (BiBaBo cut on the bomb seat, design §8). Raw Input with
-/// <c>RIDEV_INPUTSINK</c> on a hidden message-only window on its own thread (Lively's technique, no hook). A click
-/// counts when the window under the cursor belongs to the desktop (Progman / WorkerW): clicks into a game or any other
-/// window are ignored. <see cref="LeftButtonDown"/> carries screen pixels and runs on the sink's thread.
+/// Left clicks on the desktop and key presses while the desktop has the focus, observed — never blocked (BiBaBo on the
+/// bomb seat, design §8). Raw Input with <c>RIDEV_INPUTSINK</c> on a hidden message-only window on its own thread
+/// (Lively's technique, no hook). A click counts when the window under the cursor belongs to the desktop (Progman /
+/// WorkerW), a key when the foreground window does: input into a game, a chat or any other window is ignored. Events
+/// run on the sink's thread.
 /// </summary>
-public sealed class RawMouseSink : IDisposable
+public sealed class RawInputSink : IDisposable
 {
     private const uint WM_INPUT = 0x00FF, WM_QUIT = 0x0012, PM_NOREMOVE = 0x0000;
-    private const uint RIDEV_INPUTSINK = 0x00000100, RID_INPUT = 0x10000003, RIM_TYPEMOUSE = 0;
-    private const ushort RI_MOUSE_LEFT_BUTTON_DOWN = 0x0001;
+    private const uint RIDEV_INPUTSINK = 0x00000100, RID_INPUT = 0x10000003, RIM_TYPEMOUSE = 0, RIM_TYPEKEYBOARD = 1;
+    private const ushort RI_MOUSE_LEFT_BUTTON_DOWN = 0x0001, RI_KEY_BREAK = 0x0001, RI_KEY_E0 = 0x0002;
     private const uint GA_ROOT = 2;
     private static readonly IntPtr HWND_MESSAGE = new(-3);
 
     private Thread? _thread;
     private uint _threadId;
     private WndProc? _wndProc;   // kept alive while the window exists
+    private readonly HashSet<ushort> _held = new();   // keys down: auto-repeat is not a new press
 
     /// <summary>A left click landed on the desktop at (x, y) screen pixels. Raised on the sink's thread.</summary>
     public event Action<int, int>? LeftButtonDown;
+
+    /// <summary>A key went down (not a repeat) while the desktop had the focus: virtual key, E0 prefix. Sink's thread.</summary>
+    public event Action<int, bool>? KeyDown;
 
     public void Start()
     {
@@ -39,12 +44,16 @@ public sealed class RawMouseSink : IDisposable
         _threadId = GetCurrentThreadId();
         PeekMessage(out _, IntPtr.Zero, 0, 0, PM_NOREMOVE);
         _wndProc = Proc;
-        var wc = new WNDCLASSEX { cbSize = (uint)Marshal.SizeOf<WNDCLASSEX>(), lpfnWndProc = _wndProc, hInstance = GetModuleHandle(null), lpszClassName = "WaBiBaBuSyRawMouse" };
+        var wc = new WNDCLASSEX { cbSize = (uint)Marshal.SizeOf<WNDCLASSEX>(), lpfnWndProc = _wndProc, hInstance = GetModuleHandle(null), lpszClassName = "WaBiBaBuSyRawInput" };
         RegisterClassEx(ref wc);
         var hwnd = CreateWindowEx(0, wc.lpszClassName, "", 0, 0, 0, 0, 0, HWND_MESSAGE, IntPtr.Zero, wc.hInstance, IntPtr.Zero);
-        var device = new RAWINPUTDEVICE { usUsagePage = 0x01, usUsage = 0x02, dwFlags = RIDEV_INPUTSINK, hwndTarget = hwnd };
-        if (hwnd == IntPtr.Zero || !RegisterRawInputDevices(new[] { device }, 1, (uint)Marshal.SizeOf<RAWINPUTDEVICE>()))
-            Debug.WriteLine($"[RawMouse] Registration failed (error {Marshal.GetLastWin32Error()})");
+        var devices = new[]
+        {
+            new RAWINPUTDEVICE { usUsagePage = 0x01, usUsage = 0x02, dwFlags = RIDEV_INPUTSINK, hwndTarget = hwnd },   // mouse
+            new RAWINPUTDEVICE { usUsagePage = 0x01, usUsage = 0x06, dwFlags = RIDEV_INPUTSINK, hwndTarget = hwnd },   // keyboard
+        };
+        if (hwnd == IntPtr.Zero || !RegisterRawInputDevices(devices, (uint)devices.Length, (uint)Marshal.SizeOf<RAWINPUTDEVICE>()))
+            Debug.WriteLine($"[RawInput] Registration failed (error {Marshal.GetLastWin32Error()})");
         ready.Set();
         try
         {
@@ -66,7 +75,7 @@ public sealed class RawMouseSink : IDisposable
         if (msg == WM_INPUT)
         {
             try { OnRawInput(lParam); }
-            catch (Exception ex) { Debug.WriteLine($"[RawMouse] {ex.Message}"); }
+            catch (Exception ex) { Debug.WriteLine($"[RawInput] {ex.Message}"); }
         }
         return DefWindowProc(hwnd, msg, wParam, lParam);
     }
@@ -82,20 +91,29 @@ public sealed class RawMouseSink : IDisposable
         {
             if (GetRawInputData(hRawInput, RID_INPUT, buffer, ref size, header) != size) return;
             var h = Marshal.PtrToStructure<RAWINPUTHEADER>(buffer);
+            if (h.dwType == RIM_TYPEKEYBOARD)
+            {
+                // RAWKEYBOARD: MakeCode (2), Flags (2), Reserved (2), VKey (2), …
+                ushort flags = (ushort)Marshal.ReadInt16(buffer, (int)header + 2), vkey = (ushort)Marshal.ReadInt16(buffer, (int)header + 6);
+                if ((flags & RI_KEY_BREAK) != 0) { _held.Remove(vkey); return; }
+                if (!_held.Add(vkey) || !IsDesktop(GetForegroundWindow())) return;
+                KeyDown?.Invoke(vkey, (flags & RI_KEY_E0) != 0);
+                return;
+            }
             if (h.dwType != RIM_TYPEMOUSE) return;
             // RAWMOUSE: usFlags (2) + padding (2), then usButtonFlags.
             ushort buttonFlags = (ushort)Marshal.ReadInt16(buffer, (int)header + 4);
             if ((buttonFlags & RI_MOUSE_LEFT_BUTTON_DOWN) == 0) return;
-            if (!GetCursorPos(out var pt) || !IsDesktopAt(pt)) return;
+            if (!GetCursorPos(out var pt) || !IsDesktop(WindowFromPoint(pt))) return;
             LeftButtonDown?.Invoke(pt.X, pt.Y);
         }
         finally { Marshal.FreeHGlobal(buffer); }
     }
 
-    /// <summary>The window under the point belongs to the desktop (its root is Progman or a WorkerW).</summary>
-    private static bool IsDesktopAt(POINT pt)
+    /// <summary>The window belongs to the desktop (its root is Progman or a WorkerW).</summary>
+    private static bool IsDesktop(IntPtr hwnd)
     {
-        var root = GetAncestor(WindowFromPoint(pt), GA_ROOT);
+        var root = GetAncestor(hwnd, GA_ROOT);
         if (root == IntPtr.Zero) return false;
         var name = new System.Text.StringBuilder(32);
         GetClassName(root, name, name.Capacity);
@@ -153,6 +171,7 @@ public sealed class RawMouseSink : IDisposable
     [DllImport("user32.dll")] private static extern bool PostThreadMessage(uint threadId, uint msg, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT pt);
     [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(POINT pt);
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr hwnd, System.Text.StringBuilder name, int max);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetModuleHandle(string? name);

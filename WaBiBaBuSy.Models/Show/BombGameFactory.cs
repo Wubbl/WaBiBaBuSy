@@ -27,7 +27,8 @@ public static class BombGameFactory
     public static readonly string[] CableColorNames = { "RED", "GREEN", "BLUE" };
 
     private const float PointSpacing = 30f;
-    private const float BombHeight = 0.35f;     // of the bomb node's height
+    private const float BombHeight = 0.5f;      // of the bomb node's height
+    private const float BombCentre = 0.42f;     // of the bomb node's height from its top: room for the keypad below
     private const float TerminalSpread = 0.12f; // × BombSize between terminals
     private const float CardHeight = 0.55f;     // of the end node's height
     private const float CardAspect = 1.4f;
@@ -62,7 +63,7 @@ public static class BombGameFactory
             BombNodeId = bomb.Id,
             BombOrder = bomb.Order,
             BombX = bomb.OffsetX + bomb.Width / 2f,
-            BombY = bomb.OffsetY + bomb.Height / 2f,
+            BombY = bomb.OffsetY + BombCentre * bomb.Height,
             BombSize = BombHeight * bomb.Height,
             TimerMs = r.TimerMs,
             Mode = mode,
@@ -213,7 +214,7 @@ public static class BombGameFactory
                     for (int i = 0; i < 3; i++) values[i] = Pick(i, _ => true);
                     var codeOrder = new[] { 0, 1, 2 }.OrderBy(_ => rng.Next()).ToArray();
                     string line = "CODE = " + string.Join(" · ", codeOrder.Select(i => CableColorNames[i]));
-                    return (values, new[] { line, "(colours at the bomb) — type it on the keypad" },
+                    return (values, new[] { line, "(colours at the bomb) — click or type it on the keypad" },
                         new BombSolution { Mode = mode, Values = values, Code = string.Concat(codeOrder.Select(i => values[i])) });
                 }
             }
