@@ -126,6 +126,10 @@ public sealed class ShowEventStep : TestStep
     /// </summary>
     public BombResult? BombOutcome { get; set; }
 
+    /// <summary>BiBaBo showcase: force the game's mode / riddle kinds (three) instead of the seeded roll.</summary>
+    public BombMode? ForceMode { get; set; }
+    public RiddleKind[]? ForceKinds { get; set; }
+
     public override string Kind => "showEvent";
 }
 

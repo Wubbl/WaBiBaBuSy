@@ -59,9 +59,13 @@ public sealed partial class ScenePainter
             int remaining = BombMath.RemainingMs(g, local);
             if (BombMath.TimerVisible(g, local)) PaintBombTimer(ctx, rect, s, node, g, remaining, BombRed);
         }
+        if (g.Junction is { } junction && junction.NodeId == node.Id && progress > 0) PaintJunction(ctx, rect, s, node, junction);
         if (local >= g.IntroMs)
+        {
             foreach (var c in g.Cables)
                 if (c.EndNodeId == node.Id) PaintBombCard(ctx, rect, s, node, c);
+            if (g.RuleNodeId == node.Id) PaintRulesCard(ctx, rect, s, node, g);
+        }
     }
 
     private void PaintBombOutcome(DrawingContext ctx, Rect rect, double s, NodeLayout node, ShowEvent evt, long local)
@@ -146,24 +150,35 @@ public sealed partial class ScenePainter
     private static void PaintBombCard(DrawingContext ctx, Rect rect, double s, NodeLayout node, BombCable c)
     {
         var card = new Rect(rect.X + NodeMapping.ToLocalX(c.CardX, c.CardW, node) * s, rect.Y + (c.CardY - node.OffsetY) * s, c.CardW * s, c.CardH * s);
-        var color = EventBrush(c.ColorHex, 1);
+        var color = EventBrush(string.IsNullOrEmpty(c.CardColorHex) ? c.ColorHex : c.CardColorHex, 1);
         ctx.DrawRectangle(BombCardBrush, new Pen(color, Math.Max(1, 6 * s)), card);
         ctx.FillRectangle(color, card.WithHeight(card.Height * 0.1));
-        if (c.Riddle is { Kind: RiddleKind.Math, Formula: { } formula })
+        // ponytail: the preview names the riddle (formula text for Math / Sequence) instead of drawing mazes, gates, clocks and dots
+        string label = c.Riddle.Formula ?? c.Riddle.Kind switch
         {
-            PaintFittedText(ctx, new Rect(card.X + card.Width * 0.06, card.Y + card.Height * 0.25, card.Width * 0.88, card.Height * 0.3), formula, Brushes.White);
-            return;
-        }
-        if (c.Riddle.Strands is not { } strands) return;
-        var grey = new Pen(Brushes.Gray, Math.Max(1, 5 * s));
-        var area = new Rect(card.X + card.Width * 0.04, card.Y + card.Height * 0.16, card.Width * 0.66, card.Height * 0.78);
-        foreach (var strand in strands)
-            for (int k = 0; k + 1 < strand.Length; k++)
-            {
-                double t0 = 0.05 + 0.9 * k / (strand.Length - 1), t1 = 0.05 + 0.9 * (k + 1) / (strand.Length - 1);
-                ctx.DrawLine(grey, new Point(area.X + t0 * area.Width, area.Y + strand[k] * area.Height),
-                                   new Point(area.X + t1 * area.Width, area.Y + strand[k + 1] * area.Height));
-            }
+            RiddleKind.Maze => "LABYRINTH",
+            RiddleKind.Logic => "LOGIC GATES",
+            RiddleKind.Clock => "MIRROR CLOCK",
+            RiddleKind.Dots => $"COUNT {c.Riddle.DotTargetName}",
+            _ => "TANGLE",
+        };
+        PaintFittedText(ctx, new Rect(card.X + card.Width * 0.06, card.Y + card.Height * 0.3, card.Width * 0.88, card.Height * 0.3), label, Brushes.White);
+    }
+
+    private static void PaintRulesCard(DrawingContext ctx, Rect rect, double s, NodeLayout node, BombGame g)
+    {
+        var card = new Rect(rect.X + NodeMapping.ToLocalX(g.RuleX, g.RuleW, node) * s, rect.Y + (g.RuleY - node.OffsetY) * s, g.RuleW * s, g.RuleH * s);
+        ctx.DrawRectangle(BombCardBrush, new Pen(EventBrush("#FFD700", 1), Math.Max(1, 6 * s)), card);
+        PaintFittedText(ctx, new Rect(card.X, card.Y + card.Height * 0.08, card.Width, card.Height * 0.16), "RULES", EventBrush("#FFD700", 1));
+        if (g.RuleLines.Length > 0)
+            PaintFittedText(ctx, new Rect(card.X + card.Width * 0.06, card.Y + card.Height * 0.4, card.Width * 0.88, card.Height * 0.14), g.RuleLines[0], Brushes.White);
+    }
+
+    private static void PaintJunction(DrawingContext ctx, Rect rect, double s, NodeLayout node, BombJunction j)
+    {
+        var box = new Rect(rect.X + NodeMapping.ToLocalX(j.X, j.W, node) * s, rect.Y + (j.Y - node.OffsetY) * s, j.W * s, j.H * s);
+        ctx.DrawRectangle(EventBrush("#263238", 1), new Pen(Brushes.Gray, Math.Max(1, 4 * s)), box);
+        PaintFittedText(ctx, box.Deflate(box.Width * 0.1), "JUNCTION", Brushes.LightGray);
     }
 
     /// <summary>Text scaled into a box (keeps its aspect, centred).</summary>

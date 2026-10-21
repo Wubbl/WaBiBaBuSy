@@ -234,6 +234,11 @@ Connect the clients first (§5.1). Attach each `report.html` path to the results
 - [ ] Reconnect a client mid-game → it shows the game at the right time; after the outcome it never shows the bomb again
 - [ ] Logo: put `bibabo-bomb.gif` into `%APPDATA%\WaBiBaBuSy\` → animated bomb on the bomb seat
 
+- [ ] Variation (§14): a keypad game — click digits on the bare desktop, digits appear on every seat, C clears, right code → DEFUSED, wrong → BOOM
+- [ ] A cut-order game — first right cable greys out everywhere, second → DEFUSED; wrong order → BOOM
+- [ ] ≥ 5 machines: a RULES card on a spare seat ("RULES: somewhere in the room" at the bomb); a junction box on the bomb's neighbour seat with crossing wires, cards in the new colours
+- [ ] Readability from a step away: labyrinth, logic gates, mirrored clock, dots
+
 ## 9. Optional
 
 - [ ] Installer on a clean Windows 10/11 machine (Inno Setup, `/Installer/`); fallback version 2.6.3

@@ -10,10 +10,6 @@ namespace WaBiBaBuSy.Models.Show;
 /// </summary>
 public static class BombRiddles
 {
-    // ponytail: the fixed rule texts of the first version — gone once the rule is rolled per game (variation plan Task 2).
-    public const string MathRule = "LIVE ⇔ result = 1";
-    public const string TangleRule = "LIVE ⇔ result = 1";
-
     private const int StrandPoints = 24;
     private static readonly float[] Slots = { 0.2f, 0.5f, 0.8f };
     private static readonly string[] GateOps = { "AND", "OR", "XOR", "NAND", "NOR" };

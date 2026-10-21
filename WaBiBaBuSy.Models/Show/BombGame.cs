@@ -35,6 +35,7 @@ public sealed class BombJunction
 }
 
 /// <summary>The riddle at a cable's end; every kind yields a digit (design §14.1).</summary>
+[System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
 public enum RiddleKind { Math, Tangle, Maze, Logic, Sequence, Clock, Dots }
 
 /// <summary>What a riddle card shows. Live is never stored: it is what solving the card tells you.</summary>

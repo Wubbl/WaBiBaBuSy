@@ -421,7 +421,8 @@ public sealed class TestRunner
                 if (evt.Type == ShowEventType.Bomb && evt.Bomb == null)
                 {
                     if (ctx.Active.Layout == null) { sr.Verdict = Verdict.Fail; sr.Message = "BiBaBo needs the scene's seat-map layout"; break; }
-                    var (game, _) = BombGameFactory.Create(new BombGameRequest(ctx.Active.Layout, null, _ => false, evt.Seed, evt.EventId, GroupByMachine: false), out var error);
+                    var (game, _) = BombGameFactory.Create(new BombGameRequest(ctx.Active.Layout, null, _ => false, evt.Seed, evt.EventId, GroupByMachine: false,
+                        ForceMode: ev.ForceMode, ForceKinds: ev.ForceKinds, ForceJunction: false, ForceRuleCard: false), out var error);
                     if (game == null) { sr.Verdict = Verdict.Fail; sr.Message = error; break; }
                     evt.Bomb = game;
                     if (evt.DurationMs <= 0 || evt.DurationMs == ShowEventMath.ClampDuration(0))
