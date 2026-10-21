@@ -314,3 +314,37 @@ the existing foreground-only `FullscreenDetectionService` into a per-monitor `Mo
 7. **Sound:** no.
 8. **Timer:** 5:00.
 9. **Logo:** Patrick tries a GIF → supported (§7).
+
+## 14. Variation (Patrick, 2026-10-21 evening: "All")
+
+Every game rolls its own variant from the seed, so no two games play alike. Claude's calls marked *[call]*.
+
+### 14.1 Every riddle yields a value
+Each card's riddle evaluates to a **digit** (the card subtitle says how). What the digit means comes from the game's rule:
+
+| Kind | Card shows | Value | Range |
+|---|---|---|---|
+| Math | a scary term (§4.1 tricks, now aimed at any digit) | the result | 0–9 |
+| Sequence | `96, 48, 24, 12, 6, ?` (halving, arithmetic, growing differences, interleaved) | `?` | 0–9 |
+| Tangle | three crossing strands, exits labelled with digits | the digit the cable's strand reaches | 0–9 |
+| Labyrinth | a maze, the cable enters left, three exits labelled with digits, only one reachable | that exit's digit | 0–9 |
+| Logic | inputs A B C (0/1), three gates (AND / OR / XOR / NAND / NOR), lamps labelled 4 2 1 | sum of the lamps that light | 0–7 |
+| Clock | an analog clock **seen in a mirror** | the hour | 1–9 |
+| Dots | ~30 dots in four similar reds/oranges/pinks | how many of the named colour | 0–9 |
+
+The values are server-only (like the live cable): solving is the only way to learn them.
+
+### 14.2 Modes and rules (one per game) *[call: Classic 50 %, Cut order 25 %, Keypad 25 %]*
+- **Classic** — exactly one live cable; the rule varies: `LIVE ⇔ result = k`, `… is odd`, `… is even`, `… is prime (2 3 5 7)`, `… the LARGEST result`, `… the SMALLEST result`. Click it.
+- **Cut order** — exactly two live cables (`LIVE ⇔ result is even / odd / greater than 4`), cut **smallest result first** (or largest first). A correct first cut shows that cable cut on every seat; a wrong cable or order → BOOM.
+- **Keypad** — no live cable: a keypad (1–9, C, 0) next to the bomb; the code is the three results in a stated colour order (`CODE = BLUE · RED · GREEN`, colours **at the bomb**). Digits typed so far show on every seat; 3 digits → checked; wrong → BOOM; C clears.
+- The Recycle Bin defuses in every mode.
+
+### 14.3 Rule card elsewhere *[call: 50 % of games, when a free machine is left over]*
+The rules sit on a fourth seat's **RULES** card instead of under the bomb; the bomb says `RULES: somewhere in the room`.
+
+### 14.4 Junction box *[call: 40 % of games, when ≥ 2 cables leave the bomb the same way]*
+A box on the bomb's neighbouring seat: the cables going that way enter in their bomb colours and leave in other colours (a shuffle, drawn as visible crossing wires inside the box). The cards beyond carry the new colour; rules always mean the colours **at the bomb**, so people must trace through the box.
+
+### 14.5 Transport
+New show-event type **`BombStep`** (cut-order progress, keypad digits): the same `BombGame` with `CutCables` / `Typed`; players use the newest step of a game. Steps replay like the outcome while the bomb is booked. Actions: `cut` (cable), `key` (0–9, 10 = C), `recycle`. Room preview: new card kinds drawn simplified (kind name + numbers) *[call]*.
