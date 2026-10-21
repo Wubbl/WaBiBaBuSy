@@ -111,6 +111,9 @@ public class WaBiBaBuSyService : IDisposable
             _playbackService.AgendaDelegate = agenda;
     }
 
+    /// <summary>Client mode: this machine's busy monitors for the heartbeat (BiBaBo); set once by the app.</summary>
+    public Func<IReadOnlyList<int>>? BusyMonitorsProvider { get; set; }
+
     /// <summary>Server mode: referees BiBaBo actions reported by clients (set by the server's playback host).</summary>
     public Func<WaBiBaBuSy.Grpc.ShowActionReport, Task<bool>>? ShowActionHandler { get; set; }
 
@@ -341,6 +344,7 @@ public class WaBiBaBuSyService : IDisposable
             {
                 TestProbeTargets = _clientTestProbeTargets,
                 ThumbnailCaptureService = _clientThumbnailCapture,
+                BusyMonitorsProvider = BusyMonitorsProvider,
             };
             _client.ConnectionStatusChanged += OnClientConnectionStatusChanged;
             _client.UpdateAvailable += OnUpdateAvailable;

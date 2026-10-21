@@ -93,6 +93,7 @@ public sealed class RemotePlaybackHost
         _service.ClientThumbnailCapture = ThumbnailCapture;
         _service.SetShowEventDelegate(OnShowEventAsync);
         _service.SetAgendaDelegate(OnAgendaAsync);
+        _service.BusyMonitorsProvider = MonitorBusyProbe.BusyMonitors;   // BiBaBo skips seats a window covers
     }
 
     /// <summary>EVENT from the server (T0 in this machine's clock, image in the cache): keep it and send it to every player.</summary>

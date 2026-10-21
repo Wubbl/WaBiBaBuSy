@@ -90,6 +90,9 @@ public class WallpaperSyncClient : IDisposable
     /// <summary>Set by the playback service: (cached, total) of the last PREFETCH list, reported via heartbeat.</summary>
     public Func<(int Ready, int Total)>? PrefetchStatusProvider { get; set; }
 
+    /// <summary>BiBaBo: this machine's busy monitors (a window covers ≥ 80 %), sent with every heartbeat.</summary>
+    public Func<IReadOnlyList<int>>? BusyMonitorsProvider { get; set; }
+
     /// <summary>Estimated (server - client) clock offset in ms, from heartbeat round-trips.</summary>
     public long ClockOffsetMs => _clockOffset.OffsetMs;
 
@@ -499,6 +502,12 @@ public class WallpaperSyncClient : IDisposable
             request.ClockOffsetMs = _clockOffset.OffsetMs;
             request.RttMs = _clockOffset.RttMs;
             request.HasDriftReport = true;
+        }
+
+        if (BusyMonitorsProvider is { } busy)
+        {
+            try { request.BusyMonitorIndexes.AddRange(busy()); }
+            catch (Exception ex) { _logger.LogDebug(ex, "Busy-monitor probe failed"); }
         }
 
         var prefetch = PrefetchStatusProvider?.Invoke();

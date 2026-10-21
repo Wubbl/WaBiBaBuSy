@@ -306,6 +306,9 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
             client.Status = request.Status;
             client.PrefetchReady = request.PrefetchReady;
             client.PrefetchTotal = request.PrefetchTotal;
+            client.BusyMonitorIndexes.Clear();
+            client.BusyMonitorIndexes.AddRange(request.BusyMonitorIndexes);
+            client.BusyReportUtc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
             if (request.HasDriftReport)
             {

@@ -241,6 +241,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         }
 
         string id = Guid.NewGuid().ToString("N");
+        _localBusy = MonitorBusyProbe.BusyMonitors();
         var (game, live) = BombGameFactory.Create(new BombGameRequest(layout, targetNodeIds, IsSeatBusy, Random.Shared.Next(), id), out var error);
         if (game == null)
         {
@@ -296,8 +297,23 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         return null;
     }
 
-    /// <summary>A window covers this seat's monitor (BiBaBo skips it). Filled by the busy-seat reports (Task 4).</summary>
-    private bool IsSeatBusy(string nodeId) => false;
+    /// <summary>
+    /// A window covers this seat's monitor (BiBaBo skips it): this machine's monitors are probed now, a client's come
+    /// from its last heartbeat (older than 10 s = unknown = free). A whole-machine node is busy when any monitor is.
+    /// </summary>
+    private bool IsSeatBusy(string nodeId)
+    {
+        if (NodeIds.IsLocalMonitor(nodeId))
+            return _localBusy?.Contains(NodeIds.MonitorIndex(nodeId)) == true;
+        string machine = BombSeats.MachineOf(nodeId);
+        var client = _service.GetConnectedClients().FirstOrDefault(c => c.ClientId == machine);
+        if (client == null || UtcNowMs() - client.BusyReportUtc > 10_000 || client.BusyMonitorIndexes.Count == 0) return false;
+        var suffix = nodeId.Length > machine.Length ? nodeId[(machine.Length + "_MONITOR_".Length)..] : null;
+        return suffix != null && int.TryParse(suffix, out int monitor) ? client.BusyMonitorIndexes.Contains(monitor) : true;
+    }
+
+    // This machine's busy monitors, probed once per BiBaBo start.
+    private IReadOnlyList<int>? _localBusy;
 
     // ── Agenda (room timetable overlay) ─────────────────────────────────────
 
