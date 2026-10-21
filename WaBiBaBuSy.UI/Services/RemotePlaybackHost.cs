@@ -43,6 +43,31 @@ public sealed class RemotePlaybackHost
         _service = service;
         _desktopManager = desktopManager;
         _agenda = new AgendaDisplay(desktopManager, AgendaNodeIds);
+        _bombInput = new BombInputWatcher((game, action, cable) =>
+            _service.Client?.ReportShowActionAsync(game, action, cable) ?? Task.FromResult(false));
+    }
+
+    /// <summary>BiBaBo: clicks and the Recycle Bin while this machine holds the bomb.</summary>
+    private readonly BombInputWatcher _bombInput;
+
+    /// <summary>The seat-map layout each monitor's player was started with (BiBaBo hit-testing).</summary>
+    private readonly ConcurrentDictionary<int, NodeLayout> _layouts = new();
+
+    /// <summary>A Bomb on one of this machine's monitors starts the input watcher; its outcome stops it.</summary>
+    private void WatchBombInput(ShowEvent evt)
+    {
+        if (evt.Type == ShowEventType.BombOutcome && evt.Bomb is { } done && _bombInput.IsWatching(done.GameId))
+        {
+            _bombInput.Stop();
+            return;
+        }
+        if (evt.Type != ShowEventType.Bomb || evt.Bomb is not { } game) return;
+        foreach (var (monitor, layout) in _layouts)
+            if (layout.Id == game.BombNodeId)   // the layout the server sent carries the node id
+            {
+                _bombInput.Start(evt, layout, monitor);
+                return;
+            }
     }
 
     /// <summary>The room agenda on this client's monitors (stand-ins where no scene plays).</summary>
@@ -100,6 +125,7 @@ public sealed class RemotePlaybackHost
     public async Task OnShowEventAsync(ShowEvent evt)
     {
         if (!_showEvents.Add(evt)) return;
+        WatchBombInput(evt);
         foreach (var player in _players.Values)
         {
             try { await player.SendShowEventAsync(evt); }
@@ -215,6 +241,7 @@ public sealed class RemotePlaybackHost
 
             // ── Node layout (seat map: offset, mirroring, ring wrap) — the canvas of Sequential layers ──
             var remoteNodeLayout = DeserializeRemoteConfig<NodeLayout>(req.LayoutJson, "NodeLayout");
+            if (remoteNodeLayout != null) _layouts[monitorIndex] = remoteNodeLayout;
 
             Debug.WriteLine($"[D2D-CrossScreen] Initializing D2D service: bounds={actualBounds}, canvas={remoteNodeLayout?.CanvasWidth ?? 0}, offsetX={remoteNodeLayout?.OffsetX ?? 0}");
             var d2dService = new D2DCompositionService(
@@ -314,6 +341,7 @@ public sealed class RemotePlaybackHost
         }
         _players.Clear();
         _showEvents.Clear();
+        _bombInput.Stop();
         ThumbnailCapture.ClearWallpaperHwnd();
         await _agenda.ReconcileAsync(_players);   // the agenda stays: stand-ins take over the now idle monitors
         Debug.WriteLine("[D2D-CrossScreen] All remote D2D services stopped");

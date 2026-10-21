@@ -30,11 +30,12 @@ public static class BombGameFactory
     {
         error = null;
         var candidates = BombSeats.Candidates(r.Layout, r.TargetNodeIds, r.IsBusy, r.GroupByMachine);
+        if (candidates.Count < 2 && r.GroupByMachine)
+            candidates = BombSeats.Candidates(r.Layout, r.TargetNodeIds, r.IsBusy, groupByMachine: false);   // one machine, several monitors: play on the monitors
         if (candidates.Count < 2)
         {
-            int machines = r.Layout.Nodes.Where(n => r.TargetNodeIds == null || r.TargetNodeIds.Contains(n.Id))
-                .Select(n => BombSeats.MachineOf(n.Id)).Distinct().Count();
-            int busy = machines - candidates.Count;
+            var targets = r.Layout.Nodes.Where(n => r.TargetNodeIds == null || r.TargetNodeIds.Contains(n.Id)).ToList();
+            int busy = targets.Count(n => r.IsBusy(n.Id));
             error = busy > 0 ? $"Not enough free seats — {busy} busy." : "Not enough free seats — BiBaBo needs at least two machines.";
             return (null, -1);
         }

@@ -206,6 +206,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
 
     private readonly BombGameService _bombGame;
     private DispatcherTimer? _bombTicker;
+    private BombInputWatcher? _bombInput;   // this machine's own seats
 
     private static long UtcNowMs() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
@@ -267,6 +268,11 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         };
         _bombGame.Begin(evt, live);
         IsBiBaBoRunning = true;
+        if (NodeIds.IsLocalMonitor(game.BombNodeId) && layout.Get(game.BombNodeId) is { } bombNode)
+        {
+            _bombInput ??= new BombInputWatcher((gameId, action, cable) => _bombGame.OnActionAsync(BombSeats.ThisMachine, gameId, action, cable));
+            _bombInput.Start(evt, bombNode, NodeIds.MonitorIndex(game.BombNodeId));
+        }
         await DispatchEventAsync(evt);
         if (IsIdleScenePlaying) KeepIdleSceneUntil(evt);
         _bombTicker ??= new DispatcherTimer(TimeSpan.FromMilliseconds(250), DispatcherPriority.Background, (_, _) => _ = _bombGame.TickAsync());
@@ -280,6 +286,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     private async Task DispatchBombOutcomeAsync(ShowEvent outcome)
     {
         _bombTicker?.Stop();
+        _bombInput?.Stop();
         IsBiBaBoRunning = false;
         await DispatchEventAsync(outcome);
         if (IsIdleScenePlaying) _idleUntilUtcMs = outcome.T0Utc + ShowEventMath.ClampDuration(outcome.DurationMs) + 300;

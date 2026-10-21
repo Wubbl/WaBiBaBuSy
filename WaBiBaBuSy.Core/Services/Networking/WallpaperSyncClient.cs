@@ -90,6 +90,26 @@ public class WallpaperSyncClient : IDisposable
     /// <summary>Set by the playback service: (cached, total) of the last PREFETCH list, reported via heartbeat.</summary>
     public Func<(int Ready, int Total)>? PrefetchStatusProvider { get; set; }
 
+    /// <summary>BiBaBo: report a cut / the Recycle Bin on the bomb; true when it decided the game. Never throws.</summary>
+    public async Task<bool> ReportShowActionAsync(string eventId, string action, int cable)
+    {
+        try
+        {
+            if (_client == null || string.IsNullOrEmpty(_clientId)) return false;
+            var ack = await _client.ReportShowActionAsync(new ShowActionReport
+            {
+                ClientId = _clientId, EventId = eventId, Action = action, Cable = cable, ClientUtcMs = NowMs(),
+            });
+            _logger.LogInformation("BiBaBo {Action} (cable {Cable}) reported: {Result}", action, cable, ack.Accepted ? "decided the game" : "ignored");
+            return ack.Accepted;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "BiBaBo report failed");
+            return false;
+        }
+    }
+
     /// <summary>BiBaBo: this machine's busy monitors (a window covers ≥ 80 %), sent with every heartbeat.</summary>
     public Func<IReadOnlyList<int>>? BusyMonitorsProvider { get; set; }
 

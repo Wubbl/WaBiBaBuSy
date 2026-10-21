@@ -59,12 +59,22 @@ public class BombGameFactoryTests
     [Fact]
     public void Factory_RefusesFewerThanTwoMachines()
     {
-        var (game, _) = BombGameFactory.Create(new BombGameRequest(Layout(1, monitors: 2), null, _ => false, 1, "g"), out var error);
+        var (game, _) = BombGameFactory.Create(new BombGameRequest(Layout(1, monitors: 1), null, _ => false, 1, "g"), out var error);
         Assert.Null(game);
         Assert.Contains("free seats", error);
         var (allBusy, _) = BombGameFactory.Create(new BombGameRequest(Layout(4), null, _ => true, 1, "g"), out error);
         Assert.Null(allBusy);
         Assert.Contains("4 busy", error);
+    }
+
+    [Fact]
+    public void Factory_OneMachineWithTwoMonitors_PlaysOnTheMonitors()
+    {
+        var g = Make(Layout(1, monitors: 2)).Game;   // a home setup: the monitors are the seats
+        Assert.NotEqual(g.BombNodeId, g.Cables[0].EndNodeId);
+        var (busy, _) = BombGameFactory.Create(new BombGameRequest(Layout(1, monitors: 2), null, id => id.EndsWith("_1"), 1, "g"), out var error);
+        Assert.Null(busy);
+        Assert.Contains("busy", error);
     }
 
     [Fact]
