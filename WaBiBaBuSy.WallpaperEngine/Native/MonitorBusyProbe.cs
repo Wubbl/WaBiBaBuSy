@@ -15,6 +15,7 @@ public static class MonitorBusyProbe
 {
     private const int GWL_EXSTYLE = -20;
     private const long WS_EX_TOOLWINDOW = 0x00000080;
+    private const long WS_EX_TRANSPARENT = 0x00000020;   // click-through overlays (recorders, GPU overlays) cover everything
     private const int DWMWA_CLOAKED = 14;
     private static readonly HashSet<string> ShellClasses = new(StringComparer.Ordinal)
     {
@@ -52,7 +53,7 @@ public static class MonitorBusyProbe
             if (!IsWindowVisible(hwnd) || IsIconic(hwnd)) return true;
             GetWindowThreadProcessId(hwnd, out uint pid);
             if (pid == ownPid) return true;
-            if ((GetWindowLongPtr(hwnd, GWL_EXSTYLE).ToInt64() & WS_EX_TOOLWINDOW) != 0) return true;
+            if ((GetWindowLongPtr(hwnd, GWL_EXSTYLE).ToInt64() & (WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT)) != 0) return true;
             if (DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, out int cloaked, sizeof(int)) == 0 && cloaked != 0) return true;
             className.Clear();
             GetClassName(hwnd, className, className.Capacity);

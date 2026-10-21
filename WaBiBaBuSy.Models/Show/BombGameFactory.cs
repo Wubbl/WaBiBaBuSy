@@ -113,8 +113,9 @@ public static class BombGameFactory
         {
             float t = i / (float)(count - 1);
             float x = fromX + (toX - fromX) * t;
-            float y = fromY + (toY - fromY) * t + MathF.Sin(MathF.PI * t) * BombRiddles.Noise(a, f, phi, t);
-            band = NodeAt(layout, x) ?? band;
+            float baseY = fromY + (toY - fromY) * t;
+            float y = baseY + MathF.Sin(MathF.PI * t) * BombRiddles.Noise(a, f, phi, t);
+            band = NodeAt(layout, x, baseY) ?? band;
             if (band != null) y = Math.Clamp(y, band.OffsetY + 0.05f * band.Height, band.OffsetY + 0.95f * band.Height);
             points[2 * i] = x;
             points[2 * i + 1] = y;
@@ -122,13 +123,22 @@ public static class BombGameFactory
         return points;
     }
 
-    /// <summary>The node whose slice holds canvas x (wrapped on a Ring); null in a bezel / distance gap.</summary>
-    private static NodeLayout? NodeAt(SeatMapLayoutResult layout, float x)
+    /// <summary>
+    /// The node whose slice holds canvas x (wrapped on a Ring) — of several (Parallel rows share x), the one nearest
+    /// vertically to <paramref name="y"/>; null in a bezel / distance gap.
+    /// </summary>
+    private static NodeLayout? NodeAt(SeatMapLayoutResult layout, float x, float y)
     {
         if (layout.Wraps && layout.CanvasWidth > 0) x = NodeMapping.PositiveModulo(x, layout.CanvasWidth);
+        NodeLayout? best = null;
+        float bestDist = float.MaxValue;
         foreach (var n in layout.Nodes)
-            if (x >= n.OffsetX && x < n.OffsetX + n.Width) return n;
-        return null;
+        {
+            if (x < n.OffsetX || x >= n.OffsetX + n.Width) continue;
+            float dist = y < n.OffsetY ? n.OffsetY - y : y > n.OffsetY + n.Height ? y - n.OffsetY - n.Height : 0f;
+            if (dist < bestDist) { bestDist = dist; best = n; }
+        }
+        return best;
     }
 
     /// <summary>Three end seats ≠ the bomb: far ones (≥ 2 machines away) first, shuffled; round-robin when fewer than three.</summary>

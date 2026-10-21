@@ -38,7 +38,7 @@ public sealed class ShowEventLog
     /// </summary>
     public IReadOnlyList<ShowEvent> Active(long nowUtcMs)
     {
-        lock (_gate) return _events.Where(e => !ShowEventMath.Ended(e, nowUtcMs) && !OutcomeStarted(e, nowUtcMs)).ToList();
+        lock (_gate) return _events.Where(e => (!ShowEventMath.Ended(e, nowUtcMs) || OutcomeOfBookedBomb(e, nowUtcMs)) && !OutcomeStarted(e, nowUtcMs)).ToList();
     }
 
     /// <summary>
@@ -59,6 +59,13 @@ public sealed class ShowEventLog
             });
         }
     }
+
+    /// <summary>
+    /// An ended BombOutcome whose Bomb is still booked: it keeps replaying, so a client that missed it learns the game is
+    /// over (players draw nothing for it; it only hides the bomb). Call under the lock.
+    /// </summary>
+    private bool OutcomeOfBookedBomb(ShowEvent e, long nowUtcMs) =>
+        e.Type == ShowEventType.BombOutcome && _events.Any(b => b.Type == ShowEventType.Bomb && b.EventId == e.Bomb?.GameId && !ShowEventMath.Ended(b, nowUtcMs));
 
     /// <summary>A Bomb event whose BombOutcome is in the log and has started (call under the lock).</summary>
     private bool OutcomeStarted(ShowEvent e, long nowUtcMs) =>

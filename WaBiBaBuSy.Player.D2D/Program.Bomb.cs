@@ -25,6 +25,34 @@ partial class Program
     private const float CableWidth = 10f, StrandWidth = 5f;
 
     private static (int I, float Shift)[] _bombSegments = new (int, float)[1024];   // render thread only
+
+    /// <summary>The sprite ids of one Bomb / BombOutcome event ("id#slot"), built once — no string per frame.</summary>
+    private sealed class BombSpriteIds
+    {
+        public BombSpriteIds(string id, int cables)
+        {
+            Logo = id + "#logo"; Rule0 = id + "#rule0"; Rule1 = id + "#rule1"; Det = id + "#det"; Gnd = id + "#gnd"; Text = id + "#text";
+            Formulas = Enumerable.Range(0, cables).Select(i => $"{id}#f{i}").ToArray();
+        }
+        public string Logo { get; }
+        public string Rule0 { get; }
+        public string Rule1 { get; }
+        public string Det { get; }
+        public string Gnd { get; }
+        public string Text { get; }
+        public string[] Formulas { get; }
+    }
+
+    private static readonly Dictionary<string, BombSpriteIds> _bombIds = new();   // render thread only
+
+    private static BombSpriteIds IdsOf(ShowEvent evt)
+    {
+        if (_bombIds.TryGetValue(evt.EventId, out var ids)) return ids;
+        if (_bombIds.Count > 16) _bombIds.Clear();   // a few games per party: drop the old ones now and then
+        ids = new BombSpriteIds(evt.EventId, evt.Bomb?.Cables.Count ?? 0);
+        _bombIds[evt.EventId] = ids;
+        return ids;
+    }
     private static ID2D1StrokeStyle? _roundStroke;
 
     /// <summary>stdin thread: the sprites a Bomb / BombOutcome event needs (logo, rules, formulas, labels, outcome text).</summary>
@@ -169,7 +197,7 @@ partial class Program
         if (rotationDeg != 0f) _d2dContext.Transform = Matrix3x2.CreateRotation(rotationDeg * MathF.PI / 180f, new Vector2(cx, cy)) * prior;
         try
         {
-            if (_eventSprites.TryGetValue(evt.EventId + "#logo", out var logo))
+            if (_eventSprites.TryGetValue(IdsOf(evt).Logo, out var logo))
             {
                 var frame = SpriteFrame(logo, local);
                 var bs = frame.Size;
@@ -226,8 +254,9 @@ partial class Program
     {
         float w = 2.6f * g.BombSize, h = 0.1f * g.BombSize;
         float x = LocalX(g.BombX) - w / 2f, y = g.BombY - _layout.OffsetY + 0.62f * g.BombSize;
-        DrawBombText(evt.EventId + "#rule0", x, y, w, h, 1f, centred: true);
-        DrawBombText(evt.EventId + "#rule1", x, y + 1.3f * h, w, h, 1f, centred: true);
+        var ids = IdsOf(evt);
+        DrawBombText(ids.Rule0, x, y, w, h, 1f, centred: true);
+        DrawBombText(ids.Rule1, x, y + 1.3f * h, w, h, 1f, centred: true);
     }
 
     /// <summary>The riddle card at the end of cable <paramref name="i"/>.</summary>
@@ -245,8 +274,9 @@ partial class Program
         var r = c.Riddle;
         if (r.Kind == RiddleKind.Math)
         {
-            DrawBombText($"{evt.EventId}#f{i}", x + 0.06f * w, y + 0.25f * h, 0.88f * w, 0.3f * h, fade, centred: true);
-            DrawBombText(evt.EventId + "#rule0", x + 0.1f * w, y + 0.75f * h, 0.8f * w, 0.09f * h, fade, centred: true);
+            var ids = IdsOf(evt);
+            DrawBombText(i < ids.Formulas.Length ? ids.Formulas[i] : "", x + 0.06f * w, y + 0.25f * h, 0.88f * w, 0.3f * h, fade, centred: true);
+            DrawBombText(ids.Rule0, x + 0.1f * w, y + 0.75f * h, 0.8f * w, 0.09f * h, fade, centred: true);
             return;
         }
         if (r.Strands == null || r.StrandExits == null) return;
@@ -276,9 +306,9 @@ partial class Program
             float endY = areaY + strand[n - 1] * areaH;
             float labelW = 0.26f * w, labelH = 0.07f * h;
             float labelX = fromLeft ? x + 0.71f * w : x + 0.03f * w;
-            DrawBombText(evt.EventId + (r.StrandExits[s] == 0 ? "#det" : "#gnd"), labelX, endY - labelH / 2f, labelW, labelH, fade, centred: false);
+            DrawBombText(r.StrandExits[s] == 0 ? IdsOf(evt).Det : IdsOf(evt).Gnd, labelX, endY - labelH / 2f, labelW, labelH, fade, centred: false);
         }
-        DrawBombText(evt.EventId + "#rule1", x + 0.1f * w, y + 0.9f * h, 0.8f * w, 0.07f * h, fade, centred: true);
+        DrawBombText(IdsOf(evt).Rule1, x + 0.1f * w, y + 0.9f * h, 0.8f * w, 0.07f * h, fade, centred: true);
     }
 
     /// <summary>"m:ss" as a 7-segment LED: unlit segments faint. (cx, top) in local units when centred, else left x.</summary>
@@ -382,7 +412,7 @@ partial class Program
                 }
                 DrawCelebration(evt, local, canvas, FirePalette);
                 if (local >= 300)
-                    DrawBombText(evt.EventId + "#text", 0.1f * _layout.Width, 0.35f * _layout.Height, 0.8f * _layout.Width, 0.3f * _layout.Height, fadeOut, centred: true);
+                    DrawBombText(IdsOf(evt).Text, 0.1f * _layout.Width, 0.35f * _layout.Height, 0.8f * _layout.Width, 0.3f * _layout.Height, fadeOut, centred: true);
             }
             finally
             {
@@ -403,7 +433,7 @@ partial class Program
         DrawCornerTimer(g.RemainingMs, BombTimerGreen);
         DrawCelebration(evt, local, canvas, null);
         // below the bomb (the frozen timer sits above it)
-        DrawBombText(evt.EventId + "#text", 0.1f * _layout.Width, 0.74f * _layout.Height, 0.8f * _layout.Width, 0.12f * _layout.Height, fadeOut, centred: true);
+        DrawBombText(IdsOf(evt).Text, 0.1f * _layout.Width, 0.74f * _layout.Height, 0.8f * _layout.Width, 0.12f * _layout.Height, fadeOut, centred: true);
     }
 
     private static void DisposeBombResources()

@@ -59,14 +59,14 @@ public sealed class BombInputWatcher : IDisposable
     private void WatchRecycleBin(string gameId, BombGame game, NodeLayout node, System.Drawing.Rectangle bounds, float sx, float sy, CancellationToken token)
     {
         var watch = new RecycleWatch();
-        bool started = false;
         while (!token.IsCancellationRequested)
         {
-            var bin = RecycleBinLocator.Find();
-            bool over = bin is { } r && bounds.Contains(r.X + r.Width / 2, r.Y + r.Height / 2)
-                        && BombHit.CoversBomb(game, node, ((r.X - bounds.X) * sx, (r.Y - bounds.Y) * sy, r.Width * sx, r.Height * sy));
-            if (!started) { watch.Start(over); started = true; }
-            else if (watch.Update(over))
+            var bin = RecycleBinLocator.Find();   // null: not on the desktop or the shell did not answer — unknown, not "off"
+            bool? over = bin is { } r
+                ? bounds.Contains(r.X + r.Width / 2, r.Y + r.Height / 2)
+                  && BombHit.CoversBomb(game, node, ((r.X - bounds.X) * sx, (r.Y - bounds.Y) * sy, r.Width * sx, r.Height * sy))
+                : null;
+            if (watch.Update(over))
             {
                 Debug.WriteLine("[BiBaBo] Recycle Bin dropped on the bomb");
                 _ = Report(gameId, "recycle", -1);

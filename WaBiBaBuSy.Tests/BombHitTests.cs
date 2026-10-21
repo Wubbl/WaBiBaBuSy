@@ -48,9 +48,33 @@ public class BombHitTests
     public void CableAt_Miss()
     {
         var (x, y) = Px(Node(), 1200, 200);
-        Assert.Equal(-1, BombHit.CableAt(Game(), Node(), x, y));
-        (x, y) = Px(Node(), 1950, 410);   // far end of the cable is not a cut zone
-        Assert.Equal(-1, BombHit.CableAt(Game(), Node(), x, y));
+        Assert.Equal(-1, BombHit.CableAt(Game(), Node(), x, y));   // far along a long cable: CableAt_FarAlongALongCable_IsNoCut
+    }
+
+    [Fact]
+    public void CableAt_FarAlongALongCable_IsNoCut()
+    {
+        // a cable running across 20 seats: its first 15 % is thousands of units — only ~1.5 bomb sizes count
+        var g = Game();
+        g.Cables[0].Points = Enumerable.Range(0, 1000).SelectMany(i => new float[] { 1650 + 30 * i, 504 }).ToArray();
+        var node = Node();
+        node.Width = 40_000;
+        node.CanvasWidth = 40_000;
+        var (x, y) = Px(node, 1650 + 30 * 100, 504);   // 3000 units along, inside the old 15 % stub
+        Assert.Equal(-1, BombHit.CableAt(g, node, x, y));
+        (x, y) = Px(node, 1650 + 300, 504);             // 300 units = 1 bomb size: still the cut zone
+        Assert.Equal(0, BombHit.CableAt(g, node, x, y));
+    }
+
+    [Fact]
+    public void RecycleWatch_UnknownPollsDoNotBaseline()
+    {
+        var w = new RecycleWatch();
+        Assert.False(w.Update(null));   // the shell could not be asked
+        Assert.False(w.Update(true));   // first real answer: already on the bomb → that is the baseline, no win
+        Assert.False(w.Update(null));
+        Assert.False(w.Update(false));
+        Assert.True(w.Update(true));
     }
 
     [Fact]
@@ -74,7 +98,7 @@ public class BombHitTests
     public void RecycleWatch_IgnoresStartingOverlap()
     {
         var w = new RecycleWatch();
-        w.Start(overlapping: true);
+        Assert.False(w.Update(true));   // first answer = baseline
         Assert.False(w.Update(true));
         Assert.False(w.Update(false));
         Assert.True(w.Update(true));   // moved away and back: that counts
@@ -84,7 +108,7 @@ public class BombHitTests
     public void RecycleWatch_FiresOnceOnMoveOnto()
     {
         var w = new RecycleWatch();
-        w.Start(overlapping: false);
+        Assert.False(w.Update(false));   // first answer = baseline
         Assert.False(w.Update(false));
         Assert.True(w.Update(true));
         Assert.False(w.Update(true));

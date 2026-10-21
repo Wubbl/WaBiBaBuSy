@@ -153,6 +153,20 @@ public class BombGameFactoryTests
     }
 
     [Fact]
+    public void Route_Parallel_StaysInTheRowItRunsIn()
+    {
+        // two rows stacked (Parallel): both start at x = 0; row 1 is 1200 lower
+        var nodes = new List<NodeLayout>();
+        for (int row = 0; row < 2; row++)
+            for (int i = 0; i < 3; i++)
+                nodes.Add(new NodeLayout { Id = $"r{row}n{i}", OffsetX = i * W, OffsetY = row * 1200, Width = W, Height = H,
+                    CanvasWidth = 3 * W, CanvasHeight = 2280, Order = row * 3 + i, RowIndex = row });
+        var layout = new SeatMapLayoutResult { Nodes = nodes, CanvasWidth = 3 * W, CanvasHeight = 2280, Traversal = TraversalMode.Parallel };
+        var pts = BombGameFactory.Route(layout, 500, 1200 + 540, 2500, 1200 + 600, new Random(5));
+        for (int i = 1; i < pts.Length; i += 2) Assert.InRange(pts[i], 1200 + 0.05f * H - 0.01f, 1200 + 0.95f * H + 0.01f);
+    }
+
+    [Fact]
     public void Roulette_EndsOnBomb()
     {
         var g = Make(Layout(8)).Game;

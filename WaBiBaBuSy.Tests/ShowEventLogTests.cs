@@ -86,7 +86,9 @@ public class ShowEventLogTests
         log.Add(outcome);
         Assert.Equal(2, log.Active(59_000).Count);                       // outcome still ahead: both replay
         Assert.Equal(new[] { "out" }, log.Active(61_000).Select(e => e.EventId));
-        Assert.Empty(log.Active(70_000));                                  // outcome over: the bomb must not come back
+        // outcome over, bomb still booked: the outcome keeps replaying (a resumed client must learn the game ended)
+        Assert.Equal(new[] { "out" }, log.Active(70_000).Select(e => e.EventId));
+        Assert.Empty(log.Active(330_000));                                 // bomb's booking over too
     }
 
     [Fact]

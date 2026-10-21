@@ -11,7 +11,9 @@ namespace WaBiBaBuSy.Models.Show;
 public static class BombHit
 {
     public const float HitRadius = 40f;
-    private const float StubFraction = 0.15f;
+
+    /// <summary>How far along a cable (from its terminal) clicks cut it, in bomb sizes — not the whole long cable.</summary>
+    public const float StubBombSizes = 1.5f;
 
     /// <summary>The cable (0..2) a click at node-local device pixels cuts; −1 for none. The nearest wins.</summary>
     public static int CableAt(BombGame g, NodeLayout node, float localPxX, float localPxY)
@@ -24,10 +26,13 @@ public static class BombHit
             var p = g.Cables[c].Points;
             int n = p.Length / 2;
             if (n == 0) continue;
-            int stub = Math.Min(n, Math.Max(2, (int)Math.Ceiling(StubFraction * n)));
             float d = Distance(vx, vy, p[0], p[1]);
-            for (int i = 0; i + 1 < stub; i++)
+            float along = 0f, stubLength = StubBombSizes * g.BombSize;
+            for (int i = 0; i + 1 < n && along < stubLength; i++)
+            {
                 d = Math.Min(d, SegmentDistance(vx, vy, p[2 * i], p[2 * i + 1], p[2 * i + 2], p[2 * i + 3]));
+                along += Distance(p[2 * i], p[2 * i + 1], p[2 * i + 2], p[2 * i + 3]);
+            }
             if (d <= bestDist) { bestDist = d; best = c; }
         }
         return best;
@@ -57,23 +62,21 @@ public static class BombHit
     }
 }
 
-/// <summary>The Recycle Bin egg: fires once when the icon moves onto the bomb — lying there when the game started does not count.</summary>
+/// <summary>
+/// The Recycle Bin egg: fires once when the icon moves onto the bomb. The first real answer is the baseline — lying there
+/// when the game started does not count; null (the shell could not be asked) never counts as "off the bomb".
+/// </summary>
 public sealed class RecycleWatch
 {
-    private bool _wasOver = true;
+    private bool? _wasOver;
     private bool _fired;
 
-    public void Start(bool overlapping)
+    /// <summary>True exactly once: the first time the icon is on the bomb after having been seen off it.</summary>
+    public bool Update(bool? overlapping)
     {
-        _wasOver = overlapping;
-        _fired = false;
-    }
-
-    /// <summary>True exactly once: the first time the icon is on the bomb after having been off it.</summary>
-    public bool Update(bool overlapping)
-    {
-        bool fire = !_fired && overlapping && !_wasOver;
-        _wasOver = overlapping;
+        if (overlapping is not { } over) return false;
+        bool fire = !_fired && over && _wasOver == false;
+        _wasOver = over;
         if (fire) _fired = true;
         return fire;
     }
