@@ -99,7 +99,7 @@ public sealed partial class ScenePainter
             _ => "BOOM!",
         };
         var box = boom ? new Rect(rect.X + rect.Width * 0.1, rect.Y + rect.Height * 0.35, rect.Width * 0.8, rect.Height * 0.3)
-                       : new Rect(rect.X + rect.Width * 0.1, rect.Y + rect.Height * 0.1, rect.Width * 0.8, rect.Height * 0.14);
+                       : new Rect(rect.X + rect.Width * 0.1, rect.Y + rect.Height * 0.74, rect.Width * 0.8, rect.Height * 0.12);
         PaintFittedText(ctx, box, text, boom ? BombOrange : BombGreen);
     }
 

@@ -7,8 +7,9 @@ namespace WaBiBaBuSy.Models.Show;
 /// <param name="Layout">The room's seat-map canvas (the stand-in or running scene's layout).</param>
 /// <param name="TargetNodeIds">The Events strip target; null = every seat.</param>
 /// <param name="IsBusy">A window covers this node's monitor (design §8.1).</param>
+/// <param name="GroupByMachine">False: every monitor is a seat (test runs on a single machine).</param>
 public sealed record BombGameRequest(SeatMapLayoutResult Layout, IReadOnlyCollection<string>? TargetNodeIds, Func<string, bool> IsBusy,
-    int Seed, string GameId, int TimerMs = 300_000);
+    int Seed, string GameId, int TimerMs = 300_000, bool GroupByMachine = true);
 
 /// <summary>
 /// Builds a BiBaBo game (design §4): bomb seat, roulette, three cable routes along the seat chain, cards and riddles.
@@ -28,7 +29,7 @@ public static class BombGameFactory
     public static (BombGame? Game, int LiveCable) Create(BombGameRequest r, out string? error)
     {
         error = null;
-        var candidates = BombSeats.Candidates(r.Layout, r.TargetNodeIds, r.IsBusy);
+        var candidates = BombSeats.Candidates(r.Layout, r.TargetNodeIds, r.IsBusy, r.GroupByMachine);
         if (candidates.Count < 2)
         {
             int machines = r.Layout.Nodes.Where(n => r.TargetNodeIds == null || r.TargetNodeIds.Contains(n.Id))

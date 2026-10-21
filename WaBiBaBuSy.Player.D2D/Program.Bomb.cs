@@ -236,7 +236,7 @@ partial class Program
         var c = g.Cables[i];
         float x = NodeMapping.ToLocalX(c.CardX, c.CardW, _layout), y = c.CardY - _layout.OffsetY, w = c.CardW, h = c.CardH;
         _eventBrush!.Color = BombCard;
-        _eventBrush.Opacity = 0.95f * fade;
+        _eventBrush.Opacity = fade;   // opaque: cables to the other cards pass behind it
         _d2dContext!.FillRectangle(new RectangleF(x, y, w, h), _eventBrush);
         SetEventBrush(c.ColorHex, fade);
         _d2dContext.DrawRectangle(new RectangleF(x, y, w, h), _eventBrush!, 6f);
@@ -402,7 +402,8 @@ partial class Program
         }
         DrawCornerTimer(g.RemainingMs, BombTimerGreen);
         DrawCelebration(evt, local, canvas, null);
-        DrawBombText(evt.EventId + "#text", 0.1f * _layout.Width, 0.1f * _layout.Height, 0.8f * _layout.Width, 0.14f * _layout.Height, fadeOut, centred: true);
+        // below the bomb (the frozen timer sits above it)
+        DrawBombText(evt.EventId + "#text", 0.1f * _layout.Width, 0.74f * _layout.Height, 0.8f * _layout.Width, 0.12f * _layout.Height, fadeOut, centred: true);
     }
 
     private static void DisposeBombResources()

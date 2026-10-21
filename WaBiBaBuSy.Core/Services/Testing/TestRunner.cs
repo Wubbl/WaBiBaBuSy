@@ -19,6 +19,9 @@ public sealed record TestRunStatus(bool Running, string Scenario, int StepIndex,
 /// <summary>Executes a <see cref="TestScenario"/> (automated test mode design §6).</summary>
 public sealed class TestRunner
 {
+    /// <summary>The last BiBaBo game fired in this run (a later BombOutcome step ends it).</summary>
+    private ShowEvent? _lastBomb;
+
     private readonly ITestHost _host;
     private readonly ITestTransport _transport;
     private readonly ILogger<TestRunner> _logger;
@@ -415,6 +418,24 @@ public sealed class TestRunner
                 if (!string.IsNullOrEmpty(evt.ImagePath)) evt.ImagePath = ScenarioLoader.ResolvePath(ctx.Scenario, evt.ImagePath);
                 if (evt.Type == ShowEventType.Spotlight && ctx.Active.Layout?.Nodes.FirstOrDefault(n => n.Order == evt.TargetOrder) is { } target)
                     evt.TargetCenterX = target.OffsetX + target.Width / 2f;
+                if (evt.Type == ShowEventType.Bomb && evt.Bomb == null)
+                {
+                    if (ctx.Active.Layout == null) { sr.Verdict = Verdict.Fail; sr.Message = "BiBaBo needs the scene's seat-map layout"; break; }
+                    var (game, _) = BombGameFactory.Create(new BombGameRequest(ctx.Active.Layout, null, _ => false, evt.Seed, evt.EventId, GroupByMachine: false), out var error);
+                    if (game == null) { sr.Verdict = Verdict.Fail; sr.Message = error; break; }
+                    evt.Bomb = game;
+                    if (evt.DurationMs <= 0 || evt.DurationMs == ShowEventMath.ClampDuration(0))
+                        evt.DurationMs = ShowEventMath.ClampDuration(game.IntroMs + game.TimerMs + 15_000);
+                    _lastBomb = evt;
+                }
+                if (evt.Type == ShowEventType.BombOutcome)
+                {
+                    if (_lastBomb?.Bomb is not { } g || ev.BombOutcome is not { } result) { sr.Verdict = Verdict.Fail; sr.Message = "a BombOutcome needs bombOutcome and an earlier Bomb"; break; }
+                    evt.Bomb = g.WithOutcome(result, result is BombResult.Defused or BombResult.WrongCable ? 0 : -1,
+                        BombMath.RemainingMs(g, evt.T0Utc - _lastBomb.T0Utc));
+                    evt.DurationMs = result == BombResult.Aborted ? BombMath.AbortDurationMs : BombMath.OutcomeDurationMs;
+                    evt.ImagePath = _lastBomb.ImagePath;
+                }
                 await _host.FireShowEventAsync(evt, ct);
                 sr.Verdict = Verdict.Pass;
                 sr.Message = $"{evt.Type} at elapsed {ev.AtElapsedMs} ms for {evt.DurationMs} ms";

@@ -1,6 +1,7 @@
 namespace WaBiBaBuSy.Models.Show;
 
 /// <summary>How a BiBaBo game ended (<see cref="ShowEventType.BombOutcome"/>).</summary>
+[System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
 public enum BombResult { None, Defused, Recycled, WrongCable, Timeout, Aborted }
 
 /// <summary>The riddle at a cable's end.</summary>
