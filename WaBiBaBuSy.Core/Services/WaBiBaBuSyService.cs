@@ -103,6 +103,17 @@ public class WaBiBaBuSyService : IDisposable
             _playbackService.ShowEventDelegate = showEvent;
     }
 
+    /// <summary>Set the agenda delegate (keeps and forwards the AGENDA to this machine's players). Kept for later connections.</summary>
+    public void SetAgendaDelegate(Func<Models.Show.Agenda?, Task>? agenda)
+    {
+        PlaybackDelegates.Agenda = agenda;
+        if (_playbackService != null)
+            _playbackService.AgendaDelegate = agenda;
+    }
+
+    /// <summary>Server mode: the agenda every client gets when it registers (set by the server's playback host).</summary>
+    public Func<Models.Show.Agenda?>? AgendaProvider { get; set; }
+
     /// <summary>
     /// Get the wallpaper sync client (only available in client mode)
     /// </summary>
@@ -200,7 +211,10 @@ public class WaBiBaBuSyService : IDisposable
             }
 
             // Create sync coordinator
-            _syncCoordinator = new WallpaperSyncCoordinator(AppLogger.CreateLogger<WallpaperSyncCoordinator>(), _serverHost.SyncService);
+            _syncCoordinator = new WallpaperSyncCoordinator(AppLogger.CreateLogger<WallpaperSyncCoordinator>(), _serverHost.SyncService)
+            {
+                AgendaProvider = () => AgendaProvider?.Invoke(),
+            };
 
             IsServerMode = true;
             _logger.LogInformation("Server mode started successfully");
@@ -391,6 +405,10 @@ public class WaBiBaBuSyService : IDisposable
             // Dispose playback service first
             _playbackService?.Dispose();
             _playbackService = null;
+
+            // An explicit disconnect hides the agenda (a dropped link keeps it until the server sends a new one)
+            try { if (PlaybackDelegates.Agenda is { } agenda) await agenda(null); }
+            catch (Exception ex) { _logger.LogWarning(ex, "Hiding the agenda failed"); }
 
             if (_client != null)
             {

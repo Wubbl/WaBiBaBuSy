@@ -23,6 +23,9 @@ public sealed class ClientPlaybackDelegates
     /// <summary>One-shot show event for the local players (see <see cref="WallpaperPlaybackService.ShowEventDelegate"/>).</summary>
     public Func<ShowEvent, Task>? ShowEvent { get; set; }
 
+    /// <summary>Room-wide agenda for the local players; null hides it (see <see cref="WallpaperPlaybackService.AgendaDelegate"/>).</summary>
+    public Func<Models.Show.Agenda?, Task>? Agenda { get; set; }
+
     /// <summary>Copy every delegate onto <paramref name="playback"/> (unset ones stay null there too).</summary>
     public void ApplyTo(WallpaperPlaybackService playback)
     {
@@ -30,5 +33,6 @@ public sealed class ClientPlaybackDelegates
         playback.D2DCrossScreenApplyDelegate = CrossScreenApply;
         playback.D2DCrossScreenStopDelegate = CrossScreenStop;
         playback.ShowEventDelegate = ShowEvent;
+        playback.AgendaDelegate = Agenda;
     }
 }

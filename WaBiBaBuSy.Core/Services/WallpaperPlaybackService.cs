@@ -59,6 +59,12 @@ public class WallpaperPlaybackService : IDisposable
     /// </summary>
     public Func<ShowEvent, Task>? ShowEventDelegate { get; set; }
 
+    /// <summary>
+    /// Room-wide agenda (timetable overlay): item times already in this machine's clock terms; null = hide it (explicit
+    /// disconnect). Set by the UI layer to keep it and forward it to the local players.
+    /// </summary>
+    public Func<Agenda?, Task>? AgendaDelegate { get; set; }
+
     // Drift detection state
     private CancellationTokenSource? _driftMonitorCts;
     private Task? _driftMonitorTask;
@@ -199,6 +205,26 @@ public class WallpaperPlaybackService : IDisposable
         }
     }
 
+    /// <summary>AGENDA: parse (times shifted into this clock), forward. Never throws.</summary>
+    internal async Task HandleAgendaAsync(SyncCommand command)
+    {
+        try
+        {
+            if (!AgendaCodec.TryFromCommand(command, out var agenda))
+            {
+                _logger.LogWarning("[Playback:AGENDA] Ignoring an unreadable agenda (seq {Seq})", command.SequenceNumber);
+                return;
+            }
+            _logger.LogInformation("[Playback:AGENDA] enabled={Enabled}, {Count} item(s)", agenda.Enabled, agenda.Items.Count);
+            var forward = AgendaDelegate;
+            if (forward != null) await forward(agenda);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Playback:AGENDA] Agenda failed");
+        }
+    }
+
     /// <summary>
     /// Handle incoming sync command from server
     /// </summary>
@@ -215,6 +241,8 @@ public class WallpaperPlaybackService : IDisposable
         // Show events skip the timestamp wait: the players hold them until T0 (fetching the image takes time too).
         if (command.Type == CommandType.Event)
             return Task.Run(() => HandleShowEventAsync(command));
+        if (command.Type == CommandType.Agenda)
+            return Task.Run(() => HandleAgendaAsync(command));
 
         long generation = command.Type is CommandType.Load or CommandType.Stop
             ? Interlocked.Increment(ref _playbackGeneration)

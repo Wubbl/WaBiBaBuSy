@@ -118,6 +118,7 @@ message SyncCommand {
   string content_id = 4;
   SyncParameters params = 5;
   string event_json = 6;   // EVENT: JSON ShowEvent (one-shot show event); its T0 is timestamp_utc
+  string agenda_json = 7;  // AGENDA: JSON Agenda (room-wide timetable); timestamp_utc = the server time it was sent (clock shift)
 }
 
 // Command types
@@ -136,6 +137,7 @@ enum CommandType {
   TEST_PROBE = 11;        // Automated test run: report the frame shown at timestamp_utc (params.test_*)
   EVENT = 12;             // One-shot show event (Spotlight, Celebration, …): ShowEvent JSON in event_json, T0 = timestamp_utc. Old clients log "unknown" and ignore it.
   TEST_FAULT = 13;        // Automated test run: simulate a fault on this client (params.test_fault_*). Old clients log "unknown" and ignore it.
+  AGENDA = 14;            // Room-wide agenda (timetable overlay): Agenda JSON in agenda_json, timestamp_utc = send time. Old clients log "unknown" and ignore it.
 }
 
 // Sync parameters
