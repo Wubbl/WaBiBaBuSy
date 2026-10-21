@@ -1,6 +1,6 @@
 # Agenda Overlay — LAN-day timetable on every screen — Design
 
-**Created:** 2026-10-21 · **Status:** approved 2026-10-21 (Patrick's answers in §9); Claude's defaults marked *[call]*
+**Created:** 2026-10-21 · **Status:** implemented 2026-10-21 (plan `2026-10-21-agenda-overlay-plan.md`, review fixes included); multi-machine check pending (manual checklist §8b). Claude's defaults marked *[call]*
 **Related:** one-shot show events ([`2026-10-03-show-events-design.md`](2026-10-03-show-events-design.md)) — same drawing split (pure math in Models, player + room preview), but its own transport (§4). Sibling: [BiBaBo](2026-10-21-bibabo-bomb-game-design.md).
 
 ---
