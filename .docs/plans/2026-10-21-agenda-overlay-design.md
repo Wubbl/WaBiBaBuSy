@@ -1,6 +1,6 @@
 # Agenda Overlay — LAN-day timetable on every screen — Design
 
-**Created:** 2026-10-21 · **Status:** proposal — Claude's draft from one sentence of Patrick's; defaults marked *[call]*, open questions in §9
+**Created:** 2026-10-21 · **Status:** approved 2026-10-21 (Patrick's answers in §9); Claude's defaults marked *[call]*
 **Related:** one-shot show events ([`2026-10-03-show-events-design.md`](2026-10-03-show-events-design.md)) — same drawing split (pure math in Models, player + room preview), but its own transport (§4). Sibling: [BiBaBo](2026-10-21-bibabo-bomb-game-design.md).
 
 ---
@@ -39,7 +39,10 @@ counting down. Edited on the server; changes show up everywhere within a second.
 └──────────────────────────────┘
 ```
 - Default top-right corner, 30 % of the screen height max, 85 % opaque dark card, white text, accent = show colour.
-- Shows at most 6 items: the last past one, the current one, then the upcoming ones.
+- Shows at most 6 items: the last past one, the current one, then the upcoming ones. Multi-day: a small day header
+  ("Sat") above the first row of each day in the window; items on a later day than today are only shown when
+  fewer than 6 rows of today remain.
+- Notes (free text, multi-line) at the bottom of the card.
 - The highlight moves to an item at its start time; 10 min before an item starts it pulses gently.
 - Sized in screen fractions (not cm) so it looks the same on a 24" and the projector *[call]*.
 
@@ -53,8 +56,12 @@ public sealed class Agenda
     public List<AgendaItem> Items { get; set; } = new();   // sorted by StartUtcMs
     public List<string> Notes { get; set; } = new();
     public AgendaCorner Corner { get; set; } = AgendaCorner.TopRight;
+    public int UtcOffsetMinutes { get; set; }               // server's local offset, for day grouping + "18:00" labels
 }
 public sealed class AgendaItem { public long StartUtcMs { get; set; } public string Text { get; set; } = ""; }
+
+// Multi-day (Fri–Sun): items carry full UTC instants; the day a row belongs to is derived from the server's
+// local date of StartUtcMs, sent along as Agenda.UtcOffsetMinutes so every seat groups and labels days the same way.
 ```
 Persisted server-side in `%APPDATA%\WaBiBaBuSy\agenda.json`. Times are entered as local wall time on the server
 ("18:00", date = the LAN day, rolls past midnight) and stored as UTC — every seat compares against the shared,
@@ -112,12 +119,19 @@ An **Agenda** tab in the right panel, next to Playlist *[call]*:
 1. Model + `AgendaMath` + paste parser + tests.
 2. Transport: AGENDA command, `AgendaService`, send on change / register / resume, client keeps + forwards, clock shift, local stand-in.
 3. Player + preview drawing.
-4. Agenda tab.
+4. Agenda tab (rows with day + time, paste box with optional `Sat 18:00 Pizza` day prefix, notes).
+4b. Agenda screen (`agenda` tag, full-size layout).
 5. Docs + a showcase scenario with exact frames (before / during / after an item).
 
-## 9. Open questions for Patrick
-1. **Always on, or popping up?** Default: always in a corner. Alternative: hidden, appears 10 min before each item and for 1 min every 30 min.
-2. **Reminders:** when an item starts, should it also fire something big on all screens (an Announce lap "🍕 Pizza is here!", or a Spotlight)? Default: no, just the highlight.
-3. **Multi-day?** One LAN day (default) or Fri–Sun with day headers?
-4. **Projector:** same small corner panel, or the full agenda big on the projector?
-5. **Notes:** are free-text lines (WiFi, house rules, "pay 10 € to …") wanted, or just the timetable?
+### 5.1 Agenda screen (full-size timetable) — Patrick: "extra timetable projector sounds nice"
+Any seat tagged **`agenda`** (existing `tags.json` tags) shows the **full agenda big** instead of the corner panel:
+all days as columns (Fri | Sat | Sun), current item highlighted, notes at the bottom, filling the screen over the
+seat's own wallpaper or scene (dimmed 60 % behind it). Same model and math, a second layout. Handy for a spare
+monitor or TV at the entrance *[call]*.
+
+## 9. Patrick's answers (2026-10-21)
+1. Always visible in a corner — yes.
+2. Big reminder when an item starts — no (for now).
+3. Multi-day: **Fri–Sun** → day headers (§2) and day columns on the agenda screen.
+4. No projector, but an extra timetable screen "sounds nice" → §5.1 (`agenda` tag).
+5. Free-text notes — yes.
