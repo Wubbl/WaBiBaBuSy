@@ -4,6 +4,36 @@ namespace WaBiBaBuSy.Models.Show;
 [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
 public enum BombResult { None, Defused, Recycled, WrongCable, Timeout, Aborted }
 
+/// <summary>How a game is won (design §14.2).</summary>
+[System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
+public enum BombMode { Classic, CutOrder, Keypad }
+
+/// <summary>The server's answers to a game — never sent (design §14.1).</summary>
+public sealed class BombSolution
+{
+    public BombMode Mode { get; set; }
+    /// <summary>Each cable's riddle value.</summary>
+    public int[] Values { get; set; } = Array.Empty<int>();
+    /// <summary>Classic: the cable to cut.</summary>
+    public int LiveCable { get; set; } = -1;
+    /// <summary>Cut order: the two cables, in the order to cut them.</summary>
+    public int[] CutOrder { get; set; } = Array.Empty<int>();
+    /// <summary>Keypad: the code ("473").</summary>
+    public string Code { get; set; } = "";
+}
+
+/// <summary>The junction box (design §14.4): the cables in <see cref="Cables"/> change colour inside it.</summary>
+public sealed class BombJunction
+{
+    public string NodeId { get; set; } = "";
+    /// <summary>The box, canvas units (inside its node's slice).</summary>
+    public float X { get; set; }
+    public float Y { get; set; }
+    public float W { get; set; }
+    public float H { get; set; }
+    public int[] Cables { get; set; } = Array.Empty<int>();
+}
+
 /// <summary>The riddle at a cable's end; every kind yields a digit (design §14.1).</summary>
 public enum RiddleKind { Math, Tangle, Maze, Logic, Sequence, Clock, Dots }
 
@@ -70,6 +100,12 @@ public sealed class BombCable
     public float CardH { get; set; }
 
     public BombRiddle Riddle { get; set; } = new();
+
+    /// <summary>The colour after the junction box (its card's colour); = <see cref="ColorHex"/> without one.</summary>
+    public string CardColorHex { get; set; } = "";
+
+    /// <summary>First point after the junction box (drawn in <see cref="CardColorHex"/>); the segment before it is the wire inside the box. −1 = none.</summary>
+    public int SwapIndex { get; set; } = -1;
 }
 
 /// <summary>
@@ -96,6 +132,29 @@ public sealed class BombGame
     public int TimerMs { get; set; } = 300_000;
 
     public List<BombCable> Cables { get; set; } = new();
+
+    public BombMode Mode { get; set; }
+
+    /// <summary>The rules (first line = the rule itself), on the RULES card or under the bomb.</summary>
+    public string[] RuleLines { get; set; } = Array.Empty<string>();
+
+    /// <summary>The seat with the RULES card; "" = the rules are under the bomb.</summary>
+    public string RuleNodeId { get; set; } = "";
+    public float RuleX { get; set; }
+    public float RuleY { get; set; }
+    public float RuleW { get; set; }
+    public float RuleH { get; set; }
+
+    public BombJunction? Junction { get; set; }
+
+    /// <summary>Keypad: the cables whose results make the code, in order.</summary>
+    public int[] CodeOrder { get; set; } = Array.Empty<int>();
+
+    /// <summary>BombStep / BombOutcome: cables cut so far (cut order).</summary>
+    public List<int> CutCables { get; set; } = new();
+
+    /// <summary>BombStep / BombOutcome: digits typed on the keypad so far.</summary>
+    public string Typed { get; set; } = "";
 
     /// <summary>BombOutcome only.</summary>
     public BombResult Result { get; set; }

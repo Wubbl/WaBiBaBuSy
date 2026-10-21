@@ -28,11 +28,151 @@ public class BombGameFactoryTests
         return new SeatMapLayoutResult { Nodes = nodes, CanvasWidth = n * W, CanvasHeight = H, Wraps = wraps, Traversal = wraps ? TraversalMode.Ring : TraversalMode.Snake };
     }
 
-    private static (BombGame Game, int Live) Make(SeatMapLayoutResult layout, int seed = 7, Func<string, bool>? busy = null, IReadOnlyCollection<string>? targets = null)
+    private static (BombGame Game, BombSolution Solution) Make(SeatMapLayoutResult layout, int seed = 7, Func<string, bool>? busy = null,
+        IReadOnlyCollection<string>? targets = null, BombMode? mode = null, bool? junction = null, bool? ruleCard = null)
     {
-        var (game, live) = BombGameFactory.Create(new BombGameRequest(layout, targets, busy ?? (_ => false), seed, "g1"), out var error);
+        var (game, solution) = BombGameFactory.Create(new BombGameRequest(layout, targets, busy ?? (_ => false), seed, "g1",
+            ForceMode: mode, ForceJunction: junction, ForceRuleCard: ruleCard), out var error);
         Assert.True(game != null, error);
-        return (game!, live);
+        return (game!, solution!);
+    }
+
+    /// <summary>Which cables the game's first rule line makes live (a person reading the RULES card).</summary>
+    private static int[] LiveByRule(BombGame g, int[] values)
+    {
+        string rule = g.RuleLines[0];
+        Func<int, bool> pred;
+        if (rule.Contains("LARGEST")) { int m = values.Max(); pred = v => v == m; }
+        else if (rule.Contains("SMALLEST")) { int m = values.Min(); pred = v => v == m; }
+        else if (rule.Contains("is odd")) pred = v => v % 2 == 1;
+        else if (rule.Contains("is even")) pred = v => v % 2 == 0;
+        else if (rule.Contains("prime")) pred = v => v is 2 or 3 or 5 or 7;
+        else if (rule.Contains("greater than 4")) pred = v => v > 4;
+        else if (rule.Contains("result = ")) { int k = int.Parse(rule[(rule.IndexOf("= ") + 2)..]); pred = v => v == k; }
+        else throw new InvalidOperationException(rule);
+        return Enumerable.Range(0, values.Length).Where(i => pred(values[i])).ToArray();
+    }
+
+    private static int[] Values(BombGame g) => g.Cables.Select(c => TestRiddle.Value(c.Riddle)).ToArray();
+
+    [Fact]
+    public void Classic_ExactlyOneLive_MatchesTheRule()
+    {
+        for (int seed = 0; seed < 300; seed++)
+        {
+            var (g, sol) = Make(Layout(8), seed, mode: BombMode.Classic);
+            Assert.Equal(BombMode.Classic, g.Mode);
+            var live = LiveByRule(g, Values(g));
+            Assert.True(live.Length == 1, $"seed {seed}: {g.RuleLines[0]} with {string.Join(",", Values(g))}");
+            Assert.Equal(sol.LiveCable, live[0]);
+        }
+    }
+
+    [Fact]
+    public void CutOrder_ExactlyTwoLive_InTheStatedOrder()
+    {
+        for (int seed = 0; seed < 300; seed++)
+        {
+            var (g, sol) = Make(Layout(8), seed, mode: BombMode.CutOrder);
+            var values = Values(g);
+            var live = LiveByRule(g, values);
+            Assert.True(live.Length == 2, $"seed {seed}: {g.RuleLines[0]} with {string.Join(",", values)}");
+            Assert.NotEqual(values[live[0]], values[live[1]]);
+            bool smallest = string.Join(" ", g.RuleLines).Contains("smallest result first");
+            var expected = smallest ? live.OrderBy(i => values[i]).ToArray() : live.OrderByDescending(i => values[i]).ToArray();
+            Assert.Equal(expected, sol.CutOrder);
+        }
+    }
+
+    [Fact]
+    public void Keypad_CodeIsTheResultsInTheStatedColourOrder()
+    {
+        string[] names = { "RED", "GREEN", "BLUE" };
+        for (int seed = 0; seed < 300; seed++)
+        {
+            var (g, sol) = Make(Layout(8), seed, mode: BombMode.Keypad);
+            var values = Values(g);
+            Assert.Equal(string.Concat(g.CodeOrder.Select(i => values[i])), sol.Code);
+            Assert.Equal("CODE = " + string.Join(" · ", g.CodeOrder.Select(i => names[i])), g.RuleLines[0]);
+        }
+    }
+
+    [Fact]
+    public void Modes_AllRolled_AndKindsVary()
+    {
+        var modes = new HashSet<BombMode>();
+        var kinds = new HashSet<RiddleKind>();
+        for (int seed = 0; seed < 200; seed++)
+        {
+            var (g, _) = Make(Layout(8), seed);
+            modes.Add(g.Mode);
+            foreach (var c in g.Cables) kinds.Add(c.Riddle.Kind);
+            Assert.True(g.Cables.Select(c => c.Riddle.Kind).Distinct().Count() >= 2, "a game mixes at least two riddle kinds");
+        }
+        Assert.Equal(3, modes.Count);
+        Assert.Equal(7, kinds.Count);
+    }
+
+    [Fact]
+    public void RuleCard_SitsOnAnotherMachine()
+    {
+        for (int seed = 0; seed < 50; seed++)
+        {
+            var (g, _) = Make(Layout(8), seed, ruleCard: true);
+            Assert.NotEqual("", g.RuleNodeId);
+            var used = g.Cables.Select(c => c.EndNodeId).Append(g.BombNodeId);
+            Assert.DoesNotContain(g.RuleNodeId, used);
+            Assert.Equal("", Make(Layout(8), seed, ruleCard: false).Game.RuleNodeId);
+        }
+        Assert.Equal("", Make(Layout(4), 1, ruleCard: true).Game.RuleNodeId);   // no spare machine: rules at the bomb
+    }
+
+    [Fact]
+    public void Junction_RecoloursTheCablesThroughTheBox()
+    {
+        int found = 0;
+        foreach (bool wraps in new[] { false, true })
+            for (int seed = 0; seed < 80; seed++)
+            {
+                var (g, _) = Make(Layout(10, wraps: wraps), seed, junction: true);
+                if (g.Junction is not { } j) continue;
+                found++;
+                Assert.True(j.Cables.Length >= 2);
+                Assert.NotEqual(g.BombNodeId, j.NodeId);
+                float canvasW = 10 * W;
+                float Mod(float x) => wraps ? ((x % canvasW) + canvasW) % canvasW : x;
+                foreach (int i in j.Cables)
+                {
+                    var c = g.Cables[i];
+                    Assert.InRange(c.SwapIndex, 1, c.Points.Length / 2 - 1);
+                    float sx = c.Points[2 * c.SwapIndex - 2], ex = c.Points[2 * c.SwapIndex];
+                    Assert.True(Math.Abs(Mod(sx) - (j.X + j.W / 2)) <= j.W / 2 + 1 && Math.Abs(Mod(ex) - (j.X + j.W / 2)) <= j.W / 2 + 1,
+                        "the swap happens inside the box");
+                    var xs = c.Points.Where((_, k) => k % 2 == 0).ToArray();
+                    bool up = xs.Zip(xs.Skip(1)).All(p => p.Second >= p.First - 0.01f), down = xs.Zip(xs.Skip(1)).All(p => p.Second <= p.First + 0.01f);
+                    Assert.True(up || down, "the short way, no turning back");
+                }
+                Assert.Contains(j.Cables, i => g.Cables[i].CardColorHex != g.Cables[i].ColorHex);
+                foreach (var (c, i) in g.Cables.Select((c, i) => (c, i)).Where(t => !j.Cables.Contains(t.i)))
+                {
+                    Assert.Equal(c.ColorHex, c.CardColorHex);
+                    Assert.Equal(-1, c.SwapIndex);
+                }
+            }
+        Assert.True(found > 10, $"junction rolled only {found} times");
+    }
+
+    [Fact]
+    public void Solution_NeverInTheGameJson()
+    {
+        foreach (var mode in Enum.GetValues<BombMode>())
+        {
+            var json = JsonSerializer.Serialize(Make(Layout(8), 3, mode: mode).Game);
+            Assert.DoesNotContain("Solution", json);
+            Assert.DoesNotContain("LiveCable", json);
+            Assert.DoesNotContain("\"Code\"", json);
+            Assert.DoesNotContain("Value", json);
+        }
     }
 
     [Fact]
@@ -99,21 +239,6 @@ public class BombGameFactoryTests
         Assert.All(g.Cables, c => Assert.Equal(end, c.EndNodeId));
         var xs = g.Cables.Select(c => c.CardX).OrderBy(x => x).ToList();
         for (int i = 1; i < xs.Count; i++) Assert.True(xs[i] >= xs[i - 1] + g.Cables[0].CardW - 0.01f, "cards overlap");
-    }
-
-    [Fact]
-    public void Factory_ExactlyOneLiveCable_NotInJson()
-    {
-        var (g, live) = Make(Layout(6));
-        Assert.InRange(live, 0, 2);
-        var json = JsonSerializer.Serialize(g);
-        Assert.DoesNotContain("Live", json);
-        for (int i = 0; i < 3; i++)
-        {
-            var r = g.Cables[i].Riddle;
-            bool cardSaysLive = TestRiddle.Value(r) == 1;
-            Assert.Equal(i == live, cardSaysLive);
-        }
     }
 
     [Fact]

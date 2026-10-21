@@ -243,7 +243,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
 
         string id = Guid.NewGuid().ToString("N");
         _localBusy = MonitorBusyProbe.BusyMonitors();
-        var (game, live) = BombGameFactory.Create(new BombGameRequest(layout, targetNodeIds, IsSeatBusy, Random.Shared.Next(), id), out var error);
+        var (game, solution) = BombGameFactory.Create(new BombGameRequest(layout, targetNodeIds, IsSeatBusy, Random.Shared.Next(), id), out var error);
         if (game == null)
         {
             EventStatusText = $"BiBaBo: {error}";
@@ -266,6 +266,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             TargetNodeIds = targetNodeIds?.ToList(),
             Bomb = game,
         };
+        int live = solution!.LiveCable;   // ponytail: Classic referee until variation Task 3
         _bombGame.Begin(evt, live);
         IsBiBaBoRunning = true;
         if (NodeIds.IsLocalMonitor(game.BombNodeId) && layout.Get(game.BombNodeId) is { } bombNode)
