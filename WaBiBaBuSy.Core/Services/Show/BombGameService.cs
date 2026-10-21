@@ -133,11 +133,14 @@ public sealed class BombGameService
         finally { _gate.Release(); }
     }
 
-    /// <summary>Progress everyone sees (a cable cut, digits typed); lasts as long as the bomb is booked.</summary>
+    /// <summary>
+    /// Progress everyone sees (a cable cut, digits typed); lasts as long as the bomb is booked. Shown at once — no start
+    /// lead: a typed digit that appears a second late gets typed twice.
+    /// </summary>
     private Task StepAsync(long now)
     {
         var bomb = _bomb!;
-        long t0 = now + _leadMs();
+        long t0 = now;
         return _dispatch(new ShowEvent
         {
             EventId = Guid.NewGuid().ToString("N"),

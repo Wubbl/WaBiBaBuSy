@@ -23,7 +23,7 @@
     { "type": "wait", "label": "text sprites", "ms": 3000 },
     { "type": "exactFrame", "label": "cut order countdown + cards", "elapsedMs": 60000 },
 
-    { "type": "showEvent", "label": "keypad: math, maze, dots", "atElapsedMs": 70000,
+    { "type": "showEvent", "label": "keypad: math, logic, sequence", "atElapsedMs": 70000,
       "event": { "type": "Bomb", "seed": 2026 }, "forceMode": "Keypad", "forceKinds": [ "Math", "Logic", "Sequence" ] },
     { "type": "wait", "label": "text sprites", "ms": 3000 },
     { "type": "exactFrame", "label": "keypad countdown + cards", "elapsedMs": 90000 },

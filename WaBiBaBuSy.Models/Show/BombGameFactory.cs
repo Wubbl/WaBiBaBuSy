@@ -237,7 +237,8 @@ public static class BombGameFactory
         foreach (int dir in right >= 2 ? new[] { 1, -1 } : new[] { -1, 1 })
         {
             var neighbour = Neighbour(layout, bomb, dir);
-            if (neighbour == null) continue;
+            // the box must stay visible: never on a seat that shows a card or the RULES (they are drawn over it)
+            if (neighbour == null || neighbour.Id == g.RuleNodeId || g.Cables.Any(c => c.EndNodeId == neighbour.Id)) continue;
             float jc = neighbour.OffsetX + neighbour.Width / 2f;
             float jdx = jc - g.BombX;
             if (layout.Wraps && Math.Abs(jdx) > layout.CanvasWidth / 2f) jdx -= Math.Sign(jdx) * layout.CanvasWidth;

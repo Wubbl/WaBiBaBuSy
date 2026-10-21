@@ -13,8 +13,9 @@ public static class BombRiddles
     private const int StrandPoints = 24;
     private static readonly float[] Slots = { 0.2f, 0.5f, 0.8f };
     private static readonly string[] GateOps = { "AND", "OR", "XOR", "NAND", "NOR" };
-    private static readonly string[] DotPaletteHex = { "#E53935", "#C2185B", "#F4511E", "#EC407A" };
-    private static readonly string[] DotPaletteNames = { "RED", "CRIMSON", "ORANGE", "PINK" };
+    // four warm colours, 30° of hue apart: close enough to need a careful look, far enough on a cheap monitor
+    private static readonly string[] DotPaletteHex = { "#EC1349", "#EC13B6", "#EC4913", "#ECB613" };
+    private static readonly string[] DotPaletteNames = { "RED", "PINK", "ORANGE", "YELLOW" };
 
     public static (int Min, int Max) Range(RiddleKind kind) => kind switch
     {

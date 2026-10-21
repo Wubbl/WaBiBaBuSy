@@ -435,8 +435,8 @@ message ProbeResultAck {
 message ShowActionReport {
   string client_id = 1;
   string event_id = 2;      // the Bomb event (= game id)
-  string action = 3;        // "cut" | "recycle"
-  int32 cable = 4;          // cut: 0..2
+  string action = 3;        // "cut" (cable 0..2) | "key" (0..9, 10 = C) | "recycle"
+  int32 cable = 4;          // cut: the cable; key: the key
   int64 client_utc_ms = 5;  // for the log
 }
 

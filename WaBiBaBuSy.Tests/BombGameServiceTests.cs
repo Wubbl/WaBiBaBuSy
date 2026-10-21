@@ -195,6 +195,7 @@ public class BombGameServiceTests
         Assert.True(await _service.OnActionAsync("c3", "game-1", "key", 4));
         Assert.True(await _service.OnActionAsync("c3", "game-1", "key", 0));
         Assert.Equal(new[] { "4", "40" }, _dispatched.Select(e => e.Bomb!.Typed));
+        Assert.All(_dispatched, e => Assert.Equal(_now, e.T0Utc));   // typed digits show at once (no start lead)
         Assert.All(_dispatched, e => Assert.Equal(ShowEventType.BombStep, e.Type));
         Assert.True(await _service.OnActionAsync("c3", "game-1", "key", 7));
         Assert.Equal(BombResult.Defused, _dispatched[^1].Bomb!.Result);

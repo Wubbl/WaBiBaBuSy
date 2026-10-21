@@ -80,8 +80,21 @@ public class BombRiddleTests
                 for (int j = i + 1; j < d.Length / 2; j++)
                     Assert.True(MathF.Abs(d[2 * i] - d[2 * j]) + MathF.Abs(d[2 * i + 1] - d[2 * j + 1]) > 0.05f, "dots overlap");
             Assert.Contains(r.DotTargetName!, BombRiddles.Subtitle(r));
+            // the four colours must be told apart: hues at least 25° apart
+            var hues = r.DotPalette!.Select(Hue).OrderBy(h => h).ToArray();
+            for (int k = 0; k < hues.Length; k++)
+            {
+                double gap = k + 1 < hues.Length ? hues[k + 1] - hues[k] : hues[0] + 360 - hues[^1];
+                Assert.True(gap >= 25, $"palette hues too close: {string.Join(", ", hues.Select(h => h.ToString("0")))}");
+            }
             Assert.InRange(d.Length / 2, 20, 40);
         }
+    }
+
+    private static double Hue(string hex)
+    {
+        var c = System.Drawing.ColorTranslator.FromHtml(hex);
+        return c.GetHue();
     }
 
     [Fact]

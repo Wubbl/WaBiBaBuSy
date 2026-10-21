@@ -163,6 +163,22 @@ public class BombGameFactoryTests
     }
 
     [Fact]
+    public void Junction_NeverUnderACardOrTheRulesCard()
+    {
+        int found = 0;
+        foreach (int machines in new[] { 3, 4, 6, 8 })
+            for (int seed = 0; seed < 150; seed++)
+            {
+                var (g, _) = Make(Layout(machines), seed, junction: true, ruleCard: true);
+                if (g.Junction is not { } j) continue;
+                found++;
+                Assert.NotEqual(g.RuleNodeId, j.NodeId);
+                Assert.DoesNotContain(g.Cables, c => c.EndNodeId == j.NodeId);
+            }
+        Assert.True(found > 20, $"junction rolled only {found} times");
+    }
+
+    [Fact]
     public void Solution_NeverInTheGameJson()
     {
         foreach (var mode in Enum.GetValues<BombMode>())

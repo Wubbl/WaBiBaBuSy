@@ -44,7 +44,14 @@ partial class Program
             Inputs = Enumerable.Range(0, cables).Select(i => Enumerable.Range(0, 3).Select(k => $"{id}#in{i}{k}").ToArray()).ToArray();
             Digits = Enumerable.Range(0, 10).Select(d => $"{id}#d{d}").ToArray();
             Gates = GateNames.ToDictionary(n => n, n => $"{id}#g{n}");
+            // logic cards: (gate sprite, input a, input b) per lamp, parsed once
+            Wires = (g?.Cables ?? new List<BombCable>()).Select(c => (c.Riddle.LogicGates ?? Array.Empty<string>()).Select(gate =>
+            {
+                var parts = gate.Split(' ');
+                return (Gate: Gates.GetValueOrDefault(parts[0], ""), A: "ABC".IndexOf(parts[1][0]), B: "ABC".IndexOf(parts[2][0]));
+            }).ToArray()).ToArray();
         }
+        public (string Gate, int A, int B)[][] Wires { get; }
         public string Logo { get; }
         public string Text { get; }
         public string Header { get; }
@@ -413,6 +420,12 @@ partial class Program
         _d2dContext.DrawRectangle(new RectangleF(x, y, w, h), _eventBrush!, 6f);
         _d2dContext.FillRectangle(new RectangleF(x, y, w, 0.1f * h), _eventBrush!);
         DrawBombText(ids.Subtitles[i], x + 0.05f * w, y + 0.87f * h, 0.9f * w, 0.08f * h, fade, centred: true);
+        if (c.Riddle is { Kind: RiddleKind.Dots, DotPalette: { } palette } && c.Riddle.DotTarget < palette.Length)
+        {
+            SetEventBrush(palette[c.Riddle.DotTarget], fade);   // a swatch of the colour to count
+            float sr = 0.035f * h;
+            _d2dContext!.FillEllipse(new Ellipse(new Vector2(x + 0.05f * w, y + 0.91f * h), sr, sr), _eventBrush!);
+        }
 
         // the cable arrives at the edge nearest its last point; entries face it
         float lastX = c.Points.Length >= 2 ? LocalX(_layout.Wraps && _layout.CanvasWidth > 0 ? NodeMapping.PositiveModulo(c.Points[^2], _layout.CanvasWidth) : c.Points[^2]) : x;
@@ -508,15 +521,14 @@ partial class Program
             DrawBombText(ids.Inputs[cable][k], inX, Row(k) - 0.35f * boxH, inW, 0.7f * boxH, fade, centred: true);
             _eventBrush.Color = BombGrey;
         }
-        for (int k = 0; k < 3; k++)   // gates and their wires
+        for (int k = 0; k < 3 && k < ids.Wires[cable].Length; k++)   // gates and their wires
         {
-            var parts = r.LogicGates[k].Split(' ');   // ponytail: three tiny splits per card per frame — fine for a card
-            int a = "ABC".IndexOf(parts[1][0]), b = "ABC".IndexOf(parts[2][0]);
+            var (gateId, a, b) = ids.Wires[cable][k];
             float gy = Row(k);
             _d2dContext!.DrawLine(new Vector2(inX + inW, Row(a)), new Vector2(gX, gy - 0.2f * boxH), _eventBrush, 3f);
             _d2dContext.DrawLine(new Vector2(inX + inW, Row(b)), new Vector2(gX, gy + 0.2f * boxH), _eventBrush, 3f);
             _d2dContext.DrawRectangle(new RectangleF(gX, gy - boxH / 2f, gW, boxH), _eventBrush, 3f);
-            if (ids.Gates.TryGetValue(parts[0], out var gateId)) DrawBombText(gateId, gX, gy - 0.35f * boxH, gW, 0.7f * boxH, fade, centred: true);
+            DrawBombText(gateId, gX, gy - 0.35f * boxH, gW, 0.7f * boxH, fade, centred: true);
             _eventBrush.Color = BombGrey;
             _d2dContext.DrawLine(new Vector2(gX + gW, gy), new Vector2(lampX - lampR, gy), _eventBrush, 3f);
             _d2dContext.DrawEllipse(new Ellipse(new Vector2(lampX, gy), lampR, lampR), _eventBrush, 3f);
