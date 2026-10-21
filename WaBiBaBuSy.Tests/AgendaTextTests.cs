@@ -50,6 +50,20 @@ public class AgendaTextTests
     }
 
     [Fact]
+    public void Labels_UseEachItemsOwnOffset_AcrossDst()
+    {
+        // Vienna: DST ends Sun 2026-10-25 03:00 → 02:00. Fri +02:00, Sun noon +01:00.
+        var vienna = TimeZoneInfo.FindSystemTimeZoneById("W. Europe Standard Time");
+        var doc = new WaBiBaBuSy.Models.Configuration.AgendaDocument { ItemsText = "Fri 18:00 Pizza\nSun 11:00 Cleanup", FirstDay = FirstDay };
+        var agenda = doc.Build(vienna, Array.Empty<string>());
+        Assert.Equal("18:00", AgendaMath.TimeLabel(agenda, agenda.Items[0]));
+        Assert.Equal("11:00", AgendaMath.TimeLabel(agenda, agenda.Items[1]));
+        Assert.Equal("Sun", AgendaMath.DayLabel(agenda, agenda.Items[1]));
+        var rows = AgendaMath.Rows(agenda, agenda.Items[0].StartUtcMs - 1);
+        Assert.Equal("11:00", rows[1].Time);
+    }
+
+    [Fact]
     public void Parse_UsesTheTimeZone()
     {
         var vienna = TimeZoneInfo.CreateCustomTimeZone("plus2", TimeSpan.FromHours(2), "plus2", "plus2");

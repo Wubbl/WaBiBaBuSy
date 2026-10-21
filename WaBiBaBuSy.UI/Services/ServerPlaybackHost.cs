@@ -175,7 +175,26 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         _remotePlayback = remotePlayback;
         _agenda = new AgendaDisplay(desktopManager, m => new[] { NodeIds.ServerLocalPrefix + m, NodeIds.LocalMachinePrefix + m });
         _service.AgendaProvider = () => CurrentAgenda;
+        _agenda.StandInsChanged += OnAgendaStandInsChanged;
+        _remotePlayback.AgendaStandInsChanged += OnAgendaStandInsChanged;
         if (AgendaDocument.Enabled) _ = PublishAgendaAsync();
+    }
+
+    /// <summary>Stand-ins render for hours: fullscreen detection runs while any exist (and hides them under games).</summary>
+    private void OnAgendaStandInsChanged() => Dispatcher.UIThread.Post(() =>
+    {
+        if (_agenda.HasStandIns || _remotePlayback.HasAgendaStandIns) StartFullscreenDetectionIfNeeded();
+        else StopFullscreenDetectionIfIdle();
+    });
+
+    // Connected to another server as a client: that server's agenda shows (RemotePlaybackHost), not this machine's own.
+    private bool _clientMode;
+
+    /// <summary>The tray's client connection changed: hide this machine's own agenda while it is a client, restore it after.</summary>
+    public Task SetClientModeAsync(bool connected)
+    {
+        _clientMode = connected;
+        return _agenda.SetAsync(connected ? null : CurrentAgenda, _players, reconcile: !IsStartingScene);
     }
 
     // ── Agenda (room timetable overlay) ─────────────────────────────────────
@@ -218,7 +237,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         {
             var agenda = AgendaDocument.Build(TimeZoneInfo.Local, Tags.NodesWith("agenda"));
             CurrentAgenda = agenda;
-            await _agenda.SetAsync(agenda, _players);
+            await _agenda.SetAsync(_clientMode ? null : agenda, _players, reconcile: !IsStartingScene);
             if (_service.SyncCoordinator is { } coordinator) await coordinator.BroadcastAgendaAsync(agenda);
         }
         catch (Exception ex)
@@ -1139,7 +1158,9 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         bool hasActiveWallpaper = !_players.IsEmpty
             || _remotePlayback.HasPlayers
             || !_renderers.IsEmpty
-            || IsCrossScreenRunning;
+            || IsCrossScreenRunning
+            || _agenda.HasStandIns
+            || _remotePlayback.HasAgendaStandIns;
 
         if (!hasActiveWallpaper)
         {
@@ -1156,6 +1177,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             foreach (var kvp in _players)
                 kvp.Value.SetPlayersVisible(false);
             _remotePlayback.SetPlayersVisible(false);
+            _agenda.SetVisible(false);
 
             foreach (var kvp in _renderers)
             {
@@ -1171,6 +1193,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             foreach (var kvp in _players)
                 kvp.Value.SetPlayersVisible(true);
             _remotePlayback.SetPlayersVisible(true);
+            _agenda.SetVisible(true);
 
             foreach (var kvp in _renderers)
             {
@@ -1502,7 +1525,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
                 _players[monitorIndex] = d2dService;
                 await _agenda.SendToAsync(monitorIndex, d2dService);
             }
-            await SyncAgendaAsync();
+            // Stand-ins under the new players retire at the shared start (no blink, no teardown on the start path).
+            retiring.AddRange(_agenda.TakeStandIns(newServices.Select(s => s.monitorIndex)));
         }
         catch
         {
@@ -1586,6 +1610,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         ActiveLayout = layout;
         ActiveScene = config;
         OnPropertyChanged(nameof(HasActiveRenderer));   // a show item never sets IsCrossScreenRunning
+        _ = SyncAgendaAsync();   // after the remotes got their LOAD: stand-ins where this scene left a monitor
 
         return new CrossScreenApplyResult
         {

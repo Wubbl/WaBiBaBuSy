@@ -8,6 +8,9 @@ public sealed class AgendaItem
 {
     public long StartUtcMs { get; set; }
     public string Text { get; set; } = "";
+
+    /// <summary>The server's UTC offset at this item's start (a Fri–Sun LAN may cross a DST change); null = the agenda's.</summary>
+    public int? UtcOffsetMinutes { get; set; }
 }
 
 /// <summary>

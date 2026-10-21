@@ -33,6 +33,7 @@ public class D2DCompositionService : IDisposable, ITestProbeTarget
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, (ScreenMapping Screen, Rectangle Bounds, PlayerCommandLoadAnimation Load)> _hostSetup = new();
     private (long StartTimestampMs, int PixelsPerSecond)? _lastStart;
     private (bool Timecode, int ClockSkewMs) _lastTestMode;
+    private (Agenda? Agenda, bool FullScreen)? _lastAgenda;   // re-sent to a respawned player
     private readonly Queue<DateTime> _respawns = new();
     private volatile bool _disposing;
     private bool _disposed;
@@ -85,6 +86,7 @@ public class D2DCompositionService : IDisposable, ITestProbeTarget
     /// <summary>The room's agenda for every player of this service (null = none).</summary>
     public async Task SendAgendaAsync(Agenda? agenda, bool fullScreen)
     {
+        _lastAgenda = (agenda, fullScreen);
         foreach (var host in _playerHosts.Values)
         {
             if (!host.IsRunning) continue;
@@ -254,6 +256,8 @@ public class D2DCompositionService : IDisposable, ITestProbeTarget
             var host = await CreateAndLoadHostAsync(order, CancellationToken.None);
             if (_lastTestMode.Timecode || _lastTestMode.ClockSkewMs != 0)
                 await host.SendTestModeAsync(_lastTestMode.Timecode, _lastTestMode.ClockSkewMs);
+            if (_lastAgenda is { } agenda)
+                await host.SendAgendaAsync(agenda.Agenda, agenda.FullScreen);
             if (_isRunning && _lastStart is { } start)
                 await host.SendStartAnimationAsync(new PlayerCommandStartAnimation
                 {

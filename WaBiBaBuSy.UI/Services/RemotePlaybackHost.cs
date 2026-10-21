@@ -58,6 +58,16 @@ public sealed class RemotePlaybackHost
     /// <summary>AGENDA from the server (times in this machine's clock), or null after an explicit disconnect.</summary>
     public Task OnAgendaAsync(Agenda? agenda) => SerializedAsync(() => _agenda.SetAsync(agenda, _players));
 
+    /// <summary>True while agenda stand-ins run on this machine's idle monitors.</summary>
+    public bool HasAgendaStandIns => _agenda.HasStandIns;
+
+    /// <summary>Agenda stand-ins started or stopped (any thread): fullscreen detection follows them.</summary>
+    public event Action? AgendaStandInsChanged
+    {
+        add => _agenda.StandInsChanged += value;
+        remove => _agenda.StandInsChanged -= value;
+    }
+
     /// <summary>Stop the agenda stand-ins (Clear all kills every player process; app exit).</summary>
     public Task StopAgendaStandInsAsync() => SerializedAsync(_agenda.StopAllAsync);
 
@@ -112,6 +122,7 @@ public sealed class RemotePlaybackHost
     {
         foreach (var player in _players.Values)
             player.SetPlayersVisible(visible);
+        _agenda.SetVisible(visible);
     }
 
     /// <summary>
@@ -236,7 +247,7 @@ public sealed class RemotePlaybackHost
             _players[monitorIndex] = d2dService;
             applied = true;
             await _agenda.SendToAsync(monitorIndex, d2dService);
-            await _agenda.ReconcileAsync(_players);
+            retiring.AddRange(_agenda.TakeStandIns(new[] { monitorIndex }));   // the panel stays until the new player appears
             foreach (var old in retiring) await old.SendTransitionAsync(incoming: false, req.TransitionEffect, req.SharedStartTimestampMs);
             _retiring.RetireAt(retiring, req.SharedStartTimestampMs + TransitionMath.OutgoingHoldMs(SceneTransition.Parse(req.TransitionEffect)), NowMs);
             await ReplayEventsAsync(d2dService);
@@ -247,7 +258,11 @@ public sealed class RemotePlaybackHost
         }
         finally
         {
-            if (!applied) _retiring.RetireAt(retiring, 0, NowMs);   // no new player: the old one goes now (as before)
+            if (!applied)
+            {
+                _retiring.RetireAt(retiring, 0, NowMs);   // no new player: the old one goes now (as before)
+                await _agenda.ReconcileAsync(_players);   // …and a stand-in keeps the agenda on the bare monitor
+            }
         }
     }
 
@@ -305,6 +320,19 @@ public sealed class RemotePlaybackHost
 
     private async Task ApplyPlainCoreAsync(string filePath, int monitorIndex, string backgroundColor, int fitMode)
     {
+        bool applied = false;
+        try
+        {
+            applied = await ApplyPlainBodyAsync(filePath, monitorIndex, backgroundColor, fitMode);
+        }
+        finally
+        {
+            if (!applied) await _agenda.ReconcileAsync(_players);   // a failed apply leaves a stand-in, not a bare monitor
+        }
+    }
+
+    private async Task<bool> ApplyPlainBodyAsync(string filePath, int monitorIndex, string backgroundColor, int fitMode)
+    {
         Debug.WriteLine($"[D2D-Remote] ApplyD2DFromRemoteAsync called: file={filePath}, monitor={monitorIndex}, bg={backgroundColor}, fit={fitMode}");
 
         // Dispose previous service for this monitor
@@ -321,7 +349,7 @@ public sealed class RemotePlaybackHost
         if (monitorIndex < 0 || monitorIndex >= monitors.Length)
         {
             Debug.WriteLine($"[D2D-Remote] ERROR: Invalid monitor index {monitorIndex} (have {monitors.Length} monitors)");
-            return;
+            return false;
         }
 
         var screen = monitors[monitorIndex];
@@ -391,5 +419,6 @@ public sealed class RemotePlaybackHost
         await CatchUpTestModeAsync(d2dService, testMode);
         AdoptRemoteThumbnail(monitorIndex, d2dService, filePath);
         Debug.WriteLine($"[D2D-Remote] SUCCESS: Applied D2D wallpaper '{Path.GetFileName(filePath)}' on monitor {monitorIndex}");
+        return true;
     }
 }

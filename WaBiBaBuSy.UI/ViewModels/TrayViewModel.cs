@@ -388,7 +388,11 @@ public partial class TrayViewModel : ObservableObject
         }
     }
 
-    partial void OnIsClientConnectedChanged(bool value) => Dispatcher.UIThread.Post(RebuildQuickStartMenu);
+    partial void OnIsClientConnectedChanged(bool value)
+    {
+        Dispatcher.UIThread.Post(RebuildQuickStartMenu);
+        _ = _serverPlayback.SetClientModeAsync(value);   // a client shows its server's agenda, not this machine's own
+    }
 
     /// <summary>
     /// Play a preset on every seat through the app-lifetime host (no window needed). A failure is logged and shown

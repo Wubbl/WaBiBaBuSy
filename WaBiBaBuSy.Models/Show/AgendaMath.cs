@@ -75,14 +75,14 @@ public static class AgendaMath
         foreach (var item in a.Items) item.StartUtcMs += deltaMs;
     }
 
-    /// <summary>"18:00" in the agenda's local time.</summary>
-    public static string TimeLabel(Agenda a, long utcMs) => Local(a, utcMs).ToString("HH:mm", CultureInfo.InvariantCulture);
+    /// <summary>"18:00" in the server's local time at the item's start.</summary>
+    public static string TimeLabel(Agenda a, AgendaItem item) => Local(a, item).ToString("HH:mm", CultureInfo.InvariantCulture);
 
-    /// <summary>"Sat" in the agenda's local time.</summary>
-    public static string DayLabel(Agenda a, long utcMs) => Local(a, utcMs).ToString("ddd", CultureInfo.InvariantCulture);
+    /// <summary>"Sat" in the server's local time at the item's start.</summary>
+    public static string DayLabel(Agenda a, AgendaItem item) => Local(a, item).ToString("ddd", CultureInfo.InvariantCulture);
 
-    private static DateTime Local(Agenda a, long utcMs) =>
-        DateTimeOffset.FromUnixTimeMilliseconds(utcMs).UtcDateTime.AddMinutes(a.UtcOffsetMinutes);
+    private static DateTime Local(Agenda a, AgendaItem item) =>
+        DateTimeOffset.FromUnixTimeMilliseconds(item.StartUtcMs).UtcDateTime.AddMinutes(item.UtcOffsetMinutes ?? a.UtcOffsetMinutes);
 
     /// <summary>Index of the last item that has started; -1 when none has.</summary>
     private static int CurrentIndex(IReadOnlyList<AgendaItem> items, long nowUtcMs)
@@ -99,9 +99,9 @@ public static class AgendaMath
                   : i == current ? AgendaRowState.Current
                   : i == current + 1 ? AgendaRowState.Next
                   : AgendaRowState.Upcoming;
-        string day = DayLabel(a, item.StartUtcMs);
+        string day = DayLabel(a, item);
         bool next = state == AgendaRowState.Next;
-        return new AgendaRow(i, day, TimeLabel(a, item.StartUtcMs), item.Text, state,
+        return new AgendaRow(i, day, TimeLabel(a, item), item.Text, state,
             next ? Countdown(nowUtcMs, item.StartUtcMs) : null,
             next && item.StartUtcMs - nowUtcMs <= PulseBeforeMs,
             day != previousDay);

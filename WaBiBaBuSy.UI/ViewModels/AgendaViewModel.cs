@@ -88,7 +88,7 @@ public partial class AgendaViewModel : ObservableObject
     {
         var doc = ToDocument();
         var agenda = doc.Build(TimeZoneInfo.Local, Array.Empty<string>());
-        Preview = agenda.Items.Select(i => $"{AgendaMath.DayLabel(agenda, i.StartUtcMs)} {AgendaMath.TimeLabel(agenda, i.StartUtcMs)}  {i.Text}").ToList();
+        Preview = agenda.Items.Select(i => $"{AgendaMath.DayLabel(agenda, i)} {AgendaMath.TimeLabel(agenda, i)}  {i.Text}").ToList();
     }
 
     private async System.Threading.Tasks.Task PublishAsync()

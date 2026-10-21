@@ -56,7 +56,12 @@ public static partial class AgendaText
             var local = date.ToDateTime(time);
             previous = local;
             var utc = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(local, DateTimeKind.Unspecified), tz);
-            items.Add(new AgendaItem { StartUtcMs = new DateTimeOffset(utc, TimeSpan.Zero).ToUnixTimeMilliseconds(), Text = m.Groups["text"].Value });
+            items.Add(new AgendaItem
+            {
+                StartUtcMs = new DateTimeOffset(utc, TimeSpan.Zero).ToUnixTimeMilliseconds(),
+                Text = m.Groups["text"].Value,
+                UtcOffsetMinutes = (int)tz.GetUtcOffset(utc).TotalMinutes,
+            });
         }
         return items.OrderBy(i => i.StartUtcMs).ToList();
     }
