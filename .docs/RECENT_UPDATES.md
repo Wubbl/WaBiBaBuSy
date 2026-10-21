@@ -1,8 +1,15 @@
 # WaBiBaBuSy - Recent Updates & Changelog
 
-**Last Updated:** 2026-10-20
+**Last Updated:** 2026-10-21
 
 ---
+
+## 2026-10-21 — Agenda overlay (LAN-day timetable on every screen)
+
+- **What**: an **Agenda** tab (right panel, next to Playlist) and a tray toggle "Agenda on all screens". The timetable is typed as lines (`Fri 18:00 Pizza`, `20:00 CS2`, `Sat 10:00 Breakfast`, German day names too; a line without a day stays on the previous day, past midnight rolls over), plus title, notes (WiFi, house rules), first LAN day and corner. Every connected seat shows a corner panel (≤ 30 % of the screen height): the last finished item dimmed, the current one highlighted with "now", the next one with a countdown ("in 23 min", pulsing 10 min before), day headers for Fri–Sun. Seats tagged `agenda` show the full-size timetable (one column per day). The room view paints the same panel on every tile. Edits go out ~1 s after typing stops.
+- **How**: its own room-wide transport, not a show event (`CommandType.AGENDA = 14`, `SyncCommand.agenda_json`; `AgendaCodec` shifts item times by the client's clock offset). The server sends it on change and to every client when it registers; clients keep it (an explicit Disconnect hides it). Each host forwards it to its players (`cmd_agenda`) and runs a stand-in player (the seat's own Windows wallpaper, no layers) on every monitor without a scene (`AgendaDisplay`, `AgendaStandIns`), so Stop / Clear all / idle keep the panel. Players draw it after the show events in device pixels from `TextSprite` bitmaps, rows rebuilt once a second (`Program.Agenda.cs`); hidden under a Blackout. Pure math in `WaBiBaBuSy.Models/Show` (`AgendaMath`, `AgendaLayout`, `AgendaText`); persisted in `%APPDATA%\WaBiBaBuSygenda.json`.
+- **Verified**: build + 1206 tests (34 agenda tests). Single-machine test-mode run (`--test-run … --exit`) with an enabled agenda: the captured player frame shows the panel (title, dimmed past item, "now" highlight, "in 7 min", Sat header, notes), stand-ins started at launch, replaced by the scene, back after Stop, gone at exit. Not checked: a client seat, an `agenda`-tagged full-size screen, the Agenda tab and tray toggle by hand.
+- **Design / plan**: `.docs/plans/2026-10-21-agenda-overlay-design.md`, `-plan.md`. Also planned the same day: BiBaBo bomb game (`2026-10-21-bibabo-bomb-game-design.md`).
 
 ## 2026-10-20 — Panorama: tallest screen per row; preset fixes; coherent rooms
 

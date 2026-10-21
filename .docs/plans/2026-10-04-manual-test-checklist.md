@@ -212,6 +212,17 @@ Connect the clients first (§5.1). Attach each `report.html` path to the results
 - [ ] **Performance:** Celebration on a 4K seat stays at the monitor's refresh rate; player CPU stays under 15 %.
 - [ ] **Interrupts:** a playlist with "Every 1 min Traversal" laps the logo once a minute without changing the item; stopping the show (or a non-looping show ending) stops the interrupts.
 
+## 8b. Agenda overlay (2026-10-21, single-machine test-mode run only)
+
+- [ ] Agenda tab: type `Fri 18:00 Pizza` lines, preview list shows day + time; toggle on → panel on every seat within ~1 s
+- [ ] Idle seat (nothing playing) shows the panel over its own Windows wallpaper
+- [ ] Start a preset → panel stays on top; Stop / Clear all → panel stays (stand-in), no orphan player after exit
+- [ ] Switch off (tab or tray "Agenda on all screens") → gone everywhere, stand-ins stop
+- [ ] Tag a seat `agenda` → that seat shows the full-size timetable (Fri | Sat | Sun columns)
+- [ ] Client with test-mode clock skew (±5 min) → "now / next" flips at the server's time
+- [ ] Client Disconnect → its panel disappears; reconnect → back
+- [ ] Blackout event hides the panel while it covers the seat
+
 ## 9. Optional
 
 - [ ] Installer on a clean Windows 10/11 machine (Inno Setup, `/Installer/`); fallback version 2.6.3
@@ -229,4 +240,5 @@ Connect the clients first (§5.1). Attach each `report.html` path to the results
 | 6 Show & sync | | | |
 | 7 Failure & recovery | | | |
 | 8 Show events | | | |
+| 8b Agenda | | | |
 | 9 Optional | | | |
