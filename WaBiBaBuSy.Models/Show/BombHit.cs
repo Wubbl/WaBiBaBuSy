@@ -18,6 +18,7 @@ public static class BombHit
     /// <summary>The cable (0..2) a click at node-local device pixels cuts; −1 for none. The nearest wins.</summary>
     public static int CableAt(BombGame g, NodeLayout node, float localPxX, float localPxY)
     {
+        if (g.Mode == BombMode.Keypad) return -1;   // a keypad bomb is not cut
         var (vx, vy) = ToCanvas(node, localPxX, localPxY);
         int best = -1;
         float bestDist = HitRadius;
@@ -36,6 +37,20 @@ public static class BombHit
             if (d <= bestDist) { bestDist = d; best = c; }
         }
         return best;
+    }
+
+    /// <summary>The keypad key (0–9, 10 = C) under a click at node-local device pixels; −1 for none or a cable bomb.</summary>
+    public static int KeyAt(BombGame g, NodeLayout node, float localPxX, float localPxY)
+    {
+        if (g.Mode != BombMode.Keypad) return -1;
+        float scale = node.Scale > 0 ? node.Scale : 1f;
+        float dx = localPxX / scale - NodeMapping.ToLocalX(g.BombX, 0f, node), dy = localPxY / scale - (g.BombY - node.OffsetY);
+        for (int key = 0; key <= 10; key++)
+        {
+            var (kx, ky, w, h) = BombMath.KeyRect(g, key);
+            if (dx >= kx && dx <= kx + w && dy >= ky && dy <= ky + h) return key;
+        }
+        return -1;
     }
 
     /// <summary>True when the centre of an icon (node-local device pixels) lies on the bomb.</summary>

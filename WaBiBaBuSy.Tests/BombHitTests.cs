@@ -115,4 +115,50 @@ public class BombHitTests
         Assert.False(w.Update(false));
         Assert.False(w.Update(true));
     }
+
+    /// <summary>Device pixels on the node of a keypad key's centre (offsets are screen-relative to the bomb's centre).</summary>
+    private static (float X, float Y) KeyPx(BombGame g, NodeLayout node, int key)
+    {
+        var (dx, dy, w, h) = BombMath.KeyRect(g, key);
+        float cx = NodeMapping.ToLocalX(g.BombX, 0, node) + dx + w / 2, cy = g.BombY - node.OffsetY + dy + h / 2;
+        return (cx * node.Scale, cy * node.Scale);
+    }
+
+    [Fact]
+    public void KeyAt_EveryKeyCentre_OnPlainAndScaledMirroredNodes()
+    {
+        var g = Game();
+        g.Mode = BombMode.Keypad;
+        foreach (var node in new[] { Node(), Node(scale: 1.5f, mirrored: true) })
+            for (int key = 0; key <= 10; key++)
+            {
+                var (x, y) = KeyPx(g, node, key);
+                Assert.Equal(key, BombHit.KeyAt(g, node, x, y));
+            }
+    }
+
+    [Fact]
+    public void Keypad_ReadsLeftToRight_EvenMirrored()
+    {
+        var g = Game();
+        g.Mode = BombMode.Keypad;
+        var node = Node(mirrored: true);
+        Assert.True(KeyPx(g, node, 1).X < KeyPx(g, node, 3).X);
+        Assert.True(KeyPx(g, node, 1).Y < KeyPx(g, node, 7).Y);
+    }
+
+    [Fact]
+    public void KeyAt_MissAndOtherModes()
+    {
+        var g = Game();
+        g.Mode = BombMode.Keypad;
+        var (fx, fy) = Px(Node(), 1100, 100);
+        Assert.Equal(-1, BombHit.KeyAt(g, Node(), fx, fy));
+        var (tx, ty) = Px(Node(), 1650, 540);
+        Assert.Equal(-1, BombHit.CableAt(g, Node(), tx, ty));   // no cable cuts on a keypad bomb
+
+        g.Mode = BombMode.Classic;
+        var (kx, ky) = KeyPx(g, Node(), 5);
+        Assert.Equal(-1, BombHit.KeyAt(g, Node(), kx, ky));    // no keypad on a cable bomb
+    }
 }

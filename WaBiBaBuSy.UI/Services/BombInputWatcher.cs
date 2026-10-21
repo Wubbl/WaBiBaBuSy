@@ -45,7 +45,15 @@ public sealed class BombInputWatcher : IDisposable
         _mouse.LeftButtonDown += (x, y) =>
         {
             if (token.IsCancellationRequested || !bounds.Contains(x, y)) return;
-            int cable = BombHit.CableAt(game, node, (x - bounds.X) * scaleX, (y - bounds.Y) * scaleY);
+            float px = (x - bounds.X) * scaleX, py = (y - bounds.Y) * scaleY;
+            if (game.Mode == BombMode.Keypad)
+            {
+                int key = BombHit.KeyAt(game, node, px, py);
+                Debug.WriteLine($"[BiBaBo] Desktop click at {x},{y} → key {key}");
+                if (key >= 0) _ = Report(bomb.EventId, "key", key);
+                return;
+            }
+            int cable = BombHit.CableAt(game, node, px, py);
             Debug.WriteLine($"[BiBaBo] Desktop click at {x},{y} → cable {cable}");
             if (cable >= 0) _ = Report(bomb.EventId, "cut", cable);
         };

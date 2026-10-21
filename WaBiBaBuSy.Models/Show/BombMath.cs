@@ -111,6 +111,27 @@ public static class BombMath
         return n;
     }
 
+    // ── keypad (design §14.2): below the bomb, offsets from the bomb's on-screen centre so it reads 1 2 3 even mirrored ──
+
+    private const float KeySize = 0.11f, KeyGap = 0.025f, KeypadTop = 0.58f;   // × BombSize
+
+    /// <summary>Key 0–9 or 10 (C): its box as (dx, dy) from the bomb's local centre + size, canvas units (not mirrored).</summary>
+    public static (float Dx, float Dy, float W, float H) KeyRect(BombGame g, int key)
+    {
+        float s = KeySize * g.BombSize, gap = KeyGap * g.BombSize;
+        int col = key switch { 0 => 1, 10 => 0, _ => (key - 1) % 3 };
+        int row = key switch { 0 or 10 => 3, _ => (key - 1) / 3 };
+        float left = -(3 * s + 2 * gap) / 2f, top = KeypadTop * g.BombSize + s + gap;   // the display sits above the keys
+        return (left + col * (s + gap), top + row * (s + gap), s, s);
+    }
+
+    /// <summary>The typed-digits display above the keypad (same convention as <see cref="KeyRect"/>).</summary>
+    public static (float Dx, float Dy, float W, float H) KeypadDisplay(BombGame g)
+    {
+        float s = KeySize * g.BombSize, gap = KeyGap * g.BombSize, w = 3 * s + 2 * gap;
+        return (-w / 2f, KeypadTop * g.BombSize, w, s);
+    }
+
     /// <summary>The bomb is drawn from the drop until its outcome's T0.</summary>
     public static bool BombVisible(BombGame g, long bombLocalMs, ShowEvent? outcome, long outcomeLocalMs) =>
         bombLocalMs >= RouletteEndMs && (outcome == null || outcomeLocalMs < 0);
