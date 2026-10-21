@@ -654,7 +654,7 @@ public class WaBiBaBuSyService : IDisposable
         }
 
         return await _updateManager.DownloadAndPrepareUpdateAsync(
-            _client.GrpcClient, updateInfo, cancellationToken);
+            _client.GrpcClient, updateInfo, _client.ClientId ?? string.Empty, cancellationToken);
     }
 
     /// <summary>

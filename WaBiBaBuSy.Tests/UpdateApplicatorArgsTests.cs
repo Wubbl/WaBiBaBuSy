@@ -35,6 +35,14 @@ public class UpdateApplicatorArgsTests
         Assert.Equal(Parse(line), WaBiBaBuSy.Updater.LegacyArgs.Repair(Parse(line)));   // well-formed args pass unchanged
     }
 
+    /// <summary>Old clients send a placeholder id with the update download; the server finds them by this IP.</summary>
+    [Theory]
+    [InlineData("ipv4:192.168.1.5:50123", "192.168.1.5")]
+    [InlineData("ipv6:[::ffff:192.168.1.5]:50123", "192.168.1.5")]
+    [InlineData("ipv6:[fe80::1]:50123", "fe80::1")]
+    public void PeerIp_IsTheHost(string peer, string ip) =>
+        Assert.Equal(ip, WaBiBaBuSy.Grpc.Services.WallpaperSyncService.PeerIp(peer));
+
     /// <summary>The exact line a 2.6.3 client builds (plain quotes around a path ending in '\') is repaired by the updater.</summary>
     [Fact]
     public void LegacyClientLine_IsRepaired()

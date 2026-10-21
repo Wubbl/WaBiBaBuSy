@@ -104,6 +104,7 @@ public class UpdateManager
     public async Task<string> DownloadAndPrepareUpdateAsync(
         WallpaperSync.WallpaperSyncClient grpcClient,
         UpdateInfo updateInfo,
+        string clientId,
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Downloading update version {Version}", updateInfo.Version);
@@ -129,7 +130,7 @@ public class UpdateManager
         {
             // Download the package
             var packagePath = await _downloader.DownloadUpdateAsync(
-                grpcClient, updateInfo, _downloadDirectory, cancellationToken);
+                grpcClient, updateInfo, _downloadDirectory, clientId, cancellationToken);
 
             RaiseStatusChanged(new UpdateStatusInfo
             {

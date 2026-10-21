@@ -250,6 +250,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
             // Add or update client
             _connectedClients.AddOrUpdate(clientId, connectedClient,
                 (key, existing) => connectedClient);
+            _clientPeerIps[clientId] = PeerIp(context.Peer);
 
             _logger.LogInformation("Client {ClientId} registered successfully. Order position: {OrderPosition}",
                 clientId, connectedClient.OrderPosition);
@@ -735,6 +736,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         // and releasing a disposed SemaphoreSlim throws.
         _writeLocks.TryRemove(clientId, out _);
         _driftMonitor.Remove(clientId);
+        _clientPeerIps.TryRemove(clientId, out _);
     }
 
     /// <summary>
@@ -815,6 +817,28 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     private readonly SemaphoreSlim _packageBuildSemaphore = new(1, 1);
     // clientId → percent sent of a running update download; -1 while the package is still being built
     private readonly ConcurrentDictionary<string, int> _updateTransfers = new();
+    // clientId → IP of the connection it registered from (the reported IpAddress may be another adapter)
+    private readonly ConcurrentDictionary<string, string> _clientPeerIps = new();
+
+    /// <summary>
+    /// The client behind an update download. Clients up to 2.7.x send the placeholder "current-client", so an
+    /// unknown id is resolved by the IP the request comes from.
+    /// </summary>
+    private string UpdateClientKey(string clientId, string peer)
+    {
+        if (_connectedClients.ContainsKey(clientId)) return clientId;
+        var ip = PeerIp(peer);
+        return _clientPeerIps.FirstOrDefault(kv => kv.Value == ip).Key ?? clientId;
+    }
+
+    /// <summary>The host of a gRPC peer string ("ipv4:10.0.0.5:50123", "ipv6:[::ffff:10.0.0.5]:50123").</summary>
+    public static string PeerIp(string peer)
+    {
+        int start = peer.IndexOf(':') + 1, end = peer.LastIndexOf(':');
+        if (end <= start) return peer;
+        var host = peer[start..end].Trim('[', ']');
+        return host.StartsWith("::ffff:", StringComparison.OrdinalIgnoreCase) ? host[7..] : host;
+    }
 
     /// <summary>
     /// Progress of a running update download to <paramref name="clientId"/>: -1 while the server builds
@@ -899,12 +923,13 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         IServerStreamWriter<UpdateChunk> responseStream,
         ServerCallContext context)
     {
-        _logger.LogInformation("Update download requested by client {ClientId}: version {Version}",
-            request.ClientId, request.RequestedVersion);
+        var clientKey = UpdateClientKey(request.ClientId, context.Peer);
+        _logger.LogInformation("Update download requested by client {ClientId} ({Peer}): version {Version}",
+            clientKey, context.Peer, request.RequestedVersion);
 
         try
         {
-            _updateTransfers[request.ClientId] = -1;
+            _updateTransfers[clientKey] = -1;
             // Auto-build package from server's own binaries if needed
             var packagePath = await EnsureUpdatePackageExistsAsync();
 
@@ -949,7 +974,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                 await _uploadLimiter.WaitAsync(bytesRead, context.CancellationToken);
                 await responseStream.WriteAsync(chunk);
                 chunkIndex++;
-                _updateTransfers[request.ClientId] = chunkIndex * 100 / totalChunks;
+                _updateTransfers[clientKey] = chunkIndex * 100 / totalChunks;
             }
 
             _logger.LogInformation("Update download complete for client {ClientId}: {TotalChunks} chunks sent",
@@ -970,7 +995,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         }
         finally
         {
-            _updateTransfers.TryRemove(request.ClientId, out _);
+            _updateTransfers.TryRemove(clientKey, out _);
         }
     }
 

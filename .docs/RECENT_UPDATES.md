@@ -13,6 +13,7 @@
 ## 2026-10-21 (late night) — Update progress on the room tiles
 
 - **What**: while a node downloads an update from the server, its room tile says "⬆ preparing update…" (the server builds the package from its own binaries on the first request, plus the hash) and then "⬆ update 42%" while the chunks stream; the line disappears when the download ends or fails. Expanded `…_MONITOR_n` tiles show their machine's download. Server side only, no proto change: `WallpaperSyncService.GetUpdateTransferPercent` (state set in `DownloadUpdate`), `WaBiBaBuSyService.GetUpdateTransferPercent`, `ClientNodeViewModel.UpdateTransferPercent`, `RoomView.StatusLine`. Extracting / verifying / applying on the client are not shown (the client never calls `ReportUpdateStatus`).
+- **Caller id**: clients sent the placeholder `"current-client"` as `UpdateDownloadRequest.ClientId`, so no tile ever matched. New clients send their real id (`UpdateManager` / `UpdateDownloader` take it); for old ones the server maps the request's peer IP to the client registered from that IP (`WallpaperSyncService.UpdateClientKey` / `PeerIp`).
 - **Fix**: `RoomNodeSources.ServerNodes` did not copy `PrefetchReady` / `PrefetchTotal`, so the tiles' "⬇ x/y" / "✓ cached" never showed in server mode.
 - **Verified**: build + 1305 tests. **Not verified**: a real update download in the GUI (needs an outdated client).
 

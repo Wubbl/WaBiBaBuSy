@@ -27,12 +27,14 @@ public class UpdateDownloader
     /// <param name="grpcClient">Connected gRPC client</param>
     /// <param name="updateInfo">Information about the update to download</param>
     /// <param name="downloadDirectory">Directory to save the package</param>
+    /// <param name="clientId">This client's id (the server shows the transfer on its room tile)</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Path to the downloaded package file</returns>
     public async Task<string> DownloadUpdateAsync(
         WallpaperSync.WallpaperSyncClient grpcClient,
         UpdateInfo updateInfo,
         string downloadDirectory,
+        string clientId,
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Starting download of update package version {Version}", updateInfo.Version);
@@ -70,7 +72,7 @@ public class UpdateDownloader
             // Request update download from server
             var request = new UpdateDownloadRequest
             {
-                ClientId = "current-client", // TODO: Get from client service
+                ClientId = clientId,
                 RequestedVersion = updateInfo.Version
             };
 
