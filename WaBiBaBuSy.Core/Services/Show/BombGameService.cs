@@ -166,7 +166,7 @@ public sealed class BombGameService
             DurationMs = result == BombResult.Aborted ? BombMath.AbortDurationMs : BombMath.OutcomeDurationMs,
             Seed = bomb.Seed,
             ColorHex = bomb.ColorHex,
-            ImagePath = bomb.ImagePath,
+            ImagePath = BombLogo.OutcomeImage(result, bomb.ImagePath),
             TargetNodeIds = bomb.TargetNodeIds,
             Bomb = g.WithOutcome(result, cut, BombMath.RemainingMs(g, now - bomb.T0Utc)),
         };

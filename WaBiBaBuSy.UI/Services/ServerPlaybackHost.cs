@@ -256,6 +256,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             if (cable.Riddle is { Kind: RiddleKind.Math, Formula: { } formula })
                 cable.Riddle.FormulaAspect = TextSprite.MeasureAspect(formula);
 
+        (string? logoPath, game.LogoTimerBox) = BombLogo.Resolve();
         var evt = new ShowEvent
         {
             EventId = id,
@@ -264,7 +265,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             DurationMs = ShowEventMath.ClampDuration(game.IntroMs + game.TimerMs + 15_000),   // + time for the outcome to arrive
             Seed = Random.Shared.Next(),
             ColorHex = "#FF1744",
-            ImagePath = BombLogoPath(),
+            ImagePath = logoPath,
             TargetNodeIds = targetNodeIds?.ToList(),
             Bomb = game,
         };
@@ -293,17 +294,6 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         await DispatchEventAsync(outcome);
         if (IsIdleScenePlaying) _idleUntilUtcMs = outcome.T0Utc + ShowEventMath.ClampDuration(outcome.DurationMs) + 300;
         EventStatusText = $"BiBaBo: {outcome.Bomb?.Result}";
-    }
-
-    /// <summary>The bomb logo: %APPDATA%\WaBiBaBuSy\bibabo-bomb.gif (or .png); null = the players draw a bomb.</summary>
-    private static string? BombLogoPath()
-    {
-        foreach (var name in new[] { "bibabo-bomb.gif", "bibabo-bomb.png" })
-        {
-            var path = Path.Combine(AppDataPaths.Root, name);
-            if (File.Exists(path)) return path;
-        }
-        return null;
     }
 
     /// <summary>

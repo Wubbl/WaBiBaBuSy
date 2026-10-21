@@ -26,6 +26,8 @@
   <!-- Automated test mode: ship the bundled scenarios next to the exe -->
   <ItemGroup>
     <None Include="..\TestScenarios\**\*" LinkBase="TestScenarios" CopyToOutputDirectory="PreserveNewest" />
+    <!-- BiBaBo: the default bomb logo and explosion (files, so they travel to the seats like any event image) -->
+    <None Include="Content\bibabo-*.gif" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

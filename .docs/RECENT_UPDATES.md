@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-10-21 (night) — BiBaBo logo: bombs instead of Busen, countdown in the timer box; explosion GIF
+
+- **Explosion**: on BOOM the bomb seat plays `Content/bibabo-boom.gif` **once** (1.7 s, 3 × the bomb size, over the flash / shockwave / fire): a Klein-rendered cartoon fireball swells and turns to smoke while 22 BiBaBu logo styles (gold Bart, neon Bier, pretzel Busen, … from `bibabu_styles`) burst out spinning. The BOOM outcome carries it as its image (`BombLogo.OutcomeImage`; DEFUSED / RECYCLED keep the logo), player `DrawBoomOnce`; `%APPDATA%\WaBiBaBuSy\bibabo-boom.gif` overrides. Made by BiBaBu `tools/bibabo/boom_art.py`. Verified in the showcase (new exact frame "BOOM t=+1.2s"); the "BOOM!" text covers the fireball's centre.
+
+- **What**: the bomb is now the **BiBaBo logo** — "BiBaBo" (the u of BiBaBu turned into an o), Bart, Bier, and two round bombs where the Busen was, strapped together by a band with a timer box in the middle (white line art in the logo's line weight). Shipped as the default (`WaBiBaBuSy.UI/Content/bibabo-bomb.gif`, 615 × 768, fuse sparks flicker); the bomb seat's live countdown (red, green when defused) is drawn **into the box** instead of above the bomb. `%APPDATA%\WaBiBaBuSy\bibabo-bomb.gif|png` still overrides (no box: timer above, as before).
+- **How**: art made in the private BiBaBu repo, `tools/bibabo/bomb_art.py` (vector `Single_Bomb.svg` + `BierBartBomb.svg` next to the BiBaBu SVGs, PNG logos, the GIF, and the box as image fractions). `BombGame.LogoTimerBox` (set by `BombLogo.Resolve` in Core, used by the server and test mode), `BombMath.LogoTimerRect` (shared fit math), player `DrawTimerInLogo`, room preview `PaintBombTimer`.
+- **Verified**: build + 1294 tests (`LogoTimerRect`); `TestScenarios/showcase/bibabo.json` on this machine: logo on the bomb seat, digits sit inside the box for countdown and DEFUSED. **Note**: the box is small at the game's bomb size (digits ≈ 25 px on a 1440p seat); the corner timer stays on every seat. Room-preview drawing not checked in the GUI.
+
 ## 2026-10-21 (late) — Real pause on fullscreen, per monitor
 
 - **What**: a fullscreen or borderless-fullscreen app now **stops rendering**, not just hides the wallpaper. Before, "Pause on fullscreen" only hid the player windows (`ShowWindow(SW_HIDE)`): the render loop kept drawing and presenting, and LibVLC kept decoding. It also hid every monitor when any one was fullscreen, and looked only at the foreground window (alt-tab to a chat on the other screen brought the wallpaper back behind the game). New Settings option **"Pause only the screen the fullscreen app is on"** (`ClientConfiguration.PauseOnlyFullscreenMonitor`, default off = the whole machine pauses, so a heavy game gets everything). Networking is untouched: a paused seat stays connected, keeps heartbeating and shows online.

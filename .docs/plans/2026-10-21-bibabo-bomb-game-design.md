@@ -300,6 +300,12 @@ the existing foreground-only `FullscreenDetectionService` into a per-monitor `Mo
   the player's `_eventSprites` becomes keyed by `(EventId, slot)`.
 - **Logo** *[call]*: embedded resource (placeholder = procedural bomb until Patrick's artwork exists), overridable by
   dropping `bibabo-bomb.gif` or `.png` into `%APPDATA%\WaBiBaBuSy\` (GIF wins) — no setting needed.
+  *Update 2026-10-21:* the artwork exists — the BiBaBo logo with two bombs strapped together by a timer box
+  (BiBaBu `tools/bibabo/bomb_art.py`), shipped as `WaBiBaBuSy.UI/Content/bibabo-bomb.gif` (sparks flicker). With it
+  the bomb seat's countdown is drawn into the box (`BombGame.LogoTimerBox`, fractions of the image) instead of above
+  the bomb; an APPDATA override has no box and keeps the timer above. BOOM outcomes carry an explosion GIF instead of
+  the logo (`bibabo-boom.gif`: fireball + BiBaBu logo styles bursting out, BiBaBu `tools/bibabo/boom_art.py`), played
+  once over the bomb seat.
 - **Busy rule** *[call]*: "covered by a window ≥ 80 %" (§8.1) — a small chat window doesn't make a seat busy, a
   maximised browser does.
 

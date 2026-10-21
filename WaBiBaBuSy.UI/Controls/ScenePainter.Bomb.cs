@@ -57,7 +57,7 @@ public sealed partial class ScenePainter
         if (local >= BombMath.DropEndMs)
         {
             int remaining = BombMath.RemainingMs(g, local);
-            if (BombMath.TimerVisible(g, local)) PaintBombTimer(ctx, rect, s, node, g, remaining, BombRed);
+            if (BombMath.TimerVisible(g, local)) PaintBombTimer(ctx, rect, s, node, g, remaining, BombRed, evt.ImagePath);
         }
         if (g.Junction is { } junction && junction.NodeId == node.Id && progress > 0) PaintJunction(ctx, rect, s, node, junction);
         if (local >= g.IntroMs)
@@ -93,7 +93,7 @@ public sealed partial class ScenePainter
             {
                 var center = new Point(rect.X + NodeMapping.ToLocalX(g.BombX, 0, node) * s, rect.Y + (g.BombY - node.OffsetY) * s);
                 PaintBombBody(ctx, center, g.BombSize * s, evt.ImagePath);
-                PaintBombTimer(ctx, rect, s, node, g, g.RemainingMs, BombGreen);
+                PaintBombTimer(ctx, rect, s, node, g, g.RemainingMs, BombGreen, evt.ImagePath);
             }
         }
         string text = g.Result switch
@@ -135,13 +135,17 @@ public sealed partial class ScenePainter
         ctx.DrawLine(new Pen(EventBrush("#8D6E63", 1), Math.Max(1, size * 0.03)), new Point(center.X + r * 0.55, center.Y - r * 0.8), new Point(center.X + r * 0.95, center.Y - r * 1.25));
     }
 
-    private static void PaintBombTimer(DrawingContext ctx, Rect rect, double s, NodeLayout node, BombGame g, int remainingMs, IBrush brush)
+    private void PaintBombTimer(DrawingContext ctx, Rect rect, double s, NodeLayout node, BombGame g, int remainingMs, IBrush brush, string? logoPath)
     {
-        if (node.Id == g.BombNodeId)
+        double bx = rect.X + NodeMapping.ToLocalX(g.BombX, 0, node) * s, by = rect.Y + (g.BombY - node.OffsetY) * s;
+        if (node.Id == g.BombNodeId && EventImage(logoPath) is { } logo && BombMath.LogoTimerRect(g, (float)logo.Size.Width, (float)logo.Size.Height) is { } r)
+        {
+            PaintFittedText(ctx, new Rect(bx + r.Dx * s, by + r.Dy * s, r.W * s, r.H * s).Deflate(0.12 * r.H * s), BombMath.FormatTimer(remainingMs), brush);
+        }
+        else if (node.Id == g.BombNodeId)
         {
             double h = 0.4 * g.BombSize * s, w = 2.2 * h;
-            double cx = rect.X + NodeMapping.ToLocalX(g.BombX, 0, node) * s, top = rect.Y + (g.BombY - node.OffsetY - 1.05 * g.BombSize) * s;
-            PaintFittedText(ctx, new Rect(cx - w / 2, top, w, h), BombMath.FormatTimer(remainingMs), brush);
+            PaintFittedText(ctx, new Rect(bx - w / 2, by - 1.05 * g.BombSize * s, w, h), BombMath.FormatTimer(remainingMs), brush);
         }
         double ch = 0.05 * node.Height * s, cw = 2.2 * ch, m = 0.03 * node.Height * s;
         PaintFittedText(ctx, new Rect(rect.Right - m - cw, rect.Bottom - m - ch, cw, ch), BombMath.FormatTimer(remainingMs), brush);

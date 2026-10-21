@@ -17,6 +17,7 @@
     { "type": "showEvent", "label": "boom", "atElapsedMs": 30000, "event": { "type": "BombOutcome" }, "bombOutcome": "WrongCable" },
     { "type": "wait", "label": "text sprites", "ms": 2000 },
     { "type": "exactFrame", "label": "BOOM t=+0.5s", "elapsedMs": 30500 },
+    { "type": "exactFrame", "label": "BOOM t=+1.2s (explosion GIF)", "elapsedMs": 31200 },
 
     { "type": "showEvent", "label": "cut order: dots, sequence, tangle", "atElapsedMs": 40000,
       "event": { "type": "Bomb", "seed": 11 }, "forceMode": "CutOrder", "forceKinds": [ "Dots", "Sequence", "Tangle" ] },

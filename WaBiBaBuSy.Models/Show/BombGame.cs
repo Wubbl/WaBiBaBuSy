@@ -125,6 +125,12 @@ public sealed class BombGame
     public float BombY { get; set; }
     public float BombSize { get; set; }
 
+    /// <summary>
+    /// The logo's timer box (x, y, w, h as fractions of the logo image): the countdown is drawn into it instead of
+    /// above the bomb. Empty = no box (a custom logo or the drawn bomb).
+    /// </summary>
+    public float[] LogoTimerBox { get; set; } = Array.Empty<float>();
+
     /// <summary>The seat orders the roulette hops over; the last one is <see cref="BombOrder"/>.</summary>
     public int[] RouletteOrders { get; set; } = Array.Empty<int>();
 

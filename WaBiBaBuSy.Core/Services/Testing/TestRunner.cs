@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Reflection;
 using Microsoft.Extensions.Logging;
 using WaBiBaBuSy.Common.IO;
+using WaBiBaBuSy.Core.Services.Show;
 using WaBiBaBuSy.Models.Show;
 using WaBiBaBuSy.Models.Testing;
 using WaBiBaBuSy.Models.Wallpaper;
@@ -425,6 +426,7 @@ public sealed class TestRunner
                         ForceMode: ev.ForceMode, ForceKinds: ev.ForceKinds, ForceJunction: false, ForceRuleCard: false), out var error);
                     if (game == null) { sr.Verdict = Verdict.Fail; sr.Message = error; break; }
                     evt.Bomb = game;
+                    if (string.IsNullOrEmpty(evt.ImagePath)) (evt.ImagePath, game.LogoTimerBox) = BombLogo.Resolve();
                     if (evt.DurationMs <= 0 || evt.DurationMs == ShowEventMath.ClampDuration(0))
                         evt.DurationMs = ShowEventMath.ClampDuration(game.IntroMs + game.TimerMs + 15_000);
                     _lastBomb = evt;
@@ -435,7 +437,7 @@ public sealed class TestRunner
                     evt.Bomb = g.WithOutcome(result, result is BombResult.Defused or BombResult.WrongCable ? 0 : -1,
                         BombMath.RemainingMs(g, evt.T0Utc - _lastBomb.T0Utc));
                     evt.DurationMs = result == BombResult.Aborted ? BombMath.AbortDurationMs : BombMath.OutcomeDurationMs;
-                    evt.ImagePath = _lastBomb.ImagePath;
+                    evt.ImagePath = BombLogo.OutcomeImage(result, _lastBomb.ImagePath);
                 }
                 await _host.FireShowEventAsync(evt, ct);
                 sr.Verdict = Verdict.Pass;

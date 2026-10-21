@@ -18,6 +18,20 @@ public class BombMathTests
     };
 
     [Fact]
+    public void LogoTimerRect_FollowsTheFittedLogo()
+    {
+        var g = Game();
+        g.BombSize = 100;
+        Assert.Null(BombMath.LogoTimerRect(g, 800, 1000));                       // no box
+        g.LogoTimerBox = new[] { 0.25f, 0.8f, 0.5f, 0.1f };
+        var r = BombMath.LogoTimerRect(g, 800, 1000)!.Value;                     // drawn 80 × 100, centred
+        Assert.Equal(-20f, r.Dx, 3);
+        Assert.Equal(30f, r.Dy, 3);
+        Assert.Equal(40f, r.W, 3);
+        Assert.Equal(10f, r.H, 3);
+    }
+
+    [Fact]
     public void Phase_Boundaries()
     {
         var g = Game();
