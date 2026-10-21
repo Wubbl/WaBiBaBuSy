@@ -399,7 +399,7 @@ public partial class RoomView : Control
             ctx.DrawText(ft, new Point(sceneBox.Center.X - ft.Width / 2, sceneBox.Center.Y - ft.Height / 2));
         }
 
-        if (Agenda is { Enabled: true } agenda)
+        if (Agenda is { Enabled: true } agenda && !ScenePainter.BombActive(ShowEvents, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()))
         {
             double mw = c?.MonitorWidth > 0 ? c.MonitorWidth : 1920, mh = c?.MonitorHeight > 0 ? c.MonitorHeight : 1080;
             double k = Math.Min(sceneBox.Width / mw, sceneBox.Height / mh);
