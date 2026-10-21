@@ -2,7 +2,7 @@
 
 **Project Name:** WallpaperBiBaBuSync (BiBaBu = our club name)
 **Version:** 2.7.0 | **Framework:** .NET 9.0 | **Status:** MVP complete + post-MVP visual features + LAN-party Tier 0 / 1.1 / 2.1 / 2.3
-**Last Updated:** 2026-10-14 | **Next:** E2E Multi-Client Testing (first session 2026-10-09 evening, runbook below), then roadmap Tier 2.4 Portal + transitions (events done); 2.3 scene layers slice 1 done
+**Last Updated:** 2026-10-21 | **Next:** E2E Multi-Client Testing (first session 2026-10-09 evening, runbook below), then roadmap Tier 2.4 Portal + transitions (events done); 2.3 scene layers slice 1 done
 
 WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5% server CPU, ±50ms drift tolerance, and distributed client-side rendering. Supports images (JPG/PNG/BMP), videos (MP4/AVI/MKV), and GIFs across multi-monitor setups.
 
@@ -24,6 +24,7 @@ WaBiBaBuSy synchronizes animated wallpapers across 50+ Windows machines with <5%
 - Color grading: 8 modes — time-based (Rainbow, RandomColors, Gradient, CycleColorList) and per-cell Traveling Colors (Rainbow/List/Random)
 - Backgrounds: SolidColor, StretchedImage, TiledImage, ThreeZone corridor, IconZone (A* pathfinding around real desktop icons), Panorama (one wide image over the whole seat-map canvas, stretched to the tallest screen of each row — shorter screens crop centred, `NodeLayout.RowHeight`; each player crops its slice on the CPU — `NodeMapping.PanoramaSource`)
 - Debug overlay in player (F11 / IPC): A* path, icon rects, zone bands, movement trail, info panel
+- Agenda overlay: LAN-day timetable (Fri–Sun, notes) as a corner panel on every connected seat, full size on seats tagged `agenda`; Agenda tab + tray toggle, kept through Stop / Clear / idle via stand-in players (own desktop wallpaper), own `CommandType.AGENDA` transport with clock-offset shift (`Models/Show/Agenda*.cs`, `AgendaDisplay`, player `Program.Agenda.cs`)
 - Playlist / Party Mode: rotate animation configs across all machines on a loop (per-item duration + global default, shuffle, opt-in lap-snap to whole movement periods (Linear / SineWave / Bounce / Circular, `PlaylistScheduler.ComputeLapMs`), transitions Cut / Fade through black / ring Wipe per item or playlist default — `SceneTransition`, player `Program.Transitions.cs`; Playlist tab in the right panel, show controls in the toolbar; JSON-persisted under `%APPDATA%\WaBiBaBuSy\playlists\`)
 - Scene presets: save / load / import / export scenes as presets (`%APPDATA%\WaBiBaBuSy\presets\`, scene-file format, imported assets bundled relative), add them to playlists; tray "Quick start ▸" plays one on all seats with the window closed; 14 starter presets seeded on first run from the showcase scenes
 - Auto-suggest: ✨ Suggest in the Scene editor profiles the picked media (size vs monitor, aspect, transparency, mono vs colourful, dominant colours, GIF loop length) and offers four recipe-built scenes as cards (`WaBiBaBuSy.Models/Wallpaper/Suggest/`; a wide opaque still ≥ 3:1 and 1.5 screens wide is a panorama → Panorama recipe, picked sprites ride across it); click previews in the room view, Shuffle, Keep / ✕ revert
