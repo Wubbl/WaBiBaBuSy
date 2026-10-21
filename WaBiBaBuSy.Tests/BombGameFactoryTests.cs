@@ -314,6 +314,27 @@ public class BombGameFactoryTests
     }
 
     [Fact]
+    public void Seats_RemoteMachinePlusDualMonitorServer_UseEveryMonitor()
+    {
+        // Patrick's first party test: a remote PC left of the server's two monitors
+        var nodes = new[] { "c9", "SERVER_LOCALHOST_MONITOR_1", "SERVER_LOCALHOST_MONITOR_2" }
+            .Select((id, i) => new NodeLayout { Id = id, OffsetX = i * W, Width = W, Height = H, CanvasWidth = 3 * W, CanvasHeight = H, Order = i })
+            .ToList();
+        var layout = new SeatMapLayoutResult { Nodes = nodes, CanvasWidth = 3 * W, CanvasHeight = H, Traversal = TraversalMode.Snake };
+        var bombSeats = new HashSet<string>();
+        for (int seed = 0; seed < 200; seed++)
+        {
+            var g = Make(layout, seed).Game;
+            bombSeats.Add(g.BombNodeId);
+            var ends = g.Cables.Select(c => c.EndNodeId).ToHashSet();
+            Assert.DoesNotContain(ends, e => BombSeats.MachineOf(e) == BombSeats.MachineOf(g.BombNodeId));   // never on the bomb's machine
+            if (g.BombNodeId == "c9")
+                Assert.Equal(2, ends.Count);                                                                   // both server monitors get cards
+        }
+        Assert.Equal(3, bombSeats.Count);                                                                      // the second monitor too
+    }
+
+    [Fact]
     public void MachineOf_GroupsMonitors()
     {
         Assert.Equal("c1", BombSeats.MachineOf("c1_MONITOR_2"));

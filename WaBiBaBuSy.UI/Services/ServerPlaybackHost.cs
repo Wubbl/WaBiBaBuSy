@@ -306,7 +306,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             return _localBusy?.Contains(NodeIds.MonitorIndex(nodeId)) == true;
         string machine = BombSeats.MachineOf(nodeId);
         var client = _service.GetConnectedClients().FirstOrDefault(c => c.ClientId == machine);
-        if (client == null || UtcNowMs() - client.BusyReportUtc > 10_000 || client.BusyMonitorIndexes.Count == 0) return false;
+        if (client == null) return true;   // a ghost seat (the machine dropped out): nobody would see a bomb or card there
+        if (UtcNowMs() - client.BusyReportUtc > 10_000 || client.BusyMonitorIndexes.Count == 0) return false;
         var suffix = nodeId.Length > machine.Length ? nodeId[(machine.Length + "_MONITOR_".Length)..] : null;
         return suffix != null && int.TryParse(suffix, out int monitor) ? client.BusyMonitorIndexes.Contains(monitor) : true;
     }

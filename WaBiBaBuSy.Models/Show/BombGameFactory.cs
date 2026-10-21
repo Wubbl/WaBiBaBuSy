@@ -37,10 +37,11 @@ public static class BombGameFactory
     public static (BombGame? Game, BombSolution? Solution) Create(BombGameRequest r, out string? error)
     {
         error = null;
-        var candidates = BombSeats.Candidates(r.Layout, r.TargetNodeIds, r.IsBusy, r.GroupByMachine);
-        if (candidates.Count < 2 && r.GroupByMachine)
-            candidates = BombSeats.Candidates(r.Layout, r.TargetNodeIds, r.IsBusy, groupByMachine: false);   // one machine, several monitors: play on the monitors
-        if (candidates.Count < 2)
+        var seats = BombSeats.Candidates(r.Layout, r.TargetNodeIds, r.IsBusy, groupByMachine: false);   // every free monitor
+        Func<NodeLayout, string> machine = r.GroupByMachine ? n => BombSeats.MachineOf(n.Id) : n => n.Id;
+        if (seats.Select(machine).Distinct().Count() < 2)
+            machine = n => n.Id;   // one machine, several monitors: play on the monitors
+        if (seats.Count < 2)
         {
             var targets = r.Layout.Nodes.Where(n => r.TargetNodeIds == null || r.TargetNodeIds.Contains(n.Id)).ToList();
             int busy = targets.Count(n => r.IsBusy(n.Id));
@@ -49,9 +50,10 @@ public static class BombGameFactory
         }
 
         var rng = new Random(r.Seed);
-        int bombIndex = rng.Next(candidates.Count);
-        var bomb = candidates[bombIndex];
-        var ends = PickEnds(candidates, bombIndex, r.Layout.Wraps, rng);
+        var machines = seats.GroupBy(machine).Select(g => g.ToList()).ToList();
+        var bombMachine = machines[rng.Next(machines.Count)];                 // every machine equally likely, then any of its monitors
+        var bomb = bombMachine[rng.Next(bombMachine.Count)];
+        var ends = PickEnds(seats, bomb, machine, r.Layout.Wraps, rng);
 
         var mode = r.ForceMode ?? (rng.Next(4) switch { 0 or 1 => BombMode.Classic, 2 => BombMode.CutOrder, _ => BombMode.Keypad });
         var kinds = r.ForceKinds is { Length: 3 } forced ? forced : RollKinds(rng);
@@ -71,11 +73,11 @@ public static class BombGameFactory
             CodeOrder = solution.Mode == BombMode.Keypad ? CodeOrderOf(ruleLines[0]) : Array.Empty<int>(),
         };
         int hops = 8 + rng.Next(5);
-        game.RouletteOrders = Enumerable.Range(0, hops - 1).Select(_ => candidates[rng.Next(candidates.Count)].Order).Append(bomb.Order).ToArray();
+        game.RouletteOrders = Enumerable.Range(0, hops - 1).Select(_ => seats[rng.Next(seats.Count)].Order).Append(bomb.Order).ToArray();
 
         // RULES card on a spare machine (not the bomb, not a card seat)
-        var usedMachines = ends.Select(e => BombSeats.MachineOf(e.Id)).Append(BombSeats.MachineOf(bomb.Id)).ToHashSet();
-        var spare = candidates.Where(c => !usedMachines.Contains(BombSeats.MachineOf(c.Id)) && !ends.Any(e => e.Id == c.Id) && c.Id != bomb.Id).ToList();
+        var usedMachines = ends.Append(bomb).Select(machine).ToHashSet();
+        var spare = seats.Where(c => !usedMachines.Contains(machine(c))).ToList();
         bool ruleCard = r.ForceRuleCard ?? rng.Next(2) == 0;
         if (ruleCard && spare.Count > 0)
         {
@@ -327,15 +329,22 @@ public static class BombGameFactory
         return best;
     }
 
-    /// <summary>Three end seats ≠ the bomb: far ones (≥ 2 machines away) first, shuffled; round-robin when fewer than three.</summary>
-    private static NodeLayout[] PickEnds(IReadOnlyList<NodeLayout> candidates, int bombIndex, bool wraps, Random rng)
+    /// <summary>
+    /// Three card seats (monitors) off the bomb's machine — any other monitor when there is only one machine: spread over
+    /// the machines first, then over their monitors, far seats (≥ 2 away) before near ones, shuffled; round-robin when
+    /// fewer than three.
+    /// </summary>
+    private static NodeLayout[] PickEnds(IReadOnlyList<NodeLayout> seats, NodeLayout bomb, Func<NodeLayout, string> machine, bool wraps, Random rng)
     {
-        int n = candidates.Count;
-        int Distance(int i) { int d = Math.Abs(i - bombIndex); return wraps ? Math.Min(d, n - d) : d; }
-        var others = Enumerable.Range(0, n).Where(i => i != bombIndex).ToList();
-        var ordered = others.Where(i => Distance(i) >= 2).OrderBy(_ => rng.Next())
-            .Concat(others.Where(i => Distance(i) < 2).OrderBy(_ => rng.Next()))
-            .Select(i => candidates[i]).ToList();
+        int n = seats.Count, b = seats.ToList().FindIndex(s => s.Id == bomb.Id);
+        int Distance(int i) { int d = Math.Abs(i - b); return wraps ? Math.Min(d, n - d) : d; }
+        var pool = Enumerable.Range(0, n).Where(i => i != b && machine(seats[i]) != machine(bomb)).ToList();
+        if (pool.Count == 0) pool = Enumerable.Range(0, n).Where(i => i != b).ToList();
+        var ordered = pool.OrderBy(_ => rng.Next())
+            .GroupBy(i => machine(seats[i]))
+            .SelectMany(g => g.Select((i, k) => (I: i, K: k)))                  // k: the machine's 1st, 2nd … monitor
+            .OrderBy(t => t.K).ThenBy(t => Distance(t.I) < 2 ? 1 : 0)            // stable: the shuffle decides the rest
+            .Select(t => seats[t.I]).ToList();
         return Enumerable.Range(0, 3).Select(i => ordered[i % ordered.Count]).ToArray();
     }
 }

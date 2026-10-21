@@ -363,6 +363,13 @@ public partial class RoomView : Control
         ctx.DrawText(ft, new Point(box.X + (box.W - ft.Width) / 2, box.Y + (box.H - ft.Height) / 2));
     }
 
+    /// <summary>A show event is running now (tiles draw it even over the content-less stand-in scene).</summary>
+    private bool AnyEventActive()
+    {
+        long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        return ShowEvents?.Any(e => ShowEventMath.IsActive(e, now - e.T0Utc)) == true;
+    }
+
     private void DrawTile(DrawingContext ctx, TileBox t, ClientNodeViewModel? c, NodeLayout? node, CrossScreenConfig? scene, long elapsed, bool live)
     {
         bool dragged = _gesture == Gesture.DraggingTile && t.Id == _pressedId;
@@ -373,17 +380,18 @@ public partial class RoomView : Control
 
         var sceneBox = ToRect(t.Scene);
         ctx.FillRectangle(SceneBg, sceneBox, 4);
-        if (node != null && ScenePainter.HasContent(scene))
+        bool content = ScenePainter.HasContent(scene);
+        if (node != null && (content || live && AnyEventActive()))   // the stand-in scene has no content, its events still show
         {
             double s = Math.Min(sceneBox.Width / node.Width, sceneBox.Height / node.Height);
             var screen = new Rect(sceneBox.X + (sceneBox.Width - node.Width * s) / 2,
                                   sceneBox.Y + (sceneBox.Height - node.Height * s) / 2,
                                   node.Width * s, node.Height * s);
             _painter.PaintBackground(ctx, screen, s, scene, node);
-            _painter.PaintLayers(ctx, screen, s, node, scene!, elapsed);
+            if (content) _painter.PaintLayers(ctx, screen, s, node, scene!, elapsed);
             if (live && ShowEvents is { Count: > 0 } events)
-                _painter.PaintShowEvents(ctx, screen, s, ScenePainter.EffectiveNode(scene!.FirstLayer, node), events, SharedStartUtcMs, elapsed,
-                    sharedCanvas: scene.FirstLayer?.Distribution != AnimationDistributionMode.Simultaneous);
+                _painter.PaintShowEvents(ctx, screen, s, ScenePainter.EffectiveNode(scene?.FirstLayer, node), events, SharedStartUtcMs, elapsed,
+                    sharedCanvas: scene?.FirstLayer?.Distribution != AnimationDistributionMode.Simultaneous);
         }
         else if (c?.ThumbnailImage is { } thumb)
         {

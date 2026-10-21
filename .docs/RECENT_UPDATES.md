@@ -17,6 +17,13 @@
 - **Fix**: `RoomNodeSources.ServerNodes` did not copy `PrefetchReady` / `PrefetchTotal`, so the tiles' "⬇ x/y" / "✓ cached" never showed in server mode.
 - **Verified**: build + 1305 tests. **Not verified**: a real update download in the GUI (needs an outdated client).
 
+## 2026-10-22 — BiBaBo with a remote machine: every monitor is a seat, ghosts skipped, preview of idle seats
+
+- **Bomb and cards reach every monitor**: seats were one node per machine (its first monitor), so on a dual-monitor PC the bomb and all cards could only use monitor 1 — with a remote PC + the dual-monitor server, all three cards stacked on the server's monitor 1 and monitor 2 stayed empty. Now the bomb picks a machine (each equally likely), then any of its monitors; cards go off the bomb's machine, spread over the machines first, then over their monitors, far seats first (`BombGameFactory.PickEnds`). Cables already run the side their card is on (the short way round on a Ring).
+- **Ghost seats** (a machine in the layout that dropped out) were "free" — a bomb or card could land where nobody sees it. `IsSeatBusy` now counts them as unavailable.
+- **Room preview**: tiles drew show events only over a scene with content, so during BiBaBo with nothing playing (the content-less stand-in scene) the local seats said "idle" — they now draw the running event.
+- **Verified**: build + 1310 tests (200 seeds on remote + dual-monitor server: the bomb lands on all three monitors, cards never on the bomb's machine, both server monitors get cards when the remote holds the bomb). **Not verified**: the room preview in the GUI, a live game with the remote.
+
 ## 2026-10-21 (late night) — BiBaBo after the first hands-on test: bigger bomb, rules beside it, typed keypad codes
 
 - **Bigger bomb**: 50 % of the seat's height (was 35 %), centred at 42 % so the keypad fits below; the countdown in the box grows with it. Rules (or "RULES: somewhere in the room") moved **left of the bomb**, right-aligned beside the bombs below the cable terminals, on a dark panel so cables pass behind; keypad keys keep their on-screen size. The timer above a custom logo moved into the space above (`BombMath.TimerAboveTop/Height`).
