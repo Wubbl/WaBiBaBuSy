@@ -14,39 +14,20 @@ $SolutionRoot = Split-Path -Parent $ScriptDir
 $PublishDir = Join-Path $SolutionRoot "publish"
 $InstallerOutputDir = Join-Path $PublishDir "installer"
 
-# Auto-detect version from csproj and git commit count
-if (-not $Version) {
-    $CsprojPath = Join-Path $SolutionRoot "WaBiBaBuSy.UI\WaBiBaBuSy.UI.csproj"
-    [xml]$Csproj = Get-Content $CsprojPath
-    # Access PropertyGroup directly - PowerShell returns XmlElement (not array) when there's only one
-    $pg = $Csproj.Project.PropertyGroup
-    if ($pg -is [array]) { $pg = $pg[0] }
-    $Major = $pg.MajorVersion
-    $Minor = $pg.MinorVersion
-    $Patch = $pg.PatchVersion
-    try {
-        $BuildNum = (git -C $SolutionRoot rev-list --count HEAD 2>$null).Trim()
-    } catch {
-        $BuildNum = "0"
-    }
-    if (-not $BuildNum) { $BuildNum = "0" }
-    $Version = "$Major.$Minor.$Patch"
-} else {
-    # If user passed a 4-part version like 2.1.0.165, split into version + build
+# Version: by default the csproj derives it from git (newest v* tag + commits since, build = commit count)
+# and it is read back from the published exe. A passed version like 2.1.0.165 overrides it.
+$VersionArgs = @()
+if ($Version) {
     $parts = $Version.Split('.')
-    if ($parts.Length -ge 4) {
-        $BuildNum = $parts[3]
-        $Version = "$($parts[0]).$($parts[1]).$($parts[2])"
-    } else {
-        $BuildNum = "0"
-    }
+    $BuildNum = if ($parts.Length -ge 4) { $parts[3] } else { "0" }
+    $VersionArgs = @("/p:VersionFromGit=false", "/p:MajorVersion=$($parts[0])", "/p:MinorVersion=$($parts[1])",
+                     "/p:PatchVersion=$($parts[2])", "/p:BuildNumber=$BuildNum")
 }
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host " WaBiBaBuSy Installer Build Script" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Version: $Version  Build: $BuildNum" -ForegroundColor Cyan
 Write-Host "Solution Root: $SolutionRoot" -ForegroundColor Gray
 Write-Host "Publish Directory: $PublishDir" -ForegroundColor Gray
 Write-Host ""
@@ -71,13 +52,16 @@ dotnet publish $ProjectPath `
     /p:PublishSingleFile=false `
     /p:DebugType=None `
     /p:DebugSymbols=false `
-    /p:BuildNumber=$BuildNum
+    @VersionArgs
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "  Failed to publish application!" -ForegroundColor Red
     exit 1
 }
-Write-Host "  Published to: $PublishDir" -ForegroundColor Green
+$FileVersion = [System.Version](Get-Item (Join-Path $PublishDir "WaBiBaBuSy.UI.exe")).VersionInfo.FileVersion
+$Version = "$($FileVersion.Major).$($FileVersion.Minor).$($FileVersion.Build)"
+$BuildNum = "$($FileVersion.Revision)"
+Write-Host "  Published to: $PublishDir (version $Version, build $BuildNum)" -ForegroundColor Green
 Write-Host ""
 
 # Step 3: Check for Inno Setup

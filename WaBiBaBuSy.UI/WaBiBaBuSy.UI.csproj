@@ -8,7 +8,7 @@
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <ApplicationIcon>Assets\BiBaBuColorIcon.ico</ApplicationIcon>
 
-    <!-- Version Information: Major.Minor.Patch set manually, BuildNumber auto-set from git commit count -->
+    <!-- Version Information: fallback only, the SetBuildNumber target derives it from the newest v* git tag -->
     <MajorVersion>2</MajorVersion>
     <MinorVersion>7</MinorVersion>
     <PatchVersion>5</PatchVersion>
@@ -64,13 +64,29 @@
     </ProjectReference>
   </ItemGroup>
 
-  <!-- Auto-set BuildNumber from git commit count (can be overridden via /p:BuildNumber=N) -->
-  <Target Name="SetBuildNumber" BeforeTargets="GetAssemblyVersion;GenerateNuspec;BeforeBuild" Condition="'$(BuildNumber)' == ''">
-    <Exec Command="git rev-list --count HEAD" ConsoleToMSBuild="true" StandardOutputImportance="low" IgnoreExitCode="true">
+  <!-- Version from git: the newest vMAJOR.MINOR.PATCH tag reachable from HEAD, every commit after it bumps the patch
+       (tag v2.8.0 to start a new minor). No tag / no git: the values above. /p:VersionFromGit=false keeps them as given.
+       BuildNumber = git commit count (can be overridden via /p:BuildNumber=N) -->
+  <Target Name="SetBuildNumber" BeforeTargets="GetAssemblyVersion;GenerateNuspec;BeforeBuild">
+    <Exec Command="git describe --tags --abbrev=0 --match &quot;v[0-9]*.[0-9]*.[0-9]*&quot; 2&gt;nul" ConsoleToMSBuild="true" StandardOutputImportance="low" IgnoreExitCode="true" Condition="'$(VersionFromGit)' != 'false'">
+      <Output TaskParameter="ConsoleOutput" PropertyName="VersionTag" />
+      <Output TaskParameter="ExitCode" PropertyName="VersionTagExit" />
+    </Exec>
+    <Exec Command="git rev-list --count $(VersionTag)..HEAD" ConsoleToMSBuild="true" StandardOutputImportance="low" Condition="'$(VersionTagExit)' == '0'">
+      <Output TaskParameter="ConsoleOutput" PropertyName="VersionHeight" />
+    </Exec>
+    <Exec Command="git rev-list --count HEAD" ConsoleToMSBuild="true" StandardOutputImportance="low" IgnoreExitCode="true" Condition="'$(BuildNumber)' == ''">
       <Output TaskParameter="ConsoleOutput" PropertyName="BuildNumber" />
     </Exec>
+    <PropertyGroup Condition="'$(VersionTagExit)' == '0'">
+      <_TagVersion>$([System.Version]::Parse($(VersionTag.TrimStart('v'))))</_TagVersion>
+      <MajorVersion>$([System.Version]::Parse($(_TagVersion)).Major)</MajorVersion>
+      <MinorVersion>$([System.Version]::Parse($(_TagVersion)).Minor)</MinorVersion>
+      <PatchVersion>$([MSBuild]::Add($([System.Version]::Parse($(_TagVersion)).Build), $(VersionHeight)))</PatchVersion>
+    </PropertyGroup>
     <PropertyGroup>
       <BuildNumber Condition="'$(BuildNumber)' == ''">0</BuildNumber>
+      <Version>$(MajorVersion).$(MinorVersion).$(PatchVersion)</Version>
       <AssemblyVersion>$(MajorVersion).$(MinorVersion).$(PatchVersion).$(BuildNumber)</AssemblyVersion>
       <FileVersion>$(MajorVersion).$(MinorVersion).$(PatchVersion).$(BuildNumber)</FileVersion>
       <InformationalVersion>$(MajorVersion).$(MinorVersion).$(PatchVersion)+build.$(BuildNumber)</InformationalVersion>
