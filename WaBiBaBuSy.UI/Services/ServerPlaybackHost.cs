@@ -12,6 +12,7 @@ using WaBiBaBuSy.Core.Interfaces;
 using WaBiBaBuSy.Core.Services;
 using WaBiBaBuSy.Core.Services.Animation;
 using WaBiBaBuSy.Core.Services.Logging;
+using WaBiBaBuSy.Core.Services.Show;
 using WaBiBaBuSy.Core.Services.Testing;
 using WaBiBaBuSy.Models;
 using WaBiBaBuSy.Models.Configuration;
@@ -175,6 +176,10 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         _remotePlayback = remotePlayback;
         _agenda = new AgendaDisplay(desktopManager, m => new[] { NodeIds.ServerLocalPrefix + m, NodeIds.LocalMachinePrefix + m });
         _service.AgendaProvider = () => CurrentAgenda;
+        _bombGame = new BombGameService(UtcNowMs,
+            outcome => Dispatcher.UIThread.InvokeAsync(() => DispatchBombOutcomeAsync(outcome)),
+            () => SyncTiming.ComputeStartLeadMs(_activeMaxRttMs, 0));
+        _service.ShowActionHandler = r => _bombGame.OnActionAsync(r.ClientId, r.EventId, r.Action, r.Cable);
         _agenda.StandInsChanged += OnAgendaStandInsChanged;
         _remotePlayback.AgendaStandInsChanged += OnAgendaStandInsChanged;
         if (AgendaDocument.Enabled) _ = PublishAgendaAsync();
@@ -196,6 +201,103 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         _clientMode = connected;
         return _agenda.SetAsync(connected ? null : CurrentAgenda, _players, reconcile: !IsStartingScene);
     }
+
+    // ── BiBaBo (bomb-defuse mini-game, design 2026-10-21-bibabo-bomb-game-design.md) ─────
+
+    private readonly BombGameService _bombGame;
+    private DispatcherTimer? _bombTicker;
+
+    private static long UtcNowMs() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+    /// <summary>True while a BiBaBo game runs (the Events strip button reads "Abort").</summary>
+    [ObservableProperty]
+    private bool _isBiBaBoRunning;
+
+    /// <summary>The referee (BombInputWatcher on this machine's own seats reports to it).</summary>
+    internal BombGameService BombGame => _bombGame;
+
+    /// <summary>
+    /// Start BiBaBo on <paramref name="targetNodeIds"/> (null = every seat), or abort the running game. Like an event fired
+    /// while nothing plays, an idle room gets the stand-in scene. Busy seats are skipped. UI thread.
+    /// </summary>
+    public async Task<bool> ToggleBiBaBoAsync(IReadOnlyList<string>? targetNodeIds)
+    {
+        if (_bombGame.IsRunning)
+        {
+            await _bombGame.AbortAsync();
+            return true;
+        }
+        if (targetNodeIds is { Count: 0 })
+        {
+            EventStatusText = "No seat carries that tag.";
+            return false;
+        }
+        var layout = ActiveLayout;
+        if (ActiveScene == null || layout == null)
+        {
+            if (!await StartIdleSceneAsync(targetNodeIds)) return false;
+            layout = ActiveLayout;
+            if (layout == null) return false;
+        }
+
+        string id = Guid.NewGuid().ToString("N");
+        var (game, live) = BombGameFactory.Create(new BombGameRequest(layout, targetNodeIds, IsSeatBusy, Random.Shared.Next(), id), out var error);
+        if (game == null)
+        {
+            EventStatusText = $"BiBaBo: {error}";
+            if (IsIdleScenePlaying && _idleUntilUtcMs == 0) await StopAsync();   // the stand-in started for nothing
+            return false;
+        }
+        foreach (var cable in game.Cables)
+            if (cable.Riddle is { Kind: RiddleKind.Math, Formula: { } formula })
+                cable.Riddle.FormulaAspect = TextSprite.MeasureAspect(formula);
+
+        var evt = new ShowEvent
+        {
+            EventId = id,
+            Type = ShowEventType.Bomb,
+            T0Utc = UtcNowMs() + SyncTiming.ComputeStartLeadMs(_activeMaxRttMs, 0),
+            DurationMs = ShowEventMath.ClampDuration(game.IntroMs + game.TimerMs + 15_000),   // + time for the outcome to arrive
+            Seed = Random.Shared.Next(),
+            ColorHex = "#FF1744",
+            ImagePath = BombLogoPath(),
+            TargetNodeIds = targetNodeIds?.ToList(),
+            Bomb = game,
+        };
+        _bombGame.Begin(evt, live);
+        IsBiBaBoRunning = true;
+        await DispatchEventAsync(evt);
+        if (IsIdleScenePlaying) KeepIdleSceneUntil(evt);
+        _bombTicker ??= new DispatcherTimer(TimeSpan.FromMilliseconds(250), DispatcherPriority.Background, (_, _) => _ = _bombGame.TickAsync());
+        _bombTicker.Start();
+        EventStatusText = $"BiBaBo: the bomb is on {game.BombNodeId} — 5:00 on the clock";
+        AppLogger.CreateLogger<ServerPlaybackHost>().LogInformation("BiBaBo {Id}: bomb on {Node}, live cable {Live}", id, game.BombNodeId, live);
+        return true;
+    }
+
+    /// <summary>The referee decided: show the outcome everywhere; an idle room goes back to its wallpaper after it.</summary>
+    private async Task DispatchBombOutcomeAsync(ShowEvent outcome)
+    {
+        _bombTicker?.Stop();
+        IsBiBaBoRunning = false;
+        await DispatchEventAsync(outcome);
+        if (IsIdleScenePlaying) _idleUntilUtcMs = outcome.T0Utc + ShowEventMath.ClampDuration(outcome.DurationMs) + 300;
+        EventStatusText = $"BiBaBo: {outcome.Bomb?.Result}";
+    }
+
+    /// <summary>The bomb logo: %APPDATA%\WaBiBaBuSy\bibabo-bomb.gif (or .png); null = the players draw a bomb.</summary>
+    private static string? BombLogoPath()
+    {
+        foreach (var name in new[] { "bibabo-bomb.gif", "bibabo-bomb.png" })
+        {
+            var path = Path.Combine(AppDataPaths.Root, name);
+            if (File.Exists(path)) return path;
+        }
+        return null;
+    }
+
+    /// <summary>A window covers this seat's monitor (BiBaBo skips it). Filled by the busy-seat reports (Task 4).</summary>
+    private bool IsSeatBusy(string nodeId) => false;
 
     // ── Agenda (room timetable overlay) ─────────────────────────────────────
 
@@ -326,6 +428,11 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     /// </summary>
     public async Task<bool> FireEventAsync(ShowEventType type, string? targetSeatId = null, IReadOnlyList<string>? targetNodeIds = null)
     {
+        if (_bombGame.IsRunning)
+        {
+            EventStatusText = "BiBaBo is running — other events wait until it ends.";
+            return false;
+        }
         if (targetNodeIds is { Count: 0 })
         {
             EventStatusText = "No seat carries that tag.";
@@ -634,6 +741,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         if (_playlistOrchestrator != null)
             await StopShowAsync();
 
+        if (_bombGame.IsRunning) await _bombGame.AbortAsync();   // Stop ends a running game quietly
+
         if (!IsCrossScreenRunning)
         {
             Debug.WriteLine("[CrossScreen] Not running");
@@ -732,6 +841,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         // Stop the playlist rotation loop first so it can't respawn D2D players after teardown.
         if (_playlistOrchestrator != null)
             await StopShowAsync();
+
+        if (_bombGame.IsRunning) await _bombGame.AbortAsync();
 
         // Stop cross-screen animation if running
         if (IsCrossScreenRunning)

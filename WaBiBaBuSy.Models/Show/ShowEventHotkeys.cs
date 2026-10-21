@@ -12,6 +12,9 @@ public static class ShowEventHotkeys
     /// <summary>The event a slot fires, or null for an unknown slot.</summary>
     public static ShowEventType? TypeForSlot(int slot) => slot >= 1 && slot <= Types.Length ? Types[slot - 1] : null;
 
+    /// <summary>Ctrl+Alt+B: start BiBaBo, or abort a running game (hotkey id = the virtual key 'B').</summary>
+    public const int BiBaBoSlot = 'B';
+
     /// <summary>Display text of a slot's gesture, e.g. "Ctrl+Alt+3".</summary>
-    public static string Gesture(int slot) => $"Ctrl+Alt+{slot}";
+    public static string Gesture(int slot) => slot == BiBaBoSlot ? "Ctrl+Alt+B" : $"Ctrl+Alt+{slot}";
 }

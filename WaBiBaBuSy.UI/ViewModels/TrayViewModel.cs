@@ -241,6 +241,16 @@ public partial class TrayViewModel : ObservableObject
 
     private async Task OnEventHotkeyAsync(int slot)
     {
+        if (slot == ShowEventHotkeys.BiBaBoSlot)
+        {
+            try { await _serverPlayback.ToggleBiBaBoAsync(null); }   // everyone (the hotkey has no target picker)
+            catch (Exception ex)
+            {
+                AppLogger.CreateLogger<TrayViewModel>().LogError(ex, "BiBaBo hotkey failed");
+                _serverPlayback.EventStatusText = $"BiBaBo failed: {ex.Message}";
+            }
+            return;
+        }
         if (ShowEventHotkeys.TypeForSlot(slot) is not { } type) return;
         try
         {

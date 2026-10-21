@@ -111,6 +111,9 @@ public class WaBiBaBuSyService : IDisposable
             _playbackService.AgendaDelegate = agenda;
     }
 
+    /// <summary>Server mode: referees BiBaBo actions reported by clients (set by the server's playback host).</summary>
+    public Func<WaBiBaBuSy.Grpc.ShowActionReport, Task<bool>>? ShowActionHandler { get; set; }
+
     /// <summary>Server mode: the agenda every client gets when it registers (set by the server's playback host).</summary>
     public Func<Models.Show.Agenda?>? AgendaProvider { get; set; }
 
@@ -206,6 +209,7 @@ public class WaBiBaBuSyService : IDisposable
             if (_serverHost.SyncService != null)
             {
                 _serverHost.SyncService.ThumbnailsWanted = _thumbnailsWanted;
+                _serverHost.SyncService.ShowActionHandler = r => ShowActionHandler?.Invoke(r) ?? Task.FromResult(false);
                 _serverHost.SyncService.ClientLogsReceived += (s, e) =>
                     ClientLogsReceived?.Invoke(this, e);
             }

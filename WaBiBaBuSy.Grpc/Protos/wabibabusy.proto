@@ -37,6 +37,9 @@ service WallpaperSync {
 
   // Automated test run: client uploads one probe result (header, then PNG chunks per monitor)
   rpc SubmitProbeResult(stream ProbeResultChunk) returns (ProbeResultAck);
+
+  // BiBaBo: the bomb seat's machine reports a cut cable or the Recycle Bin on the bomb; the server referees.
+  rpc ReportShowAction(ShowActionReport) returns (ShowActionAck);
 }
 
 // Client information message
@@ -99,6 +102,7 @@ message HeartbeatRequest {
   // Prefetch progress for the last PREFETCH list (0/0 = none received)
   int32 prefetch_ready = 7;
   int32 prefetch_total = 8;
+  repeated int32 busy_monitor_indexes = 9;   // monitors covered ≥ 80 % by a window (BiBaBo skips them); none from old clients
 }
 
 // Heartbeat response
@@ -231,6 +235,8 @@ message ConnectedClient {
   int32 prefetch_ready = 12;        // cached assets of the last PREFETCH list
   int32 prefetch_total = 13;        // size of the last PREFETCH list (0 = none)
   string app_version = 14;          // from ClientInfo at registration (test-run preflight compares builds)
+  repeated int32 busy_monitor_indexes = 15;  // last heartbeat's busy monitors (BiBaBo)
+  int64 busy_report_utc = 16;                // when they were reported (server clock, ms)
 }
 
 // Client order update
@@ -423,4 +429,17 @@ message ProbeCaptureChunk {
 message ProbeResultAck {
   bool success = 1;
   string message = 2;
+}
+
+// BiBaBo: an action on the bomb seat (design 2026-10-21-bibabo-bomb-game-design.md §5.3)
+message ShowActionReport {
+  string client_id = 1;
+  string event_id = 2;      // the Bomb event (= game id)
+  string action = 3;        // "cut" | "recycle"
+  int32 cable = 4;          // cut: 0..2
+  int64 client_utc_ms = 5;  // for the log
+}
+
+message ShowActionAck {
+  bool accepted = 1;        // it decided the game
 }

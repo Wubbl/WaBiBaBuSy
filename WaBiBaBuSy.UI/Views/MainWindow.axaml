@@ -313,6 +313,8 @@
                                         ToolTip.Tip="The text runs around the room once (Ctrl+Alt+5)"/>
                                 <Button Content="# Identify" Command="{Binding Events.IdentifyCommand}" Padding="8,3" FontSize="11" Margin="10,0,0,0"
                                         ToolTip.Tip="Every seat shows its seat number and machine name for 10 s — for sorting the room"/>
+                                <Button Content="{Binding Events.BiBaBoLabel}" Command="{Binding Events.BiBaBoCommand}" Padding="8,3" FontSize="11" Margin="10,0,0,0"
+                                        ToolTip.Tip="BiBaBo: a bomb lands on a random free seat, three cables run to riddles across the room — click the live cable at the bomb before 5:00 run out (Ctrl+Alt+B). Click again to abort."/>
                                 <CheckBox Content="Hotkeys (Ctrl+Alt+1..5)" IsChecked="{Binding Events.HotkeysEnabled}"
                                           FontSize="11" Margin="10,0,0,0" VerticalAlignment="Center"
                                           ToolTip.Tip="Global hotkeys while the server runs: Ctrl+Alt+1 Spotlight … 5 Announce. On German / Austrian keyboards Ctrl+Alt+digit is AltGr+digit (², ³ …) — switch off to keep those keys for typing."/>

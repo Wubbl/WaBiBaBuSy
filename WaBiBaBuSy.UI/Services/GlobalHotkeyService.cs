@@ -50,6 +50,8 @@ public sealed class GlobalHotkeyService : IDisposable
         foreach (int slot in ShowEventHotkeys.Slots)
             if (!RegisterHotKey(IntPtr.Zero, slot, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, (uint)('0' + slot)))
                 failed.Add(slot);
+        if (!RegisterHotKey(IntPtr.Zero, ShowEventHotkeys.BiBaBoSlot, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, (uint)ShowEventHotkeys.BiBaBoSlot))
+            failed.Add(ShowEventHotkeys.BiBaBoSlot);
         FailedSlots = failed;
         ready.Set();
         try
@@ -64,6 +66,7 @@ public sealed class GlobalHotkeyService : IDisposable
         finally
         {
             foreach (int slot in ShowEventHotkeys.Slots) UnregisterHotKey(IntPtr.Zero, slot);
+            UnregisterHotKey(IntPtr.Zero, ShowEventHotkeys.BiBaBoSlot);
         }
     }
 

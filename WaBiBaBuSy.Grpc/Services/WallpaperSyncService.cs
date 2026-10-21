@@ -283,6 +283,19 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     /// <summary>
     /// Handle client heartbeat to maintain connection
     /// </summary>
+    /// <summary>BiBaBo: referees a reported action (set by the server's playback host); true = it decided the game.</summary>
+    public Func<ShowActionReport, Task<bool>>? ShowActionHandler { get; set; }
+
+    public override async Task<ShowActionAck> ReportShowAction(ShowActionReport request, ServerCallContext context)
+    {
+        var handler = ShowActionHandler;
+        bool accepted = false;
+        try { accepted = handler != null && await handler(request); }
+        catch (Exception ex) { _logger.LogError(ex, "BiBaBo action from {ClientId} failed", request.ClientId); }
+        _logger.LogInformation("BiBaBo action {Action} (cable {Cable}) from {ClientId}: {Result}", request.Action, request.Cable, request.ClientId, accepted ? "decided the game" : "ignored");
+        return new ShowActionAck { Accepted = accepted };
+    }
+
     public override Task<HeartbeatResponse> Heartbeat(
         HeartbeatRequest request,
         ServerCallContext context)

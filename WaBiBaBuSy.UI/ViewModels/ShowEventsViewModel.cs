@@ -136,6 +136,12 @@ public partial class ShowEventsViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanFire))]
     private Task Identify() => _server.FireEventAsync(ShowEventType.Identify, null, TargetIds());
 
+    /// <summary>"💣 BiBaBo", or "■ Abort BiBaBo" while a game runs.</summary>
+    public string BiBaBoLabel => _server.IsBiBaBoRunning ? "■ Abort BiBaBo" : "💣 BiBaBo";
+
+    [RelayCommand(CanExecute = nameof(CanFire))]
+    private Task BiBaBo() => _server.ToggleBiBaBoAsync(TargetIds());
+
     [RelayCommand]
     private async Task PickTraversalImage()
     {
@@ -178,6 +184,10 @@ public partial class ShowEventsViewModel : ObservableObject
                 BlackoutCommand.NotifyCanExecuteChanged();
                 AnnounceCommand.NotifyCanExecuteChanged();
                 IdentifyCommand.NotifyCanExecuteChanged();
+                BiBaBoCommand.NotifyCanExecuteChanged();
+                break;
+            case nameof(ServerPlaybackHost.IsBiBaBoRunning):
+                OnPropertyChanged(nameof(BiBaBoLabel));
                 break;
             case nameof(ServerPlaybackHost.EventStatusText):
                 OnPropertyChanged(nameof(StatusText));
