@@ -118,7 +118,7 @@ public static class SceneChecks
         {
             if (anim.Pattern != null)
                 yield return "Effects are not drawn with a pattern";
-            else if (anim.AdditionalAnimationPaths?.Any(p => !string.IsNullOrWhiteSpace(p)) == true)
+            else if (!layer.SourcePerSeat && anim.AdditionalAnimationPaths?.Any(p => !string.IsNullOrWhiteSpace(p)) == true)
                 yield return "Effects need a single image (no extra images)";
             else if (index == 0 && MovementCalculator.FollowsIconPath(backgroundMode, layer.Movement))
                 yield return "Effects are not drawn on an IconZone path";

@@ -292,6 +292,9 @@ public class AnimationLayerConfig
     /// All effective animation source paths (primary + additional, with empty entries filtered out).
     /// Method — not serialized — keeps the Models layer free of serializer dependencies.
     /// </summary>
+    /// <summary>Member-wise copy (nested configs shared) — for <see cref="SceneLayer.ForSeat"/>, which only swaps the paths.</summary>
+    internal AnimationLayerConfig ShallowCopy() => (AnimationLayerConfig)MemberwiseClone();
+
     public IReadOnlyList<string> GetAllAnimationPaths()
     {
         var list = new List<string>();

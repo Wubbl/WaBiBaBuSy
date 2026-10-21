@@ -199,7 +199,7 @@ public sealed partial class ScenePainter
         bool? hit = null;
         for (int i = 0; i < scene.Layers.Count; i++)
         {
-            var layer = scene.Layers[i];
+            var layer = scene.Layers[i].ForSeat(node.Order);   // SourcePerSeat: this seat's own source, as its player
             if (!layer.Enabled || string.IsNullOrEmpty(layer.Animation.AnimationPath)) continue;
             float shown = SyncTiming.LayerElapsed(elapsedMs, node.Order, layer) is long le
                 ? LayerSchedule.Visibility(layer.ShowEveryMs, layer.ShowForMs, le) : 1f;   // spawn window, as the players

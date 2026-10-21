@@ -207,6 +207,9 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     [ObservableProperty] private double _layerShowEverySeconds;
     [ObservableProperty] private double _layerShowForSeconds = 10;
 
+    /// <summary>Selected layer shows one of its images per seat (seat n gets image n mod count) instead of all at once (Content tab).</summary>
+    [ObservableProperty] private bool _layerSourcePerSeat;
+
     /// <summary>More than one layer: the strip shows remove / reorder.</summary>
     public bool HasSeveralLayers => Layers.Count > 1;
 
@@ -678,6 +681,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
         LayerPhaseOffsetMs = (int)Math.Clamp(layer.PhaseOffsetMs, int.MinValue, int.MaxValue);
         LayerShowEverySeconds = layer.ShowEveryMs / 1000.0;
         LayerShowForSeconds = layer.ShowForMs / 1000.0;
+        LayerSourcePerSeat = layer.SourcePerSeat;
         RotateWithPath = anim.RotateWithPath;
         AnimationPath = anim.AnimationPath;
         AnimationHeight = anim.TargetHeight;
@@ -859,6 +863,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
             PhaseOffsetMs = LayerPhaseOffsetMs,
             ShowEveryMs = (long)Math.Round(Math.Max(0, LayerShowEverySeconds) * 1000),
             ShowForMs = (long)Math.Round(Math.Max(0, LayerShowForSeconds) * 1000),
+            SourcePerSeat = LayerSourcePerSeat,
             Distribution = distributionMode,
             Animation = new AnimationLayerConfig
             {

@@ -303,6 +303,10 @@
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
                             </Grid>
+                            <Grid ColumnDefinitions="120,*" IsVisible="{Binding HasExtraImages}">
+                                <CheckBox Grid.Column="1" Content="One per seat ⓘ" IsChecked="{Binding LayerSourcePerSeat}"
+                                          ToolTip.Tip="Every seat shows just one of the images (seat 1 the first, seat 2 the second, … then from the start again) instead of all of them. Extra GIFs play too."/>
+                            </Grid>
                             <Grid ColumnDefinitions="120,*">
                                 <TextBlock Classes="label" Text="Fit"/>
                                 <ComboBox Grid.Column="1" SelectedIndex="{Binding FitModeIndex}" HorizontalAlignment="Stretch">

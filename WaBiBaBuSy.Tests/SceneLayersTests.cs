@@ -193,4 +193,25 @@ public class SceneLayersTests : IDisposable
         var off = new SceneLayer { Name = "Off", Enabled = false };
         Assert.Empty(SceneChecks.Validate(new CrossScreenConfig { Layers = { Layer("logo.png"), off } }, null));
     }
+
+    // ── one source per seat ──────────────────────────────────────────────────
+
+    [Fact]
+    public void ForSeat_PicksSeatModCount_AndLeavesTheSceneLayerAlone()
+    {
+        var layer = Layer("a.gif", "b.gif", "", "c.png");
+        layer.SourcePerSeat = true;
+        Assert.Equal(new[] { "a.gif", "b.gif", "c.png", "a.gif" },
+            Enumerable.Range(0, 4).Select(seat => layer.ForSeat(seat).Animation.AnimationPath));
+        Assert.Empty(layer.ForSeat(1).Animation.AdditionalAnimationPaths);
+        Assert.Equal("a.gif", layer.Animation.AnimationPath);
+        Assert.Equal(3, layer.Animation.AdditionalAnimationPaths.Count);
+    }
+
+    [Fact]
+    public void ForSeat_Off_IsTheLayerItself()
+    {
+        var layer = Layer("a.gif", "b.gif");
+        Assert.Same(layer, layer.ForSeat(1));
+    }
 }

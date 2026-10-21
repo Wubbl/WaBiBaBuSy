@@ -1519,11 +1519,7 @@ partial class Program
                 delayMs = 10; // Browser standard: 0-delay = 10ms
                 zeroDelayCount++;
             }
-            if (delayMs > 1000)
-            {
-                _logger?.LogWarning("[GIF-D2D] Frame delay {Original}ms capped to 1000ms", delayMs);
-                delayMs = 1000;
-            }
+            // No upper cap: long holds are deliberate (a morph chain holds each variant for minutes).
             delays.Add(delayMs);
 
             // Convert Magick frame to GDI+ Bitmap, then upload to D2D
@@ -4111,6 +4107,7 @@ partial class Program
                 for (int i = 0; i < layers.Count; i++)
                 {
                     if (i > 0) SaveInto(_layers[i - 1]);
+                    layers[i] = layers[i].ForSeat(cmd.Layout?.Order ?? 0);   // SourcePerSeat: this seat's own source only
                     var runtime = new LayerRuntime { Config = layers[i] };
                     _layers.Add(runtime);
                     _activeLayer = i;
