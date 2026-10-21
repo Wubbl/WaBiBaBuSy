@@ -99,6 +99,8 @@ public class D2DPlayerHost : IDisposable
                     Arguments = args,
                     UseShellExecute = false,
                     RedirectStandardInput = true,
+                    // UTF-8 both ways: show-event / agenda text (·, ², ü, ♻) must not depend on the console code page
+                    StandardInputEncoding = new System.Text.UTF8Encoding(false),
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     CreateNoWindow = true

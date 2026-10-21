@@ -3141,12 +3141,14 @@ partial class Program
     private static void ProcessCommands()
     {
         _logger?.LogInformation("Command processor started");
+        // The host writes UTF-8 (D2DPlayerHost); Console.ReadLine would decode with the console code page.
+        using var stdin = new StreamReader(Console.OpenStandardInput(), new System.Text.UTF8Encoding(false));
 
         while (_running)
         {
             try
             {
-                var line = Console.ReadLine();
+                var line = stdin.ReadLine();
                 if (line == null)
                 {
                     _logger?.LogInformation("Stdin closed, exiting");
