@@ -1,0 +1,45 @@
+<!-- WaBiBaBuSy.UI/Views/AgendaPanel.axaml -->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:WaBiBaBuSy.UI.ViewModels"
+             x:Class="WaBiBaBuSy.UI.Views.AgendaPanel"
+             x:DataType="vm:AgendaViewModel"
+             FontSize="12">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="8" Margin="0,8,0,8">
+            <Grid ColumnDefinitions="*,Auto">
+                <ToggleSwitch IsChecked="{Binding Enabled}" OnContent="Agenda on all screens" OffContent="Agenda off"/>
+                <TextBlock Grid.Column="1" Text="{Binding StatusText}" Foreground="#8A8A8A" VerticalAlignment="Center"/>
+            </Grid>
+
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                <TextBlock Text="Title" VerticalAlignment="Center"/>
+                <TextBox Grid.Column="1" Text="{Binding Title}" Watermark="BiBaBu LAN"/>
+            </Grid>
+
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                <TextBlock Text="First day" VerticalAlignment="Center"/>
+                <DatePicker Grid.Column="1" SelectedDate="{Binding FirstDay}" HorizontalAlignment="Stretch"/>
+                <TextBlock Grid.Column="2" Text="Corner" VerticalAlignment="Center"/>
+                <ComboBox Grid.Column="3" ItemsSource="{Binding Corners}" SelectedItem="{Binding Corner}"/>
+            </Grid>
+
+            <TextBlock Text="Timetable — one item per line: [day] time text" Foreground="#B0B0B0"/>
+            <TextBox Text="{Binding ItemsText}" AcceptsReturn="True" TextWrapping="NoWrap" MinHeight="140" MaxHeight="320"
+                     Watermark="Fri 18:00 Pizza&#10;20:00 CS2 tournament&#10;Sat 10:00 Breakfast"/>
+            <ItemsControl ItemsSource="{Binding Preview}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}" Foreground="#8A8A8A" FontSize="11"/>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <TextBlock Text="Notes (WiFi, house rules, …)" Foreground="#B0B0B0"/>
+            <TextBox Text="{Binding NotesText}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" MaxHeight="160"
+                     Watermark="WiFi: bibabu"/>
+
+            <TextBlock Text="Seats tagged 'agenda' show the full timetable." Foreground="#8A8A8A" FontSize="11" TextWrapping="Wrap"/>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

@@ -199,6 +199,16 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         await PublishAgendaAsync();
     }
 
+    /// <summary>Switch the agenda on or off with everything else as it is (tray menu).</summary>
+    public Task SetAgendaEnabledAsync(bool enabled)
+    {
+        var d = AgendaDocument;
+        return ApplyAgendaAsync(new AgendaDocument
+        {
+            Enabled = enabled, Title = d.Title, ItemsText = d.ItemsText, NotesText = d.NotesText, FirstDay = d.FirstDay, Corner = d.Corner,
+        });
+    }
+
     /// <summary>Re-publish the current document (seat tags changed: agenda screens may have moved).</summary>
     public Task RefreshAgendaAsync() => CurrentAgenda == null ? Task.CompletedTask : PublishAgendaAsync();
 

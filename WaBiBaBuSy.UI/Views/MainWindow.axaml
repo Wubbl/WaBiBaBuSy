@@ -392,6 +392,9 @@
                             <TabItem Header="Playlist" FontSize="15">
                                 <views:PlaylistPanel DataContext="{Binding PlaylistEditor}"/>
                             </TabItem>
+                            <TabItem Header="Agenda" FontSize="15">
+                                <views:AgendaPanel DataContext="{Binding Agenda}"/>
+                            </TabItem>
                         </TabControl>
                         <!-- Gallery actions of the Scene tab, in the tab header row -->
                         <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,0,0"

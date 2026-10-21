@@ -80,6 +80,9 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     /// <summary>The Events strip (one-shot show events).</summary>
     public ShowEventsViewModel Events { get; }
 
+    /// <summary>The Agenda tab (room timetable overlay).</summary>
+    public AgendaViewModel Agenda { get; }
+
     [ObservableProperty]
     private WallpaperItemViewModel? _selectedWallpaper;
 
@@ -385,6 +388,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         // at app start. Detach() undoes these subscriptions when the window closes.
         _server = server;
         Events = new ShowEventsViewModel(server);
+        Agenda = new AgendaViewModel(server);
         _server.PropertyChanged += OnServerPropertyChanged;
         _server.SceneApplied += OnSceneApplied;
         _server.NodesStopped += OnNodesStopped;

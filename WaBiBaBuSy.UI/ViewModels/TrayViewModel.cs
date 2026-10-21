@@ -51,6 +51,7 @@ public partial class TrayViewModel : ObservableObject
     // Scene presets (editor, playlist, Quick start); seeded with the starter presets on first run
     private readonly PresetStore _presets = new();
     private NativeMenuItem? _quickStartItem;
+    private NativeMenuItem? _agendaItem;
     // Why the last Quick start did not play; shown at the top of the submenu until a start succeeds
     private string? _quickStartProblem;
 
@@ -351,6 +352,13 @@ public partial class TrayViewModel : ObservableObject
         if (menu == null) return;
         _quickStartItem = new NativeMenuItem("Quick start") { Menu = new NativeMenu() };
         menu.Items.Insert(Math.Min(1, menu.Items.Count), _quickStartItem);
+        _agendaItem = new NativeMenuItem("Agenda on all screens") { ToggleType = MenuItemToggleType.CheckBox };
+        _agendaItem.Click += (_, _) => _ = _serverPlayback.SetAgendaEnabledAsync(!_serverPlayback.AgendaDocument.Enabled);
+        menu.Items.Insert(Math.Min(2, menu.Items.Count), _agendaItem);
+        _serverPlayback.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ServerPlaybackHost.CurrentAgenda)) Dispatcher.UIThread.Post(RebuildQuickStartMenu);
+        };
         RebuildQuickStartMenu();
     }
 
@@ -373,6 +381,11 @@ public partial class TrayViewModel : ObservableObject
         }
         _quickStartItem.IsEnabled = names.Count > 0;
         _quickStartItem.IsVisible = !IsClientConnected;
+        if (_agendaItem != null)
+        {
+            _agendaItem.IsChecked = _serverPlayback.AgendaDocument.Enabled;
+            _agendaItem.IsVisible = !IsClientConnected;   // a client shows the server's agenda
+        }
     }
 
     partial void OnIsClientConnectedChanged(bool value) => Dispatcher.UIThread.Post(RebuildQuickStartMenu);
