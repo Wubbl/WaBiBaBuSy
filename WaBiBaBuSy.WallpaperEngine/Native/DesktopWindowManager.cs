@@ -141,6 +141,19 @@ public class DesktopWindowManager
                 shellDefView = Win32Interop.FindWindowEx(_progman, IntPtr.Zero, "SHELLDLL_DefView", IntPtr.Zero);
                 // Find WorkerW under Progman
                 workerw = Win32Interop.FindWindowEx(_progman, IntPtr.Zero, "WorkerW", IntPtr.Zero);
+                if (workerw == IntPtr.Zero)
+                {
+                    // The raised desktop draws the user's wallpaper in this WorkerW. Gone (closed by an older build on exit,
+                    // or dropped by Explorer) = a black desktop and nowhere to put a player: ask Explorer to set the
+                    // wallpaper again and to spawn the worker, both ways the shell understands. Best effort; restarting
+                    // Explorer always brings it back.
+                    _logger.LogWarning("Layered desktop without a WorkerW - asking Explorer to recreate it");
+                    RefreshUserWallpaper();
+                    foreach (var (w, l) in new[] { (0, 0), (0xD, 0x1) })
+                        Win32Interop.SendMessageTimeout(_progman, Win32Interop.WM_SPAWN_WORKER, new IntPtr(w), new IntPtr(l),
+                            Win32Interop.SendMessageTimeoutFlags.SMTO_NORMAL, 1000, out _);
+                    workerw = Win32Interop.FindWindowEx(_progman, IntPtr.Zero, "WorkerW", IntPtr.Zero);
+                }
                 _logger.LogDebug("Layered mode: Found SHELLDLL_DefView: {DefView}, WorkerW: {WorkerW} under Progman",
                     shellDefView, workerw);
             }
@@ -606,14 +619,21 @@ public class DesktopWindowManager
     }
 
     /// <summary>
-    /// Restores the Windows desktop to its original state by closing the WorkerW window.
-    /// This should be called when the application exits to reset the wallpaper.
+    /// Restores the Windows desktop when the application exits: closes the WorkerW the legacy desktop spawned for us.
+    /// On the raised (layered) desktop the WorkerW is Explorer's own wallpaper host — closing it left the desktop black,
+    /// and on some machines Explorer never recreated it (no wallpaper could be placed any more), so it stays; the host
+    /// already repaints the user's wallpaper when its last player exits.
     /// </summary>
     public void RestoreDesktop()
     {
         try
         {
-            if (_workerW != IntPtr.Zero)
+            if (_isRaisedDesktopWithLayeredShellView)
+            {
+                _logger.LogInformation("Restoring desktop (layered): Explorer's WorkerW {WorkerW} kept", _workerW);
+                _workerW = IntPtr.Zero;
+            }
+            else if (_workerW != IntPtr.Zero)
             {
                 _logger.LogInformation("Restoring desktop, closing WorkerW window: {WorkerW}", _workerW);
 

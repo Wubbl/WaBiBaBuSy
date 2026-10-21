@@ -73,6 +73,12 @@ public sealed class BombInputWatcher : IDisposable
 
     private void WatchRecycleBin(string gameId, BombGame game, NodeLayout node, System.Drawing.Rectangle bounds, float sx, float sy, CancellationToken token)
     {
+        try { WatchRecycleBinLoop(gameId, game, node, bounds, sx, sy, token); }
+        catch (Exception ex) { Debug.WriteLine($"[BiBaBo] Recycle Bin watch ended: {ex.Message}"); }   // a background thread must not take the app down
+    }
+
+    private void WatchRecycleBinLoop(string gameId, BombGame game, NodeLayout node, System.Drawing.Rectangle bounds, float sx, float sy, CancellationToken token)
+    {
         var watch = new RecycleWatch();
         while (!token.IsCancellationRequested)
         {
@@ -99,8 +105,7 @@ public sealed class BombInputWatcher : IDisposable
     /// <summary>Stop watching (the outcome arrived, Stop, or a new game).</summary>
     public void Stop()
     {
-        _cts?.Cancel();
-        _cts?.Dispose();
+        _cts?.Cancel();   // not disposed: the Recycle Bin thread may still be waiting on its token (disposing threw there)
         _cts = null;
         _input?.Stop();
         _input = null;

@@ -17,6 +17,13 @@
 - **Fix**: `RoomNodeSources.ServerNodes` did not copy `PrefetchReady` / `PrefetchTotal`, so the tiles' "⬇ x/y" / "✓ cached" never showed in server mode.
 - **Verified**: build + 1305 tests. **Not verified**: a real update download in the GUI (needs an outdated client).
 
+## 2026-10-22 — Black remote desktop after exit (24H2): Explorer's WorkerW is no longer closed; BiBaBo Recycle Bin thread crash
+
+- **What happened**: on the raised (layered, Windows 11 24H2+) desktop the WorkerW under Progman is Explorer's own wallpaper host. `RestoreDesktop()` sent it `WM_CLOSE` on every app exit: the desktop went black, and on the remote test machine Explorer never recreated it — every later player failed with "desktop WorkerW window not found", even after a restart of WaBiBaBuSy (on the dev machine Explorer happened to bring it back).
+- **Fix**: on the layered desktop `RestoreDesktop()` keeps the WorkerW (the host already repaints the user's wallpaper when its last player exits); legacy desktops unchanged. `FindDesktopWorkerWindow()` self-heals a layered desktop without WorkerW: re-sets the wallpaper and sends `0x052C` both ways, then looks again (best effort — not reproducible here; restarting Explorer always recovers such a machine).
+- **BiBaBo**: `BombInputWatcher.Stop()` disposed the token source while the Recycle Bin thread could still be waiting on its handle → `ObjectDisposedException` on a background thread. Now cancelled without disposing, and the thread catches everything.
+- **Verified**: compiles (UI copy step was locked by a running debug session), 1310 tests. **Not verified**: the self-heal on the broken remote; exit on the remote keeping its wallpaper.
+
 ## 2026-10-22 — BiBaBo with a remote machine: every monitor is a seat, ghosts skipped, preview of idle seats
 
 - **Bomb and cards reach every monitor**: seats were one node per machine (its first monitor), so on a dual-monitor PC the bomb and all cards could only use monitor 1 — with a remote PC + the dual-monitor server, all three cards stacked on the server's monitor 1 and monitor 2 stayed empty. Now the bomb picks a machine (each equally likely), then any of its monitors; cards go off the bomb's machine, spread over the machines first, then over their monitors, far seats first (`BombGameFactory.PickEnds`). Cables already run the side their card is on (the short way round on a Ring).
