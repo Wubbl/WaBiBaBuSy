@@ -1,13 +1,13 @@
 # BiBaBo — "Bier, Bart und Bombe" (room-wide bomb-defuse mini-game) — Design
 
-**Created:** 2026-10-21 · **Status:** proposal (written while Patrick was AFK; open questions in §13, Claude's own calls marked *[call]* and summarised in §12)
+**Created:** 2026-10-21 · **Status:** proposal, Patrick's answers folded in 2026-10-21 (§13); Claude's own calls marked *[call]* and summarised in §12
 **Builds on:** one-shot show events ([`2026-10-03-show-events-design.md`](2026-10-03-show-events-design.md)) — same model, transport, replay, player/preview drawing split. Read that first.
 
 ---
 
 ## 1. Intent
 
-A hidden party gag for the LAN: on a secret trigger every seat goes black, a bomb (the BiBaBu logo with
+A party gag for the LAN: on a trigger (Events-strip button or Ctrl+Alt+B) every free seat goes black, a bomb (the BiBaBu logo with
 bombs instead of boobs) lands on one random seat with a countdown, and three cables — red, green, blue —
 run from the bomb across the neighbouring monitors to three other seats. At each cable end sits a small
 riddle that tells whether that cable is **live** (connected to the trigger) or **dead**. People have to
@@ -35,7 +35,6 @@ same moment, and it never breaks a running show.
 ### Anti-goals
 - Swallowing or blocking normal mouse/desktop input on any seat (we only *observe* input).
 - Anything that could crash explorer (no `WS_EX_TRANSPARENT`, no DXGI in the main process — invariants stand).
-- A visible "BiBaBo" button in normal UI — it is an easter egg.
 - Anything that makes the answer readable from the network traffic on a seat (the live cable stays on the server).
 
 ## 2. Player-facing flow (timeline, all on the shared clock)
@@ -111,9 +110,12 @@ A Bomb event stops being drawn at the T0 of its `BombOutcome` (players and previ
 ## 4. Generation (`BombGameFactory`, pure, seeded, `WaBiBaBuSy.Models`)
 
 Inputs: the room's `SeatMapLayoutResult` (always the seat-map canvas, whatever the scene's layer
-distribution is), seed, settings. BiBaBo needs a shared canvas; with a single seat it refuses (status line).
+distribution is), seed, settings. BiBaBo needs a shared canvas; with fewer than 2 free machines it refuses (status line "Not enough free seats — n busy").
 
-- **Bomb seat:** uniform random over the target machines (seat = machine, see §12).
+- **Who plays:** the seats selected in the Events strip target (Everyone / tag / seat — the same `EventTarget` as
+  every other event; the hotkey uses the strip's current target), server and projector included, **minus busy seats**
+  (§8.1). Busy seats are neither bomb nor cable end; they still receive the event (they draw it behind their window).
+- **Bomb seat:** uniform random over the free target machines (seat = machine, see §12).
 - **End seats:** 3 distinct machines ≠ bomb machine, preferring machines ≥ 2 away along the traversal so people have
   to walk. Fewer than 4 seats → ends may repeat or land on the bomb seat's far side *[call]*.
 - **Roulette:** 8–12 hops over random seats, last = bomb seat.
@@ -127,7 +129,7 @@ distribution is), seed, settings. BiBaBo needs a shared canvas; with a single se
 - **Card:** centred on the end seat, ~55 % of its height, the cable ends at the card's left/right edge.
 
 ### 4.1 Riddles
-House rule printed on the bomb seat under the timer: **"SCHARF ⇔ Ergebnis = 1"** / for tangles **"SCHARF ⇔ führt zum Zünder"** (language: Q4).
+House rule printed on the bomb seat under the timer: **"LIVE ⇔ result = 1"** / for tangles **"LIVE ⇔ leads to the DETONATOR"** (all on-screen text in English).
 Exactly one cable is live; each card shows its cable's colour as a header stripe.
 
 **Math** (single line, Unicode superscripts `⁰¹²³⁴⁵⁶⁷⁸⁹⁽⁾⁺⁻` — GDI+ Segoe UI renders them, so `TextSprite`
@@ -150,20 +152,19 @@ intended live/dead value.
 
 **Tangle** (the "labyrinth with the cables"): the card shows three spaghetti strands entering on one side;
 one continues the cable's colour at the entry, all three turn grey after 10 % of the way and cross each
-other 6–10 times; the far side has three exits — one **Zünder** (detonator icon), two **Erde** (ground ⏚).
-Live ⇔ the cable's strand ends at the Zünder. Strands are the same seeded-sine routine as the cables.
+other 6–10 times; the far side has three exits — one **DETONATOR** (detonator icon), two **GROUND** (⏚).
+Live ⇔ the cable's strand ends at the DETONATOR. Strands are the same seeded-sine routine as the cables.
 
 Mix per game: each card random Math or Tangle (setting: Math only / Tangle only / mixed, default mixed).
 Exactly one live cable, chosen uniformly.
 
 ## 5. Server
 
-### 5.1 Trigger *[call — see Q2]*
+### 5.1 Trigger
+- **Button** in the Events strip: 💣 BiBaBo, next to the other event buttons (enabled in server mode, also when
+  nothing plays — the stand-in scene carries it). While a game runs it reads **■ Abort BiBaBo**.
 - Global hotkey **Ctrl+Alt+B** (server only, same `GlobalHotkeyService` thread; works with the window closed;
-  AltGr+B on German keyboards — not a common shortcut).
-- Easter egg in the UI: typing `bibabo` into the Events strip's Announce text box and firing Announce
-  starts BiBaBo instead of announcing the word.
-- No visible button.
+  AltGr+B on German keyboards — not a common shortcut). Respects the strip's "Hotkeys" check box.
 - Pressing the trigger while a game runs = **abort** (outcome `Aborted`, quiet fade back).
 
 ### 5.2 `BombGameService` (Core, app-lifetime, owned next to `ServerPlaybackHost`)
@@ -195,10 +196,10 @@ separate call is simpler to test. The server machine's own seats call `BombGameS
 - **WrongCable / Timeout → BOOM:** cut cable snaps (two ends sag); white flash on the bomb seat; a shockwave
   ring expands over the canvas from the bomb centre (each seat lights up when the ring reaches it — a room-wide
   wave); fire-palette particle burst (reuse `CelebrationMath` with a fire palette and the bomb x as origin
-  band); seeded screen shake (±6 units, decaying) on every seat; "BUMM!" text sprite on every seat.
-- **Defused:** remaining cables go grey, timer freezes at `RemainingMs`, green "ENTSCHÄRFT — 2:31 übrig",
+  band); seeded screen shake (±6 units, decaying) on every seat; "BOOM!" text sprite on every seat.
+- **Defused:** remaining cables go grey, timer freezes at `RemainingMs`, green "DEFUSED — 2:31 left",
   confetti (`CelebrationMath`, party palette).
-- **Recycled:** bomb shrinks into the Recycle Bin position on that seat with a spin; "ENTSORGT ♻" + confetti.
+- **Recycled:** bomb shrinks into the Recycle Bin position on that seat with a spin; "RECYCLED ♻" + confetti.
 - **Aborted:** 1 s fade back, no text.
 - Then 1 s fade back to the scene underneath (the event ends; the stand-in scene stops if it carried it).
 
@@ -207,12 +208,14 @@ separate call is simpler to test. The server machine's own seats call `BombGameS
 - **Player** (`Program.Bomb.cs`, next to `Program.ShowEvents.cs`): drawn in the same pass as the other events,
   in canvas units under `Scale`. Primitives: `FillRectangle` (black fill, 7-segment LED segments — no text needed
   for the timer), `DrawLine` with round caps per cable segment (only segments intersecting this slice), ellipses
-  (terminals, shockwave), `DrawBitmap` (bomb logo; TextSprite bitmaps for formulas, "BUMM!", labels — rendered
+  (terminals, shockwave), `DrawBitmap` (bomb logo; TextSprite bitmaps for formulas, "BOOM!", labels — rendered
   on the stdin thread on receipt like Announce). Missing logo → procedural bomb (black circle, fuse, spark) *[call]*.
   Brushes cached; no per-frame allocations.
 - **Room preview** (`ScenePainter.Bomb.cs`): same math with Avalonia drawing, so the operator sees the
   whole game (and the cable routes across the room). The preview does **not** reveal the live cable *[call — Q6]*.
 - Desktop icons stay on top of the wallpaper (WorkerW) — a card may be partly covered by icons; accepted.
+- The bomb logo may be an **animated GIF** (fuse): the existing event-sprite path already decodes GIF frames and
+  runs them on the event-local clock (`DrawEventSprite`).
 
 ## 8. Input on the bomb seat (`BombInputWatcher`, WallpaperEngine, main process)
 
@@ -235,6 +238,21 @@ screen rect → canvas. Fires `Recycle` when the icon rect overlaps the bomb rec
 overlapping when the countdown started (no free win when the icon happens to sit there). COM path fails / bin
 hidden from desktop → easter egg off on that seat, logged.
 
+### 8.1 Busy seats
+
+A monitor is **busy** when a visible, non-minimised, non-cloaked top-level window that is not the desktop
+(Progman / WorkerW / DefView), not a tool window and not our own covers ≥ 80 % of it (`EnumWindows` +
+`DwmGetWindowAttribute(DWMWA_CLOAKED)` + rect intersection; a fullscreen game is the extreme case). Generalises
+the existing foreground-only `FullscreenDetectionService` into a per-monitor `MonitorBusyProbe` (Core).
+
+- Clients sample it every 2 s and send the busy monitors in the heartbeat (new field
+  `repeated int32 busy_monitor_indexes = 9;` on `HeartbeatRequest`; old clients send none = all free *[call]*).
+  The server machine samples its own monitors directly.
+- `BombGameService.StartAsync` filters the target seats with the latest report (stale > 10 s = treat as free).
+- Busy is only checked at the start. A seat that becomes busy mid-game stays in the game *[call]*; the bomb seat
+  can only cut while its desktop is in front anyway.
+- The room view can show a small "busy" badge per node from the same data — nice for the host, cheap; optional.
+
 ## 9. Determinism checklist
 - Seed drawn once on the server; all geometry generated server-side and shipped.
 - Players and preview sample only `(event, NodeLayout, localMs)`; no `DateTime.Now`, no `Random`.
@@ -254,7 +272,7 @@ hidden from desktop → easter egg off on that seat, logged.
 2. Player `Program.Bomb.cs` + preview `ScenePainter.Bomb.cs`; showcase scenario `TestScenarios/showcase/bibabo.json`
    (exact frames: roulette, cables, countdown, each outcome — needs a scenario step `bombOutcome`).
 3. Server: `BombGameService`, trigger (hotkey + Announce egg + abort), outcome dispatch, `ReportShowAction` RPC.
-4. Input: `BombInputWatcher` (raw input + Recycle Bin poll), client/host wiring.
+4. Input: `BombInputWatcher` (raw input + Recycle Bin poll), busy probe + heartbeat field, client/host wiring.
 5. Docs: CLAUDE.md capabilities line, RECENT_UPDATES, manual checklist entry (2 machines: defuse, wrong cable, timeout, recycle, abort, reconnect mid-game).
 
 ## 11. Tests (TDD, `WaBiBaBuSy.Tests`)
@@ -277,24 +295,22 @@ hidden from desktop → easter egg off on that seat, logged.
   other show events are suppressed. Stop / a new show → `Aborted`. Afterwards whatever the playlist is on by then comes back.
 - **Answer secrecy** *[call]*: "the live flag is not on the wire" is enough — it is a party among friends. Formulas and
   strand exits travel as data (players need them to draw). §1's anti-goal means exactly that, no more.
-- **Assets** *[call]*: only the bomb logo is a file asset (the existing `ImagePath` slot). Formulas, "BUMM!" and labels are
+- **Assets** *[call]*: only the bomb logo is a file asset (the existing `ImagePath` slot). Formulas, "BOOM!" and labels are
   text sprites rendered on the player from event text (as Announce / Identify do), so the one-asset transfer stays;
   the player's `_eventSprites` becomes keyed by `(EventId, slot)`.
 - **Logo** *[call]*: embedded resource (placeholder = procedural bomb until Patrick's artwork exists), overridable by
-  dropping `bibabo-bomb.png` into `%APPDATA%\WaBiBaBuSy\` — no visible setting.
+  dropping `bibabo-bomb.gif` or `.png` into `%APPDATA%\WaBiBaBuSy\` (GIF wins) — no setting needed.
+- **Busy rule** *[call]*: "covered by a window ≥ 80 %" (§8.1) — a small chat window doesn't make a seat busy, a
+  maximised browser does.
 
-## 13. Open questions for Patrick (most important first)
+## 13. Patrick's answers (2026-10-21)
 
-1. **Desktops visible?** Everything is wallpaper — seats with a game/browser in front see nothing, and the bomb seat
-   can only cut when the desktop is in front. Is BiBaBo a break-time thing (design works as is), or do we need to
-   bring the desktop forward on every seat (Win+D-style "show desktop" on the clients — invasive, but no new window type)?
-2. **Wrong cable:** instant BOOM (design default, classic) or a time penalty (−60 s, cable goes slack) so one bad guess
-   isn't game over? Penalty needs a "game update" event; adds ~a day.
-3. **Trigger:** OK with Ctrl+Alt+B (again = abort) plus typing `bibabo` into the Announce box? Other ideas welcome.
-4. **Language** of the on-screen text: German (`SCHARF`, `ENTSCHÄRFT`, `BUMM!`, `Zünder`) as drafted, or English?
-5. **Which seats play?** All seats of the room (default), or exclude some (projector, server desk, empty seats) — e.g.
-   via an existing tag like `no-bibabo` in `tags.json`?
-6. **Operator view:** should the room preview on the server mark the live cable (handy for the host, spoils it if people look)? Default: no.
-7. **Sound:** ticking + explosion on the bomb seat's speakers (clients can play a WAV from the main process)? Default: none in v1.
-8. **Timer:** 5:00 default OK for ~20 machines? (Cap ~9:30 without touching the 10-min event limit.)
-9. **Logo:** what size / format will the bomb artwork be (transparent PNG, square-ish)? Any animation (GIF fuse)?
+1. **Busy seats:** skip seats that are busy with something else → §8.1 (busy detection) and §4 (selection).
+2. **Wrong cable:** instant BOOM.
+3. **Trigger:** Ctrl+Alt+B is fine, plus a visible button → Events strip (§5.1).
+4. **Language:** English.
+5. **Seats:** all selected seats (the Events-strip target), server and projector included; no empty seats (= busy/absent are skipped).
+6. **Operator view** marks the live cable: no.
+7. **Sound:** no.
+8. **Timer:** 5:00.
+9. **Logo:** Patrick tries a GIF → supported (§7).
