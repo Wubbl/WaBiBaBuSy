@@ -223,6 +223,17 @@ Connect the clients first (§5.1). Attach each `report.html` path to the results
 - [ ] Client Disconnect → its panel disappears; reconnect → back
 - [ ] Blackout event hides the panel while it covers the seat
 
+## 8c. BiBaBo (2026-10-21, single-machine showcase frames only)
+
+- [ ] **Spike first (one PC, two monitors):** start the server, nothing playing, 💣 BiBaBo → game on the two monitors; on the bomb monitor click a cable terminal on the bare desktop → DEFUSED / BOOM on both monitors. A click inside a window must do nothing. Drag the Recycle Bin onto the bomb in a second game → RECYCLED. Note DPI scaling of the monitors.
+- [ ] Two+ machines: bomb and cards on different machines; cables continue across the seats; cards readable from a step away
+- [ ] Defuse on a client's bomb (the client reports, the server decides) — outcome on every seat at the same moment
+- [ ] Wrong cable → BOOM everywhere; timeout at 0:00 → BOOM
+- [ ] A seat with a maximised window is never bomb or card ("n busy" when too few are free)
+- [ ] Ctrl+Alt+B starts, again aborts; Stop / Clear all end the game quietly; other events say "BiBaBo is running"
+- [ ] Reconnect a client mid-game → it shows the game at the right time; after the outcome it never shows the bomb again
+- [ ] Logo: put `bibabo-bomb.gif` into `%APPDATA%\WaBiBaBuSy\` → animated bomb on the bomb seat
+
 ## 9. Optional
 
 - [ ] Installer on a clean Windows 10/11 machine (Inno Setup, `/Installer/`); fallback version 2.6.3
@@ -241,4 +252,5 @@ Connect the clients first (§5.1). Attach each `report.html` path to the results
 | 7 Failure & recovery | | | |
 | 8 Show events | | | |
 | 8b Agenda | | | |
+| 8c BiBaBo | | | |
 | 9 Optional | | | |

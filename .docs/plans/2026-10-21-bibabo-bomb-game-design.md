@@ -1,6 +1,6 @@
 # BiBaBo — "Bier, Bart und Bombe" (room-wide bomb-defuse mini-game) — Design
 
-**Created:** 2026-10-21 · **Status:** approved 2026-10-21 (answers in §13); Claude's own calls marked *[call]* and summarised in §12
+**Created:** 2026-10-21 · **Status:** implemented 2026-10-21 (plan `2026-10-21-bibabo-bomb-game-plan.md`); clicks / Recycle Bin / multi-machine still to be checked by hand (manual checklist §8c); Claude's own calls marked *[call]* and summarised in §12
 **Builds on:** one-shot show events ([`2026-10-03-show-events-design.md`](2026-10-03-show-events-design.md)) — same model, transport, replay, player/preview drawing split. Read that first.
 
 ---
