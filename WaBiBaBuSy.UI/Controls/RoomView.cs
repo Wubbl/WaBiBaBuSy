@@ -445,6 +445,8 @@ public partial class RoomView : Control
     {
         if (c == null) return ("", Dim);
         if (c.IsGhost) return ("offline" + OfflineFor(c.OfflineSinceUtc), Dim);
+        if (c.UpdateTransferPercent is int up)
+            return (up < 0 ? "⬆ preparing update…" : $"⬆ update {up}%", Yellow);
         switch (c.DriftState)
         {
             case DriftState.Stale: return ("sync: —", Dim);

@@ -813,6 +813,15 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     // Cached path to auto-generated update package (built from server's own binaries)
     private string? _cachedUpdatePackagePath;
     private readonly SemaphoreSlim _packageBuildSemaphore = new(1, 1);
+    // clientId → percent sent of a running update download; -1 while the package is still being built
+    private readonly ConcurrentDictionary<string, int> _updateTransfers = new();
+
+    /// <summary>
+    /// Progress of a running update download to <paramref name="clientId"/>: -1 while the server builds
+    /// the package, 0–100 while it streams, null when no download runs.
+    /// </summary>
+    public int? GetUpdateTransferPercent(string clientId) =>
+        _updateTransfers.TryGetValue(clientId, out var percent) ? percent : null;
 
     /// <summary>
     /// Handle client checking for available updates
@@ -893,17 +902,18 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         _logger.LogInformation("Update download requested by client {ClientId}: version {Version}",
             request.ClientId, request.RequestedVersion);
 
-        // Auto-build package from server's own binaries if needed
-        var packagePath = await EnsureUpdatePackageExistsAsync();
-
-        if (!File.Exists(packagePath))
-        {
-            _logger.LogError("Failed to create update package");
-            throw new RpcException(new Status(StatusCode.Internal, "Failed to create update package"));
-        }
-
         try
         {
+            _updateTransfers[request.ClientId] = -1;
+            // Auto-build package from server's own binaries if needed
+            var packagePath = await EnsureUpdatePackageExistsAsync();
+
+            if (!File.Exists(packagePath))
+            {
+                _logger.LogError("Failed to create update package");
+                throw new RpcException(new Status(StatusCode.Internal, "Failed to create update package"));
+            }
+
             var fileInfo = new FileInfo(packagePath);
             var filename = fileInfo.Name;
             var fileSize = fileInfo.Length;
@@ -939,6 +949,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                 await _uploadLimiter.WaitAsync(bytesRead, context.CancellationToken);
                 await responseStream.WriteAsync(chunk);
                 chunkIndex++;
+                _updateTransfers[request.ClientId] = chunkIndex * 100 / totalChunks;
             }
 
             _logger.LogInformation("Update download complete for client {ClientId}: {TotalChunks} chunks sent",
@@ -956,6 +967,10 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         {
             _logger.LogError(ex, "Error streaming update to client {ClientId}", request.ClientId);
             throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+        }
+        finally
+        {
+            _updateTransfers.TryRemove(request.ClientId, out _);
         }
     }
 

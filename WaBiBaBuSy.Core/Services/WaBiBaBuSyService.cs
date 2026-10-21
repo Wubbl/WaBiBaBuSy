@@ -506,6 +506,16 @@ public class WaBiBaBuSyService : IDisposable
         return thumbnail?.ThumbnailJpeg?.ToByteArray();
     }
 
+    /// <summary>
+    /// Update download to a node's machine (server mode): -1 = server builds the package, 0–100 = sent, null = none.
+    /// An expanded <c>…_MONITOR_n</c> node shares its machine's download.
+    /// </summary>
+    public int? GetUpdateTransferPercent(string nodeId)
+    {
+        int infix = nodeId.LastIndexOf(TopologyStore.MonitorInfix, StringComparison.Ordinal);
+        return _serverHost?.SyncService?.GetUpdateTransferPercent(infix >= 0 ? nodeId[..infix] : nodeId);
+    }
+
     private bool _thumbnailsWanted;
 
     /// <summary>

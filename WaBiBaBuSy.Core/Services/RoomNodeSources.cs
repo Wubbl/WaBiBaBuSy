@@ -120,7 +120,9 @@ public static class RoomNodeSources
                         ScreenConfig = client.ScreenConfig,
                         ClockOffsetMs = client.ClockOffsetMs,
                         RttMs = client.RttMs,
-                        LastDriftReportUtc = client.LastDriftReportUtc
+                        LastDriftReportUtc = client.LastDriftReportUtc,
+                        PrefetchReady = client.PrefetchReady,
+                        PrefetchTotal = client.PrefetchTotal
                     });
                 }
             }
@@ -138,7 +140,9 @@ public static class RoomNodeSources
                     ScreenConfig = client.ScreenConfig,
                     ClockOffsetMs = client.ClockOffsetMs,
                     RttMs = client.RttMs,
-                    LastDriftReportUtc = client.LastDriftReportUtc
+                    LastDriftReportUtc = client.LastDriftReportUtc,
+                    PrefetchReady = client.PrefetchReady,
+                    PrefetchTotal = client.PrefetchTotal
                 });
             }
         }

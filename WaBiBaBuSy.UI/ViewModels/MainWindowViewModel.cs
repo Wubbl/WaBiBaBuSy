@@ -2078,6 +2078,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                     existing.RttMs = grpcClient.RttMs;
                     existing.PrefetchReady = grpcClient.PrefetchReady;
                     existing.PrefetchTotal = grpcClient.PrefetchTotal;
+                    existing.UpdateTransferPercent = _service.GetUpdateTransferPercent(grpcClient.ClientId);
                     existing.DriftState = DriftMonitor.Classify(
                         DriftMonitor.SyncErrorMs(grpcClient.RttMs),
                         grpcClient.LastDriftReportUtc,
@@ -2131,6 +2132,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                         RttMs = grpcClient.RttMs,
                         PrefetchReady = grpcClient.PrefetchReady,
                         PrefetchTotal = grpcClient.PrefetchTotal,
+                        UpdateTransferPercent = _service.GetUpdateTransferPercent(grpcClient.ClientId),
                         DriftState = DriftMonitor.Classify(
                             DriftMonitor.SyncErrorMs(grpcClient.RttMs),
                             grpcClient.LastDriftReportUtc,

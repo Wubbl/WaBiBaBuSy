@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-10-21 (late night) — Updater: 2.6.3 clients' broken command line repaired
+
+- **Bug**: updating a 2.6.3 client ended right after the updater's banner. Clients before the `QuoteArg` fix (2026-10-13) pass `--install-dir "C:\...\WaBiBaBuSy\"`; the trailing `\"` is a literal quote to Windows, so `--backup-dir` / `--process-id` land inside the install-dir value, System.CommandLine rejects the line and prints the error only to its console window, which closes at once.
+- **Fix** (in the updater, because old clients run the one shipped in the server's package): `LegacyArgs.Repair` re-splits everything from the first arg with a stray quote at the option names (re-joined, since a space in a later path also splits argv); the updater logs the raw and repaired arguments, every parse error and unhandled exceptions to its log file.
+- **Verified**: 1306 tests (`UpdateApplicatorArgsTests.LegacyClientLine_IsRepaired`, the exact 2.6.3 line through `CommandLineToArgvW`); the built updater with that line repairs it and gets to its update step (stopped at a missing update dir on purpose). **Not verified**: a real 2.6.3 → 2.7.x update on a client.
+
+## 2026-10-21 (late night) — Update progress on the room tiles
+
+- **What**: while a node downloads an update from the server, its room tile says "⬆ preparing update…" (the server builds the package from its own binaries on the first request, plus the hash) and then "⬆ update 42%" while the chunks stream; the line disappears when the download ends or fails. Expanded `…_MONITOR_n` tiles show their machine's download. Server side only, no proto change: `WallpaperSyncService.GetUpdateTransferPercent` (state set in `DownloadUpdate`), `WaBiBaBuSyService.GetUpdateTransferPercent`, `ClientNodeViewModel.UpdateTransferPercent`, `RoomView.StatusLine`. Extracting / verifying / applying on the client are not shown (the client never calls `ReportUpdateStatus`).
+- **Fix**: `RoomNodeSources.ServerNodes` did not copy `PrefetchReady` / `PrefetchTotal`, so the tiles' "⬇ x/y" / "✓ cached" never showed in server mode.
+- **Verified**: build + 1305 tests. **Not verified**: a real update download in the GUI (needs an outdated client).
+
 ## 2026-10-21 (late night) — BiBaBo after the first hands-on test: bigger bomb, rules beside it, typed keypad codes
 
 - **Bigger bomb**: 50 % of the seat's height (was 35 %), centred at 42 % so the keypad fits below; the countdown in the box grows with it. Rules (or "RULES: somewhere in the room") moved **left of the bomb**, right-aligned beside the bombs below the cable terminals, on a dark panel so cables pass behind; keypad keys keep their on-screen size. The timer above a custom logo moved into the space above (`BombMath.TimerAboveTop/Height`).
