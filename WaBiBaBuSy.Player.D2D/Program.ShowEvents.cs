@@ -209,6 +209,7 @@ partial class Program
     /// </summary>
     private static void DrawShowEvents(long sceneRawElapsedMs)
     {
+        _agendaHiddenByEvent = false;
         if (_d2dContext == null || (_showEvents.Count == 0 && _eventSprites.Count == 0)) return;
 
         long now = NowUtcMs;
@@ -238,7 +239,10 @@ partial class Program
                     if (!ShowEventMath.IsActive(evt, local)) continue;
                     switch (evt.Type)
                     {
-                        case ShowEventType.Blackout: DrawBlackout(evt, local); break;
+                        case ShowEventType.Blackout:
+                            DrawBlackout(evt, local);
+                            if (ShowEventMath.BlackoutOpacity(evt, local) > 0.5f) _agendaHiddenByEvent = true;
+                            break;
                         case ShowEventType.Spotlight: DrawSpotlight(evt, local); break;
                         case ShowEventType.Celebration: DrawCelebration(evt, local, canvas); break;
                         case ShowEventType.Traversal:

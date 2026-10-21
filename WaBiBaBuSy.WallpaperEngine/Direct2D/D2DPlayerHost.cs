@@ -556,6 +556,13 @@ public class D2DPlayerHost : IDisposable
         await SendCommandAsync(JsonConvert.SerializeObject(new PlayerCommandShowEvent { Event = evt }));
     }
 
+    /// <summary>The room's agenda (null = none); <paramref name="fullScreen"/> = this monitor shows the full-size timetable. Fire-and-forget.</summary>
+    public async Task SendAgendaAsync(Agenda? agenda, bool fullScreen)
+    {
+        if (!IsRunning) return;
+        await SendCommandAsync(JsonConvert.SerializeObject(new PlayerCommandAgenda { Agenda = agenda, FullScreen = fullScreen }));
+    }
+
     /// <summary>Item transition (in = this player starts the new item, before its start). Fire-and-forget.</summary>
     public async Task SendTransitionAsync(bool incoming, string transition, long startUtcMs)
     {

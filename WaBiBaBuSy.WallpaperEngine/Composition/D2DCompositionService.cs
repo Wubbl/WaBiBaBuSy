@@ -82,6 +82,17 @@ public class D2DCompositionService : IDisposable, ITestProbeTarget
         }
     }
 
+    /// <summary>The room's agenda for every player of this service (null = none).</summary>
+    public async Task SendAgendaAsync(Agenda? agenda, bool fullScreen)
+    {
+        foreach (var host in _playerHosts.Values)
+        {
+            if (!host.IsRunning) continue;
+            try { await host.SendAgendaAsync(agenda, fullScreen); }
+            catch (Exception ex) { _logger.LogError(ex, "Failed to send the agenda to a player host"); }
+        }
+    }
+
     /// <summary>Item transition for every player of this service (see <c>PlayerCommandTransition</c>); "" = Cut, nothing sent.</summary>
     public async Task SendTransitionAsync(bool incoming, string transition, long startUtcMs)
     {
