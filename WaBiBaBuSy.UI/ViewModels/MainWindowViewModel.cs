@@ -1049,7 +1049,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         _server.Tags.Set(nodeIds, NodeTagStore.Parse(tags));
         RefreshEventSeats();   // the target picker lists the tags
         SeatMapVersion++;      // tiles show their tags
-        return Task.CompletedTask;
+        return _server.RefreshAgendaAsync();   // an "agenda" tag makes a seat a full-size agenda screen
     }
 
     public Task ShowNodeLogsAsync(string nodeId)

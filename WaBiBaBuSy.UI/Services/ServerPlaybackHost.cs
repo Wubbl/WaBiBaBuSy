@@ -173,7 +173,52 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         _service = service;
         _desktopManager = desktopManager;
         _remotePlayback = remotePlayback;
+        _agenda = new AgendaDisplay(desktopManager, m => new[] { NodeIds.ServerLocalPrefix + m, NodeIds.LocalMachinePrefix + m });
+        _service.AgendaProvider = () => CurrentAgenda;
+        if (AgendaDocument.Enabled) _ = PublishAgendaAsync();
     }
+
+    // ── Agenda (room timetable overlay) ─────────────────────────────────────
+
+    /// <summary>The room agenda on this machine's monitors (stand-ins where no scene plays).</summary>
+    private readonly AgendaDisplay _agenda;
+
+    /// <summary>What the Agenda tab edits; persisted in agenda.json.</summary>
+    public AgendaDocument AgendaDocument { get; private set; } = AgendaStore.Load();
+
+    /// <summary>The agenda last published to this machine and the clients (null until one was); read from any thread.</summary>
+    [ObservableProperty]
+    private Agenda? _currentAgenda;
+
+    /// <summary>Save the edited agenda and publish it here and to every connected client. Call on the UI thread.</summary>
+    public async Task ApplyAgendaAsync(AgendaDocument doc)
+    {
+        AgendaDocument = doc;
+        try { AgendaStore.Save(doc); }
+        catch (Exception ex) { Debug.WriteLine($"[Agenda] Save failed: {ex.Message}"); }
+        await PublishAgendaAsync();
+    }
+
+    /// <summary>Re-publish the current document (seat tags changed: agenda screens may have moved).</summary>
+    public Task RefreshAgendaAsync() => CurrentAgenda == null ? Task.CompletedTask : PublishAgendaAsync();
+
+    private async Task PublishAgendaAsync()
+    {
+        try
+        {
+            var agenda = AgendaDocument.Build(TimeZoneInfo.Local, Tags.NodesWith("agenda"));
+            CurrentAgenda = agenda;
+            await _agenda.SetAsync(agenda, _players);
+            if (_service.SyncCoordinator is { } coordinator) await coordinator.BroadcastAgendaAsync(agenda);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Agenda] Publish failed: {ex}");
+        }
+    }
+
+    /// <summary>After local players started or stopped: stand-ins on the monitors that have none.</summary>
+    private Task SyncAgendaAsync() => _agenda.ReconcileAsync(_players);
 
     /// <summary>True when any local player (D2D or LibVLC) or a scene is active.</summary>
     public bool HasActiveRenderer => !_players.IsEmpty || !_renderers.IsEmpty || IsCrossScreenRunning;
@@ -580,6 +625,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             }
             _players.Clear();
             _lastGlobalLap = -1;
+            await SyncAgendaAsync();   // the agenda stays: stand-ins take over the now idle monitors
 
             // Send stop command to remote clients that were part of this session
             var stopped = ActiveScene ?? LastScene;   // the stand-in of an event is never LastScene
@@ -644,6 +690,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
                 catch (Exception ex) { Debug.WriteLine($"[ClearNodes] Remote stop {id}: {ex.Message}"); }
             }
         }
+        await SyncAgendaAsync();
         NodesStopped?.Invoke(nodeIds, true);
         OnPropertyChanged(nameof(HasActiveRenderer));
     }
@@ -691,6 +738,10 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         // Client mode: the server-driven players belong to the app-lifetime host; stop them properly first.
         await _remotePlayback.StopAllAsync();
 
+        // The kill below takes every player process, the agenda stand-ins too: stop them properly, restart them after.
+        await _agenda.StopAllAsync();
+        await _remotePlayback.StopAgendaStandInsAsync();
+
         // Finally, kill any lingering Player.D2D processes nothing tracks (crashes, debug sessions, stale state).
         int killed = PlayerProcesses.Kill(priorSessionOnly: false);
         if (killed > 0)
@@ -700,6 +751,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         IsCrossScreenRunning = false;
         ClearActiveScene();   // also when only a playlist ran (it never sets IsCrossScreenRunning)
         OnPropertyChanged(nameof(HasActiveRenderer));
+        await SyncAgendaAsync();                        // the agenda is not cleared: back on its stand-ins
+        await _remotePlayback.ReconcileAgendaAsync();
 
         Debug.WriteLine("[ClearAll] All wallpapers cleared");
     }
@@ -733,6 +786,9 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         foreach (var capture in _thumbnailCaptureServices.Values)
             capture.ClearWallpaperHwnd();
         _thumbnailCaptureServices.Clear();
+
+        await _agenda.StopAllAsync();
+        await _remotePlayback.StopAgendaStandInsAsync();
 
         _fullscreenDetection?.Stop();
     }
@@ -1002,6 +1058,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             await d2dService.StartAsync(startTimestampMs: 0, pixelsPerSecond: 0);
 
             _players[monitorIndex] = d2dService;
+            await _agenda.SendToAsync(monitorIndex, d2dService);
+            await SyncAgendaAsync();
             OnPropertyChanged(nameof(HasActiveRenderer));
             StartFullscreenDetectionIfNeeded();
             SetupThumbnailCapture(monitorIndex, d2dService.PlayerHwnd, name);
@@ -1432,7 +1490,9 @@ public sealed partial class ServerPlaybackHost : ObservableObject
                 await d2dService.SendTransitionAsync(incoming: true, transitionWire, sharedStartTimestamp);   // before its start
                 await d2dService.StartAsync(startTimestampMs: sharedStartTimestamp, pixelsPerSecond: pixelsPerSecond);
                 _players[monitorIndex] = d2dService;
+                await _agenda.SendToAsync(monitorIndex, d2dService);
             }
+            await SyncAgendaAsync();
         }
         catch
         {
@@ -1543,6 +1603,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             try { await service.StopAsync(); } catch { /* never started */ }
             try { service.Dispose(); } catch (Exception ex) { Debug.WriteLine($"[CrossScreen] Dispose after failed apply: {ex.Message}"); }
         }
+        await SyncAgendaAsync();
     }
 
     /// <summary>

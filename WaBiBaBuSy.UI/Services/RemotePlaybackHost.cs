@@ -42,7 +42,27 @@ public sealed class RemotePlaybackHost
     {
         _service = service;
         _desktopManager = desktopManager;
+        _agenda = new AgendaDisplay(desktopManager, AgendaNodeIds);
     }
+
+    /// <summary>The room agenda on this client's monitors (stand-ins where no scene plays).</summary>
+    private readonly AgendaDisplay _agenda;
+
+    /// <summary>The room ids a monitor of this client may have: the whole machine, or one of its expanded monitors.</summary>
+    private IReadOnlyList<string> AgendaNodeIds(int monitorIndex)
+    {
+        var id = _service.Client?.ClientId;
+        return string.IsNullOrEmpty(id) ? Array.Empty<string>() : new[] { id, $"{id}_MONITOR_{monitorIndex}" };
+    }
+
+    /// <summary>AGENDA from the server (times in this machine's clock), or null after an explicit disconnect.</summary>
+    public Task OnAgendaAsync(Agenda? agenda) => SerializedAsync(() => _agenda.SetAsync(agenda, _players));
+
+    /// <summary>Stop the agenda stand-ins (Clear all kills every player process; app exit).</summary>
+    public Task StopAgendaStandInsAsync() => SerializedAsync(_agenda.StopAllAsync);
+
+    /// <summary>Stand-ins back on the monitors without a scene (after Clear all).</summary>
+    public Task ReconcileAgendaAsync() => SerializedAsync(() => _agenda.ReconcileAsync(_players));
 
     /// <summary>The capture service for this machine's thumbnail uploads (the remote players' windows).</summary>
     public ThumbnailCaptureService ThumbnailCapture { get; } = new(AppLogger.CreateLogger<ThumbnailCaptureService>());
@@ -62,6 +82,7 @@ public sealed class RemotePlaybackHost
         _service.ClientTestProbeTargets = () => _players.Values.Cast<ITestProbeTarget>().ToList();
         _service.ClientThumbnailCapture = ThumbnailCapture;
         _service.SetShowEventDelegate(OnShowEventAsync);
+        _service.SetAgendaDelegate(OnAgendaAsync);
     }
 
     /// <summary>EVENT from the server (T0 in this machine's clock, image in the cache): keep it and send it to every player.</summary>
@@ -214,6 +235,8 @@ public sealed class RemotePlaybackHost
 
             _players[monitorIndex] = d2dService;
             applied = true;
+            await _agenda.SendToAsync(monitorIndex, d2dService);
+            await _agenda.ReconcileAsync(_players);
             foreach (var old in retiring) await old.SendTransitionAsync(incoming: false, req.TransitionEffect, req.SharedStartTimestampMs);
             _retiring.RetireAt(retiring, req.SharedStartTimestampMs + TransitionMath.OutgoingHoldMs(SceneTransition.Parse(req.TransitionEffect)), NowMs);
             await ReplayEventsAsync(d2dService);
@@ -276,6 +299,7 @@ public sealed class RemotePlaybackHost
         _players.Clear();
         _showEvents.Clear();
         ThumbnailCapture.ClearWallpaperHwnd();
+        await _agenda.ReconcileAsync(_players);   // the agenda stays: stand-ins take over the now idle monitors
         Debug.WriteLine("[D2D-CrossScreen] All remote D2D services stopped");
     }
 
@@ -361,6 +385,8 @@ public sealed class RemotePlaybackHost
         });
 
         _players[monitorIndex] = d2dService;
+        await _agenda.SendToAsync(monitorIndex, d2dService);
+        await _agenda.ReconcileAsync(_players);
         await ReplayEventsAsync(d2dService);
         await CatchUpTestModeAsync(d2dService, testMode);
         AdoptRemoteThumbnail(monitorIndex, d2dService, filePath);
