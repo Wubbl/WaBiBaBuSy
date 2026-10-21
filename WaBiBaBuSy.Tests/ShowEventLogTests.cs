@@ -103,4 +103,17 @@ public class ShowEventLogTests
         log.Prune(60_000 + 8000 + ShowEventLog.KeepAfterEndMs);
         Assert.Equal(0, log.Count);                                        // the bomb goes with its outcome, not 4 min later
     }
+
+    [Fact]
+    public void Add_KeepsOnlyTheNewestStepOfAGame()
+    {
+        var log = new ShowEventLog();
+        var (bomb, _) = BombPair();
+        log.Add(bomb);
+        for (int i = 0; i < 30; i++)   // a keypad session: many steps must not push the bomb out of the log
+            log.Add(new ShowEvent { EventId = $"s{i}", Type = ShowEventType.BombStep, T0Utc = 1000 + i, DurationMs = 300_000, Bomb = new BombGame { GameId = "game", Typed = $"{i}" } });
+        Assert.Equal(2, log.Count);
+        Assert.True(log.Contains("game"));
+        Assert.True(log.Contains("s29"));
+    }
 }

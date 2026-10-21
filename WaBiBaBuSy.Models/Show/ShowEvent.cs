@@ -7,7 +7,7 @@ namespace WaBiBaBuSy.Models.Show;
 [JsonConverter(typeof(JsonStringEnumConverter))]
 /// <remarks>Identify: every seat shows its own seat number (<c>NodeLayout.Order</c> + 1) and machine name, for setting up the room.</remarks>
 /// <remarks>Bomb / BombOutcome: the BiBaBo mini-game (design 2026-10-21-bibabo-bomb-game-design.md), payload in <see cref="ShowEvent.Bomb"/>.</remarks>
-public enum ShowEventType { Spotlight, Celebration, Traversal, Blackout, Announce, Identify, Bomb, BombOutcome }
+public enum ShowEventType { Spotlight, Celebration, Traversal, Blackout, Announce, Identify, Bomb, BombOutcome, BombStep }
 
 /// <summary>
 /// One one-shot moment drawn by every seat above the scene from <see cref="T0Utc"/> for <see cref="DurationMs"/>.

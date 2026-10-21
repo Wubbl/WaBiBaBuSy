@@ -177,7 +177,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         _agenda = new AgendaDisplay(desktopManager, m => new[] { NodeIds.ServerLocalPrefix + m, NodeIds.LocalMachinePrefix + m });
         _service.AgendaProvider = () => CurrentAgenda;
         _bombGame = new BombGameService(UtcNowMs,
-            outcome => Dispatcher.UIThread.InvokeAsync(() => DispatchBombOutcomeAsync(outcome)),
+            e => Dispatcher.UIThread.InvokeAsync(() => e.Type == ShowEventType.BombStep ? DispatchEventAsync(e) : DispatchBombOutcomeAsync(e)),
             () => SyncTiming.ComputeStartLeadMs(_activeMaxRttMs, 0));
         _service.ShowActionHandler = r => _bombGame.OnActionAsync(r.ClientId, r.EventId, r.Action, r.Cable);
         _agenda.StandInsChanged += OnAgendaStandInsChanged;
@@ -266,8 +266,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             TargetNodeIds = targetNodeIds?.ToList(),
             Bomb = game,
         };
-        int live = solution!.LiveCable;   // ponytail: Classic referee until variation Task 3
-        _bombGame.Begin(evt, live);
+        _bombGame.Begin(evt, solution!);
         IsBiBaBoRunning = true;
         if (NodeIds.IsLocalMonitor(game.BombNodeId) && layout.Get(game.BombNodeId) is { } bombNode)
         {
@@ -279,7 +278,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         _bombTicker ??= new DispatcherTimer(TimeSpan.FromMilliseconds(250), DispatcherPriority.Background, (_, _) => _ = _bombGame.TickAsync());
         _bombTicker.Start();
         EventStatusText = $"BiBaBo: the bomb is on {game.BombNodeId} — 5:00 on the clock";
-        AppLogger.CreateLogger<ServerPlaybackHost>().LogInformation("BiBaBo {Id}: bomb on {Node}, live cable {Live}", id, game.BombNodeId, live);
+        AppLogger.CreateLogger<ServerPlaybackHost>().LogDebug("BiBaBo {Id}: bomb on {Node}, {Mode}", id, game.BombNodeId, game.Mode);
         return true;
     }
 

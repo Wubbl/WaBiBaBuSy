@@ -24,6 +24,13 @@ public sealed class ShowEventLog
         lock (_gate)
         {
             if (_events.Any(e => e.EventId == evt.EventId)) return false;
+            // BiBaBo: only the newest step of a game matters — a keypad session must not push the bomb out of the log
+            if (evt.Type == ShowEventType.BombStep && evt.Bomb != null)
+            {
+                var older = _events.FirstOrDefault(e => e.Type == ShowEventType.BombStep && e.Bomb?.GameId == evt.Bomb.GameId);
+                if (older != null && older.T0Utc > evt.T0Utc) return false;   // a late replay of an older step
+                _events.RemoveAll(e => e.Type == ShowEventType.BombStep && e.Bomb?.GameId == evt.Bomb.GameId);
+            }
             _events.Add(evt);
             while (_events.Count > Capacity) _events.RemoveAt(0);
             return true;

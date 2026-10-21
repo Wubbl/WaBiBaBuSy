@@ -165,6 +165,15 @@ public sealed class BombGame
     /// <summary>BombOutcome only: the timer when it ended.</summary>
     public int RemainingMs { get; set; }
 
+    /// <summary>A copy with the progress so far (BombStep / BombOutcome); cables and riddles shared, read-only.</summary>
+    public BombGame WithProgress(IEnumerable<int> cutCables, string typed)
+    {
+        var copy = (BombGame)MemberwiseClone();
+        copy.CutCables = cutCables.ToList();
+        copy.Typed = typed;
+        return copy;
+    }
+
     /// <summary>A copy for the BombOutcome event (cables and riddles shared, read-only).</summary>
     public BombGame WithOutcome(BombResult result, int cutCable, int remainingMs)
     {
