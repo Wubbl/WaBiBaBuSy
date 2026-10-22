@@ -422,8 +422,12 @@ public sealed class TestRunner
                 if (evt.Type == ShowEventType.Bomb && evt.Bomb == null)
                 {
                     if (ctx.Active.Layout == null) { sr.Verdict = Verdict.Fail; sr.Message = "BiBaBo needs the scene's seat-map layout"; break; }
-                    var (game, _) = BombGameFactory.Create(new BombGameRequest(ctx.Active.Layout, null, _ => false, evt.Seed, evt.EventId, GroupByMachine: false,
-                        ForceMode: ev.ForceMode, ForceKinds: ev.ForceKinds, ForceJunction: false, ForceRuleCard: false), out var error);
+                    // like the live game: a seat whose machine is offline (a ghost in the layout) gets neither bomb nor card
+                    var online = ctx.Nodes.Where(n => n.Connected).Select(n => n.NodeId).ToHashSet();
+                    Func<string, bool> offline = ctx.Active.Layout.Nodes.Any(n => online.Contains(n.Id)) ? id => !online.Contains(id) : _ => false;
+                    var (game, _) = BombGameFactory.Create(new BombGameRequest(ctx.Active.Layout, null, offline, evt.Seed, evt.EventId, GroupByMachine: false,
+                        ForceMode: ev.ForceMode, ForceKinds: ev.ForceKinds, ForceJunction: false, ForceRuleCard: false,
+                        Riddles: ev.ForceKinds?.Length ?? BombGameFactory.MinRiddles), out var error);
                     if (game == null) { sr.Verdict = Verdict.Fail; sr.Message = error; break; }
                     evt.Bomb = game;
                     if (string.IsNullOrEmpty(evt.ImagePath)) (evt.ImagePath, game.LogoTimerBox) = BombLogo.Resolve();

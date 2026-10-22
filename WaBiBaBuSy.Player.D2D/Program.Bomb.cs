@@ -195,7 +195,7 @@ partial class Program
                     if (p.Length < 2) continue;
                     if (cut?.Contains(i) == true) { _eventBrush!.Color = BombGrey; _eventBrush.Opacity = 1f; }
                     else SetEventBrush(g.Cables[i].ColorHex, 1f);
-                    _d2dContext!.FillEllipse(new Ellipse(new Vector2(LocalX(p[0]), p[1] - _layout.OffsetY), 0.06f * g.BombSize, 0.06f * g.BombSize), _eventBrush!);
+                    _d2dContext!.FillEllipse(new Ellipse(new Vector2(LocalX(p[0]), p[1] - _layout.OffsetY), BombMath.TerminalRadius(g), BombMath.TerminalRadius(g)), _eventBrush!);
                 }
                 if (g.Mode == BombMode.Keypad) DrawKeypad(evt, g, step?.Typed ?? "");
                 DrawBombRules(evt, g);
@@ -372,7 +372,7 @@ partial class Program
         if (right - left < 4 * h) return;
         string[] lines = g.RuleNodeId.Length > 0 ? new[] { ids.Away } : ids.Rules;
         float blockH = lines.Length * h + (lines.Length - 1) * gap;
-        float top = g.BombY - _layout.OffsetY + 0.33f * s - blockH / 2f, pad = 0.4f * h;
+        float top = g.BombY - _layout.OffsetY + 0.38f * s - blockH / 2f, pad = 0.4f * h;   // below the lowest of 5 terminals
         SetEventBrush("#000000", 0.75f);
         _d2dContext!.FillRectangle(new RectangleF(left - pad, top - pad, right - left + 2 * pad, blockH + 2 * pad), _eventBrush!);
         for (int k = 0; k < lines.Length; k++)
@@ -403,8 +403,9 @@ partial class Program
         _eventBrush!.Color = BombBox;
         _eventBrush.Opacity = 1f;
         _d2dContext!.FillRectangle(new RectangleF(cx + dx, cy + dy, dw, dh), _eventBrush);
-        float slot = dw / 3f;
-        for (int k = 0; k < 3; k++)
+        int digits = Math.Max(1, g.CodeOrder.Length);   // one digit per riddle
+        float slot = dw / digits;
+        for (int k = 0; k < digits; k++)
         {
             if (k < typed.Length) DrawBombText(ids.Digits[typed[k] - '0'], cx + dx + k * slot, cy + dy + 0.1f * dh, slot, 0.8f * dh, 1f, centred: true);
             else

@@ -12,24 +12,26 @@ namespace WaBiBaBuSy.Models.Show;
 /// <param name="ForceKinds">Tests / showcase: these riddle kinds (one per cable) instead of the roll.</param>
 /// <param name="ForceJunction">Tests / showcase: junction box yes / no instead of the roll.</param>
 /// <param name="ForceRuleCard">Tests / showcase: RULES card elsewhere yes / no instead of the roll.</param>
+/// <param name="Riddles">Cables and riddle cards, <see cref="BombGameFactory.MinRiddles"/>–<see cref="BombGameFactory.MaxRiddles"/> (clamped).</param>
 public sealed record BombGameRequest(SeatMapLayoutResult Layout, IReadOnlyCollection<string>? TargetNodeIds, Func<string, bool> IsBusy,
     int Seed, string GameId, int TimerMs = 300_000, bool GroupByMachine = true,
-    BombMode? ForceMode = null, RiddleKind[]? ForceKinds = null, bool? ForceJunction = null, bool? ForceRuleCard = null);
+    BombMode? ForceMode = null, RiddleKind[]? ForceKinds = null, bool? ForceJunction = null, bool? ForceRuleCard = null, int Riddles = 3);
 
 /// <summary>
-/// Builds a BiBaBo game (design §4, §14): bomb seat, roulette, the rolled mode and rule, three riddle cards, cable routes
+/// Builds a BiBaBo game (design §4, §14): bomb seat, roulette, the rolled mode and rule, 3–5 riddle cards, cable routes
 /// along the seat chain (optionally through a junction box), and the RULES card. Pure and seeded; runs on the server
 /// only — the players get the game, the answers stay in the <see cref="BombSolution"/>.
 /// </summary>
 public static class BombGameFactory
 {
-    public static readonly string[] CableColors = { "#E53935", "#43A047", "#1E88E5" };
-    public static readonly string[] CableColorNames = { "RED", "GREEN", "BLUE" };
+    public static readonly string[] CableColors = { "#E53935", "#43A047", "#1E88E5", "#FDD835", "#8E24AA" };
+    public static readonly string[] CableColorNames = { "RED", "GREEN", "BLUE", "YELLOW", "PURPLE" };
+    public const int MinRiddles = 3, MaxRiddles = 5;
 
     private const float PointSpacing = 30f;
     private const float BombHeight = 0.5f;      // of the bomb node's height
     private const float BombCentre = 0.42f;     // of the bomb node's height from its top: room for the keypad below
-    private const float TerminalSpread = 0.12f; // × BombSize between terminals
+    private const float TerminalSpread = 0.12f; // × BombSize between terminals (0.1 with 4–5 cables: they stay beside the bomb)
     private const float CardHeight = 0.55f;     // of the end node's height
     private const float CardAspect = 1.4f;
     private static readonly RiddleKind[] AllKinds = Enum.GetValues<RiddleKind>();
@@ -53,10 +55,11 @@ public static class BombGameFactory
         var machines = seats.GroupBy(machine).Select(g => g.ToList()).ToList();
         var bombMachine = machines[rng.Next(machines.Count)];                 // every machine equally likely, then any of its monitors
         var bomb = bombMachine[rng.Next(bombMachine.Count)];
-        var ends = PickEnds(seats, bomb, machine, r.Layout.Wraps, rng);
+        int n = Math.Clamp(r.Riddles, MinRiddles, MaxRiddles);
+        var ends = PickEnds(seats, bomb, machine, r.Layout.Wraps, n, rng);
 
         var mode = r.ForceMode ?? (rng.Next(4) switch { 0 or 1 => BombMode.Classic, 2 => BombMode.CutOrder, _ => BombMode.Keypad });
-        var kinds = r.ForceKinds is { Length: 3 } forced ? forced : RollKinds(rng);
+        var kinds = r.ForceKinds is { } forced && forced.Length == n ? forced : RollKinds(n, rng);
         var (values, ruleLines, solution) = RollRule(mode, kinds, rng);
 
         var game = new BombGame
@@ -90,8 +93,8 @@ public static class BombGameFactory
 
         // cards and riddles
         float canvasW = r.Layout.CanvasWidth;
-        var dx = new float[3];
-        for (int i = 0; i < 3; i++)
+        var dx = new float[n];
+        for (int i = 0; i < n; i++)
         {
             var end = ends[i];
             int k = ends.Count(e => e.Id == end.Id), j = ends.Take(i).Count(e => e.Id == end.Id);
@@ -116,12 +119,13 @@ public static class BombGameFactory
 
         var junction = (r.ForceJunction ?? rng.Next(5) < 2) ? PlanJunction(r.Layout, bomb, game, dx, rng) : null;
         game.Junction = junction?.Box;
-        for (int i = 0; i < 3; i++)
+        float spread = (n <= 3 ? TerminalSpread : 0.1f) * game.BombSize;
+        for (int i = 0; i < n; i++)
         {
             var c = game.Cables[i];
             bool right = dx[i] >= 0;
             float fromX = game.BombX + (right ? 1 : -1) * game.BombSize / 2f;
-            float fromY = game.BombY + (i - 1) * TerminalSpread * game.BombSize;
+            float fromY = game.BombY + (i - (n - 1) / 2f) * spread;
             float shift = game.BombX + dx[i] - (c.CardX + c.CardW / 2f);   // 0, or ±canvasW across the seam
             float toX = (right ? c.CardX : c.CardX + c.CardW) + shift, toY = c.CardY + c.CardH / 2f;
             int slot = junction == null ? -1 : Array.IndexOf(junction.Box.Cables, i);
@@ -141,12 +145,12 @@ public static class BombGameFactory
         return (game, solution);
     }
 
-    /// <summary>Three riddle kinds; never all the same.</summary>
-    private static RiddleKind[] RollKinds(Random rng)
+    /// <summary><paramref name="n"/> riddle kinds; never all the same.</summary>
+    private static RiddleKind[] RollKinds(int n, Random rng)
     {
         while (true)
         {
-            var kinds = Enumerable.Range(0, 3).Select(_ => AllKinds[rng.Next(AllKinds.Length)]).ToArray();
+            var kinds = Enumerable.Range(0, n).Select(_ => AllKinds[rng.Next(AllKinds.Length)]).ToArray();
             if (kinds.Distinct().Count() >= 2) return kinds;
         }
     }
@@ -156,6 +160,7 @@ public static class BombGameFactory
     private static (int[] Values, string[] Lines, BombSolution Solution) RollRule(BombMode mode, RiddleKind[] kinds, Random rng)
     {
         var ranges = kinds.Select(k => BombRiddles.Range(k)).ToArray();
+        int n = kinds.Length;
         int Pick(int i, Func<int, bool> allowed)
         {
             var options = Enumerable.Range(ranges[i].Min, ranges[i].Max - ranges[i].Min + 1).Where(allowed).ToArray();
@@ -164,17 +169,17 @@ public static class BombGameFactory
 
         while (true)
         {
-            var values = new int[3];
+            var values = new int[n];
             switch (mode)
             {
                 case BombMode.Classic:
                 {
-                    int live = rng.Next(3);
+                    int live = rng.Next(n);
                     int type = rng.Next(6);
                     if (type >= 4)   // largest / smallest: distinct values, the live one at the extreme
                     {
-                        for (int i = 0; i < 3; i++) values[i] = Pick(i, _ => true);
-                        if (values.Distinct().Count() < 3) continue;
+                        for (int i = 0; i < n; i++) values[i] = Pick(i, _ => true);
+                        if (values.Distinct().Count() < n) continue;
                         int extreme = type == 4 ? Array.IndexOf(values, values.Max()) : Array.IndexOf(values, values.Min());
                         return (values, new[] { type == 4 ? "LIVE ⇔ the LARGEST result" : "LIVE ⇔ the SMALLEST result", "Cut the LIVE cable at the bomb" },
                             new BombSolution { Mode = mode, Values = values, LiveCable = extreme });
@@ -187,7 +192,7 @@ public static class BombGameFactory
                         2 => v => v % 2 == 0,
                         _ => v => v is 2 or 3 or 5 or 7,
                     };
-                    for (int i = 0; i < 3; i++) values[i] = Pick(i, v => i == live ? p(v) : !p(v));
+                    for (int i = 0; i < n; i++) values[i] = Pick(i, v => i == live ? p(v) : !p(v));
                     if (values.Contains(-1)) continue;
                     string rule = type switch
                     {
@@ -200,10 +205,11 @@ public static class BombGameFactory
                 }
                 case BombMode.CutOrder:
                 {
-                    int dead = rng.Next(3), type = rng.Next(3);
+                    // two live cables, every other one dead
+                    var live = Enumerable.Range(0, n).OrderBy(_ => rng.Next()).Take(2).OrderBy(i => i).ToArray();
+                    int type = rng.Next(3);
                     Func<int, bool> p = type switch { 0 => v => v % 2 == 0, 1 => v => v % 2 == 1, _ => v => v > 4 };
-                    for (int i = 0; i < 3; i++) values[i] = Pick(i, v => i == dead ? !p(v) : p(v));
-                    var live = Enumerable.Range(0, 3).Where(i => i != dead).ToArray();
+                    for (int i = 0; i < n; i++) values[i] = Pick(i, v => live.Contains(i) ? p(v) : !p(v));
                     if (values.Contains(-1) || values[live[0]] == values[live[1]]) continue;
                     bool smallest = rng.Next(2) == 0;
                     var order = smallest ? live.OrderBy(i => values[i]).ToArray() : live.OrderByDescending(i => values[i]).ToArray();
@@ -213,8 +219,8 @@ public static class BombGameFactory
                 }
                 default:
                 {
-                    for (int i = 0; i < 3; i++) values[i] = Pick(i, _ => true);
-                    var codeOrder = new[] { 0, 1, 2 }.OrderBy(_ => rng.Next()).ToArray();
+                    for (int i = 0; i < n; i++) values[i] = Pick(i, _ => true);
+                    var codeOrder = Enumerable.Range(0, n).OrderBy(_ => rng.Next()).ToArray();
                     string line = "CODE = " + string.Join(" · ", codeOrder.Select(i => CableColorNames[i]));
                     return (values, new[] { line, "(colours at the bomb) — click or type it on the keypad" },
                         new BombSolution { Mode = mode, Values = values, Code = string.Concat(codeOrder.Select(i => values[i])) });
@@ -246,7 +252,7 @@ public static class BombGameFactory
             float jdx = jc - g.BombX;
             if (layout.Wraps && Math.Abs(jdx) > layout.CanvasWidth / 2f) jdx -= Math.Sign(jdx) * layout.CanvasWidth;
             if (Math.Sign(jdx) != dir) continue;
-            var passing = Enumerable.Range(0, 3)
+            var passing = Enumerable.Range(0, g.Cables.Count)
                 .Where(i => (dx[i] >= 0 ? 1 : -1) == dir && g.Cables[i].EndNodeId != neighbour.Id && Math.Abs(dx[i]) > Math.Abs(jdx) + neighbour.Width / 2f)
                 .ToArray();
             if (passing.Length < 2) continue;
@@ -258,7 +264,9 @@ public static class BombGameFactory
                 X = jc - bw / 2f, Y = neighbour.OffsetY + neighbour.Height / 2f - bh / 2f, W = bw, H = bh,
             };
             int n = passing.Length;
-            int[] perm = n == 2 ? new[] { 1, 0 } : rng.Next(2) == 0 ? new[] { 1, 2, 0 } : new[] { 2, 0, 1 };   // nobody keeps their colour
+            int[] perm;   // a derangement: nobody keeps their colour
+            do perm = Enumerable.Range(0, n).OrderBy(_ => rng.Next()).ToArray();
+            while (perm.Where((v, k) => v == k).Any());
             float ucx = g.BombX + jdx;   // box centre, unwrapped like the routes
             var inY = Enumerable.Range(0, n).Select(k => box.Y + (k + 1) * bh / (n + 1)).ToArray();
             var outY = Enumerable.Range(0, n).Select(k => box.Y + (perm[k] + 1) * bh / (n + 1)).ToArray();
@@ -330,11 +338,11 @@ public static class BombGameFactory
     }
 
     /// <summary>
-    /// Three card seats (monitors) off the bomb's machine — any other monitor when there is only one machine: spread over
+    /// <paramref name="count"/> card seats (monitors) off the bomb's machine — any other monitor when there is only one machine: spread over
     /// the machines first, then over their monitors, far seats (≥ 2 away) before near ones, shuffled; round-robin when
     /// fewer than three.
     /// </summary>
-    private static NodeLayout[] PickEnds(IReadOnlyList<NodeLayout> seats, NodeLayout bomb, Func<NodeLayout, string> machine, bool wraps, Random rng)
+    private static NodeLayout[] PickEnds(IReadOnlyList<NodeLayout> seats, NodeLayout bomb, Func<NodeLayout, string> machine, bool wraps, int count, Random rng)
     {
         int n = seats.Count, b = seats.ToList().FindIndex(s => s.Id == bomb.Id);
         int Distance(int i) { int d = Math.Abs(i - b); return wraps ? Math.Min(d, n - d) : d; }
@@ -345,6 +353,6 @@ public static class BombGameFactory
             .SelectMany(g => g.Select((i, k) => (I: i, K: k)))                  // k: the machine's 1st, 2nd … monitor
             .OrderBy(t => t.K).ThenBy(t => Distance(t.I) < 2 ? 1 : 0)            // stable: the shuffle decides the rest
             .Select(t => seats[t.I]).ToList();
-        return Enumerable.Range(0, 3).Select(i => ordered[i % ordered.Count]).ToArray();
+        return Enumerable.Range(0, count).Select(i => ordered[i % ordered.Count]).ToArray();
     }
 }

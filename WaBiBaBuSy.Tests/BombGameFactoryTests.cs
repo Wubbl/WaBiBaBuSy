@@ -29,10 +29,10 @@ public class BombGameFactoryTests
     }
 
     private static (BombGame Game, BombSolution Solution) Make(SeatMapLayoutResult layout, int seed = 7, Func<string, bool>? busy = null,
-        IReadOnlyCollection<string>? targets = null, BombMode? mode = null, bool? junction = null, bool? ruleCard = null)
+        IReadOnlyCollection<string>? targets = null, BombMode? mode = null, bool? junction = null, bool? ruleCard = null, int riddles = 3)
     {
         var (game, solution) = BombGameFactory.Create(new BombGameRequest(layout, targets, busy ?? (_ => false), seed, "g1",
-            ForceMode: mode, ForceJunction: junction, ForceRuleCard: ruleCard), out var error);
+            ForceMode: mode, ForceJunction: junction, ForceRuleCard: ruleCard, Riddles: riddles), out var error);
         Assert.True(game != null, error);
         return (game!, solution!);
     }
@@ -55,25 +55,32 @@ public class BombGameFactoryTests
 
     private static int[] Values(BombGame g) => g.Cables.Select(c => TestRiddle.Value(c.Riddle)).ToArray();
 
-    [Fact]
-    public void Classic_ExactlyOneLive_MatchesTheRule()
+    [Theory]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    public void Classic_ExactlyOneLive_MatchesTheRule(int riddles)
     {
         for (int seed = 0; seed < 300; seed++)
         {
-            var (g, sol) = Make(Layout(8), seed, mode: BombMode.Classic);
+            var (g, sol) = Make(Layout(8), seed, mode: BombMode.Classic, riddles: riddles);
             Assert.Equal(BombMode.Classic, g.Mode);
+            Assert.Equal(riddles, g.Cables.Count);
             var live = LiveByRule(g, Values(g));
             Assert.True(live.Length == 1, $"seed {seed}: {g.RuleLines[0]} with {string.Join(",", Values(g))}");
             Assert.Equal(sol.LiveCable, live[0]);
         }
     }
 
-    [Fact]
-    public void CutOrder_ExactlyTwoLive_InTheStatedOrder()
+    [Theory]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    public void CutOrder_ExactlyTwoLive_InTheStatedOrder(int riddles)
     {
         for (int seed = 0; seed < 300; seed++)
         {
-            var (g, sol) = Make(Layout(8), seed, mode: BombMode.CutOrder);
+            var (g, sol) = Make(Layout(8), seed, mode: BombMode.CutOrder, riddles: riddles);
             var values = Values(g);
             var live = LiveByRule(g, values);
             Assert.True(live.Length == 2, $"seed {seed}: {g.RuleLines[0]} with {string.Join(",", values)}");
@@ -84,14 +91,18 @@ public class BombGameFactoryTests
         }
     }
 
-    [Fact]
-    public void Keypad_CodeIsTheResultsInTheStatedColourOrder()
+    [Theory]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    public void Keypad_CodeIsTheResultsInTheStatedColourOrder(int riddles)
     {
-        string[] names = { "RED", "GREEN", "BLUE" };
+        string[] names = { "RED", "GREEN", "BLUE", "YELLOW", "PURPLE" };
         for (int seed = 0; seed < 300; seed++)
         {
-            var (g, sol) = Make(Layout(8), seed, mode: BombMode.Keypad);
+            var (g, sol) = Make(Layout(8), seed, mode: BombMode.Keypad, riddles: riddles);
             var values = Values(g);
+            Assert.Equal(riddles, sol.Code.Length);
             Assert.Equal(string.Concat(g.CodeOrder.Select(i => values[i])), sol.Code);
             Assert.Equal("CODE = " + string.Join(" · ", g.CodeOrder.Select(i => names[i])), g.RuleLines[0]);
         }
@@ -127,14 +138,16 @@ public class BombGameFactoryTests
         Assert.Equal("", Make(Layout(4), 1, ruleCard: true).Game.RuleNodeId);   // no spare machine: rules at the bomb
     }
 
-    [Fact]
-    public void Junction_RecoloursTheCablesThroughTheBox()
+    [Theory]
+    [InlineData(3)]
+    [InlineData(5)]
+    public void Junction_RecoloursTheCablesThroughTheBox(int riddles)
     {
         int found = 0;
         foreach (bool wraps in new[] { false, true })
             for (int seed = 0; seed < 80; seed++)
             {
-                var (g, _) = Make(Layout(10, wraps: wraps), seed, junction: true);
+                var (g, _) = Make(Layout(10, wraps: wraps), seed, junction: true, riddles: riddles);
                 if (g.Junction is not { } j) continue;
                 found++;
                 Assert.True(j.Cables.Length >= 2);
@@ -152,7 +165,7 @@ public class BombGameFactoryTests
                     bool up = xs.Zip(xs.Skip(1)).All(p => p.Second >= p.First - 0.01f), down = xs.Zip(xs.Skip(1)).All(p => p.Second <= p.First + 0.01f);
                     Assert.True(up || down, "the short way, no turning back");
                 }
-                Assert.Contains(j.Cables, i => g.Cables[i].CardColorHex != g.Cables[i].ColorHex);
+                Assert.All(j.Cables, i => Assert.NotEqual(g.Cables[i].ColorHex, g.Cables[i].CardColorHex));   // nobody keeps their colour
                 foreach (var (c, i) in g.Cables.Select((c, i) => (c, i)).Where(t => !j.Cables.Contains(t.i)))
                 {
                     Assert.Equal(c.ColorHex, c.CardColorHex);
@@ -332,6 +345,17 @@ public class BombGameFactoryTests
                 Assert.Equal(2, ends.Count);                                                                   // both server monitors get cards
         }
         Assert.Equal(3, bombSeats.Count);                                                                      // the second monitor too
+    }
+
+    [Fact]
+    public void Riddles_ClampedToThreeToFive_TerminalsBesideTheBomb()
+    {
+        Assert.Equal(3, Make(Layout(8), 1, riddles: 1).Game.Cables.Count);
+        Assert.Equal(5, Make(Layout(8), 1, riddles: 9).Game.Cables.Count);
+        var g = Make(Layout(8), 2, riddles: 5).Game;
+        var ys = g.Cables.Select(c => c.Points[1] - g.BombY).OrderBy(y => y).ToArray();
+        Assert.All(ys, y => Assert.InRange(y, -0.21f * g.BombSize, 0.21f * g.BombSize));
+        Assert.True(ys.Zip(ys.Skip(1)).All(p => p.Second - p.First >= 2 * BombMath.TerminalRadius(g)), "terminals do not overlap");
     }
 
     [Fact]

@@ -132,6 +132,9 @@ public static class BombMath
         return (-w / 2f, KeypadTop * g.BombSize, w, s);
     }
 
+    /// <summary>A cable terminal's radius beside the bomb: smaller with 4–5 cables, so they do not overlap.</summary>
+    public static float TerminalRadius(BombGame g) => 0.06f * g.BombSize * Math.Min(1f, 3f / Math.Max(1, g.Cables.Count));
+
     /// <summary>The countdown above the bomb (a logo without a timer box): top offset from the bomb's centre and height, × BombSize.</summary>
     public const float TimerAboveTop = -0.8f, TimerAboveHeight = 0.25f;
 

@@ -314,7 +314,22 @@
                                 <Button Content="# Identify" Command="{Binding Events.IdentifyCommand}" Padding="8,3" FontSize="11" Margin="10,0,0,0"
                                         ToolTip.Tip="Every seat shows its seat number and machine name for 10 s — for sorting the room"/>
                                 <Button Content="{Binding Events.BiBaBoLabel}" Command="{Binding Events.BiBaBoCommand}" Padding="8,3" FontSize="11" Margin="10,0,0,0"
-                                        ToolTip.Tip="BiBaBo: a bomb lands on a random free seat, three cables run to riddles across the room — click the live cable at the bomb before 5:00 run out (Ctrl+Alt+B). Click again to abort."/>
+                                        ToolTip.Tip="BiBaBo: a bomb lands on a random free seat, cables run to riddles across the room — click the live cable at the bomb before the time runs out (Ctrl+Alt+B). Click again to abort."/>
+                                <ComboBox SelectedIndex="{Binding Events.BiBaBoTimerIndex}" FontSize="11" Margin="4,0,0,0"
+                                          ToolTip.Tip="BiBaBo: time on the clock (the hotkey uses it too)">
+                                    <ComboBoxItem Content="⏱ 1:00"/>
+                                    <ComboBoxItem Content="⏱ 2:00"/>
+                                    <ComboBoxItem Content="⏱ 3:00"/>
+                                    <ComboBoxItem Content="⏱ 5:00"/>
+                                    <ComboBoxItem Content="⏱ 7:00"/>
+                                    <ComboBoxItem Content="⏱ 10:00"/>
+                                </ComboBox>
+                                <ComboBox SelectedIndex="{Binding Events.BiBaBoRiddlesIndex}" FontSize="11" Margin="4,0,0,0"
+                                          ToolTip.Tip="BiBaBo: cables and riddle cards (red, green, blue, then yellow and purple)">
+                                    <ComboBoxItem Content="3 riddles"/>
+                                    <ComboBoxItem Content="4 riddles"/>
+                                    <ComboBoxItem Content="5 riddles"/>
+                                </ComboBox>
                                 <CheckBox Content="Hotkeys (Ctrl+Alt+1..5)" IsChecked="{Binding Events.HotkeysEnabled}"
                                           FontSize="11" Margin="10,0,0,0" VerticalAlignment="Center"
                                           ToolTip.Tip="Global hotkeys while the server runs: Ctrl+Alt+1 Spotlight … 5 Announce. On German / Austrian keyboards Ctrl+Alt+digit is AltGr+digit (², ³ …) — switch off to keep those keys for typing."/>

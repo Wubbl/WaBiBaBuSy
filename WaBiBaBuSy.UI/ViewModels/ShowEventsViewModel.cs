@@ -142,6 +142,35 @@ public partial class ShowEventsViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanFire))]
     private Task BiBaBo() => _server.ToggleBiBaBoAsync(TargetIds());
 
+    private static readonly int[] BiBaBoTimerChoicesMs = { 60_000, 120_000, 180_000, 300_000, 420_000, 600_000 };
+
+    /// <summary>BiBaBo's countdown as an index into the strip's choices (1, 2, 3, 5, 7, 10 min); saved at once.</summary>
+    public int BiBaBoTimerIndex
+    {
+        get { int i = Array.IndexOf(BiBaBoTimerChoicesMs, _server.EventSettings.BiBaBoTimerMs); return i < 0 ? 3 : i; }
+        set
+        {
+            if (value < 0 || value >= BiBaBoTimerChoicesMs.Length || BiBaBoTimerChoicesMs[value] == _server.EventSettings.BiBaBoTimerMs) return;
+            _server.EventSettings.BiBaBoTimerMs = BiBaBoTimerChoicesMs[value];
+            _server.SaveEventSettings(_server.EventSettings);
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>BiBaBo's riddle count as an index (0 = 3 riddles … 2 = 5); saved at once.</summary>
+    public int BiBaBoRiddlesIndex
+    {
+        get => Math.Clamp(_server.EventSettings.BiBaBoRiddles, BombGameFactory.MinRiddles, BombGameFactory.MaxRiddles) - BombGameFactory.MinRiddles;
+        set
+        {
+            int riddles = BombGameFactory.MinRiddles + value;
+            if (value < 0 || riddles > BombGameFactory.MaxRiddles || riddles == _server.EventSettings.BiBaBoRiddles) return;
+            _server.EventSettings.BiBaBoRiddles = riddles;
+            _server.SaveEventSettings(_server.EventSettings);
+            OnPropertyChanged();
+        }
+    }
+
     [RelayCommand]
     private async Task PickTraversalImage()
     {

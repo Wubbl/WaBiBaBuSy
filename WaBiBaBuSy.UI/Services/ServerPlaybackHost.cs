@@ -245,7 +245,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
 
         string id = Guid.NewGuid().ToString("N");
         _localBusy = MonitorBusyProbe.BusyMonitors();
-        var (game, solution) = BombGameFactory.Create(new BombGameRequest(layout, targetNodeIds, IsSeatBusy, Random.Shared.Next(), id), out var error);
+        var (game, solution) = BombGameFactory.Create(new BombGameRequest(layout, targetNodeIds, IsSeatBusy, Random.Shared.Next(), id,
+            TimerMs: Math.Clamp(EventSettings.BiBaBoTimerMs, 30_000, 600_000), Riddles: EventSettings.BiBaBoRiddles), out var error);
         if (game == null)
         {
             EventStatusText = $"BiBaBo: {error}";
@@ -280,7 +281,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         if (IsIdleScenePlaying) KeepIdleSceneUntil(evt);
         _bombTicker ??= new DispatcherTimer(TimeSpan.FromMilliseconds(250), DispatcherPriority.Background, (_, _) => _ = _bombGame.TickAsync());
         _bombTicker.Start();
-        EventStatusText = $"BiBaBo: the bomb is on {game.BombNodeId} — 5:00 on the clock";
+        EventStatusText = $"BiBaBo: the bomb is on {game.BombNodeId} — {BombMath.FormatTimer(game.TimerMs)} on the clock, {game.Cables.Count} riddles";
         AppLogger.CreateLogger<ServerPlaybackHost>().LogDebug("BiBaBo {Id}: bomb on {Node}, {Mode}", id, game.BombNodeId, game.Mode);
         return true;
     }

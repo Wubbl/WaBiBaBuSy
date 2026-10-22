@@ -17,6 +17,13 @@
 - **Fix**: `RoomNodeSources.ServerNodes` did not copy `PrefetchReady` / `PrefetchTotal`, so the tiles' "⬇ x/y" / "✓ cached" never showed in server mode.
 - **Verified**: build + 1305 tests. **Not verified**: a real update download in the GUI (needs an outdated client).
 
+## 2026-10-22 — BiBaBo difficulty: timer and 3–5 riddles
+
+- **What**: two dropdowns next to 💣 BiBaBo in the Events strip — **⏱ timer** (1, 2, 3, 5, 7, 10 min; default 5) and **riddles** (3, 4, 5; default 3), saved at once in the event settings (`ShowEventSettings.BiBaBoTimerMs` / `BiBaBoRiddles`) and used by the button and Ctrl+Alt+B. Cables 4 and 5 are **YELLOW** and **PURPLE**.
+- **How**: `BombGameRequest.Riddles` (clamped 3–5, `BombGameFactory.MinRiddles/MaxRiddles`) drives everything that assumed three: card seats, rules (classic: exactly one live; cut order: still two live, the rest dead; keypad: one digit per riddle, colour order over all cables), the junction box's colour swap (any derangement), terminal spacing (0.1 bomb sizes with 4–5, smaller terminals — `BombMath.TerminalRadius`), the keypad display's slots. Rules beside the bomb moved a little lower, below the fifth terminal. Test mode: `forceKinds` with 4–5 kinds plays that many riddles; the showcase's keypad game now has five.
+- **Test mode** skips offline seats like the live game (a ghost in the layout got the showcase's bomb, so nobody saw it).
+- **Verified**: 1321 tests (classic / cut order / keypad × 3, 4, 5 riddles × 300 seeds against an independent rule reader; junction derangement with 5; clamping; terminals don't overlap); showcase on this machine: the 5-riddle keypad game shows five terminals beside the bomb, the five-colour CODE line, a five-slot keypad display and five cards in their colours. **Not verified**: the two dropdowns in the Events strip (not opened in the GUI).
+
 ## 2026-10-22 — Black remote desktop after exit (24H2): Explorer's WorkerW is no longer closed; BiBaBo Recycle Bin thread crash
 
 - **What happened**: on the raised (layered, Windows 11 24H2+) desktop the WorkerW under Progman is Explorer's own wallpaper host. `RestoreDesktop()` sent it `WM_CLOSE` on every app exit: the desktop went black, and on the remote test machine Explorer never recreated it — every later player failed with "desktop WorkerW window not found", even after a restart of WaBiBaBuSy (on the dev machine Explorer happened to bring it back).

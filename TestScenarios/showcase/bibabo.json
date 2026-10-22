@@ -24,8 +24,8 @@
     { "type": "wait", "label": "text sprites", "ms": 3000 },
     { "type": "exactFrame", "label": "cut order countdown + cards", "elapsedMs": 60000 },
 
-    { "type": "showEvent", "label": "keypad: math, logic, sequence", "atElapsedMs": 70000,
-      "event": { "type": "Bomb", "seed": 2026 }, "forceMode": "Keypad", "forceKinds": [ "Math", "Logic", "Sequence" ] },
+    { "type": "showEvent", "label": "keypad, 5 riddles: math, logic, sequence, dots, clock", "atElapsedMs": 70000,
+      "event": { "type": "Bomb", "seed": 2026 }, "forceMode": "Keypad", "forceKinds": [ "Math", "Logic", "Sequence", "Dots", "Clock" ] },
     { "type": "wait", "label": "text sprites", "ms": 3000 },
     { "type": "exactFrame", "label": "keypad countdown + cards", "elapsedMs": 90000 },
     { "type": "showEvent", "label": "defused", "atElapsedMs": 100000, "event": { "type": "BombOutcome" }, "bombOutcome": "Defused" },
