@@ -62,24 +62,42 @@ public static class NodeMapping
         => localX + width > 0f && localX < layout.Width;
 
     /// <summary>
-    /// The part of a <see cref="BackgroundMode.Panorama"/> image (in image pixels) this node shows: the image is
-    /// stretched over the canvas width and over the tallest screen of the node's row (<see cref="NodeLayout.RowHeight"/>),
-    /// a shorter screen shows the vertically centred part. Without a row height (older server) the image spans the
-    /// canvas height. No layout → the whole image. Clamped to the image. Mirrored nodes flip the slice horizontally
-    /// (the caller does that) so seams still meet.
+    /// The part of a <see cref="BackgroundMode.Panorama"/> image this node shows: <c>Src</c> in image pixels, drawn into
+    /// <c>Dst</c> in the node's local pixels (unmirrored). The image is placed over the canvas width and the tallest screen
+    /// of the node's row (<see cref="NodeLayout.RowHeight"/>) per <paramref name="fit"/>; a shorter screen shows the
+    /// vertically centred part. Without a row height (older server) the band is the canvas height. No layout → the whole
+    /// image over the whole screen (<c>Dst</c> null). A screen the image does not reach gets an empty <c>Src</c>.
+    /// Mirrored nodes flip the slice and <c>Dst</c> horizontally (the caller does that) so seams still meet.
     /// </summary>
-    public static (int X, int Y, int Width, int Height) PanoramaSource(NodeLayout? layout, int imageWidth, int imageHeight)
+    public static ((int X, int Y, int Width, int Height) Src, (int X, int Y, int Width, int Height)? Dst) PanoramaSource(
+        NodeLayout? layout, int imageWidth, int imageHeight, PanoramaFit fit = PanoramaFit.FitHeight)
     {
-        if (layout == null || layout.CanvasWidth <= 0 || layout.CanvasHeight <= 0 || layout.Width <= 0 || layout.Height <= 0)
-            return (0, 0, imageWidth, imageHeight);
+        if (layout == null || layout.CanvasWidth <= 0 || layout.CanvasHeight <= 0 || layout.Width <= 0 || layout.Height <= 0
+            || imageWidth <= 0 || imageHeight <= 0)
+            return ((0, 0, imageWidth, imageHeight), null);
         int bandH = layout.RowHeight > 0 ? layout.RowHeight : layout.CanvasHeight;
         int top = layout.RowHeight > 0 ? (layout.RowHeight - layout.Height) / 2 : layout.OffsetY;
-        double kx = imageWidth / (double)layout.CanvasWidth, ky = imageHeight / (double)bandH;
-        int x0 = Math.Clamp((int)Math.Round(layout.OffsetX * kx), 0, imageWidth);
-        int y0 = Math.Clamp((int)Math.Round(top * ky), 0, imageHeight);
-        int x1 = Math.Clamp((int)Math.Round((layout.OffsetX + layout.Width) * kx), x0, imageWidth);
-        int y1 = Math.Clamp((int)Math.Round((top + layout.Height) * ky), y0, imageHeight);
-        return x1 > x0 && y1 > y0 ? (x0, y0, x1 - x0, y1 - y0) : (0, 0, imageWidth, imageHeight);
+        // Screen pixels per image pixel.
+        double fx = layout.CanvasWidth / (double)imageWidth, fy = bandH / (double)imageHeight;
+        var (sx, sy) = fit switch
+        {
+            PanoramaFit.Stretch => (fx, fy),
+            PanoramaFit.Fill => (Math.Max(fx, fy), Math.Max(fx, fy)),
+            PanoramaFit.Fit => (Math.Min(fx, fy), Math.Min(fx, fy)),
+            _ => (fy, fy),
+        };
+        double imgLeft = (layout.CanvasWidth - imageWidth * sx) / 2, imgTop = (bandH - imageHeight * sy) / 2;
+        // The part of this screen the image covers, in band coordinates, rounded to whole screen pixels.
+        int x0 = (int)Math.Round(Math.Max(layout.OffsetX, imgLeft));
+        int x1 = (int)Math.Round(Math.Min(layout.OffsetX + layout.Width, imgLeft + imageWidth * sx));
+        int y0 = (int)Math.Round(Math.Max(top, imgTop));
+        int y1 = (int)Math.Round(Math.Min(top + layout.Height, imgTop + imageHeight * sy));
+        if (x1 <= x0 || y1 <= y0) return ((0, 0, 0, 0), (0, 0, 0, 0));
+        int u0 = Math.Clamp((int)Math.Round((x0 - imgLeft) / sx), 0, imageWidth - 1);
+        int v0 = Math.Clamp((int)Math.Round((y0 - imgTop) / sy), 0, imageHeight - 1);
+        int u1 = Math.Clamp((int)Math.Round((x1 - imgLeft) / sx), u0 + 1, imageWidth);
+        int v1 = Math.Clamp((int)Math.Round((y1 - imgTop) / sy), v0 + 1, imageHeight);
+        return ((u0, v0, u1 - u0, v1 - v0), (x0 - layout.OffsetX, y0 - top, x1 - x0, y1 - y0));
     }
 
     public static float PositiveModulo(float value, float period)

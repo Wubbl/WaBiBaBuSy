@@ -1839,11 +1839,14 @@ partial class Program
                 if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
                 {
                     using var gdiBitmap = (Bitmap)Image.FromFile(imagePath);
+                    _backgroundColor = ParseHexColor(config.ColorHex);   // panorama: around a centred image
+                    _panoramaDest = null;
                     // Panorama: cut this node's slice on the CPU, so only a monitor-sized bitmap reaches the GPU
                     // (a 10-screen image is wider than D2D's 16384 px bitmap limit). The desktop wallpaper is cropped to fill.
-                    using var slice = config.Mode == BackgroundMode.Panorama ? CropPanorama(gdiBitmap)
+                    using var slice = config.Mode == BackgroundMode.Panorama ? CropPanorama(gdiBitmap, config.PanoramaFit)
                         : config.UseLocalDesktopWallpaper ? CropToFill(gdiBitmap) : null;
-                    _backgroundImageBitmap = UploadBitmapToD2D(slice ?? gdiBitmap);
+                    if (config.Mode != BackgroundMode.Panorama || slice != null)   // no slice: the image misses this screen
+                        _backgroundImageBitmap = UploadBitmapToD2D(slice ?? gdiBitmap);
                     _logger?.LogInformation("[BG-D2D] Image loaded: {Path} ({W}x{H}){Slice}", imagePath, gdiBitmap.Width, gdiBitmap.Height,
                         slice != null ? $" panorama slice {slice.Width}x{slice.Height}" : string.Empty);
                 }
@@ -1981,12 +1984,24 @@ partial class Program
         return full.Clone(new Rectangle((full.Width - w) / 2, (full.Height - h) / 2, w, h), System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
     }
 
-    private static Bitmap CropPanorama(Bitmap full)
+    /// <summary>Where the panorama slice is drawn on this screen (null = the whole screen); the rest shows the background colour.</summary>
+    private static System.Drawing.RectangleF? _panoramaDest;
+
+    /// <summary>This node's slice, or null when the image does not reach this screen; sets <see cref="_panoramaDest"/>.</summary>
+    private static Bitmap? CropPanorama(Bitmap full, PanoramaFit fit)
     {
         // ponytail: without a seat-map layout the whole image is uploaded (fails past 16384 px); every LOAD from the server carries one.
-        var (x, y, w, h) = NodeMapping.PanoramaSource(_sequentialLayout, full.Width, full.Height);
+        var ((x, y, w, h), dst) = NodeMapping.PanoramaSource(_sequentialLayout, full.Width, full.Height, fit);
+        if (w <= 0 || h <= 0) return null;
+        var layout = _sequentialLayout;
+        bool mirrored = layout?.Mirrored == true;
+        if (dst is { } d && layout != null)
+        {
+            float kx = _width / (float)layout.Width, ky = _height / (float)layout.Height;   // layout px → swap-chain px
+            _panoramaDest = new System.Drawing.RectangleF((mirrored ? layout.Width - d.X - d.Width : d.X) * kx, d.Y * ky, d.Width * kx, d.Height * ky);
+        }
         var slice = full.Clone(new Rectangle(x, y, w, h), System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
-        if (_sequentialLayout?.Mirrored == true) slice.RotateFlip(RotateFlipType.RotateNoneFlipX);
+        if (mirrored) slice.RotateFlip(RotateFlipType.RotateNoneFlipX);
         return slice;
     }
 
@@ -2007,9 +2022,10 @@ partial class Program
             case BackgroundMode.Panorama:   // the bitmap already is this node's slice
                 if (_backgroundImageBitmap != null)
                 {
-                    _d2dContext.Clear(new Color4(0, 0, 0, 1)); // Black behind image
-                    var fullScreen = new System.Drawing.RectangleF(0, 0, _width, _height);
-                    _d2dContext.DrawBitmap(_backgroundImageBitmap, fullScreen, 1.0f, BitmapInterpolationMode.Linear, null);
+                    bool pano = _backgroundMode == BackgroundMode.Panorama;
+                    _d2dContext.Clear(pano ? _backgroundColor : new Color4(0, 0, 0, 1)); // Black behind image
+                    var dest = pano && _panoramaDest is { } d ? d : new System.Drawing.RectangleF(0, 0, _width, _height);
+                    _d2dContext.DrawBitmap(_backgroundImageBitmap, dest, 1.0f, BitmapInterpolationMode.Linear, null);
                 }
                 else
                 {

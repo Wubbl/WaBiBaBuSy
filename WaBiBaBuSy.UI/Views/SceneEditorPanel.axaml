@@ -737,6 +737,15 @@
                                         <ToggleButton Content="Choose from strip" IsChecked="{Binding IsPickingBackgroundImage}"/>
                                         <Button Content="Browse…" Command="{Binding BrowseBackgroundImageCommand}"/>
                                     </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsPanoramaMode}">
+                                        <TextBlock Text="Fit" VerticalAlignment="Center"/>
+                                        <ComboBox SelectedIndex="{Binding PanoramaFitIndex}" MinWidth="200">
+                                            <ComboBoxItem Content="Fit height, centred" ToolTip.Tip="Height = the tallest screen of the row, aspect kept; a wider picture crops left and right"/>
+                                            <ComboBoxItem Content="Fill room, centred" ToolTip.Tip="Covers every screen, aspect kept; the overflowing side is cropped"/>
+                                            <ComboBoxItem Content="Whole picture, centred" ToolTip.Tip="The whole picture stays visible, aspect kept; the rest shows the background colour"/>
+                                            <ComboBoxItem Content="Stretch to room" ToolTip.Tip="Stretched to the room's width and row height (aspect not kept); seamless around a Ring"/>
+                                        </ComboBox>
+                                    </StackPanel>
                                     <TextBlock Classes="hint" TextWrapping="Wrap" IsVisible="{Binding IsPanoramaMode}"
                                                Text="One wide picture laid over the whole room; every screen shows its slice, bezel gaps included. For a Ring, let the right edge continue into the left."/>
                                     <TextBlock Classes="hint" IsVisible="{Binding IsPanoramaMode}"

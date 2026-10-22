@@ -81,6 +81,10 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(BackgroundImageFileName))]
     private string _backgroundImagePath = string.Empty;
 
+    /// <summary>Panorama fit (index = <see cref="PanoramaFit"/>): Fit height, Fill, Fit, Stretch.</summary>
+    [ObservableProperty]
+    private int _panoramaFitIndex;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(AnimationFileName))]
     [NotifyPropertyChangedFor(nameof(HasAnimationFile))]
@@ -634,6 +638,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
 
         BackgroundColor = config.Background.ColorHex;
         BackgroundImagePath = config.Background.ImagePath ?? string.Empty;
+        PanoramaFitIndex = (int)config.Background.PanoramaFit;
 
         CorridorTopPx      = config.Background.CorridorTopPx;
         CorridorHeightPx   = config.Background.CorridorHeightPx;
@@ -810,6 +815,7 @@ public partial class CrossScreenConfigViewModel : ViewModelBase
                 Mode = backgroundMode,
                 ColorHex = BackgroundColor,
                 ImagePath = string.IsNullOrWhiteSpace(BackgroundImagePath) ? null : BackgroundImagePath,
+                PanoramaFit = (PanoramaFit)Math.Clamp(PanoramaFitIndex, 0, 3),
                 CorridorTopPx      = CorridorTopPx,
                 CorridorHeightPx   = CorridorHeightPx,
                 TopZoneColorHex    = TopZoneColorHex,

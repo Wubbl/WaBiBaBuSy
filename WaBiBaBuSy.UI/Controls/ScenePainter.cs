@@ -123,11 +123,13 @@ public sealed partial class ScenePainter
         ctx.FillRectangle(new SolidColorBrush(color), rect);
         if (bg?.Mode == BackgroundMode.Panorama && PanoramaBitmap(bg.ImagePath) is { } pano)
         {
-            var (px, py, pw, ph) = NodeMapping.PanoramaSource(node, pano.PixelSize.Width, pano.PixelSize.Height);
+            var ((px, py, pw, ph), dst) = NodeMapping.PanoramaSource(node, pano.PixelSize.Width, pano.PixelSize.Height, bg.PanoramaFit);
+            if (pw <= 0 || ph <= 0) return;   // the image misses this screen
             using var flip = node?.Mirrored == true
                 ? ctx.PushTransform(Matrix.CreateTranslation(-rect.Center.X, 0) * Matrix.CreateScale(-1, 1) * Matrix.CreateTranslation(rect.Center.X, 0))
                 : default(DrawingContext.PushedState?);
-            ctx.DrawImage(pano, new Rect(px, py, pw, ph), rect);
+            var to = dst is { } d ? new Rect(rect.X + d.X * s, rect.Y + d.Y * s, d.Width * s, d.Height * s) : rect;
+            ctx.DrawImage(pano, new Rect(px, py, pw, ph), to);
             return;
         }
         if (bg?.Mode != BackgroundMode.ThreeZone) return;

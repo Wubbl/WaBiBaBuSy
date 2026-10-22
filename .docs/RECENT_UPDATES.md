@@ -4,7 +4,13 @@
 
 ---
 
-## 2026-10-22 — Updated clients come back on their own; tray says why Connect failed
+## 2026-10-22 — Panorama fit modes; panorama presets are background-only
+
+- **Report**: on 2 screens a panorama made for the 20-seat room was squeezed horizontally; panorama presets came with a "Logo parade" layer, and sometimes the panorama background did not arrive at all.
+- **Fit** (`BackgroundLayerConfig.PanoramaFit`, Background tab combo): *Fit height, centred* (new default — image height = the row's tallest screen, aspect kept, a wider picture crops left and right), *Fill room*, *Whole picture* (bands in the background colour), *Stretch to room* (the old behaviour, seamless around a Ring). `NodeMapping.PanoramaSource` now returns source + destination rect; player (`CropPanorama` / `_panoramaDest`) and room preview (`ScenePainter`) both use it.
+- **Missing background**: Layers ▾ "Add layers / layer preset" on a draft with no sprite replaced the whole draft with the preset — a layer preset's default background wiped a loaded panorama. It now swaps only the empty placeholder layer, keeps the draft's background and takes the preset's picture background only when the draft has none.
+- **Presets** (BiBaBu `swarm_preset.py`): "Panorama - …" presets hold only the background; each theme's parade is a layer preset `presets\layers\Logo parade - <Theme>` (Layers ▾ → Add layer preset).
+- **Verified**: build + 1323 tests (new FitHeight / Fit / Fill cases). **Not verified**: GUI combo, the 2-screen wall.
 
 - **Report**: after updating a remote node it went offline (expected), and Connect in its tray afterwards seemed to do nothing. Server-side re-registration under the same id was already safe; the cause could not be read because the gRPC service logged to the console only.
 - **Server log**: `WallpaperSyncService` now gets the app's file logger, so registration, rejected versions, stream ends and heartbeat timeouts reach `wabibabusy-*.log` (it was `AddConsole()` only in the host's DI — none of these lines were in any log since 2026-10-09).
