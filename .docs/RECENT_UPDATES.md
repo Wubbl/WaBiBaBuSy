@@ -1,8 +1,17 @@
 # WaBiBaBuSy - Recent Updates & Changelog
 
-**Last Updated:** 2026-10-21
+**Last Updated:** 2026-10-22
 
 ---
+
+## 2026-10-22 — Updated clients come back on their own; tray says why Connect failed
+
+- **Report**: after updating a remote node it went offline (expected), and Connect in its tray afterwards seemed to do nothing. Server-side re-registration under the same id was already safe; the cause could not be read because the gRPC service logged to the console only.
+- **Server log**: `WallpaperSyncService` now gets the app's file logger, so registration, rejected versions, stream ends and heartbeat timeouts reach `wabibabusy-*.log` (it was `AddConsole()` only in the host's DI — none of these lines were in any log since 2026-10-09).
+- **After an update**: `ApplyUpdate` writes the server it was connected to into `ClientConfiguration.ReconnectAfterUpdate`; the restarted app connects there once, clears it, and retries with the 1–30 s backoff until the server answers.
+- **AutoConnect** (Settings, was saved but never read): connects on startup (mDNS, then the saved address) and keeps retrying, so a seat booted before the server still joins. Not during `--test-run`.
+- **Tray notice**: a line under "Connect to Server..." and the icon's tooltip show "Connecting…", "⚠ Connect failed: address:port: reason" (not reachable / no answer in 10 s / the server's rejection text) or the retry countdown; cleared on connect or Disconnect. Registration now has a 10 s deadline.
+- **Verified**: build + 1321 tests. **Not verified**: tray line / tooltip in the GUI, a real update → auto-reconnect on a remote node.
 
 ## 2026-10-21 (late night) — Updater: 2.6.3 clients' broken command line repaired
 

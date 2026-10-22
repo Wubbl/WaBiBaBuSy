@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using WaBiBaBuSy.Core.Services.Logging;
 using WaBiBaBuSy.Core.Services.Testing;
 using WaBiBaBuSy.Grpc.Services;
 using WaBiBaBuSy.Models.Configuration;
@@ -150,6 +151,9 @@ public class WallpaperSyncServerHost : IDisposable
 
         // Register our gRPC service as singleton so we can access it
         builder.Services.AddSingleton<WallpaperSyncService>();
+        // Its registration / disconnect / heartbeat-timeout lines belong in the app log file; the host's own
+        // logging below is console-only, which a tray app never shows.
+        builder.Services.AddSingleton(AppLogger.CreateLogger<WallpaperSyncService>());
 
         // Add logging
         builder.Services.AddLogging(logging =>

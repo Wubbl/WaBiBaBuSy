@@ -378,6 +378,7 @@ public class WaBiBaBuSyService : IDisposable
             }
             else
             {
+                LastConnectError = $"{serverAddress}:{serverPort}: {_client.LastError ?? "could not connect"}";
                 // Nothing to keep from a failed connect (its channel would otherwise leak until the next attempt).
                 _client.ConnectionStatusChanged -= OnClientConnectionStatusChanged;
                 _client.UpdateAvailable -= OnUpdateAvailable;
@@ -390,9 +391,13 @@ public class WaBiBaBuSyService : IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to connect to server");
+            LastConnectError = $"{serverAddress}:{serverPort}: {ex.Message}";
             return false;
         }
     }
+
+    /// <summary>Why the last connect failed ("address:port: reason"), for the tray; set on every failed connect.</summary>
+    public string? LastConnectError { get; private set; }
 
     /// <summary>
     /// Disconnect from server
@@ -683,8 +688,14 @@ public class WaBiBaBuSyService : IDisposable
         // Create backup first
         _ = _updateManager?.CreateBackupAsync(installDir);
 
+        // The updated app comes back connected to the same server (read and cleared once at startup).
+        var resumeTo = _client?.ServerAddress is { Length: > 0 } address ? $"{address}:{_client.ServerPort}" : string.Empty;
+        ConfigurationManager.UpdateClientConfiguration(c => c.ReconnectAfterUpdate = resumeTo);
+
         // Launch updater (this will exit the application)
-        return _updateApplicator.LaunchUpdaterAndExit(updateDirectory, installDir, backupDir);
+        if (_updateApplicator.LaunchUpdaterAndExit(updateDirectory, installDir, backupDir)) return true;
+        ConfigurationManager.UpdateClientConfiguration(c => c.ReconnectAfterUpdate = string.Empty);
+        return false;
     }
 
     #endregion

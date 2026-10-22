@@ -17,6 +17,7 @@ using WaBiBaBuSy.Core.Services;
 using WaBiBaBuSy.Core.Services.Animation;
 using WaBiBaBuSy.Core.Services.Testing;
 using WaBiBaBuSy.Models.Configuration;
+using WaBiBaBuSy.Models.Networking;
 using WaBiBaBuSy.Models.Show;
 using WaBiBaBuSy.Models.Testing;
 using WaBiBaBuSy.Models.Wallpaper;
@@ -123,6 +124,9 @@ public partial class TrayViewModel : ObservableObject
 
         // The test-mode menu reads the setting once; refresh it when Settings saves.
         SettingsViewModel.AnySettingsSaved += (_, _) => _mainViewModel?.RefreshTestModeEnabled();
+
+        if (StartupOptions.Current.TestRunPath == null)
+            Dispatcher.UIThread.Post(() => _ = AutoConnectOnStartupAsync(clientConfig));
     }
 
     /// <summary>
@@ -197,15 +201,86 @@ public partial class TrayViewModel : ObservableObject
         // Render delegates are registered once (RemotePlaybackHost), so this connects like the main window does.
         // When mDNS finds nothing (switches / VLANs often block it), fall back to the server saved in Settings,
         // not localhost (review 2026-10-13 E15).
-        var saved = ConfigurationManager.LoadClientConfiguration();
-        var address = string.IsNullOrWhiteSpace(saved.ServerAddress) ? "localhost" : saved.ServerAddress;
-        var port = saved.ServerPort > 0 ? saved.ServerPort : 50051;
-        _ = _service.DiscoverAndConnectAsync(address, port);
+        var (address, port) = SavedServer();
+        _ = ConnectAsync(address, port, discover: true, retry: false);
     }
+
+    private static (string Address, int Port) SavedServer()
+    {
+        var saved = ConfigurationManager.LoadClientConfiguration();
+        return (string.IsNullOrWhiteSpace(saved.ServerAddress) ? "localhost" : saved.ServerAddress,
+                saved.ServerPort > 0 ? saved.ServerPort : 50051);
+    }
+
+    /// <summary>
+    /// Startup: an app restarted by an update connects back to the server it was on; otherwise AutoConnect (Settings)
+    /// connects. Both keep retrying until the server answers, so a seat booted before the server still joins.
+    /// </summary>
+    private Task AutoConnectOnStartupAsync(ClientConfiguration config)
+    {
+        var resume = config.ReconnectAfterUpdate;
+        if (resume.Length > 0)
+        {
+            ConfigurationManager.UpdateClientConfiguration(c => c.ReconnectAfterUpdate = string.Empty);
+            int colon = resume.LastIndexOf(':');
+            if (colon > 0 && int.TryParse(resume[(colon + 1)..], out var resumePort))
+                return ConnectAsync(resume[..colon], resumePort, discover: false, retry: true);
+        }
+        if (!config.AutoConnect) return Task.CompletedTask;
+        var (address, port) = SavedServer();
+        return ConnectAsync(address, port, discover: true, retry: true);
+    }
+
+    // Bumped by every connect and Disconnect (UI thread): a newer one ends an older retry loop.
+    private int _connectAttempt;
+
+    /// <summary>Connect and say in the tray how it went; <paramref name="retry"/>: back off and retry until connected.</summary>
+    private async Task ConnectAsync(string address, int port, bool discover, bool retry)
+    {
+        int attempt = ++_connectAttempt;
+        var backoff = new ReconnectBackoff();
+        while (true)
+        {
+            ConnectStatus = "Connecting…";
+            bool connected;
+            try
+            {
+                connected = discover
+                    ? await _service.DiscoverAndConnectAsync(address, port)
+                    : await _service.ConnectToServerAsync(address, port);
+            }
+            catch (Exception ex)
+            {
+                // Everything: an exception escaping this fire-and-forget click would go unobserved.
+                AppLogger.CreateLogger<TrayViewModel>().LogWarning(ex, "Connect to {Address}:{Port} failed", address, port);
+                connected = false;
+            }
+            if (attempt != _connectAttempt) return;
+            if (connected) { ConnectStatus = null; return; }
+
+            var reason = _service.LastConnectError ?? $"{address}:{port}: could not connect";
+            if (!retry) { ConnectStatus = $"⚠ Connect failed: {reason}"; return; }
+            var delay = backoff.NextDelay();
+            ConnectStatus = $"⚠ {reason} (retry in {delay.TotalSeconds:0} s)";
+            await Task.Delay(delay);
+            if (attempt != _connectAttempt || _service.IsClientConnected) return;
+        }
+    }
+
+    /// <summary>The last connect's outcome (menu line under "Connect to Server..." and the icon's tooltip); null = nothing to say.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasConnectStatus), nameof(TrayToolTip))]
+    private string? _connectStatus;
+
+    public bool HasConnectStatus => ConnectStatus != null;
+    // Windows cuts tray tooltips at 127 characters.
+    public string TrayToolTip => ConnectStatus == null ? "WaBiBaBuSy - Wallpaper Sync" : Shorten($"WaBiBaBuSy - {ConnectStatus}");
 
     [RelayCommand]
     private async Task Disconnect()
     {
+        _connectAttempt++;
+        ConnectStatus = null;
         try
         {
             await _service.DisconnectFromServerAsync();
@@ -336,6 +411,8 @@ public partial class TrayViewModel : ObservableObject
     private void OnClientConnectionStatusChanged(object? sender, Core.Services.Networking.ConnectionStatusChangedEventArgs e)
     {
         IsClientConnected = e.IsConnected;
+        // A connect from the control panel (or the client's own reconnect) clears a stale failure line too.
+        if (e.IsConnected) Dispatcher.UIThread.Post(() => ConnectStatus = null);
     }
 
     // ── Presets / Quick start ─────────────────────────────────────────────
