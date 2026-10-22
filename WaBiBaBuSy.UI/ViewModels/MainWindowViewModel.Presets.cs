@@ -25,7 +25,7 @@ public partial class MainWindowViewModel
     /// <summary>Editor "Presets ▾": one entry per preset, loads it into the editor.</summary>
     public ObservableCollection<PresetMenuEntry> ScenePresets { get; } = new();
 
-    /// <summary>Layers strip "▾ → Add layers from scene preset": one entry per scene preset, appends its layers on top.</summary>
+    /// <summary>Layers strip "▾ → Add from scene preset": one entry per scene preset, appends its layers (+ picture background).</summary>
     public ObservableCollection<PresetMenuEntry> SceneLayerPresets { get; } = new();
 
     /// <summary>Layers strip "▾ → Add layer preset": the saved layer presets (presets\layers\).</summary>
@@ -103,39 +103,37 @@ public partial class MainWindowViewModel
     }
 
     /// <summary>
-    /// Put a scene or layer preset's layers (not its background) on top of the draft's stack. A draft without any
-    /// sprite swaps its empty placeholder layer for the preset's layers and keeps its background (e.g. a Panorama);
-    /// a draft with a plain background also takes the preset's picture background.
+    /// Put a scene or layer preset's layers on top of the draft's stack; a preset with a picture background (e.g. a
+    /// Panorama) also sets the draft's background, any other background is kept. A draft without any sprite swaps its
+    /// empty placeholder layer for the preset's layers.
     /// </summary>
     private async Task AddPresetLayersAsync(PresetStore store, string name)
     {
-        var draft = SceneEditor.BuildConfig();
-        if (draft.Layers.All(l => string.IsNullOrEmpty(l.Animation.AnimationPath)))
-        {
-            try
-            {
-                var preset = await store.LoadAsync(name);
-                if (preset.Layers.Count > 0) draft.Layers = preset.Layers;
-                if (!draft.Background.UsesImage && preset.Background.UsesImage) draft.Background = preset.Background;
-                LoadDraft(draft);
-                PresetStatus = $"Added layers from “{name}”";
-            }
-            catch (Exception ex)
-            {
-                LogPresetFailure(ex);
-                PresetStatus = $"Could not load “{name}”: {ex.Message}";
-            }
-            return;
-        }
         try
         {
             var preset = await store.LoadAsync(name);
+            var draft = SceneEditor.BuildConfig();
+            bool takeBackground = preset.Background.UsesImage;
+            if (draft.Layers.All(l => string.IsNullOrEmpty(l.Animation.AnimationPath)))
+            {
+                if (preset.Layers.Count > 0) draft.Layers = preset.Layers;
+                if (takeBackground) draft.Background = preset.Background;
+                LoadDraft(draft);
+                PresetStatus = takeBackground ? $"Loaded “{name}” (background + layers)" : $"Added layers from “{name}”";
+                return;
+            }
             int added = SceneEditor.AppendLayers(preset.Layers);
-            PresetStatus = added == 0 ? $"No room for more layers (max {Models.Wallpaper.SceneChecks.MaxLayers})"
+            if (takeBackground)
+            {
+                draft = SceneEditor.BuildConfig();
+                draft.Background = preset.Background;
+                LoadDraft(draft);
+            }
+            PresetStatus = preset.Layers.Count == 0 ? $"Background from “{name}”"
+                : added == 0 ? $"No room for more layers (max {Models.Wallpaper.SceneChecks.MaxLayers})"
                 : added < preset.Layers.Count ? $"Added {added} of {preset.Layers.Count} layers from “{name}” (max {Models.Wallpaper.SceneChecks.MaxLayers})"
                 : $"Added {added} layer{(added == 1 ? "" : "s")} from “{name}”";
-            if (added > 0 && preset.Background.UsesImage)
-                PresetStatus += " — background kept, Presets ▾ loads it with its picture";
+            if (takeBackground && preset.Layers.Count > 0) PresetStatus += " + its background";
         }
         catch (Exception ex)
         {

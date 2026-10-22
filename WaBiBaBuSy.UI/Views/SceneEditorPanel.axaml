@@ -236,7 +236,7 @@
                                         </ControlTheme>
                                     </MenuItem.ItemContainerTheme>
                                 </MenuItem>
-                                <MenuItem Header="Add layers from scene preset" IsEnabled="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).HasPresets}"
+                                <MenuItem Header="Add from scene preset" ToolTip.Tip="Its layers on top; a picture background (e.g. Panorama) replaces this scene's" IsEnabled="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).HasPresets}"
                                           ItemsSource="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).SceneLayerPresets}">
                                     <MenuItem.ItemContainerTheme>
                                         <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}" x:DataType="vm:PresetMenuEntry">
