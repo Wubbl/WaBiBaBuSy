@@ -256,6 +256,7 @@
                                                SpriteImageResolver="{Binding SpriteImageResolver}"
                                                ActiveLayout="{Binding RoomLayout}"
                                                ShowEvents="{Binding RoomShowEvents}"
+                                               Agenda="{Binding RoomAgenda}"
                                                IsClockPaused="{Binding PreviewPaused}"
                                                ClockSpeed="{Binding PreviewClockSpeed}"
                                                ClockRestartToken="{Binding PreviewRestartToken}"/>
@@ -292,15 +293,15 @@
                                 <TextBlock Text="To" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"/>
                                 <ComboBox ItemsSource="{Binding Events.Targets}" SelectedItem="{Binding Events.SelectedTarget}"
                                           MinWidth="130" FontSize="11" Margin="0,0,10,0"
-                                          ToolTip.Tip="Who sees the events: everyone, every seat with a tag (right-click a node → Tags…), or one seat. With nothing playing, the seats go black for the event and back afterwards."/>
-                                <Button Content="★ Spotlight" Command="{Binding Events.SpotlightCommand}" Padding="8,3" FontSize="11" Margin="0,0,4,0"
-                                        ToolTip.Tip="Spotlight the picked seat: its border pulses, every other seat dims and points to it (Ctrl+Alt+1)"/>
-                                <ComboBox ItemsSource="{Binding Events.Seats}" SelectedItem="{Binding Events.SelectedSeat}"
-                                          MinWidth="140" FontSize="11" Margin="0,0,10,0" ToolTip.Tip="Spotlight target (the selected node in the room)"/>
+                                          ToolTip.Tip="Who sees the events: everyone, every seat with a tag (right-click a node → Tags…), or one seat. With nothing playing, the seats show their own Windows wallpaper under the event and go back afterwards."/>
+                                <Button Content="{Binding Events.SpotlightLabel}" Command="{Binding Events.SpotlightCommand}" Padding="8,3" FontSize="11" Margin="0,0,10,0"
+                                        ToolTip.ShowOnDisabled="True"
+                                        ToolTip.Tip="Spotlight the node selected in the room: its border pulses, every other seat dims and points to it (Ctrl+Alt+1: the last spotlighted seat). Select a node to enable."/>
                                 <Button Content="✦ Celebration" Command="{Binding Events.CelebrationCommand}" Padding="8,3" FontSize="11" Margin="0,0,4,0"
                                         ToolTip.Tip="Confetti burst over the whole room (Ctrl+Alt+2)"/>
                                 <Button Content="↻ Traversal" Command="{Binding Events.TraversalCommand}" Padding="8,3" FontSize="11" Margin="0,0,2,0"
-                                        ToolTip.Tip="The image runs around the room exactly once (Ctrl+Alt+3)"/>
+                                        ToolTip.ShowOnDisabled="True"
+                                        ToolTip.Tip="The image runs around the room exactly once (Ctrl+Alt+3). Needs a picked image, or a running scene whose sprite is a picture."/>
                                 <Button Content="{Binding Events.TraversalImageName}" Command="{Binding Events.PickTraversalImageCommand}"
                                         Padding="6,3" FontSize="10" Margin="0,0,2,0" ToolTip.Tip="Pick the traversal image (default: the scene's sprite)"/>
                                 <Button Content="✕" Command="{Binding Events.ClearTraversalImageCommand}" Padding="4,3" FontSize="10" Margin="0,0,10,0"
@@ -312,6 +313,23 @@
                                         ToolTip.Tip="The text runs around the room once (Ctrl+Alt+5)"/>
                                 <Button Content="# Identify" Command="{Binding Events.IdentifyCommand}" Padding="8,3" FontSize="11" Margin="10,0,0,0"
                                         ToolTip.Tip="Every seat shows its seat number and machine name for 10 s — for sorting the room"/>
+                                <Button Content="{Binding Events.BiBaBoLabel}" Command="{Binding Events.BiBaBoCommand}" Padding="8,3" FontSize="11" Margin="10,0,0,0"
+                                        ToolTip.Tip="BiBaBo: a bomb lands on a random free seat, cables run to riddles across the room — click the live cable at the bomb before the time runs out (Ctrl+Alt+B). Click again to abort."/>
+                                <ComboBox SelectedIndex="{Binding Events.BiBaBoTimerIndex}" FontSize="11" Margin="4,0,0,0"
+                                          ToolTip.Tip="BiBaBo: time on the clock (the hotkey uses it too)">
+                                    <ComboBoxItem Content="⏱ 1:00"/>
+                                    <ComboBoxItem Content="⏱ 2:00"/>
+                                    <ComboBoxItem Content="⏱ 3:00"/>
+                                    <ComboBoxItem Content="⏱ 5:00"/>
+                                    <ComboBoxItem Content="⏱ 7:00"/>
+                                    <ComboBoxItem Content="⏱ 10:00"/>
+                                </ComboBox>
+                                <ComboBox SelectedIndex="{Binding Events.BiBaBoRiddlesIndex}" FontSize="11" Margin="4,0,0,0"
+                                          ToolTip.Tip="BiBaBo: cables and riddle cards (red, green, blue, then yellow and purple)">
+                                    <ComboBoxItem Content="3 riddles"/>
+                                    <ComboBoxItem Content="4 riddles"/>
+                                    <ComboBoxItem Content="5 riddles"/>
+                                </ComboBox>
                                 <CheckBox Content="Hotkeys (Ctrl+Alt+1..5)" IsChecked="{Binding Events.HotkeysEnabled}"
                                           FontSize="11" Margin="10,0,0,0" VerticalAlignment="Center"
                                           ToolTip.Tip="Global hotkeys while the server runs: Ctrl+Alt+1 Spotlight … 5 Announce. On German / Austrian keyboards Ctrl+Alt+digit is AltGr+digit (², ³ …) — switch off to keep those keys for typing."/>
@@ -373,22 +391,49 @@
 
             <!-- Splitter -->
             <GridSplitter Grid.Column="1" Name="PanelSplitter" Background="#3E3E42"/>
+            <!-- Collapse handle on the splitter (overhangs it a little on both sides) -->
+            <Button Grid.Column="1" Content="›" Command="{Binding ToggleRightPanelCommand}" IsVisible="{Binding IsRightPanelOpen}"
+                    Width="16" Height="56" Margin="-5,0" Padding="0" ZIndex="1" FontSize="14" CornerRadius="4"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                    ToolTip.Tip="Collapse the panel (the room then shows the live scene)"/>
 
             <!-- Right panel: [Scene | Playlist], collapsible to a thin rail. Files dropped here join the gallery. -->
             <Border Grid.Column="2" Background="#1E1E1E" DragDrop.AllowDrop="True">
                 <Panel>
                     <Grid IsVisible="{Binding IsRightPanelOpen}" Margin="10,4,10,10">
                         <TabControl SelectedIndex="{Binding RightPanelTabIndex}" Padding="0">
-                            <TabItem Header="Scene" FontSize="15">
+                            <TabItem Name="SceneTab" Header="Scene" FontSize="15">
                                 <views:SceneEditorPanel/>
                             </TabItem>
                             <TabItem Header="Playlist" FontSize="15">
                                 <views:PlaylistPanel DataContext="{Binding PlaylistEditor}"/>
                             </TabItem>
+                            <TabItem Header="Agenda" FontSize="15">
+                                <views:AgendaPanel DataContext="{Binding Agenda}"/>
+                            </TabItem>
                         </TabControl>
-                        <Button Content="⟩" Command="{Binding ToggleRightPanelCommand}"
-                                HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,0,0" Padding="8,2"
-                                ToolTip.Tip="Collapse the panel (the room then shows the live scene)"/>
+                        <!-- Gallery actions of the Scene tab, in the tab header row -->
+                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,0,0"
+                                    IsVisible="{Binding #SceneTab.IsSelected}">
+                            <Button Content="Get content ▾" ToolTip.Tip="Where to find or make small animated content (opens your browser)">
+                                <Button.Flyout>
+                                    <MenuFlyout ItemsSource="{Binding ContentMenuEntries}">
+                                        <MenuFlyout.ItemContainerTheme>
+                                            <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}" x:DataType="vm:ContentMenuEntry">
+                                                <Setter Property="Header" Value="{Binding Header}"/>
+                                                <Setter Property="Command" Value="{Binding Command}"/>
+                                                <Setter Property="CommandParameter" Value="{Binding Header}"/>
+                                                <Setter Property="IsEnabled" Value="{Binding IsLink}"/>
+                                                <Setter Property="ToolTip.Tip" Value="{Binding Tip}"/>
+                                            </ControlTheme>
+                                        </MenuFlyout.ItemContainerTheme>
+                                    </MenuFlyout>
+                                </Button.Flyout>
+                            </Button>
+                            <Button Content="+ Add" Command="{Binding AddWallpaperCommand}"
+                                    ToolTip.Tip="Add files to the gallery (or drop files onto this panel)"/>
+                        </StackPanel>
                     </Grid>
                     <Button IsVisible="{Binding !IsRightPanelOpen}" Content="⟨" Command="{Binding ToggleRightPanelCommand}"
                             HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,8,0,0" Padding="6,4"

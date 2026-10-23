@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.Input;
@@ -27,8 +28,7 @@ public partial class MainWindowViewModel
         PlaylistEditor.CaptureDraft = () => SceneEditor.BuildConfig();
         PlaylistEditor.LoadIntoEditor = LoadDraft;
         PlaylistEditor.BuildFromFolder = AddPlaylistFromFolderAsync;
-        PlaylistEditor.ThumbnailProvider = path =>
-            Wallpapers.FirstOrDefault(w => string.Equals(w.FilePath, path, StringComparison.OrdinalIgnoreCase))?.Thumbnail;
+        PlaylistEditor.ThumbnailProvider = PlaylistThumbnailAsync;
         PlaylistEditor.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(PlaylistViewModel.HasLoadedItem))
@@ -49,6 +49,23 @@ public partial class MainWindowViewModel
         {
             _ = PlaylistEditor.InitializeAsync();
         }
+    }
+
+    private const int PlaylistThumbnailWidth = 192;
+
+    /// <summary>Playlist row thumbnail: the gallery's, else a video frame (cached generator), else the file decoded small.</summary>
+    private async Task<Bitmap?> PlaylistThumbnailAsync(string path)
+    {
+        var gallery = Wallpapers.FirstOrDefault(w => string.Equals(w.FilePath, path, StringComparison.OrdinalIgnoreCase))?.Thumbnail;
+        if (gallery != null) return gallery;
+        if (!File.Exists(path)) return null;
+        if (SceneChecks.IsVideo(path))
+            return await _thumbnailGenerator.GenerateThumbnail(path) is { } jpg ? new Bitmap(jpg) : null;
+        return await Task.Run(() =>
+        {
+            using var stream = File.OpenRead(path);
+            return Bitmap.DecodeToWidth(stream, PlaylistThumbnailWidth);
+        });
     }
 
     /// <summary>True while a show or a manual scene is running (shows the toolbar ■).</summary>

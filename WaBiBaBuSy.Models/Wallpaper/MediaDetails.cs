@@ -11,9 +11,9 @@ namespace WaBiBaBuSy.Models.Wallpaper;
 public static class MediaDetails
 {
     /// <summary>
-    /// GIF frame delay as the D2D player plays it: 0 (or negative) = 10 ms, capped at 1000 ms.
+    /// GIF frame delay as the D2D player plays it: 0 (or negative) = 10 ms, no upper cap.
     /// </summary>
-    public static int NormalizeGifDelayMs(int delayMs) => delayMs <= 0 ? 10 : Math.Min(delayMs, 1000);
+    public static int NormalizeGifDelayMs(int delayMs) => delayMs <= 0 ? 10 : delayMs;
 
     /// <summary>
     /// Compact length: "2.4 s" under 10 s, "12 s" under a minute, then "m:ss" / "h:mm:ss".

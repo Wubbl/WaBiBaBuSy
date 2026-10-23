@@ -33,8 +33,16 @@ public partial class PlaylistViewModel : ViewModelBase
     /// <summary>Host callback: load a scene into the Scene editor as the draft.</summary>
     public Action<CrossScreenConfig>? LoadIntoEditor { get; set; }
 
-    /// <summary>Host callback: gallery thumbnail for a content path, or null.</summary>
-    public Func<string, Bitmap?>? ThumbnailProvider { get; set; }
+    /// <summary>Host callback: thumbnail for a content path (gallery, else decoded from the file), or null.</summary>
+    public Func<string, Task<Bitmap?>>? ThumbnailProvider { get; set; }
+
+    private async Task LoadThumbnailAsync(PlaylistItemRow row)
+    {
+        var path = row.ThumbnailSource;
+        if (ThumbnailProvider == null || string.IsNullOrEmpty(path)) { row.Thumbnail = null; return; }
+        try { row.Thumbnail = await ThumbnailProvider(path); }
+        catch (Exception ex) { Debug.WriteLine($"[Playlist] Thumbnail for '{path}' failed: {ex.Message}"); }
+    }
 
     /// <summary>Host callback: start rotating the given playlist.</summary>
     public Action<Playlist>? StartShow { get; set; }
@@ -115,7 +123,7 @@ public partial class PlaylistViewModel : ViewModelBase
         foreach (var row in e.NewItems?.OfType<PlaylistItemRow>() ?? Enumerable.Empty<PlaylistItemRow>())
         {
             row.PlaylistDefaultDurationMs = DefaultDurationMs;
-            row.Thumbnail ??= ThumbnailProvider?.Invoke(row.Model.Config.FirstLayer?.Animation.AnimationPath ?? string.Empty);
+            if (row.Thumbnail == null) _ = LoadThumbnailAsync(row);
             row.PropertyChanged += OnRowPropertyChanged;
         }
         foreach (var row in e.OldItems?.OfType<PlaylistItemRow>() ?? Enumerable.Empty<PlaylistItemRow>())
@@ -305,7 +313,7 @@ public partial class PlaylistViewModel : ViewModelBase
         if (LoadedItem == null) return;
         config.SelectedMonitorIds = LoadedItem.Model.Config.SelectedMonitorIds;
         LoadedItem.ReplaceConfig(config);
-        LoadedItem.Thumbnail = ThumbnailProvider?.Invoke(config.FirstLayer?.Animation.AnimationPath ?? string.Empty);
+        _ = LoadThumbnailAsync(LoadedItem);
     }
 
     [RelayCommand]

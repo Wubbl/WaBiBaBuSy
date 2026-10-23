@@ -6,7 +6,8 @@ namespace WaBiBaBuSy.Models.Show;
 /// <remarks>System.Text.Json writes the name, so an old client that does not know a newer type fails to parse it and ignores the event.</remarks>
 [JsonConverter(typeof(JsonStringEnumConverter))]
 /// <remarks>Identify: every seat shows its own seat number (<c>NodeLayout.Order</c> + 1) and machine name, for setting up the room.</remarks>
-public enum ShowEventType { Spotlight, Celebration, Traversal, Blackout, Announce, Identify }
+/// <remarks>Bomb / BombOutcome: the BiBaBo mini-game (design 2026-10-21-bibabo-bomb-game-design.md), payload in <see cref="ShowEvent.Bomb"/>.</remarks>
+public enum ShowEventType { Spotlight, Celebration, Traversal, Blackout, Announce, Identify, Bomb, BombOutcome, BombStep }
 
 /// <summary>
 /// One one-shot moment drawn by every seat above the scene from <see cref="T0Utc"/> for <see cref="DurationMs"/>.
@@ -43,9 +44,12 @@ public sealed class ShowEvent
     /// <summary>Identify: label per node id ("3  GAMING-PC"), numbered over the whole room by the server.</summary>
     public Dictionary<string, string>? Labels { get; set; }
 
+    /// <summary>Bomb / BombOutcome: the game (geometry, riddles, outcome). Never holds the live cable.</summary>
+    public BombGame? Bomb { get; set; }
+
     /// <summary>True when the seat <paramref name="nodeId"/> draws this event.</summary>
     public bool IsFor(string nodeId) => TargetNodeIds == null || TargetNodeIds.Contains(nodeId);
 
-    /// <summary>Shallow copy (all members are values or immutable strings).</summary>
+    /// <summary>Shallow copy: lists, labels and <see cref="Bomb"/> are shared — treat them as read-only after firing.</summary>
     public ShowEvent Clone() => (ShowEvent)MemberwiseClone();
 }

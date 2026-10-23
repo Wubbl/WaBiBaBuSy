@@ -47,6 +47,15 @@ class Program
         Log($"  Version: {GetVersion()}");
         Log("=================================================");
         Log("");
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => Log($"FATAL ERROR: {e.ExceptionObject}");
+
+        Log($"Arguments: {string.Join(" | ", args)}");
+        var repaired = LegacyArgs.Repair(args);
+        if (!ReferenceEquals(repaired, args))
+        {
+            Log($"Repaired arguments of a pre-2.7 client: {string.Join(" | ", repaired)}");
+            args = repaired;
+        }
 
         // Define command-line options
         var updateDirOption = new Option<string>("--update-dir")
@@ -104,7 +113,10 @@ class Program
             return await PerformUpdateAsync(updateDir, installDir, backupDir, processId, force, noLaunch);
         });
 
-        return await rootCommand.Parse(args).InvokeAsync();
+        // Parse errors only reach the console, which closes at once — log them
+        var parseResult = rootCommand.Parse(args);
+        foreach (var error in parseResult.Errors) Log($"ARGUMENT ERROR: {error.Message}");
+        return await parseResult.InvokeAsync();
     }
 
     /// <summary>

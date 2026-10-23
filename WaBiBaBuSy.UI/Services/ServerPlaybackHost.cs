@@ -12,6 +12,7 @@ using WaBiBaBuSy.Core.Interfaces;
 using WaBiBaBuSy.Core.Services;
 using WaBiBaBuSy.Core.Services.Animation;
 using WaBiBaBuSy.Core.Services.Logging;
+using WaBiBaBuSy.Core.Services.Show;
 using WaBiBaBuSy.Core.Services.Testing;
 using WaBiBaBuSy.Models;
 using WaBiBaBuSy.Models.Configuration;
@@ -57,9 +58,11 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     private readonly RetiringPlayers _retiring = new();
     // Thumbnail capture per monitor for the room's live tiles
     private readonly ConcurrentDictionary<int, ThumbnailCaptureService> _thumbnailCaptureServices = new();
-    // Hides the players while a fullscreen app runs (created and started with the first local player)
+    // Pauses the players of a monitor a fullscreen app covers (created and started with the first local player)
     private FullscreenDetectionService? _fullscreenDetection;
-    private bool _wallpaperPausedByFullscreen;
+    private volatile bool _pauseOnlyFullscreenMonitor;
+    // Legacy renderers paused by the detection loop (its thread only; Stop clears it once the loop is gone)
+    private readonly HashSet<IWallpaperRenderer> _pausedRenderers = new();
     private PlaylistOrchestrator? _playlistOrchestrator;
     private string? _crossScreenContentId;         // ContentId sent to remote clients at start (used for stop)
 
@@ -119,15 +122,15 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     public event Action<ShowEvent>? EventFired;
 
     /// <summary>
-    /// Events fire with or without a scene: with none playing, a black stand-in scene runs on the target seats for
-    /// the event and stops after it. Only a scene start in flight blocks them.
+    /// Events fire with or without a scene: with none playing, a stand-in scene (each seat's own Windows wallpaper)
+    /// runs on the target seats for the event and stops after it. Only a scene start in flight blocks them.
     /// </summary>
     public bool CanFireEvents => !IsStartingScene;
 
     /// <summary>Tags per node ("BiBaBu", "Guests"): event targets. App-lifetime, persisted in tags.json.</summary>
     public NodeTagStore Tags { get; } = NodeTagStore.Load();
 
-    // The black stand-in scene of an event fired while nothing played, and when its last event ends (UTC ms).
+    // The stand-in scene of an event fired while nothing played, and when its last event ends (UTC ms).
     private CrossScreenConfig? _idleScene;
     private long _idleUntilUtcMs;
 
@@ -150,7 +153,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
 
     partial void OnIsStartingSceneChanged(bool value) => OnPropertyChanged(nameof(CanFireEvents));
 
-    /// <summary>True while the black stand-in scene of an event plays.</summary>
+    /// <summary>True while the stand-in scene of an event plays.</summary>
     public bool IsIdleScenePlaying => _idleScene != null && ReferenceEquals(ActiveScene, _idleScene);
 
     /// <summary>The debug overlay switches last sent to the players.</summary>
@@ -173,7 +176,197 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         _service = service;
         _desktopManager = desktopManager;
         _remotePlayback = remotePlayback;
+        _agenda = new AgendaDisplay(desktopManager, m => new[] { NodeIds.ServerLocalPrefix + m, NodeIds.LocalMachinePrefix + m });
+        _service.AgendaProvider = () => CurrentAgenda;
+        _bombGame = new BombGameService(UtcNowMs,
+            e => Dispatcher.UIThread.InvokeAsync(() => e.Type == ShowEventType.BombStep ? DispatchEventAsync(e) : DispatchBombOutcomeAsync(e)),
+            () => SyncTiming.ComputeStartLeadMs(_activeMaxRttMs, 0));
+        _service.ShowActionHandler = r => _bombGame.OnActionAsync(r.ClientId, r.EventId, r.Action, r.Cable);
+        _agenda.StandInsChanged += OnAgendaStandInsChanged;
+        _remotePlayback.AgendaStandInsChanged += OnAgendaStandInsChanged;
+        if (AgendaDocument.Enabled) _ = PublishAgendaAsync();
     }
+
+    /// <summary>Stand-ins render for hours: fullscreen detection runs while any exist (and hides them under games).</summary>
+    private void OnAgendaStandInsChanged() => Dispatcher.UIThread.Post(() =>
+    {
+        if (_agenda.HasStandIns || _remotePlayback.HasAgendaStandIns) StartFullscreenDetectionIfNeeded();
+        else StopFullscreenDetectionIfIdle();
+    });
+
+    // Connected to another server as a client: that server's agenda shows (RemotePlaybackHost), not this machine's own.
+    private bool _clientMode;
+
+    /// <summary>The tray's client connection changed: hide this machine's own agenda while it is a client, restore it after.</summary>
+    public Task SetClientModeAsync(bool connected)
+    {
+        _clientMode = connected;
+        return _agenda.SetAsync(connected ? null : CurrentAgenda, _players, reconcile: !IsStartingScene);
+    }
+
+    // ── BiBaBo (bomb-defuse mini-game, design 2026-10-21-bibabo-bomb-game-design.md) ─────
+
+    private readonly BombGameService _bombGame;
+    private DispatcherTimer? _bombTicker;
+    private BombInputWatcher? _bombInput;   // this machine's own seats
+
+    private static long UtcNowMs() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+    /// <summary>True while a BiBaBo game runs (the Events strip button reads "Abort").</summary>
+    [ObservableProperty]
+    private bool _isBiBaBoRunning;
+
+    /// <summary>The referee (BombInputWatcher on this machine's own seats reports to it).</summary>
+    internal BombGameService BombGame => _bombGame;
+
+    /// <summary>
+    /// Start BiBaBo on <paramref name="targetNodeIds"/> (null = every seat), or abort the running game. Like an event fired
+    /// while nothing plays, an idle room gets the stand-in scene. Busy seats are skipped. UI thread.
+    /// </summary>
+    public async Task<bool> ToggleBiBaBoAsync(IReadOnlyList<string>? targetNodeIds)
+    {
+        if (_bombGame.IsRunning)
+        {
+            await _bombGame.AbortAsync();
+            return true;
+        }
+        if (targetNodeIds is { Count: 0 })
+        {
+            EventStatusText = "No seat carries that tag.";
+            return false;
+        }
+        var layout = ActiveLayout;
+        if (ActiveScene == null || layout == null)
+        {
+            if (!await StartIdleSceneAsync(targetNodeIds)) return false;
+            layout = ActiveLayout;
+            if (layout == null) return false;
+        }
+
+        string id = Guid.NewGuid().ToString("N");
+        _localBusy = MonitorBusyProbe.BusyMonitors();
+        var (game, solution) = BombGameFactory.Create(new BombGameRequest(layout, targetNodeIds, IsSeatBusy, Random.Shared.Next(), id,
+            TimerMs: Math.Clamp(EventSettings.BiBaBoTimerMs, 30_000, 600_000), Riddles: EventSettings.BiBaBoRiddles), out var error);
+        if (game == null)
+        {
+            EventStatusText = $"BiBaBo: {error}";
+            if (IsIdleScenePlaying && _idleUntilUtcMs == 0) await StopAsync();   // the stand-in started for nothing
+            return false;
+        }
+        foreach (var cable in game.Cables)
+            if (cable.Riddle is { Kind: RiddleKind.Math, Formula: { } formula })
+                cable.Riddle.FormulaAspect = TextSprite.MeasureAspect(formula);
+
+        (string? logoPath, game.LogoTimerBox) = BombLogo.Resolve();
+        var evt = new ShowEvent
+        {
+            EventId = id,
+            Type = ShowEventType.Bomb,
+            T0Utc = UtcNowMs() + SyncTiming.ComputeStartLeadMs(_activeMaxRttMs, 0),
+            DurationMs = ShowEventMath.ClampDuration(game.IntroMs + game.TimerMs + 15_000),   // + time for the outcome to arrive
+            Seed = Random.Shared.Next(),
+            ColorHex = "#FF1744",
+            ImagePath = logoPath,
+            TargetNodeIds = targetNodeIds?.ToList(),
+            Bomb = game,
+        };
+        _bombGame.Begin(evt, solution!);
+        IsBiBaBoRunning = true;
+        if (NodeIds.IsLocalMonitor(game.BombNodeId) && layout.Get(game.BombNodeId) is { } bombNode)
+        {
+            _bombInput ??= new BombInputWatcher((gameId, action, cable) => _bombGame.OnActionAsync(BombSeats.ThisMachine, gameId, action, cable));
+            _bombInput.Start(evt, bombNode, NodeIds.MonitorIndex(game.BombNodeId));
+        }
+        await DispatchEventAsync(evt);
+        if (IsIdleScenePlaying) KeepIdleSceneUntil(evt);
+        _bombTicker ??= new DispatcherTimer(TimeSpan.FromMilliseconds(250), DispatcherPriority.Background, (_, _) => _ = _bombGame.TickAsync());
+        _bombTicker.Start();
+        EventStatusText = $"BiBaBo: the bomb is on {game.BombNodeId} — {BombMath.FormatTimer(game.TimerMs)} on the clock, {game.Cables.Count} riddles";
+        AppLogger.CreateLogger<ServerPlaybackHost>().LogDebug("BiBaBo {Id}: bomb on {Node}, {Mode}", id, game.BombNodeId, game.Mode);
+        return true;
+    }
+
+    /// <summary>The referee decided: show the outcome everywhere; an idle room goes back to its wallpaper after it.</summary>
+    private async Task DispatchBombOutcomeAsync(ShowEvent outcome)
+    {
+        _bombTicker?.Stop();
+        _bombInput?.Stop();
+        IsBiBaBoRunning = false;
+        await DispatchEventAsync(outcome);
+        if (IsIdleScenePlaying) _idleUntilUtcMs = outcome.T0Utc + ShowEventMath.ClampDuration(outcome.DurationMs) + 300;
+        EventStatusText = $"BiBaBo: {outcome.Bomb?.Result}";
+    }
+
+    /// <summary>
+    /// A window covers this seat's monitor (BiBaBo skips it): this machine's monitors are probed now, a client's come
+    /// from its last heartbeat (older than 10 s = unknown = free). A whole-machine node is busy when any monitor is.
+    /// </summary>
+    private bool IsSeatBusy(string nodeId)
+    {
+        if (NodeIds.IsLocalMonitor(nodeId))
+            return _localBusy?.Contains(NodeIds.MonitorIndex(nodeId)) == true;
+        string machine = BombSeats.MachineOf(nodeId);
+        var client = _service.GetConnectedClients().FirstOrDefault(c => c.ClientId == machine);
+        if (client == null) return true;   // a ghost seat (the machine dropped out): nobody would see a bomb or card there
+        if (UtcNowMs() - client.BusyReportUtc > 10_000 || client.BusyMonitorIndexes.Count == 0) return false;
+        var suffix = nodeId.Length > machine.Length ? nodeId[(machine.Length + "_MONITOR_".Length)..] : null;
+        return suffix != null && int.TryParse(suffix, out int monitor) ? client.BusyMonitorIndexes.Contains(monitor) : true;
+    }
+
+    // This machine's busy monitors, probed once per BiBaBo start.
+    private IReadOnlyList<int>? _localBusy;
+
+    // ── Agenda (room timetable overlay) ─────────────────────────────────────
+
+    /// <summary>The room agenda on this machine's monitors (stand-ins where no scene plays).</summary>
+    private readonly AgendaDisplay _agenda;
+
+    /// <summary>What the Agenda tab edits; persisted in agenda.json.</summary>
+    public AgendaDocument AgendaDocument { get; private set; } = AgendaStore.Load();
+
+    /// <summary>The agenda last published to this machine and the clients (null until one was); read from any thread.</summary>
+    [ObservableProperty]
+    private Agenda? _currentAgenda;
+
+    /// <summary>Save the edited agenda and publish it here and to every connected client. Call on the UI thread.</summary>
+    public async Task ApplyAgendaAsync(AgendaDocument doc)
+    {
+        AgendaDocument = doc;
+        try { AgendaStore.Save(doc); }
+        catch (Exception ex) { Debug.WriteLine($"[Agenda] Save failed: {ex.Message}"); }
+        await PublishAgendaAsync();
+    }
+
+    /// <summary>Switch the agenda on or off with everything else as it is (tray menu).</summary>
+    public Task SetAgendaEnabledAsync(bool enabled)
+    {
+        var d = AgendaDocument;
+        return ApplyAgendaAsync(new AgendaDocument
+        {
+            Enabled = enabled, Title = d.Title, ItemsText = d.ItemsText, NotesText = d.NotesText, FirstDay = d.FirstDay, Corner = d.Corner,
+        });
+    }
+
+    /// <summary>Re-publish the current document (seat tags changed: agenda screens may have moved).</summary>
+    public Task RefreshAgendaAsync() => CurrentAgenda == null ? Task.CompletedTask : PublishAgendaAsync();
+
+    private async Task PublishAgendaAsync()
+    {
+        try
+        {
+            var agenda = AgendaDocument.Build(TimeZoneInfo.Local, Tags.NodesWith("agenda"));
+            CurrentAgenda = agenda;
+            await _agenda.SetAsync(_clientMode ? null : agenda, _players, reconcile: !IsStartingScene);
+            if (_service.SyncCoordinator is { } coordinator) await coordinator.BroadcastAgendaAsync(agenda);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Agenda] Publish failed: {ex}");
+        }
+    }
+
+    /// <summary>After local players started or stopped: stand-ins on the monitors that have none.</summary>
+    private Task SyncAgendaAsync() => _agenda.ReconcileAsync(_players);
 
     /// <summary>True when any local player (D2D or LibVLC) or a scene is active.</summary>
     public bool HasActiveRenderer => !_players.IsEmpty || !_renderers.IsEmpty || IsCrossScreenRunning;
@@ -246,12 +439,17 @@ public sealed partial class ServerPlaybackHost : ObservableObject
 
     /// <summary>
     /// Fire a one-shot event on the seats <paramref name="targetNodeIds"/> (null = every seat): this machine's players
-    /// and the connected clients. With nothing playing, a black stand-in scene starts on those seats first and stops
+    /// and the connected clients. With nothing playing, a stand-in scene starts on those seats first and stops
     /// once the event ends. Refused (false, with <see cref="EventStatusText"/>) when the event is incomplete or no
     /// seat can show it. Call on the UI thread.
     /// </summary>
     public async Task<bool> FireEventAsync(ShowEventType type, string? targetSeatId = null, IReadOnlyList<string>? targetNodeIds = null)
     {
+        if (_bombGame.IsRunning)
+        {
+            EventStatusText = "BiBaBo is running — other events wait until it ends.";
+            return false;
+        }
         if (targetNodeIds is { Count: 0 })
         {
             EventStatusText = "No seat carries that tag.";
@@ -277,7 +475,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             var ext = Path.GetExtension(image).ToLowerInvariant();
             if (ext is not (".png" or ".gif" or ".jpg" or ".jpeg" or ".bmp"))
             {
-                EventStatusText = "The scene's sprite is a video — pick a traversal image in the Events strip.";
+                EventStatusText = "No picture to send around — pick a traversal image in the Events strip.";
                 return false;
             }
             aspect = EventImages.Aspect(image);
@@ -311,8 +509,9 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             .ToDictionary(n => n.Id, n => $"{n.Order}  {(string.IsNullOrWhiteSpace(n.Hostname) ? n.Id : n.Hostname)}");
 
     /// <summary>
-    /// Start the black stand-in scene on <paramref name="nodeIds"/> (null = the whole room) for an event fired while
-    /// nothing plays. Its background is a tiny black image so remote seats get it too (a scene without files is not sent).
+    /// Start the stand-in scene on <paramref name="nodeIds"/> (null = the whole room) for an event fired while nothing
+    /// plays: every player draws its own Windows wallpaper, so a seat looks unchanged until the event reaches it. The
+    /// tiny black image is the fallback and makes remote seats receive the scene (a scene without files is not sent).
     /// </summary>
     private async Task<bool> StartIdleSceneAsync(IReadOnlyList<string>? nodeIds)
     {
@@ -331,7 +530,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             EnsureRoom();
             var idle = new CrossScreenConfig
             {
-                Background = new BackgroundLayerConfig { Mode = BackgroundMode.StretchedImage, ImagePath = IdleImage.EnsurePath() },
+                Background = new BackgroundLayerConfig { Mode = BackgroundMode.StretchedImage, ImagePath = IdleImage.EnsurePath(), UseLocalDesktopWallpaper = true },
                 Layers = new List<SceneLayer>(),
                 SelectedMonitorIds = nodeIds?.ToList() ?? new List<string>(),
             };
@@ -351,7 +550,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         {
             _idleScene = null;
             Debug.WriteLine($"[Events] Stand-in scene failed: {ex}");
-            EventStatusText = $"Could not start the black stand-in scene: {ex.Message}";
+            EventStatusText = $"Could not start the event stand-in scene: {ex.Message}";
             return false;
         }
         finally
@@ -528,7 +727,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     /// <summary>Start <paramref name="config"/> as the manual scene (toolbar Start; no-op while one runs).</summary>
     public async Task StartSceneAsync(CrossScreenConfig config)
     {
-        if (IsIdleScenePlaying) await StopAsync();   // an event's black stand-in yields to a real scene
+        if (IsIdleScenePlaying) await StopAsync();   // an event's stand-in yields to a real scene
         if (IsCrossScreenRunning)
         {
             Debug.WriteLine("[CrossScreen] Already running");
@@ -559,6 +758,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         if (_playlistOrchestrator != null)
             await StopShowAsync();
 
+        if (_bombGame.IsRunning) await _bombGame.AbortAsync();   // Stop ends a running game quietly
+
         if (!IsCrossScreenRunning)
         {
             Debug.WriteLine("[CrossScreen] Not running");
@@ -579,6 +780,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             }
             _players.Clear();
             _lastGlobalLap = -1;
+            await SyncAgendaAsync();   // the agenda stays: stand-ins take over the now idle monitors
 
             // Send stop command to remote clients that were part of this session
             var stopped = ActiveScene ?? LastScene;   // the stand-in of an event is never LastScene
@@ -643,6 +845,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
                 catch (Exception ex) { Debug.WriteLine($"[ClearNodes] Remote stop {id}: {ex.Message}"); }
             }
         }
+        await SyncAgendaAsync();
         NodesStopped?.Invoke(nodeIds, true);
         OnPropertyChanged(nameof(HasActiveRenderer));
     }
@@ -655,6 +858,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         // Stop the playlist rotation loop first so it can't respawn D2D players after teardown.
         if (_playlistOrchestrator != null)
             await StopShowAsync();
+
+        if (_bombGame.IsRunning) await _bombGame.AbortAsync();
 
         // Stop cross-screen animation if running
         if (IsCrossScreenRunning)
@@ -690,6 +895,10 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         // Client mode: the server-driven players belong to the app-lifetime host; stop them properly first.
         await _remotePlayback.StopAllAsync();
 
+        // The kill below takes every player process, the agenda stand-ins too: stop them properly, restart them after.
+        await _agenda.StopAllAsync();
+        await _remotePlayback.StopAgendaStandInsAsync();
+
         // Finally, kill any lingering Player.D2D processes nothing tracks (crashes, debug sessions, stale state).
         int killed = PlayerProcesses.Kill(priorSessionOnly: false);
         if (killed > 0)
@@ -699,6 +908,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         IsCrossScreenRunning = false;
         ClearActiveScene();   // also when only a playlist ran (it never sets IsCrossScreenRunning)
         OnPropertyChanged(nameof(HasActiveRenderer));
+        await SyncAgendaAsync();                        // the agenda is not cleared: back on its stand-ins
+        await _remotePlayback.ReconcileAgendaAsync();
 
         Debug.WriteLine("[ClearAll] All wallpapers cleared");
     }
@@ -732,6 +943,9 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         foreach (var capture in _thumbnailCaptureServices.Values)
             capture.ClearWallpaperHwnd();
         _thumbnailCaptureServices.Clear();
+
+        await _agenda.StopAllAsync();
+        await _remotePlayback.StopAgendaStandInsAsync();
 
         _fullscreenDetection?.Stop();
     }
@@ -1001,6 +1215,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             await d2dService.StartAsync(startTimestampMs: 0, pixelsPerSecond: 0);
 
             _players[monitorIndex] = d2dService;
+            await _agenda.SendToAsync(monitorIndex, d2dService);
+            await SyncAgendaAsync();
             OnPropertyChanged(nameof(HasActiveRenderer));
             StartFullscreenDetectionIfNeeded();
             SetupThumbnailCapture(monitorIndex, d2dService.PlayerHwnd, name);
@@ -1052,15 +1268,18 @@ public sealed partial class ServerPlaybackHost : ObservableObject
 
     private void StartFullscreenDetectionIfNeeded()
     {
-        // Read when playback starts, so "Pause on fullscreen" set in Settings applies without an app restart.
+        if (_fullscreenDetection?.IsRunning == true) return;
+        // Read when detection starts, so the "Pause on fullscreen" settings apply without an app restart.
+        var config = ConfigurationManager.LoadClientConfiguration();
+        if (!config.PauseOnFullscreen) return;
+        _pauseOnlyFullscreenMonitor = config.PauseOnlyFullscreenMonitor;
         if (_fullscreenDetection == null)
         {
-            if (!ConfigurationManager.LoadClientConfiguration().PauseOnFullscreen) return;
-            _fullscreenDetection = new FullscreenDetectionService(AppLogger.CreateLogger<FullscreenDetectionService>());
-            _fullscreenDetection.FullscreenStateChanged += OnFullscreenStateChanged;
+            _fullscreenDetection = new FullscreenDetectionService(
+                AppLogger.CreateLogger<FullscreenDetectionService>(), MonitorBusyProbe.FullscreenMonitors);
+            _fullscreenDetection.FullscreenMonitorsChecked += OnFullscreenMonitorsChecked;
         }
-        if (!_fullscreenDetection.IsRunning)
-            _fullscreenDetection.Start();
+        _fullscreenDetection.Start();
     }
 
     private void StopFullscreenDetectionIfIdle()
@@ -1070,47 +1289,51 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         bool hasActiveWallpaper = !_players.IsEmpty
             || _remotePlayback.HasPlayers
             || !_renderers.IsEmpty
-            || IsCrossScreenRunning;
+            || IsCrossScreenRunning
+            || _agenda.HasStandIns
+            || _remotePlayback.HasAgendaStandIns;
 
         if (!hasActiveWallpaper)
         {
             _fullscreenDetection.Stop();
-            _wallpaperPausedByFullscreen = false;
+            _pausedRenderers.Clear();
             Debug.WriteLine("[Fullscreen] Detection stopped (no active wallpapers)");
         }
     }
 
-    private void OnFullscreenStateChanged(object? sender, FullscreenStateChangedEventArgs e)
+    /// <summary>
+    /// Every detection check (its loop thread): re-apply the pause to every player on this machine — scene players, the
+    /// remote-driven ones, agenda stand-ins. Players dedupe, so this only sends changes and also catches players started
+    /// since the last check. Networking is untouched: a paused seat stays connected and online.
+    /// </summary>
+    // ponytail: a player started mid-game renders until the next check (≤ 2 s, hidden behind the game anyway) and a
+    // retiring one is not paused (stopped ≤ 15 s later); pause at creation if that ever shows up in the numbers.
+    private void OnFullscreenMonitorsChecked(IReadOnlyList<int> fullscreen)
     {
-        if (e.IsFullscreen)
+        bool only = _pauseOnlyFullscreenMonitor;
+        bool Paused(int monitor) => BusyRule.IsPausedMonitor(monitor, fullscreen, only);
+        // Task.Run: Stop() raises the last check on the caller's (maybe UI) thread; blocking it on its own context would deadlock.
+        try { Task.Run(() => PauseMonitorsAsync(Paused)).GetAwaiter().GetResult(); }
+        catch (Exception ex) { Debug.WriteLine($"[Fullscreen] Pause update failed: {ex.Message}"); }
+    }
+
+    private async Task PauseMonitorsAsync(Func<int, bool> paused)
+    {
+        foreach (var (monitor, player) in _players)
+            await player.SetPausedAsync(paused(monitor));
+        await _agenda.PauseMonitorsAsync(paused);
+        await _remotePlayback.PauseMonitorsAsync(paused);
+
+        foreach (var (monitor, renderer) in _renderers)
         {
-            foreach (var kvp in _players)
-                kvp.Value.SetPlayersVisible(false);
-            _remotePlayback.SetPlayersVisible(false);
-
-            foreach (var kvp in _renderers)
+            bool pause = paused(monitor);
+            if (pause == _pausedRenderers.Contains(renderer)) continue;
+            try
             {
-                try { kvp.Value.PauseAsync().GetAwaiter().GetResult(); }
-                catch { /* best effort */ }
+                if (pause) { await renderer.PauseAsync(); _pausedRenderers.Add(renderer); }
+                else { await renderer.StartAsync(); _pausedRenderers.Remove(renderer); }
             }
-
-            _wallpaperPausedByFullscreen = true;
-            Debug.WriteLine($"[Fullscreen] Wallpaper hidden — fullscreen app: {e.ProcessName}");
-        }
-        else if (_wallpaperPausedByFullscreen)
-        {
-            foreach (var kvp in _players)
-                kvp.Value.SetPlayersVisible(true);
-            _remotePlayback.SetPlayersVisible(true);
-
-            foreach (var kvp in _renderers)
-            {
-                try { kvp.Value.StartAsync().GetAwaiter().GetResult(); }
-                catch { /* best effort */ }
-            }
-
-            _wallpaperPausedByFullscreen = false;
-            Debug.WriteLine("[Fullscreen] Wallpaper restored — fullscreen app closed");
+            catch { /* best effort */ }
         }
     }
 
@@ -1431,7 +1654,10 @@ public sealed partial class ServerPlaybackHost : ObservableObject
                 await d2dService.SendTransitionAsync(incoming: true, transitionWire, sharedStartTimestamp);   // before its start
                 await d2dService.StartAsync(startTimestampMs: sharedStartTimestamp, pixelsPerSecond: pixelsPerSecond);
                 _players[monitorIndex] = d2dService;
+                await _agenda.SendToAsync(monitorIndex, d2dService);
             }
+            // Stand-ins under the new players retire at the shared start (no blink, no teardown on the start path).
+            retiring.AddRange(_agenda.TakeStandIns(newServices.Select(s => s.monitorIndex)));
         }
         catch
         {
@@ -1515,6 +1741,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         ActiveLayout = layout;
         ActiveScene = config;
         OnPropertyChanged(nameof(HasActiveRenderer));   // a show item never sets IsCrossScreenRunning
+        _ = SyncAgendaAsync();   // after the remotes got their LOAD: stand-ins where this scene left a monitor
 
         return new CrossScreenApplyResult
         {
@@ -1542,6 +1769,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             try { await service.StopAsync(); } catch { /* never started */ }
             try { service.Dispose(); } catch (Exception ex) { Debug.WriteLine($"[CrossScreen] Dispose after failed apply: {ex.Message}"); }
         }
+        await SyncAgendaAsync();
     }
 
     /// <summary>

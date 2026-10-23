@@ -64,6 +64,9 @@ public partial class SettingsViewModel : ViewModelBase
     private bool _pauseOnFullscreen;
 
     [ObservableProperty]
+    private bool _pauseOnlyFullscreenMonitor;
+
+    [ObservableProperty]
     private bool _allowTestRuns;
 
     // ── Logging Settings ─────────────────────────────────────────────────────
@@ -144,6 +147,7 @@ public partial class SettingsViewModel : ViewModelBase
         MaxCacheSizeMB = clientConfig.MaxCacheSizeMB;
         HeartbeatIntervalSeconds = clientConfig.HeartbeatIntervalSeconds;
         PauseOnFullscreen = clientConfig.PauseOnFullscreen;
+        PauseOnlyFullscreenMonitor = clientConfig.PauseOnlyFullscreenMonitor;
         AllowTestRuns = clientConfig.AllowTestRuns;
 
         // Logging settings
@@ -196,6 +200,7 @@ public partial class SettingsViewModel : ViewModelBase
                 c.MaxCacheSizeMB = MaxCacheSizeMB;
                 c.HeartbeatIntervalSeconds = HeartbeatIntervalSeconds;
                 c.PauseOnFullscreen = PauseOnFullscreen;
+                c.PauseOnlyFullscreenMonitor = PauseOnlyFullscreenMonitor;
                 c.AllowTestRuns = AllowTestRuns;
             });
 

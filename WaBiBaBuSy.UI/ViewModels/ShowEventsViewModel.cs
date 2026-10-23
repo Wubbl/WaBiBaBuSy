@@ -13,7 +13,7 @@ using WaBiBaBuSy.UI.Services;
 
 namespace WaBiBaBuSy.UI.ViewModels;
 
-/// <summary>One seat in the Spotlight picker.</summary>
+/// <summary>A seat of the room: the Spotlight target (the node selected in the room view).</summary>
 public sealed record SeatChoice(string Id, string Label)
 {
     public override string ToString() => Label;
@@ -33,20 +33,34 @@ public partial class ShowEventsViewModel : ObservableObject
         _hotkeysEnabled = server.EventSettings.HotkeysEnabled;
     }
 
-    public ObservableCollection<SeatChoice> Seats { get; } = new();
+    // The room's seats, for labelling the room view's selection.
+    private IReadOnlyList<SeatChoice> _seats = Array.Empty<SeatChoice>();
 
     /// <summary>Who the event buttons fire for: Everyone, a tag, or one seat of the room.</summary>
     public ObservableCollection<EventTarget> Targets { get; } = new() { EventTarget.Everyone };
 
     [ObservableProperty] private EventTarget? _selectedTarget = EventTarget.Everyone;
 
-    [ObservableProperty] private SeatChoice? _selectedSeat;
+    /// <summary>The Spotlight target: the node selected in the room view (null = Spotlight disabled).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SpotlightLabel))]
+    [NotifyCanExecuteChangedFor(nameof(SpotlightCommand))]
+    private SeatChoice? _selectedSeat;
     [ObservableProperty] private string _announceText;
 
     /// <summary>Ctrl+Alt+1..5 fire events while the server runs (off frees AltGr+digit on German keyboards).</summary>
     [ObservableProperty] private bool _hotkeysEnabled;
 
     public bool CanFire => _server.CanFireEvents;
+
+    /// <summary>"★ Spotlight #2" for the selected node.</summary>
+    public string SpotlightLabel => SelectedSeat == null ? "★ Spotlight" : $"★ Spotlight {SelectedSeat.Label}";
+
+    private bool CanSpotlight => CanFire && SelectedSeat != null;
+
+    /// <summary>Traversal needs an image: the picked one, or the running scene's sprite when it is a picture.</summary>
+    private bool CanTraverse => CanFire && (!string.IsNullOrWhiteSpace(_server.EventSettings.TraversalImagePath)
+        || Path.GetExtension(_server.ActiveScene?.FirstLayer?.Animation.AnimationPath ?? "").ToLowerInvariant() is ".png" or ".gif" or ".jpg" or ".jpeg" or ".bmp");
     public string? StatusText => _server.EventStatusText;
 
     /// <summary>File name of the Traversal image, or the fallback.</summary>
@@ -56,17 +70,11 @@ public partial class ShowEventsViewModel : ObservableObject
 
     public void SetStorageProvider(IStorageProvider storageProvider) => _storageProvider = storageProvider;
 
-    /// <summary>
-    /// Seats of the running layout in traversal order; keeps the selection when it still exists. No-op when the
-    /// list is unchanged (same ids and labels in order), so a periodic refresh leaves the picker alone.
-    /// </summary>
+    /// <summary>The room's seats (id, "#2"-style label); keeps the Spotlight target's label current.</summary>
     public void RefreshSeats(IReadOnlyList<SeatChoice> seats)
     {
-        if (Seats.SequenceEqual(seats)) return;   // records: compares Id and Label
-        var keep = SelectedSeat?.Id ?? _server.EventSettings.LastTargetSeatId;
-        Seats.Clear();
-        foreach (var seat in seats) Seats.Add(seat);
-        SelectedSeat = Seats.FirstOrDefault(s => s.Id == keep) ?? Seats.FirstOrDefault();
+        _seats = seats;
+        if (SelectedSeat != null) SelectedSeat = seats.FirstOrDefault(s => s.Id == SelectedSeat.Id);
     }
 
     /// <summary>
@@ -86,12 +94,8 @@ public partial class ShowEventsViewModel : ObservableObject
     /// <summary>Node ids of the picked target; null = everyone.</summary>
     private IReadOnlyList<string>? TargetIds() => (SelectedTarget ?? EventTarget.Everyone).Resolve(_server.Tags.NodesWith);
 
-    /// <summary>The room view's selected node becomes the Spotlight target (when it is a seat of the running layout).</summary>
-    public void SelectSeat(string? id)
-    {
-        var seat = Seats.FirstOrDefault(s => s.Id == id);
-        if (seat != null) SelectedSeat = seat;
-    }
+    /// <summary>The room view's selected node becomes the Spotlight target; no selection disables Spotlight.</summary>
+    public void SelectSeat(string? id) => SelectedSeat = _seats.FirstOrDefault(s => s.Id == id);
 
     partial void OnSelectedSeatChanged(SeatChoice? value)
     {
@@ -110,13 +114,13 @@ public partial class ShowEventsViewModel : ObservableObject
         _server.SaveEventSettings(_server.EventSettings);   // the tray re-registers the hotkeys
     }
 
-    [RelayCommand(CanExecute = nameof(CanFire))]
+    [RelayCommand(CanExecute = nameof(CanSpotlight))]
     private Task Spotlight() => _server.FireEventAsync(ShowEventType.Spotlight, SelectedSeat?.Id, TargetIds());
 
     [RelayCommand(CanExecute = nameof(CanFire))]
     private Task Celebration() => _server.FireEventAsync(ShowEventType.Celebration, null, TargetIds());
 
-    [RelayCommand(CanExecute = nameof(CanFire))]
+    [RelayCommand(CanExecute = nameof(CanTraverse))]
     private Task Traversal() => _server.FireEventAsync(ShowEventType.Traversal, null, TargetIds());
 
     [RelayCommand(CanExecute = nameof(CanFire))]
@@ -131,6 +135,41 @@ public partial class ShowEventsViewModel : ObservableObject
 
     [RelayCommand(CanExecute = nameof(CanFire))]
     private Task Identify() => _server.FireEventAsync(ShowEventType.Identify, null, TargetIds());
+
+    /// <summary>"💣 BiBaBo", or "■ Abort BiBaBo" while a game runs.</summary>
+    public string BiBaBoLabel => _server.IsBiBaBoRunning ? "■ Abort BiBaBo" : "💣 BiBaBo";
+
+    [RelayCommand(CanExecute = nameof(CanFire))]
+    private Task BiBaBo() => _server.ToggleBiBaBoAsync(TargetIds());
+
+    private static readonly int[] BiBaBoTimerChoicesMs = { 60_000, 120_000, 180_000, 300_000, 420_000, 600_000 };
+
+    /// <summary>BiBaBo's countdown as an index into the strip's choices (1, 2, 3, 5, 7, 10 min); saved at once.</summary>
+    public int BiBaBoTimerIndex
+    {
+        get { int i = Array.IndexOf(BiBaBoTimerChoicesMs, _server.EventSettings.BiBaBoTimerMs); return i < 0 ? 3 : i; }
+        set
+        {
+            if (value < 0 || value >= BiBaBoTimerChoicesMs.Length || BiBaBoTimerChoicesMs[value] == _server.EventSettings.BiBaBoTimerMs) return;
+            _server.EventSettings.BiBaBoTimerMs = BiBaBoTimerChoicesMs[value];
+            _server.SaveEventSettings(_server.EventSettings);
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>BiBaBo's riddle count as an index (0 = 3 riddles … 2 = 5); saved at once.</summary>
+    public int BiBaBoRiddlesIndex
+    {
+        get => Math.Clamp(_server.EventSettings.BiBaBoRiddles, BombGameFactory.MinRiddles, BombGameFactory.MaxRiddles) - BombGameFactory.MinRiddles;
+        set
+        {
+            int riddles = BombGameFactory.MinRiddles + value;
+            if (value < 0 || riddles > BombGameFactory.MaxRiddles || riddles == _server.EventSettings.BiBaBoRiddles) return;
+            _server.EventSettings.BiBaBoRiddles = riddles;
+            _server.SaveEventSettings(_server.EventSettings);
+            OnPropertyChanged();
+        }
+    }
 
     [RelayCommand]
     private async Task PickTraversalImage()
@@ -147,6 +186,7 @@ public partial class ShowEventsViewModel : ObservableObject
         _server.EventSettings.TraversalImagePath = path;
         _server.SaveEventSettings(_server.EventSettings);
         OnPropertyChanged(nameof(TraversalImageName));
+        TraversalCommand.NotifyCanExecuteChanged();
         _ = _server.PrefetchEventImageAsync();
     }
 
@@ -156,6 +196,7 @@ public partial class ShowEventsViewModel : ObservableObject
         _server.EventSettings.TraversalImagePath = string.Empty;
         _server.SaveEventSettings(_server.EventSettings);
         OnPropertyChanged(nameof(TraversalImageName));
+        TraversalCommand.NotifyCanExecuteChanged();
     }
 
     private void OnServerPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -172,6 +213,10 @@ public partial class ShowEventsViewModel : ObservableObject
                 BlackoutCommand.NotifyCanExecuteChanged();
                 AnnounceCommand.NotifyCanExecuteChanged();
                 IdentifyCommand.NotifyCanExecuteChanged();
+                BiBaBoCommand.NotifyCanExecuteChanged();
+                break;
+            case nameof(ServerPlaybackHost.IsBiBaBoRunning):
+                OnPropertyChanged(nameof(BiBaBoLabel));
                 break;
             case nameof(ServerPlaybackHost.EventStatusText):
                 OnPropertyChanged(nameof(StatusText));

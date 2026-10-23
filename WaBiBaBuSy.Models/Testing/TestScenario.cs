@@ -119,6 +119,17 @@ public sealed class ShowEventStep : TestStep
     /// <summary>The event; <c>eventId</c> and <c>t0Utc</c> are replaced by the runner, <c>imagePath</c> is relative to the scenario.</summary>
     public ShowEvent Event { get; set; } = new();
     public long AtElapsedMs { get; set; }
+
+    /// <summary>
+    /// BiBaBo: a <c>Bomb</c> event without a game gets one from the factory (seed = the event's seed, every monitor a seat);
+    /// a <c>BombOutcome</c> ends the last Bomb of the run with this result (Defused, Recycled, WrongCable, Timeout, Aborted).
+    /// </summary>
+    public BombResult? BombOutcome { get; set; }
+
+    /// <summary>BiBaBo showcase: force the game's mode / riddle kinds (3–5 of them: also the number of riddles) instead of the seeded roll.</summary>
+    public BombMode? ForceMode { get; set; }
+    public RiddleKind[]? ForceKinds { get; set; }
+
     public override string Kind => "showEvent";
 }
 

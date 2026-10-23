@@ -99,6 +99,8 @@ public class D2DPlayerHost : IDisposable
                     Arguments = args,
                     UseShellExecute = false,
                     RedirectStandardInput = true,
+                    // UTF-8 both ways: show-event / agenda text (·, ², ü, ♻) must not depend on the console code page
+                    StandardInputEncoding = new System.Text.UTF8Encoding(false),
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     CreateNoWindow = true
@@ -556,11 +558,28 @@ public class D2DPlayerHost : IDisposable
         await SendCommandAsync(JsonConvert.SerializeObject(new PlayerCommandShowEvent { Event = evt }));
     }
 
+    /// <summary>The room's agenda (null = none); <paramref name="fullScreen"/> = this monitor shows the full-size timetable. Fire-and-forget.</summary>
+    public async Task SendAgendaAsync(Agenda? agenda, bool fullScreen)
+    {
+        if (!IsRunning) return;
+        await SendCommandAsync(JsonConvert.SerializeObject(new PlayerCommandAgenda { Agenda = agenda, FullScreen = fullScreen }));
+    }
+
     /// <summary>Item transition (in = this player starts the new item, before its start). Fire-and-forget.</summary>
     public async Task SendTransitionAsync(bool incoming, string transition, long startUtcMs)
     {
         if (!IsRunning) return;
         await SendCommandAsync(JsonConvert.SerializeObject(new PlayerCommandTransition { Incoming = incoming, Transition = transition, StartUtcMs = startUtcMs }));
+    }
+
+    private bool _paused;   // what this player process was last told (a respawned player is a new host: false)
+
+    /// <summary>Pause / resume rendering (fullscreen app on this monitor); sent only on a change. Fire-and-forget.</summary>
+    public async Task SendPauseAsync(bool paused)
+    {
+        if (!IsRunning || paused == _paused) return;
+        await SendCommandAsync(JsonConvert.SerializeObject(new PlayerCommandPause { Paused = paused }));
+        _paused = paused;
     }
 
     /// <summary>

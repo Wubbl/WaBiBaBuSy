@@ -48,7 +48,7 @@ automated runs (§4) are quick and cover timing + pixel parity, so §5 only need
 - [ ] Drag ≡ of the first row below the last → marker follows, row moves, its duration box still updates the summary
 - [ ] Right-click → Duplicate ("name copy" below) / Remove
 - [ ] Duration "12,5" → "12.5s"; "abc" → "(default)"
-- [ ] Toolbar picker lists playlists (incl. the presets: BiBaBu Party, Chill Lounge, Hype, Showcase Tour — `dotnet run tools/build-playlist-presets.cs` if missing); picking one loads it into the tab
+- [ ] Toolbar picker lists playlists (incl. the presets: BiBaBu Party, Chill Lounge, Hype — `dotnet run tools/build-playlist-presets.cs` if missing); picking one loads it into the tab
 - [ ] ▶ starts the show: ■ and ⏭ appear, label "Now: A · next: B in 0:1x", playing row has a green ▶
 - [ ] ⏭ switches immediately; ■ stops the show, ⏭ and label disappear
 - [ ] Play from the editor during a show → the show stops first, then the scene plays; ■ stops it
@@ -212,6 +212,33 @@ Connect the clients first (§5.1). Attach each `report.html` path to the results
 - [ ] **Performance:** Celebration on a 4K seat stays at the monitor's refresh rate; player CPU stays under 15 %.
 - [ ] **Interrupts:** a playlist with "Every 1 min Traversal" laps the logo once a minute without changing the item; stopping the show (or a non-looping show ending) stops the interrupts.
 
+## 8b. Agenda overlay (2026-10-21, single-machine test-mode run only)
+
+- [ ] Agenda tab: type `Fri 18:00 Pizza` lines, preview list shows day + time; toggle on → panel on every seat within ~1 s
+- [ ] Idle seat (nothing playing) shows the panel over its own Windows wallpaper
+- [ ] Start a preset → panel stays on top; Stop / Clear all → panel stays (stand-in), no orphan player after exit
+- [ ] Switch off (tab or tray "Agenda on all screens") → gone everywhere, stand-ins stop
+- [ ] Tag a seat `agenda` → that seat shows the full-size timetable (Fri | Sat | Sun columns)
+- [ ] Client with test-mode clock skew (±5 min) → "now / next" flips at the server's time
+- [ ] Client Disconnect → its panel disappears; reconnect → back
+- [ ] Blackout event hides the panel while it covers the seat
+
+## 8c. BiBaBo (2026-10-21, single-machine showcase frames only)
+
+- [ ] **Spike first (one PC, two monitors):** start the server, nothing playing, 💣 BiBaBo → game on the two monitors; on the bomb monitor click a cable terminal on the bare desktop → DEFUSED / BOOM on both monitors. A click inside a window must do nothing. Drag the Recycle Bin onto the bomb in a second game → RECYCLED. Note DPI scaling of the monitors.
+- [ ] Two+ machines: bomb and cards on different machines; cables continue across the seats; cards readable from a step away
+- [ ] Defuse on a client's bomb (the client reports, the server decides) — outcome on every seat at the same moment
+- [ ] Wrong cable → BOOM everywhere; timeout at 0:00 → BOOM
+- [ ] A seat with a maximised window is never bomb or card ("n busy" when too few are free)
+- [ ] Ctrl+Alt+B starts, again aborts; Stop / Clear all end the game quietly; other events say "BiBaBo is running"
+- [ ] Reconnect a client mid-game → it shows the game at the right time; after the outcome it never shows the bomb again
+- [ ] Logo: put `bibabo-bomb.gif` into `%APPDATA%\WaBiBaBuSy\` → animated bomb on the bomb seat
+
+- [ ] Variation (§14): a keypad game — click digits on the bare desktop, digits appear on every seat, C clears, right code → DEFUSED, wrong → BOOM
+- [ ] A cut-order game — first right cable greys out everywhere, second → DEFUSED; wrong order → BOOM
+- [ ] ≥ 5 machines: a RULES card on a spare seat ("RULES: somewhere in the room" at the bomb); a junction box on the bomb's neighbour seat with crossing wires, cards in the new colours
+- [ ] Readability from a step away: labyrinth, logic gates, mirrored clock, dots
+
 ## 9. Optional
 
 - [ ] Installer on a clean Windows 10/11 machine (Inno Setup, `/Installer/`); fallback version 2.6.3
@@ -229,4 +256,6 @@ Connect the clients first (§5.1). Attach each `report.html` path to the results
 | 6 Show & sync | | | |
 | 7 Failure & recovery | | | |
 | 8 Show events | | | |
+| 8b Agenda | | | |
+| 8c BiBaBo | | | |
 | 9 Optional | | | |

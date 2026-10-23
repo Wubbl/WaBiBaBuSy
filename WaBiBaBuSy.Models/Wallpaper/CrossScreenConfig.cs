@@ -93,6 +93,19 @@ public enum BackgroundMode
     Panorama
 }
 
+/// <summary>How a <see cref="BackgroundMode.Panorama"/> image is scaled onto the room canvas; uniform modes centre it.</summary>
+public enum PanoramaFit
+{
+    /// <summary>Image height = the row's tallest screen, aspect kept, centred; a wider image crops left and right.</summary>
+    FitHeight,
+    /// <summary>Covers the whole canvas, aspect kept, centred; the overflowing side is cropped.</summary>
+    Fill,
+    /// <summary>The whole image is visible, aspect kept, centred; the rest shows the background colour.</summary>
+    Fit,
+    /// <summary>Stretched to the canvas width and row height (aspect not kept) — seamless around a Ring.</summary>
+    Stretch
+}
+
 /// <summary>
 /// A rectangular zone used by IconZone mode (per-icon colored rect or free corridor).
 /// X/Width describe the 2D position; Width=-1 means "use full canvas width" (backward compat).
@@ -145,6 +158,16 @@ public class BackgroundLayerConfig
     /// Path to background image file (for StretchedImage, TiledImage or Panorama modes)
     /// </summary>
     public string? ImagePath { get; set; }
+
+    /// <summary>
+    /// StretchedImage: every player draws its own machine's Windows wallpaper (cropped to fill) instead of
+    /// <see cref="ImagePath"/>, or the desktop color without one. The event stand-in uses it so a seat looks unchanged
+    /// until the event reaches it; <see cref="ImagePath"/> stays the fallback (and makes remote seats receive the scene).
+    /// </summary>
+    public bool UseLocalDesktopWallpaper { get; set; }
+
+    /// <summary>Panorama: how the image is scaled onto the room (<see cref="NodeMapping.PanoramaSource"/>).</summary>
+    public PanoramaFit PanoramaFit { get; set; } = PanoramaFit.FitHeight;
 
     /// <summary>True for the modes that draw <see cref="ImagePath"/>.</summary>
     [JsonIgnore]
@@ -285,6 +308,9 @@ public class AnimationLayerConfig
     /// All effective animation source paths (primary + additional, with empty entries filtered out).
     /// Method — not serialized — keeps the Models layer free of serializer dependencies.
     /// </summary>
+    /// <summary>Member-wise copy (nested configs shared) — for <see cref="SceneLayer.ForSeat"/>, which only swaps the paths.</summary>
+    internal AnimationLayerConfig ShallowCopy() => (AnimationLayerConfig)MemberwiseClone();
+
     public IReadOnlyList<string> GetAllAnimationPaths()
     {
         var list = new List<string>();

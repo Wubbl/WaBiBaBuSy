@@ -50,6 +50,10 @@ public partial class RoomView : Control
     public static readonly StyledProperty<IReadOnlyList<ShowEvent>?> ShowEventsProperty =
         AvaloniaProperty.Register<RoomView, IReadOnlyList<ShowEvent>?>(nameof(ShowEvents));
     /// <summary>Defines the <see cref="IsClockPaused"/> property.</summary>
+    /// <summary>Defines the <see cref="Agenda"/> property.</summary>
+    public static readonly StyledProperty<Agenda?> AgendaProperty =
+        AvaloniaProperty.Register<RoomView, Agenda?>(nameof(Agenda));
+
     public static readonly StyledProperty<bool> IsClockPausedProperty =
         AvaloniaProperty.Register<RoomView, bool>(nameof(IsClockPaused));
     /// <summary>Defines the <see cref="ClockSpeed"/> property.</summary>
@@ -80,6 +84,9 @@ public partial class RoomView : Control
 
     /// <summary>Live one-shot events drawn over the animating tiles (Live mode only).</summary>
     public IReadOnlyList<ShowEvent>? ShowEvents { get => GetValue(ShowEventsProperty); set => SetValue(ShowEventsProperty, value); }
+
+    /// <summary>The room agenda, painted over every tile (corner panel, or full size on agenda screens).</summary>
+    public Agenda? Agenda { get => GetValue(AgendaProperty); set => SetValue(AgendaProperty, value); }
     /// <summary>Freeze the design clock (draft preview). No effect while live.</summary>
     public bool IsClockPaused { get => GetValue(IsClockPausedProperty); set => SetValue(IsClockPausedProperty, value); }
     /// <summary>Design-clock speed multiplier (1×, 4×, 16× in the preview bar). No effect while live.</summary>
@@ -116,6 +123,7 @@ public partial class RoomView : Control
     private readonly ScenePainter _painter = new();
     private readonly SceneClock _clock = new();
     private DispatcherTimer? _timer;
+    private int _agendaPaintQuarter = -1;   // 15-s slot of the last paint while only the agenda changes
     private SeatMapLayoutResult _layout = new();
     private RoomGrid _grid = RoomGrid.Build(SeatMap.SingleRow(), new SeatMapLayoutResult());
     private IRoomHost? _host;
@@ -134,7 +142,7 @@ public partial class RoomView : Control
 
     static RoomView()
     {
-        AffectsRender<RoomView>(SceneProperty, SharedStartUtcMsProperty, SpriteImageResolverProperty, ActiveLayoutProperty, ShowEventsProperty);
+        AffectsRender<RoomView>(SceneProperty, SharedStartUtcMsProperty, SpriteImageResolverProperty, ActiveLayoutProperty, ShowEventsProperty, AgendaProperty);
         FocusableProperty.OverrideDefaultValue<RoomView>(true);
         ClipToBoundsProperty.OverrideDefaultValue<RoomView>(true);
     }
@@ -239,6 +247,8 @@ public partial class RoomView : Control
             bool minimized = TopLevel.GetTopLevel(this) is Window { WindowState: WindowState.Minimized };
             if (IsEffectivelyVisible && !minimized && (_gesture != Gesture.None || (ScenePainter.HasSprite(Scene) && AnyTileAnimating())))
                 InvalidateVisual();
+            else if (IsEffectivelyVisible && !minimized && Agenda is { Enabled: true } && DateTime.UtcNow.Second / 15 != _agendaPaintQuarter)
+                InvalidateVisual();   // "now / next" and the countdowns move on even when nothing animates
         });
         _timer.Start();
     }
@@ -353,6 +363,13 @@ public partial class RoomView : Control
         ctx.DrawText(ft, new Point(box.X + (box.W - ft.Width) / 2, box.Y + (box.H - ft.Height) / 2));
     }
 
+    /// <summary>A show event is running now (tiles draw it even over the content-less stand-in scene).</summary>
+    private bool AnyEventActive()
+    {
+        long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        return ShowEvents?.Any(e => ShowEventMath.IsActive(e, now - e.T0Utc)) == true;
+    }
+
     private void DrawTile(DrawingContext ctx, TileBox t, ClientNodeViewModel? c, NodeLayout? node, CrossScreenConfig? scene, long elapsed, bool live)
     {
         bool dragged = _gesture == Gesture.DraggingTile && t.Id == _pressedId;
@@ -363,17 +380,18 @@ public partial class RoomView : Control
 
         var sceneBox = ToRect(t.Scene);
         ctx.FillRectangle(SceneBg, sceneBox, 4);
-        if (node != null && ScenePainter.HasContent(scene))
+        bool content = ScenePainter.HasContent(scene);
+        if (node != null && (content || live && AnyEventActive()))   // the stand-in scene has no content, its events still show
         {
             double s = Math.Min(sceneBox.Width / node.Width, sceneBox.Height / node.Height);
             var screen = new Rect(sceneBox.X + (sceneBox.Width - node.Width * s) / 2,
                                   sceneBox.Y + (sceneBox.Height - node.Height * s) / 2,
                                   node.Width * s, node.Height * s);
             _painter.PaintBackground(ctx, screen, s, scene, node);
-            _painter.PaintLayers(ctx, screen, s, node, scene!, elapsed);
+            if (content) _painter.PaintLayers(ctx, screen, s, node, scene!, elapsed);
             if (live && ShowEvents is { Count: > 0 } events)
-                _painter.PaintShowEvents(ctx, screen, s, ScenePainter.EffectiveNode(scene!.FirstLayer, node), events, SharedStartUtcMs, elapsed,
-                    sharedCanvas: scene.FirstLayer?.Distribution != AnimationDistributionMode.Simultaneous);
+                _painter.PaintShowEvents(ctx, screen, s, ScenePainter.EffectiveNode(scene?.FirstLayer, node), events, SharedStartUtcMs, elapsed,
+                    sharedCanvas: scene?.FirstLayer?.Distribution != AnimationDistributionMode.Simultaneous);
         }
         else if (c?.ThumbnailImage is { } thumb)
         {
@@ -387,6 +405,15 @@ public partial class RoomView : Control
         {
             var ft = Format("idle", Faint, 10, bold: false);
             ctx.DrawText(ft, new Point(sceneBox.Center.X - ft.Width / 2, sceneBox.Center.Y - ft.Height / 2));
+        }
+
+        if (Agenda is { Enabled: true } agenda && !ScenePainter.BombActive(ShowEvents, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()))
+        {
+            double mw = c?.MonitorWidth > 0 ? c.MonitorWidth : 1920, mh = c?.MonitorHeight > 0 ? c.MonitorHeight : 1080;
+            double k = Math.Min(sceneBox.Width / mw, sceneBox.Height / mh);
+            var monitor = new Rect(sceneBox.Center.X - mw * k / 2, sceneBox.Center.Y - mh * k / 2, mw * k, mh * k);
+            _painter.PaintAgenda(ctx, monitor, mw, mh, t.Id, agenda, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            _agendaPaintQuarter = DateTime.UtcNow.Second / 15;
         }
 
         var badge = new Rect(sceneBox.X + 4, sceneBox.Y + 4, 28, 15);
@@ -426,6 +453,8 @@ public partial class RoomView : Control
     {
         if (c == null) return ("", Dim);
         if (c.IsGhost) return ("offline" + OfflineFor(c.OfflineSinceUtc), Dim);
+        if (c.UpdateTransferPercent is int up)
+            return (up < 0 ? "⬆ preparing update…" : $"⬆ update {up}%", Yellow);
         switch (c.DriftState)
         {
             case DriftState.Stale: return ("sync: —", Dim);

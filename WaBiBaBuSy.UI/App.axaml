@@ -17,13 +17,14 @@
 
     <TrayIcon.Icons>
         <TrayIcons>
-            <TrayIcon Icon="/Assets/BiBaBuColorIcon.ico" ToolTipText="WaBiBaBuSy - Wallpaper Sync"
+            <TrayIcon Icon="/Assets/BiBaBuColorIcon.ico" ToolTipText="{Binding TrayToolTip}"
                      Clicked="TrayIcon_OnClicked">
                 <TrayIcon.Menu>
                     <NativeMenu>
                         <NativeMenuItem Header="Open Control Panel" Command="{Binding ShowWindowCommand}"/>
                         <NativeMenuItemSeparator />
                         <NativeMenuItem Header="Connect to Server..." Command="{Binding ConnectCommand}"/>
+                        <NativeMenuItem Header="{Binding ConnectStatus}" IsEnabled="False" IsVisible="{Binding HasConnectStatus}"/>
                         <NativeMenuItem Header="Disconnect" Command="{Binding DisconnectCommand}"/>
                         <NativeMenuItemSeparator />
                         <NativeMenuItem Header="Settings" Command="{Binding SettingsCommand}"/>

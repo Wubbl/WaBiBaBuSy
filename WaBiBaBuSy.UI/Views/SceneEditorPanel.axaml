@@ -67,8 +67,7 @@
         <!-- Gallery grid: click = primary file, Ctrl+click = extra image, right-click = plain wallpaper / remove -->
         <Panel Grid.Row="0" Margin="0,8,0,0">
             <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                <!-- bottom margin keeps the last row scrollable clear of the + Add button -->
-                <ItemsControl ItemsSource="{Binding Wallpapers}" Margin="0,0,0,36">
+                <ItemsControl ItemsSource="{Binding Wallpapers}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
                             <WrapPanel Orientation="Horizontal"/>
@@ -117,25 +116,6 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
             </ScrollViewer>
-            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,14,4">
-                <Button Content="Get content ▾" ToolTip.Tip="Where to find or make small animated content (opens your browser)">
-                    <Button.Flyout>
-                        <MenuFlyout ItemsSource="{Binding ContentMenuEntries}">
-                            <MenuFlyout.ItemContainerTheme>
-                                <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}" x:DataType="vm:ContentMenuEntry">
-                                    <Setter Property="Header" Value="{Binding Header}"/>
-                                    <Setter Property="Command" Value="{Binding Command}"/>
-                                    <Setter Property="CommandParameter" Value="{Binding Header}"/>
-                                    <Setter Property="IsEnabled" Value="{Binding IsLink}"/>
-                                    <Setter Property="ToolTip.Tip" Value="{Binding Tip}"/>
-                                </ControlTheme>
-                            </MenuFlyout.ItemContainerTheme>
-                        </MenuFlyout>
-                    </Button.Flyout>
-                </Button>
-                <Button Content="+ Add" Command="{Binding AddWallpaperCommand}"
-                        ToolTip.Tip="Add files to the gallery (or drop files onto this panel)"/>
-            </StackPanel>
         </Panel>
 
         <GridSplitter Grid.Row="1" ResizeDirection="Rows" Background="#3E3E42"
@@ -244,10 +224,10 @@
                 </ItemsControl>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Top">
                     <Button Content="+" Command="{Binding AddLayerCommand}" ToolTip.Tip="Add an empty layer on top"/>
-                    <Button Content="▾" ToolTip.Tip="Add layers from a preset, or save the selected layer as a preset">
+                    <Button Content="▾" ToolTip.Tip="Add a layer preset or the layers of a scene preset, or save the selected layer as a layer preset">
                         <Button.Flyout>
                             <MenuFlyout>
-                                <MenuItem Header="Add layers from preset" IsEnabled="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).HasPresets}"
+                                <MenuItem Header="Add layer preset" IsEnabled="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).HasLayerPresets}"
                                           ItemsSource="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).LayerPresets}">
                                     <MenuItem.ItemContainerTheme>
                                         <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}" x:DataType="vm:PresetMenuEntry">
@@ -256,7 +236,17 @@
                                         </ControlTheme>
                                     </MenuItem.ItemContainerTheme>
                                 </MenuItem>
-                                <MenuItem Header="Save selected layer as preset"
+                                <MenuItem Header="Add from scene preset" ToolTip.Tip="Its layers on top; a picture background (e.g. Panorama) replaces this scene's" IsEnabled="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).HasPresets}"
+                                          ItemsSource="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).SceneLayerPresets}">
+                                    <MenuItem.ItemContainerTheme>
+                                        <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}" x:DataType="vm:PresetMenuEntry">
+                                            <Setter Property="Header" Value="{Binding Name}"/>
+                                            <Setter Property="Command" Value="{Binding Command}"/>
+                                        </ControlTheme>
+                                    </MenuItem.ItemContainerTheme>
+                                </MenuItem>
+                                <Separator/>
+                                <MenuItem Header="Save selected layer as layer preset"
                                           Command="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).SaveLayerAsPresetCommand}"/>
                             </MenuFlyout>
                         </Button.Flyout>
@@ -312,6 +302,10 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*" IsVisible="{Binding HasExtraImages}">
+                                <CheckBox Grid.Column="1" Content="One per seat ⓘ" IsChecked="{Binding LayerSourcePerSeat}"
+                                          ToolTip.Tip="Every seat shows just one of the images (seat 1 the first, seat 2 the second, … then from the start again) instead of all of them. Extra GIFs play too."/>
                             </Grid>
                             <Grid ColumnDefinitions="120,*">
                                 <TextBlock Classes="label" Text="Fit"/>
@@ -381,7 +375,10 @@
                                           SelectedItem="{Binding SelectedMovementType}" HorizontalAlignment="Stretch">
                                     <ComboBox.ItemTemplate>
                                         <DataTemplate x:DataType="vm:MovementTypeOption">
-                                            <TextBlock Text="{Binding Name}"/>
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock Text="{Binding Glyph}" Foreground="{x:Static vm:SceneGlyphs.Motion}" Width="16" FontSize="15" TextAlignment="Center"/>
+                                                <TextBlock Text="{Binding Name}"/>
+                                            </StackPanel>
                                         </DataTemplate>
                                     </ComboBox.ItemTemplate>
                                 </ComboBox>
@@ -406,8 +403,18 @@
                                 <TextBlock Classes="label" Text="Distribution ⓘ"
                                            ToolTip.Tip="This layer. Sequential: it spans all target monitors as one canvas. Simultaneous: every monitor plays its own copy."/>
                                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
-                                    <RadioButton GroupName="SceneDistribution" Content="Sequential" IsChecked="{Binding IsSequentialMode}"/>
-                                    <RadioButton GroupName="SceneDistribution" Content="Simultaneous" IsChecked="{Binding IsSimultaneousMode}"/>
+                                    <RadioButton GroupName="SceneDistribution" IsChecked="{Binding IsSequentialMode}">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Text="{x:Static vm:SceneGlyphs.Sequential}" Foreground="{x:Static vm:SceneGlyphs.Spread}" FontSize="15"/>
+                                            <TextBlock Text="Sequential"/>
+                                        </StackPanel>
+                                    </RadioButton>
+                                    <RadioButton GroupName="SceneDistribution" IsChecked="{Binding IsSimultaneousMode}">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Text="{x:Static vm:SceneGlyphs.Simultaneous}" Foreground="{x:Static vm:SceneGlyphs.Spread}" FontSize="15"/>
+                                            <TextBlock Text="Simultaneous"/>
+                                        </StackPanel>
+                                    </RadioButton>
                                 </StackPanel>
                             </Grid>
                             <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsDirectionVisible}">
@@ -672,13 +679,43 @@
                         <StackPanel Spacing="8" Margin="0,10,12,10">
                             <Grid ColumnDefinitions="120,*">
                                 <TextBlock Classes="label" Text="Mode"/>
-                                <ComboBox Grid.Column="1" SelectedIndex="{Binding BackgroundModeIndex}" HorizontalAlignment="Stretch">
-                                    <ComboBoxItem Content="Solid color"/>
-                                    <ComboBoxItem Content="Stretched image"/>
-                                    <ComboBoxItem Content="Tiled image"/>
-                                    <ComboBoxItem Content="Three zone (corridor)"/>
-                                    <ComboBoxItem Content="Icon zone (auto-detect)"/>
-                                    <ComboBoxItem Content="Panorama (spans all screens)"/>
+                                <ComboBox Grid.Column="1" SelectedIndex="{Binding BackgroundModeIndex}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+                                    <ComboBoxItem>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{x:Static vm:SceneGlyphs.BgSolid}" Foreground="{x:Static vm:SceneGlyphs.Look}" Width="16" FontSize="15" TextAlignment="Center"/>
+                                            <TextBlock Text="Solid color"/>
+                                        </StackPanel>
+                                    </ComboBoxItem>
+                                    <ComboBoxItem>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{x:Static vm:SceneGlyphs.BgStretched}" Foreground="{x:Static vm:SceneGlyphs.Look}" Width="16" FontSize="15" TextAlignment="Center"/>
+                                            <TextBlock Text="Stretched image"/>
+                                        </StackPanel>
+                                    </ComboBoxItem>
+                                    <ComboBoxItem>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{x:Static vm:SceneGlyphs.BgTiled}" Foreground="{x:Static vm:SceneGlyphs.Look}" Width="16" FontSize="15" TextAlignment="Center"/>
+                                            <TextBlock Text="Tiled image"/>
+                                        </StackPanel>
+                                    </ComboBoxItem>
+                                    <ComboBoxItem>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{x:Static vm:SceneGlyphs.BgThreeZone}" Foreground="{x:Static vm:SceneGlyphs.Look}" Width="16" FontSize="15" TextAlignment="Center"/>
+                                            <TextBlock Text="Three zone (corridor)"/>
+                                        </StackPanel>
+                                    </ComboBoxItem>
+                                    <ComboBoxItem>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{x:Static vm:SceneGlyphs.BgIconZone}" Foreground="{x:Static vm:SceneGlyphs.Look}" Width="16" FontSize="15" TextAlignment="Center"/>
+                                            <TextBlock Text="Icon zone (auto-detect)"/>
+                                        </StackPanel>
+                                    </ComboBoxItem>
+                                    <ComboBoxItem>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{x:Static vm:SceneGlyphs.BgPanorama}" Foreground="{x:Static vm:SceneGlyphs.Look}" Width="16" FontSize="15" TextAlignment="Center"/>
+                                            <TextBlock Text="Panorama (spans all screens)"/>
+                                        </StackPanel>
+                                    </ComboBoxItem>
                                 </ComboBox>
                             </Grid>
                             <Grid ColumnDefinitions="120,*" IsVisible="{Binding IsSolidColorMode}">
@@ -699,6 +736,15 @@
                                     <StackPanel Orientation="Horizontal" Spacing="6">
                                         <ToggleButton Content="Choose from strip" IsChecked="{Binding IsPickingBackgroundImage}"/>
                                         <Button Content="Browse…" Command="{Binding BrowseBackgroundImageCommand}"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsPanoramaMode}">
+                                        <TextBlock Text="Fit" VerticalAlignment="Center"/>
+                                        <ComboBox SelectedIndex="{Binding PanoramaFitIndex}" MinWidth="200">
+                                            <ComboBoxItem Content="Fit height, centred" ToolTip.Tip="Height = the tallest screen of the row, aspect kept; a wider picture crops left and right"/>
+                                            <ComboBoxItem Content="Fill room, centred" ToolTip.Tip="Covers every screen, aspect kept; the overflowing side is cropped"/>
+                                            <ComboBoxItem Content="Whole picture, centred" ToolTip.Tip="The whole picture stays visible, aspect kept; the rest shows the background colour"/>
+                                            <ComboBoxItem Content="Stretch to room" ToolTip.Tip="Stretched to the room's width and row height (aspect not kept); seamless around a Ring"/>
+                                        </ComboBox>
                                     </StackPanel>
                                     <TextBlock Classes="hint" TextWrapping="Wrap" IsVisible="{Binding IsPanoramaMode}"
                                                Text="One wide picture laid over the whole room; every screen shows its slice, bezel gaps included. For a Ring, let the right edge continue into the left."/>

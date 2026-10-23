@@ -250,6 +250,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
             // Add or update client
             _connectedClients.AddOrUpdate(clientId, connectedClient,
                 (key, existing) => connectedClient);
+            _clientPeerIps[clientId] = PeerIp(context.Peer);
 
             _logger.LogInformation("Client {ClientId} registered successfully. Order position: {OrderPosition}",
                 clientId, connectedClient.OrderPosition);
@@ -283,6 +284,19 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     /// <summary>
     /// Handle client heartbeat to maintain connection
     /// </summary>
+    /// <summary>BiBaBo: referees a reported action (set by the server's playback host); true = it decided the game.</summary>
+    public Func<ShowActionReport, Task<bool>>? ShowActionHandler { get; set; }
+
+    public override async Task<ShowActionAck> ReportShowAction(ShowActionReport request, ServerCallContext context)
+    {
+        var handler = ShowActionHandler;
+        bool accepted = false;
+        try { accepted = handler != null && await handler(request); }
+        catch (Exception ex) { _logger.LogError(ex, "BiBaBo action from {ClientId} failed", request.ClientId); }
+        _logger.LogInformation("BiBaBo action {Action} (cable {Cable}) from {ClientId}: {Result}", request.Action, request.Cable, request.ClientId, accepted ? "decided the game" : "ignored");
+        return new ShowActionAck { Accepted = accepted };
+    }
+
     public override Task<HeartbeatResponse> Heartbeat(
         HeartbeatRequest request,
         ServerCallContext context)
@@ -293,6 +307,9 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
             client.Status = request.Status;
             client.PrefetchReady = request.PrefetchReady;
             client.PrefetchTotal = request.PrefetchTotal;
+            client.BusyMonitorIndexes.Clear();
+            client.BusyMonitorIndexes.AddRange(request.BusyMonitorIndexes);
+            client.BusyReportUtc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
             if (request.HasDriftReport)
             {
@@ -719,6 +736,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         // and releasing a disposed SemaphoreSlim throws.
         _writeLocks.TryRemove(clientId, out _);
         _driftMonitor.Remove(clientId);
+        _clientPeerIps.TryRemove(clientId, out _);
     }
 
     /// <summary>
@@ -797,6 +815,37 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     // Cached path to auto-generated update package (built from server's own binaries)
     private string? _cachedUpdatePackagePath;
     private readonly SemaphoreSlim _packageBuildSemaphore = new(1, 1);
+    // clientId → percent sent of a running update download; -1 while the package is still being built
+    private readonly ConcurrentDictionary<string, int> _updateTransfers = new();
+    // clientId → IP of the connection it registered from (the reported IpAddress may be another adapter)
+    private readonly ConcurrentDictionary<string, string> _clientPeerIps = new();
+
+    /// <summary>
+    /// The client behind an update download. Clients up to 2.7.x send the placeholder "current-client", so an
+    /// unknown id is resolved by the IP the request comes from.
+    /// </summary>
+    private string UpdateClientKey(string clientId, string peer)
+    {
+        if (_connectedClients.ContainsKey(clientId)) return clientId;
+        var ip = PeerIp(peer);
+        return _clientPeerIps.FirstOrDefault(kv => kv.Value == ip).Key ?? clientId;
+    }
+
+    /// <summary>The host of a gRPC peer string ("ipv4:10.0.0.5:50123", "ipv6:[::ffff:10.0.0.5]:50123").</summary>
+    public static string PeerIp(string peer)
+    {
+        int start = peer.IndexOf(':') + 1, end = peer.LastIndexOf(':');
+        if (end <= start) return peer;
+        var host = peer[start..end].Trim('[', ']');
+        return host.StartsWith("::ffff:", StringComparison.OrdinalIgnoreCase) ? host[7..] : host;
+    }
+
+    /// <summary>
+    /// Progress of a running update download to <paramref name="clientId"/>: -1 while the server builds
+    /// the package, 0–100 while it streams, null when no download runs.
+    /// </summary>
+    public int? GetUpdateTransferPercent(string clientId) =>
+        _updateTransfers.TryGetValue(clientId, out var percent) ? percent : null;
 
     /// <summary>
     /// Handle client checking for available updates
@@ -874,20 +923,22 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         IServerStreamWriter<UpdateChunk> responseStream,
         ServerCallContext context)
     {
-        _logger.LogInformation("Update download requested by client {ClientId}: version {Version}",
-            request.ClientId, request.RequestedVersion);
-
-        // Auto-build package from server's own binaries if needed
-        var packagePath = await EnsureUpdatePackageExistsAsync();
-
-        if (!File.Exists(packagePath))
-        {
-            _logger.LogError("Failed to create update package");
-            throw new RpcException(new Status(StatusCode.Internal, "Failed to create update package"));
-        }
+        var clientKey = UpdateClientKey(request.ClientId, context.Peer);
+        _logger.LogInformation("Update download requested by client {ClientId} ({Peer}): version {Version}",
+            clientKey, context.Peer, request.RequestedVersion);
 
         try
         {
+            _updateTransfers[clientKey] = -1;
+            // Auto-build package from server's own binaries if needed
+            var packagePath = await EnsureUpdatePackageExistsAsync();
+
+            if (!File.Exists(packagePath))
+            {
+                _logger.LogError("Failed to create update package");
+                throw new RpcException(new Status(StatusCode.Internal, "Failed to create update package"));
+            }
+
             var fileInfo = new FileInfo(packagePath);
             var filename = fileInfo.Name;
             var fileSize = fileInfo.Length;
@@ -923,6 +974,7 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
                 await _uploadLimiter.WaitAsync(bytesRead, context.CancellationToken);
                 await responseStream.WriteAsync(chunk);
                 chunkIndex++;
+                _updateTransfers[clientKey] = chunkIndex * 100 / totalChunks;
             }
 
             _logger.LogInformation("Update download complete for client {ClientId}: {TotalChunks} chunks sent",
@@ -940,6 +992,10 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
         {
             _logger.LogError(ex, "Error streaming update to client {ClientId}", request.ClientId);
             throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+        }
+        finally
+        {
+            _updateTransfers.TryRemove(clientKey, out _);
         }
     }
 

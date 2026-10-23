@@ -42,7 +42,62 @@ public sealed class RemotePlaybackHost
     {
         _service = service;
         _desktopManager = desktopManager;
+        _agenda = new AgendaDisplay(desktopManager, AgendaNodeIds);
+        _bombInput = new BombInputWatcher((game, action, cable) =>
+            _service.Client?.ReportShowActionAsync(game, action, cable) ?? Task.FromResult(false));
     }
+
+    /// <summary>BiBaBo: clicks and the Recycle Bin while this machine holds the bomb.</summary>
+    private readonly BombInputWatcher _bombInput;
+
+    /// <summary>The seat-map layout each monitor's player was started with (BiBaBo hit-testing).</summary>
+    private readonly ConcurrentDictionary<int, NodeLayout> _layouts = new();
+
+    /// <summary>A Bomb on one of this machine's monitors starts the input watcher; its outcome stops it.</summary>
+    private void WatchBombInput(ShowEvent evt)
+    {
+        if (evt.Type == ShowEventType.BombOutcome && evt.Bomb is { } done && _bombInput.IsWatching(done.GameId))
+        {
+            _bombInput.Stop();
+            return;
+        }
+        if (evt.Type != ShowEventType.Bomb || evt.Bomb is not { } game) return;
+        foreach (var (monitor, layout) in _layouts)
+            if (layout.Id == game.BombNodeId)   // the layout the server sent carries the node id
+            {
+                _bombInput.Start(evt, layout, monitor);
+                return;
+            }
+    }
+
+    /// <summary>The room agenda on this client's monitors (stand-ins where no scene plays).</summary>
+    private readonly AgendaDisplay _agenda;
+
+    /// <summary>The room ids a monitor of this client may have: the whole machine, or one of its expanded monitors.</summary>
+    private IReadOnlyList<string> AgendaNodeIds(int monitorIndex)
+    {
+        var id = _service.Client?.ClientId;
+        return string.IsNullOrEmpty(id) ? Array.Empty<string>() : new[] { id, $"{id}_MONITOR_{monitorIndex}" };
+    }
+
+    /// <summary>AGENDA from the server (times in this machine's clock), or null after an explicit disconnect.</summary>
+    public Task OnAgendaAsync(Agenda? agenda) => SerializedAsync(() => _agenda.SetAsync(agenda, _players));
+
+    /// <summary>True while agenda stand-ins run on this machine's idle monitors.</summary>
+    public bool HasAgendaStandIns => _agenda.HasStandIns;
+
+    /// <summary>Agenda stand-ins started or stopped (any thread): fullscreen detection follows them.</summary>
+    public event Action? AgendaStandInsChanged
+    {
+        add => _agenda.StandInsChanged += value;
+        remove => _agenda.StandInsChanged -= value;
+    }
+
+    /// <summary>Stop the agenda stand-ins (Clear all kills every player process; app exit).</summary>
+    public Task StopAgendaStandInsAsync() => SerializedAsync(_agenda.StopAllAsync);
+
+    /// <summary>Stand-ins back on the monitors without a scene (after Clear all).</summary>
+    public Task ReconcileAgendaAsync() => SerializedAsync(() => _agenda.ReconcileAsync(_players));
 
     /// <summary>The capture service for this machine's thumbnail uploads (the remote players' windows).</summary>
     public ThumbnailCaptureService ThumbnailCapture { get; } = new(AppLogger.CreateLogger<ThumbnailCaptureService>());
@@ -62,12 +117,15 @@ public sealed class RemotePlaybackHost
         _service.ClientTestProbeTargets = () => _players.Values.Cast<ITestProbeTarget>().ToList();
         _service.ClientThumbnailCapture = ThumbnailCapture;
         _service.SetShowEventDelegate(OnShowEventAsync);
+        _service.SetAgendaDelegate(OnAgendaAsync);
+        _service.BusyMonitorsProvider = MonitorBusyProbe.BusyMonitors;   // BiBaBo skips seats a window covers
     }
 
     /// <summary>EVENT from the server (T0 in this machine's clock, image in the cache): keep it and send it to every player.</summary>
     public async Task OnShowEventAsync(ShowEvent evt)
     {
         if (!_showEvents.Add(evt)) return;
+        WatchBombInput(evt);
         foreach (var player in _players.Values)
         {
             try { await player.SendShowEventAsync(evt); }
@@ -86,11 +144,12 @@ public sealed class RemotePlaybackHost
         }
     }
 
-    /// <summary>Hide or show every remote-driven player window (pause on fullscreen apps).</summary>
-    public void SetPlayersVisible(bool visible)
+    /// <summary>Pause / resume the remote-driven players and agenda stand-ins per monitor (pause on fullscreen apps).</summary>
+    public async Task PauseMonitorsAsync(Func<int, bool> paused)
     {
-        foreach (var player in _players.Values)
-            player.SetPlayersVisible(visible);
+        foreach (var (monitor, player) in _players)
+            await player.SetPausedAsync(paused(monitor));
+        await _agenda.PauseMonitorsAsync(paused);
     }
 
     /// <summary>
@@ -182,6 +241,7 @@ public sealed class RemotePlaybackHost
 
             // ── Node layout (seat map: offset, mirroring, ring wrap) — the canvas of Sequential layers ──
             var remoteNodeLayout = DeserializeRemoteConfig<NodeLayout>(req.LayoutJson, "NodeLayout");
+            if (remoteNodeLayout != null) _layouts[monitorIndex] = remoteNodeLayout;
 
             Debug.WriteLine($"[D2D-CrossScreen] Initializing D2D service: bounds={actualBounds}, canvas={remoteNodeLayout?.CanvasWidth ?? 0}, offsetX={remoteNodeLayout?.OffsetX ?? 0}");
             var d2dService = new D2DCompositionService(
@@ -214,6 +274,8 @@ public sealed class RemotePlaybackHost
 
             _players[monitorIndex] = d2dService;
             applied = true;
+            await _agenda.SendToAsync(monitorIndex, d2dService);
+            retiring.AddRange(_agenda.TakeStandIns(new[] { monitorIndex }));   // the panel stays until the new player appears
             foreach (var old in retiring) await old.SendTransitionAsync(incoming: false, req.TransitionEffect, req.SharedStartTimestampMs);
             _retiring.RetireAt(retiring, req.SharedStartTimestampMs + TransitionMath.OutgoingHoldMs(SceneTransition.Parse(req.TransitionEffect)), NowMs);
             await ReplayEventsAsync(d2dService);
@@ -224,7 +286,11 @@ public sealed class RemotePlaybackHost
         }
         finally
         {
-            if (!applied) _retiring.RetireAt(retiring, 0, NowMs);   // no new player: the old one goes now (as before)
+            if (!applied)
+            {
+                _retiring.RetireAt(retiring, 0, NowMs);   // no new player: the old one goes now (as before)
+                await _agenda.ReconcileAsync(_players);   // …and a stand-in keeps the agenda on the bare monitor
+            }
         }
     }
 
@@ -275,11 +341,26 @@ public sealed class RemotePlaybackHost
         }
         _players.Clear();
         _showEvents.Clear();
+        _bombInput.Stop();
         ThumbnailCapture.ClearWallpaperHwnd();
+        await _agenda.ReconcileAsync(_players);   // the agenda stays: stand-ins take over the now idle monitors
         Debug.WriteLine("[D2D-CrossScreen] All remote D2D services stopped");
     }
 
     private async Task ApplyPlainCoreAsync(string filePath, int monitorIndex, string backgroundColor, int fitMode)
+    {
+        bool applied = false;
+        try
+        {
+            applied = await ApplyPlainBodyAsync(filePath, monitorIndex, backgroundColor, fitMode);
+        }
+        finally
+        {
+            if (!applied) await _agenda.ReconcileAsync(_players);   // a failed apply leaves a stand-in, not a bare monitor
+        }
+    }
+
+    private async Task<bool> ApplyPlainBodyAsync(string filePath, int monitorIndex, string backgroundColor, int fitMode)
     {
         Debug.WriteLine($"[D2D-Remote] ApplyD2DFromRemoteAsync called: file={filePath}, monitor={monitorIndex}, bg={backgroundColor}, fit={fitMode}");
 
@@ -297,7 +378,7 @@ public sealed class RemotePlaybackHost
         if (monitorIndex < 0 || monitorIndex >= monitors.Length)
         {
             Debug.WriteLine($"[D2D-Remote] ERROR: Invalid monitor index {monitorIndex} (have {monitors.Length} monitors)");
-            return;
+            return false;
         }
 
         var screen = monitors[monitorIndex];
@@ -361,9 +442,12 @@ public sealed class RemotePlaybackHost
         });
 
         _players[monitorIndex] = d2dService;
+        await _agenda.SendToAsync(monitorIndex, d2dService);
+        await _agenda.ReconcileAsync(_players);
         await ReplayEventsAsync(d2dService);
         await CatchUpTestModeAsync(d2dService, testMode);
         AdoptRemoteThumbnail(monitorIndex, d2dService, filePath);
         Debug.WriteLine($"[D2D-Remote] SUCCESS: Applied D2D wallpaper '{Path.GetFileName(filePath)}' on monitor {monitorIndex}");
+        return true;
     }
 }

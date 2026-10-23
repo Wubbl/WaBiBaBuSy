@@ -38,24 +38,6 @@
         { "name": "Rainbow conveyor", "scene": "scenes/01-rainbow-conveyor.json" },
         { "name": "Cat orbit wave", "scene": "scenes/06-cat-orbit-wave.json" }
       ]
-    },
-    {
-      "name": "Showcase Tour (all scenes)",
-      "loop": true, "shuffle": false, "defaultItemDurationMs": 15000,
-      "items": [
-        { "name": "01 Rainbow conveyor", "scene": "scenes/01-rainbow-conveyor.json" },
-        { "name": "02 DVD bounce", "scene": "scenes/02-dvd-bounce.json" },
-        { "name": "03 Sine serpent", "scene": "scenes/03-sine-serpent.json" },
-        { "name": "04 La Ola", "scene": "scenes/04-la-ola.json" },
-        { "name": "05 Cat parade", "scene": "scenes/05-cat-parade.json" },
-        { "name": "06 Cat orbit wave", "scene": "scenes/06-cat-orbit-wave.json" },
-        { "name": "07 Fireflies", "scene": "scenes/07-fireflies.json" },
-        { "name": "08 Confetti drift", "scene": "scenes/08-confetti-drift.json" },
-        { "name": "09 Neon corridor", "scene": "scenes/09-neon-corridor.json" },
-        { "name": "10 Pulse grid", "scene": "scenes/10-pulse-grid.json" },
-        { "name": "11 Endless stripes", "scene": "scenes/11-stripes-endless.json" },
-        { "name": "12 Lunar Tears", "scene": "scenes/12-lunar-tears.json" }
-      ]
     }
   ]
 }

@@ -28,6 +28,12 @@ public class ClientConfiguration
     public bool AutoConnect { get; set; } = false;
 
     /// <summary>
+    /// "address:port" of the server this client was connected to when it applied an update: the restarted app
+    /// connects there once and clears it, so an updated seat comes back on its own. Empty = nothing pending.
+    /// </summary>
+    public string ReconnectAfterUpdate { get; set; } = string.Empty;
+
+    /// <summary>
     /// Try to discover server via mDNS first before using manual address
     /// </summary>
     public bool PreferAutoDiscovery { get; set; } = true;
@@ -53,6 +59,12 @@ public class ClientConfiguration
     /// Pause wallpaper rendering when a fullscreen application is detected
     /// </summary>
     public bool PauseOnFullscreen { get; set; } = true;
+
+    /// <summary>
+    /// With <see cref="PauseOnFullscreen"/>: pause only the monitor the fullscreen app covers, keep the others playing
+    /// (light games). Off = any fullscreen app pauses every monitor of this machine, so a game gets all resources.
+    /// </summary>
+    public bool PauseOnlyFullscreenMonitor { get; set; }
 
     /// <summary>
     /// Answer automated test runs from the server (timecode strip, probes with wallpaper screenshots).

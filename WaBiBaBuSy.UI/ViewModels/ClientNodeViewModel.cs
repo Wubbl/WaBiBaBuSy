@@ -124,6 +124,10 @@ public partial class ClientNodeViewModel : ObservableObject
 
     public bool IsPrefetchComplete => PrefetchTotal > 0 && PrefetchReady >= PrefetchTotal;
 
+    /// <summary>Update download from the server: -1 = server builds the package, 0–100 = sent, null = none.</summary>
+    [ObservableProperty]
+    private int? _updateTransferPercent;
+
     /// <summary>
     /// Display name for the client
     /// </summary>

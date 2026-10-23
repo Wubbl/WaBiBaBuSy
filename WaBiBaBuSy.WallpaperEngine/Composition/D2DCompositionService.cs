@@ -33,6 +33,7 @@ public class D2DCompositionService : IDisposable, ITestProbeTarget
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, (ScreenMapping Screen, Rectangle Bounds, PlayerCommandLoadAnimation Load)> _hostSetup = new();
     private (long StartTimestampMs, int PixelsPerSecond)? _lastStart;
     private (bool Timecode, int ClockSkewMs) _lastTestMode;
+    private (Agenda? Agenda, bool FullScreen)? _lastAgenda;   // re-sent to a respawned player
     private readonly Queue<DateTime> _respawns = new();
     private volatile bool _disposing;
     private bool _disposed;
@@ -79,6 +80,18 @@ public class D2DCompositionService : IDisposable, ITestProbeTarget
             if (!host.IsRunning) continue;
             try { await host.SendShowEventAsync(evt); }
             catch (Exception ex) { _logger.LogError(ex, "Failed to send show event {Id} to a player host", evt.EventId); }
+        }
+    }
+
+    /// <summary>The room's agenda for every player of this service (null = none).</summary>
+    public async Task SendAgendaAsync(Agenda? agenda, bool fullScreen)
+    {
+        _lastAgenda = (agenda, fullScreen);
+        foreach (var host in _playerHosts.Values)
+        {
+            if (!host.IsRunning) continue;
+            try { await host.SendAgendaAsync(agenda, fullScreen); }
+            catch (Exception ex) { _logger.LogError(ex, "Failed to send the agenda to a player host"); }
         }
     }
 
@@ -243,6 +256,8 @@ public class D2DCompositionService : IDisposable, ITestProbeTarget
             var host = await CreateAndLoadHostAsync(order, CancellationToken.None);
             if (_lastTestMode.Timecode || _lastTestMode.ClockSkewMs != 0)
                 await host.SendTestModeAsync(_lastTestMode.Timecode, _lastTestMode.ClockSkewMs);
+            if (_lastAgenda is { } agenda)
+                await host.SendAgendaAsync(agenda.Agenda, agenda.FullScreen);
             if (_isRunning && _lastStart is { } start)
                 await host.SendStartAnimationAsync(new PlayerCommandStartAnimation
                 {
@@ -413,19 +428,16 @@ public class D2DCompositionService : IDisposable, ITestProbeTarget
     }
 
     /// <summary>
-    /// Show or hide all D2D player windows. Used for pause-on-fullscreen.
+    /// Pause / resume rendering of every player of this service (pause on fullscreen). Idempotent: each player is
+    /// sent only a change, so callers may re-apply the wanted state on every check.
     /// </summary>
-    public void SetPlayersVisible(bool visible)
+    public async Task SetPausedAsync(bool paused)
     {
-        foreach (var playerHost in _playerHosts.Values)
+        foreach (var host in _playerHosts.Values)
         {
-            if (playerHost.IsRunning && playerHost.PlayerHwnd != IntPtr.Zero)
-            {
-                Win32Interop.ShowWindow(playerHost.PlayerHwnd, visible ? Win32Interop.SW_SHOW : Win32Interop.SW_HIDE);
-            }
+            try { await host.SendPauseAsync(paused); }
+            catch (Exception ex) { _logger.LogError(ex, "Failed to send pause={Paused} to a player host", paused); }
         }
-
-        _logger.LogDebug("D2D players visibility set to {Visible}", visible);
     }
 
     public void Dispose()

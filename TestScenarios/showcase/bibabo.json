@@ -1,0 +1,39 @@
+{
+  // BiBaBo (design 2026-10-21-bibabo-bomb-game-design.md §14): three games on this machine's monitors (every monitor a
+  // seat in test runs), one per mode, together showing all seven riddle kinds; exact frames of each countdown and
+  // outcome. The waits give the players time to render the text sprites before the exact frames.
+  "name": "bibabo",
+  "requires": { "minRemoteNodes": 0 },
+  "steps": [
+    { "type": "testMode", "timecode": false },
+    { "type": "playScene", "label": "scene", "scene": "scenes/02-dvd-bounce.json" },
+
+    { "type": "showEvent", "label": "classic: maze, logic, clock", "atElapsedMs": 1000,
+      "event": { "type": "Bomb", "seed": 7 }, "forceMode": "Classic", "forceKinds": [ "Maze", "Logic", "Clock" ] },
+    { "type": "wait", "label": "text sprites", "ms": 3000 },
+    { "type": "exactFrame", "label": "roulette t=+2.5s", "elapsedMs": 3500 },
+    { "type": "exactFrame", "label": "drop + cables t=+6.5s", "elapsedMs": 7500 },
+    { "type": "exactFrame", "label": "classic countdown + cards", "elapsedMs": 21000 },
+    { "type": "showEvent", "label": "boom", "atElapsedMs": 30000, "event": { "type": "BombOutcome" }, "bombOutcome": "WrongCable" },
+    { "type": "wait", "label": "text sprites", "ms": 2000 },
+    { "type": "exactFrame", "label": "BOOM t=+0.5s", "elapsedMs": 30500 },
+    { "type": "exactFrame", "label": "BOOM t=+1.2s (explosion GIF)", "elapsedMs": 31200 },
+
+    { "type": "showEvent", "label": "cut order: dots, sequence, tangle", "atElapsedMs": 40000,
+      "event": { "type": "Bomb", "seed": 11 }, "forceMode": "CutOrder", "forceKinds": [ "Dots", "Sequence", "Tangle" ] },
+    { "type": "wait", "label": "text sprites", "ms": 3000 },
+    { "type": "exactFrame", "label": "cut order countdown + cards", "elapsedMs": 60000 },
+
+    { "type": "showEvent", "label": "keypad, 5 riddles: math, logic, sequence, dots, clock", "atElapsedMs": 70000,
+      "event": { "type": "Bomb", "seed": 2026 }, "forceMode": "Keypad", "forceKinds": [ "Math", "Logic", "Sequence", "Dots", "Clock" ] },
+    { "type": "wait", "label": "text sprites", "ms": 3000 },
+    { "type": "exactFrame", "label": "keypad countdown + cards", "elapsedMs": 90000 },
+    { "type": "showEvent", "label": "defused", "atElapsedMs": 100000, "event": { "type": "BombOutcome" }, "bombOutcome": "Defused" },
+    { "type": "wait", "label": "text sprites", "ms": 2000 },
+    { "type": "exactFrame", "label": "DEFUSED t=+2s", "elapsedMs": 102000 },
+    { "type": "exactFrame", "label": "DEFUSED t=+3s (beer morph)", "elapsedMs": 103000 },
+    { "type": "exactFrame", "label": "DEFUSED t=+6s (beer)", "elapsedMs": 106000 },
+
+    { "type": "stop" }
+  ]
+}

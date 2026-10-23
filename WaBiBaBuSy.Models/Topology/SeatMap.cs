@@ -122,6 +122,9 @@ public class NodeLayout
     public int Width { get; set; }
     public int Height { get; set; }
 
+    /// <summary>Tallest screen in this node's row (canvas px): a Panorama fills that height, shorter screens crop centred. 0 = unknown (older server).</summary>
+    public int RowHeight { get; set; }
+
     public int CanvasWidth { get; set; }
     public int CanvasHeight { get; set; }
 

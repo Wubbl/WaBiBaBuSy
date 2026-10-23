@@ -21,7 +21,8 @@ public class MediaDetailsTests
     [InlineData(0, 10)]
     [InlineData(-5, 10)]
     [InlineData(40, 40)]
-    [InlineData(5000, 1000)]
+    [InlineData(5000, 5000)]
+    [InlineData(600_000, 600_000)]   // morph chains hold a variant for minutes
     public void GifDelayMatchesPlayer(int raw, int expected) =>
         Assert.Equal(expected, MediaDetails.NormalizeGifDelayMs(raw));
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using WaBiBaBuSy.Models.Wallpaper;
@@ -29,13 +30,13 @@ public partial class PlaylistItemRow : ViewModelBase
         new[] { PlaylistDefaultChoice, nameof(TransitionKind.Cut), nameof(TransitionKind.Fade), nameof(TransitionKind.Wipe) };
 
     /// <summary>"Playlist default" or a <see cref="TransitionKind"/> name.</summary>
-    [ObservableProperty] private string _transitionChoice;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(Chips))] private string _transitionChoice;
 
     /// <summary>Transition length in seconds as typed; blank = 1.5 s.</summary>
-    [ObservableProperty] private string _transitionSecondsText;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(Chips))] private string _transitionSecondsText;
 
     [ObservableProperty] private string _name;
-    [ObservableProperty] private bool _snapToLap;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(Chips))] private bool _snapToLap;
 
     /// <summary>Dwell in seconds as typed; blank = use the playlist default. Kept as text so an empty box round-trips to null.</summary>
     [ObservableProperty]
@@ -48,12 +49,90 @@ public partial class PlaylistItemRow : ViewModelBase
     private int _playlistDefaultDurationMs = 30_000;
 
     /// <summary>True while the running show is on this item.</summary>
-    [ObservableProperty] private bool _isPlaying;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(PlayingFrame))] private bool _isPlaying;
 
-    /// <summary>Gallery thumbnail of the item's animation file (null when the gallery has none).</summary>
+    /// <summary>Thumbnail frame: green 2 px while playing.</summary>
+    public Avalonia.Thickness PlayingFrame => new(IsPlaying ? 2 : 0);
+
+    /// <summary>Thumbnail of <see cref="ThumbnailSource"/> (null until loaded, or when there is no file).</summary>
     [ObservableProperty] private Bitmap? _thumbnail;
 
+    /// <summary>The file the thumbnail shows: the bottom layer's animation, else any layer's, else the background image.</summary>
+    public string? ThumbnailSource
+    {
+        get
+        {
+            var cfg = Model.Config;
+            foreach (var layer in cfg.Layers)
+                if (!string.IsNullOrEmpty(layer.Animation.AnimationPath)) return layer.Animation.AnimationPath;
+            return string.IsNullOrEmpty(cfg.Background.ImagePath) ? null : cfg.Background.ImagePath;
+        }
+    }
+
+    /// <summary>The scene's background color, behind the thumbnail (transparent sprites sit on what the wall shows).</summary>
+    public IBrush SceneBackground
+    {
+        get
+        {
+            var bg = Model.Config.Background;
+            var hex = bg.Mode switch
+            {
+                BackgroundMode.IconZone => bg.IconCorridorColorHex,
+                BackgroundMode.ThreeZone => bg.CorridorColorHex,
+                _ => bg.ColorHex,
+            };
+            return new SolidColorBrush(Controls.ScenePainter.ParseHex(hex));
+        }
+    }
+
     // --- Detail lines -------------------------------------------------------
+
+    /// <summary>Colored tags under the name: source, motion + speed, distribution, look, transition override.</summary>
+    public IReadOnlyList<SceneChip> Chips
+    {
+        get
+        {
+            var cfg = Model.Config;
+            var anim = Bottom.Animation;
+            var m = Bottom.Movement;
+            var chips = new List<SceneChip>();
+
+            var paths = anim.GetAllAnimationPaths();
+            if (paths.Count > 0)
+                chips.Add(SceneGlyphs.Chip(SceneGlyphs.Source, SceneGlyphs.Media(paths[0]),
+                    System.IO.Path.GetFileName(paths[0]) + (paths.Count > 1 ? $" +{paths.Count - 1}" : string.Empty), SourceSummary));
+            if (cfg.Layers.Count > 1)
+                chips.Add(SceneGlyphs.Chip(SceneGlyphs.Source, "☰", $"{cfg.Layers.Count} layers"));
+
+            var speed = m.Type == MovementType.Static ? string.Empty
+                : m.SpeedUnit == SpeedUnit.CentimetersPerSecond ? $" {m.SpeedCmPerSecond:0.#} cm/s" : $" {m.SpeedPixelsPerSecond:0} px/s";
+            chips.Add(SceneGlyphs.Chip(SceneGlyphs.Motion, SceneGlyphs.Movement(m.Type), m.Type + speed, MovementSummary));
+
+            chips.Add(SceneGlyphs.Chip(SceneGlyphs.Spread, SceneGlyphs.Distribution(Bottom.Distribution),
+                Bottom.Distribution.ToString(), TargetSummary));
+
+            chips.Add(SceneGlyphs.Chip(SceneGlyphs.Look, SceneGlyphs.Background(cfg.Background.Mode),
+                cfg.Background.Mode.ToString(), VisualsSummary));
+            if (anim.Pattern != null)
+                chips.Add(SceneGlyphs.Chip(SceneGlyphs.Look, SceneGlyphs.BgTiled,
+                    anim.Pattern.Sizing == PatternConfig.SizingMode.Fill ? "grid fill" : $"grid {anim.Pattern.CountX}×{anim.Pattern.CountY}"));
+            if (anim.ColorGrading.Mode != ColorGradingMode.None)
+                chips.Add(SceneGlyphs.Chip(SceneGlyphs.Look, "◒", anim.ColorGrading.Mode.ToString()));
+            var fx = SpriteEffects.Describe(anim.Effects);
+            if (fx.Count > 0)
+                chips.Add(SceneGlyphs.Chip(SceneGlyphs.Look, "✦", string.Join(", ", fx)));
+
+            if (Enum.TryParse<TransitionKind>(TransitionChoice, out var kind))
+            {
+                var secs = kind == TransitionKind.Cut ? string.Empty
+                    : " " + (string.IsNullOrWhiteSpace(TransitionSecondsText) ? "1.5" : TransitionSecondsText) + "s";
+                chips.Add(SceneGlyphs.Chip(SceneGlyphs.Transition, SceneGlyphs.TransitionGlyph(kind), kind + secs, "Comes in with (overrides the playlist default)"));
+            }
+            if (SnapToLap)
+                chips.Add(SceneGlyphs.Chip(SceneGlyphs.Transition, "⟲", "lap-snap", "Duration rounded up to whole movement laps"));
+            return chips;
+        }
+    }
 
     /// <summary>The bottom layer the detail lines describe (an empty one for a background-only scene).</summary>
     private SceneLayer Bottom => Model.Config.FirstLayer ?? new SceneLayer();
@@ -214,5 +293,7 @@ public partial class PlaylistItemRow : ViewModelBase
         OnPropertyChanged(nameof(TargetSummary));
         OnPropertyChanged(nameof(VisualsSummary));
         OnPropertyChanged(nameof(DurationSummary));
+        OnPropertyChanged(nameof(Chips));
+        OnPropertyChanged(nameof(SceneBackground));
     }
 }

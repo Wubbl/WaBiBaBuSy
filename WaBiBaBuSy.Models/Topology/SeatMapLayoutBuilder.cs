@@ -131,6 +131,7 @@ public static class SeatMapLayoutBuilder
         for (int r = 0; r < rows.Count; r++)
         {
             var row = rows[r];
+            int rowH = row.Max(n => n.H);
             int dir = r % 2 == 0 ? +1 : -1;
             bool mirrored = dir * ScreenAxis(map, r) < 0;
 
@@ -148,6 +149,7 @@ public static class SeatMapLayoutBuilder
                     OffsetY = AnchorY(map, maxH, n.H),
                     Width = n.W,
                     Height = n.H,
+                    RowHeight = rowH,
                     Mirrored = mirrored,
                     Wraps = wraps,
                     Order = order++,
@@ -192,6 +194,7 @@ public static class SeatMapLayoutBuilder
                     OffsetY = y + AnchorY(map, rowH, n.H),
                     Width = n.W,
                     Height = n.H,
+                    RowHeight = rowH,
                     Mirrored = mirrored,
                     Wraps = false,
                     Order = order++,

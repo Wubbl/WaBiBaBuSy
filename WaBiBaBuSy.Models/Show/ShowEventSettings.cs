@@ -22,4 +22,8 @@ public sealed class ShowEventSettings
     /// <summary>Seat the last Spotlight targeted (the hotkey uses it).</summary>
     public string? LastTargetSeatId { get; set; }
     public bool HotkeysEnabled { get; set; } = true;
+    /// <summary>BiBaBo countdown.</summary>
+    public int BiBaBoTimerMs { get; set; } = 300_000;
+    /// <summary>BiBaBo cables and riddle cards (3–5).</summary>
+    public int BiBaBoRiddles { get; set; } = 3;
 }

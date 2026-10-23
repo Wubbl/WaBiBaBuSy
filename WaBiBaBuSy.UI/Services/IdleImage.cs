@@ -5,7 +5,10 @@ using WaBiBaBuSy.Models.Configuration;
 
 namespace WaBiBaBuSy.UI.Services;
 
-/// <summary>The black picture behind events fired while nothing plays (a file, so remote seats receive the stand-in scene).</summary>
+/// <summary>
+/// The fallback picture of the event stand-in scene (players draw their own wallpaper instead; older clients show
+/// black). A file, so remote seats receive the stand-in scene.
+/// </summary>
 internal static class IdleImage
 {
     /// <summary>Path of the image, written once under %APPDATA%\WaBiBaBuSy.</summary>

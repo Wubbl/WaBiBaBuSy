@@ -37,6 +37,9 @@ service WallpaperSync {
 
   // Automated test run: client uploads one probe result (header, then PNG chunks per monitor)
   rpc SubmitProbeResult(stream ProbeResultChunk) returns (ProbeResultAck);
+
+  // BiBaBo: the bomb seat's machine reports a cut cable or the Recycle Bin on the bomb; the server referees.
+  rpc ReportShowAction(ShowActionReport) returns (ShowActionAck);
 }
 
 // Client information message
@@ -99,6 +102,7 @@ message HeartbeatRequest {
   // Prefetch progress for the last PREFETCH list (0/0 = none received)
   int32 prefetch_ready = 7;
   int32 prefetch_total = 8;
+  repeated int32 busy_monitor_indexes = 9;   // monitors covered ≥ 80 % by a window (BiBaBo skips them); none from old clients
 }
 
 // Heartbeat response
@@ -118,6 +122,7 @@ message SyncCommand {
   string content_id = 4;
   SyncParameters params = 5;
   string event_json = 6;   // EVENT: JSON ShowEvent (one-shot show event); its T0 is timestamp_utc
+  string agenda_json = 7;  // AGENDA: JSON Agenda (room-wide timetable); timestamp_utc = the server time it was sent (clock shift)
 }
 
 // Command types
@@ -136,6 +141,7 @@ enum CommandType {
   TEST_PROBE = 11;        // Automated test run: report the frame shown at timestamp_utc (params.test_*)
   EVENT = 12;             // One-shot show event (Spotlight, Celebration, …): ShowEvent JSON in event_json, T0 = timestamp_utc. Old clients log "unknown" and ignore it.
   TEST_FAULT = 13;        // Automated test run: simulate a fault on this client (params.test_fault_*). Old clients log "unknown" and ignore it.
+  AGENDA = 14;            // Room-wide agenda (timetable overlay): Agenda JSON in agenda_json, timestamp_utc = send time. Old clients log "unknown" and ignore it.
 }
 
 // Sync parameters
@@ -229,6 +235,8 @@ message ConnectedClient {
   int32 prefetch_ready = 12;        // cached assets of the last PREFETCH list
   int32 prefetch_total = 13;        // size of the last PREFETCH list (0 = none)
   string app_version = 14;          // from ClientInfo at registration (test-run preflight compares builds)
+  repeated int32 busy_monitor_indexes = 15;  // last heartbeat's busy monitors (BiBaBo)
+  int64 busy_report_utc = 16;                // when they were reported (server clock, ms)
 }
 
 // Client order update
@@ -421,4 +429,17 @@ message ProbeCaptureChunk {
 message ProbeResultAck {
   bool success = 1;
   string message = 2;
+}
+
+// BiBaBo: an action on the bomb seat (design 2026-10-21-bibabo-bomb-game-design.md §5.3)
+message ShowActionReport {
+  string client_id = 1;
+  string event_id = 2;      // the Bomb event (= game id)
+  string action = 3;        // "cut" (cable 0..2) | "key" (0..9, 10 = C) | "recycle"
+  int32 cable = 4;          // cut: the cable; key: the key
+  int64 client_utc_ms = 5;  // for the log
+}
+
+message ShowActionAck {
+  bool accepted = 1;        // it decided the game
 }

@@ -34,6 +34,27 @@ public class SceneLayer
 
     /// <summary>Spawn window: how long it stays each time (from the start of each cycle; fades 250 ms in and out).</summary>
     public long ShowForMs { get; set; } = 10_000;
+
+    /// <summary>
+    /// One source per seat: seat n (its seat-map order) shows only source n mod count of AnimationPath +
+    /// AdditionalAnimationPaths, so every monitor gets its own sprite or GIF instead of all of them at once.
+    /// </summary>
+    public bool SourcePerSeat { get; set; }
+
+    /// <summary>
+    /// This layer as seat <paramref name="order"/> draws it: with <see cref="SourcePerSeat"/> and several sources a copy
+    /// whose only source is that seat's, otherwise the layer itself. Players and the room preview both resolve through here.
+    /// </summary>
+    public SceneLayer ForSeat(int order)
+    {
+        var paths = Animation.GetAllAnimationPaths();
+        if (!SourcePerSeat || paths.Count <= 1) return this;
+        var copy = (SceneLayer)MemberwiseClone();
+        copy.Animation = Animation.ShallowCopy();
+        copy.Animation.AnimationPath = paths[(int)SyncTiming.PositiveModulo(order, paths.Count)];
+        copy.Animation.AdditionalAnimationPaths = new();
+        return copy;
+    }
 }
 
 /// <summary>When a layer with a spawn window is shown — a pure function of the layer's clock, like everything else.</summary>

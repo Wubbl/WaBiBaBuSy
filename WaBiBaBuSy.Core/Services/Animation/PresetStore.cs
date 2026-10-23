@@ -27,6 +27,14 @@ public sealed class PresetStore
     /// <summary>Directory holding the preset files (created on demand).</summary>
     public string Directory { get; }
 
+    private PresetStore? _layers;
+
+    /// <summary>
+    /// Layer presets (one layer each) in <c>presets\layers\</c>: offered only in the Layers strip, never as scenes
+    /// (<see cref="List"/> does not look into subfolders). Its own <see cref="Changed"/> event.
+    /// </summary>
+    public PresetStore Layers => _layers ??= new PresetStore(Path.Combine(Directory, "layers"));
+
     /// <summary>A preset was saved, imported or deleted. Raised on the calling thread.</summary>
     public event EventHandler? Changed;
 

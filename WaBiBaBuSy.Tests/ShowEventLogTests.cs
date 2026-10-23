@@ -69,4 +69,51 @@ public class ShowEventLogTests
         log.Clear();
         Assert.Equal(0, log.Count);
     }
+
+    private static (ShowEvent Bomb, ShowEvent Outcome) BombPair()
+    {
+        var bomb = new ShowEvent { EventId = "game", Type = ShowEventType.Bomb, T0Utc = 0, DurationMs = 323_000, Bomb = new BombGame { GameId = "game" } };
+        var outcome = new ShowEvent { EventId = "out", Type = ShowEventType.BombOutcome, T0Utc = 60_000, DurationMs = 8000, Bomb = new BombGame { GameId = "game" } };
+        return (bomb, outcome);
+    }
+
+    [Fact]
+    public void Active_DropsTheBombOnceItsOutcomeStarted()
+    {
+        var log = new ShowEventLog();
+        var (bomb, outcome) = BombPair();
+        log.Add(bomb);
+        log.Add(outcome);
+        Assert.Equal(2, log.Active(59_000).Count);                       // outcome still ahead: both replay
+        Assert.Equal(new[] { "out" }, log.Active(61_000).Select(e => e.EventId));
+        // outcome over, bomb still booked: the outcome keeps replaying (a resumed client must learn the game ended)
+        Assert.Equal(new[] { "out" }, log.Active(70_000).Select(e => e.EventId));
+        Assert.Empty(log.Active(330_000));                                 // bomb's booking over too
+    }
+
+    [Fact]
+    public void Prune_KeepsTheOutcomeWhileItsBombLives_ThenDropsBoth()
+    {
+        var log = new ShowEventLog();
+        var (bomb, outcome) = BombPair();
+        log.Add(bomb);
+        log.Add(outcome);
+        log.Prune(60_000 + 8000 + ShowEventLog.KeepAfterEndMs - 1);
+        Assert.Equal(2, log.Count);
+        log.Prune(60_000 + 8000 + ShowEventLog.KeepAfterEndMs);
+        Assert.Equal(0, log.Count);                                        // the bomb goes with its outcome, not 4 min later
+    }
+
+    [Fact]
+    public void Add_KeepsOnlyTheNewestStepOfAGame()
+    {
+        var log = new ShowEventLog();
+        var (bomb, _) = BombPair();
+        log.Add(bomb);
+        for (int i = 0; i < 30; i++)   // a keypad session: many steps must not push the bomb out of the log
+            log.Add(new ShowEvent { EventId = $"s{i}", Type = ShowEventType.BombStep, T0Utc = 1000 + i, DurationMs = 300_000, Bomb = new BombGame { GameId = "game", Typed = $"{i}" } });
+        Assert.Equal(2, log.Count);
+        Assert.True(log.Contains("game"));
+        Assert.True(log.Contains("s29"));
+    }
 }

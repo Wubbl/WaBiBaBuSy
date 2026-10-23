@@ -149,6 +149,34 @@ public static class PatternLayout
     }
 
     /// <summary>3-input hash mixing the same Knuth multiplicative constant as MovementCalculator.</summary>
+    /// <summary>
+    /// Multi-image without a pattern: source <paramref name="srcIdx"/>'s seeded offset around the movement anchor
+    /// (within ±<paramref name="spread"/> px) and its time phase (within <paramref name="jitterMs"/>). Players and
+    /// the room preview both use it.
+    /// </summary>
+    public static (float Dx, float Dy, long PhaseMs) MultiImageOffset(int seed, int srcIdx, float spread, float jitterMs)
+    {
+        int hash = Hash2(seed, srcIdx);
+        spread = MathF.Max(0f, spread);
+        float dx = ((((hash & 0xFFFF) / 65535f) * 2f) - 1f) * spread;
+        float dy = (((((hash >> 16) & 0xFFFF) / 65535f) * 2f) - 1f) * spread;
+        long phase = (long)(((srcIdx * 0.6180339887) % 1.0) * MathF.Max(0f, jitterMs));
+        return (dx, dy, phase);
+    }
+
+    private static int Hash2(int seed, int k)
+    {
+        unchecked
+        {
+            uint h = (uint)seed;
+            h ^= (uint)k * 2654435761u;
+            h ^= h >> 13;
+            h *= 2246822519u;
+            h ^= h >> 16;
+            return (int)h;
+        }
+    }
+
     public static int Hash3(int seed, int i, int j)
     {
         unchecked

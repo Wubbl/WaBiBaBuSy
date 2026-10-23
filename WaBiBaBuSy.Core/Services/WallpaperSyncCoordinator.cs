@@ -43,6 +43,9 @@ public class WallpaperSyncCoordinator
     /// </summary>
     public Func<IReadOnlyList<(ShowEvent Event, ContentAssetRef? Asset)>>? ActiveShowEventsProvider { get; set; }
 
+    /// <summary>The room's agenda (null = none). Sent to every client when it registers, whatever it plays.</summary>
+    public Func<Agenda?>? AgendaProvider { get; set; }
+
     public WallpaperSyncCoordinator(
         ILogger<WallpaperSyncCoordinator> logger,
         WallpaperSyncService? syncService = null)
@@ -60,6 +63,7 @@ public class WallpaperSyncCoordinator
     /// </summary>
     private async void OnClientRegistered(object? sender, string clientId)
     {
+        _ = SendAgendaWhenReadyAsync(clientId);
         try
         {
             if (!_activeCrossScreenCommands.TryGetValue(clientId, out var command))
@@ -561,6 +565,46 @@ public class WallpaperSyncCoordinator
         }
         _logger.LogInformation("Show event {Type} {Id} (T0 {T0}) → {Sent} client(s)", evt.Type, evt.EventId, evt.T0Utc, sent);
         return sent;
+    }
+
+    /// <summary>The room's agenda to every connected client (an edit, or switched on / off). Returns how many it reached.</summary>
+    public async Task<int> BroadcastAgendaAsync(Agenda agenda)
+    {
+        if (_syncService == null) return 0;
+        var command = AgendaCodec.ToCommand(agenda, System.Threading.Interlocked.Increment(ref _sequenceNumber), DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        int sent = 0;
+        foreach (var client in _syncService.GetConnectedClients().ToList())
+        {
+            try { if (await _syncService.SendCommandToClientAsync(client.ClientId, command)) sent++; }
+            catch (Exception ex) { _logger.LogError(ex, "Agenda send failed for {ClientId}", client.ClientId); }
+        }
+        _logger.LogInformation("Agenda (enabled={Enabled}, {Count} item(s)) → {Sent} client(s)", agenda.Enabled, agenda.Items.Count, sent);
+        return sent;
+    }
+
+    /// <summary>A client registered: send it the agenda once its sync stream is up (the stream opens shortly after registering).</summary>
+    private async Task SendAgendaWhenReadyAsync(string clientId)
+    {
+        try
+        {
+            var agenda = AgendaProvider?.Invoke();
+            if (agenda == null || _syncService == null) return;
+            for (int attempt = 0; attempt < 10; attempt++)
+            {
+                await Task.Delay(500);
+                var command = AgendaCodec.ToCommand(agenda, System.Threading.Interlocked.Increment(ref _sequenceNumber), DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                if (await _syncService.SendCommandToClientAsync(clientId, command))
+                {
+                    _logger.LogInformation("Sent the agenda to {ClientId}", clientId);
+                    return;
+                }
+            }
+            _logger.LogWarning("Could not send the agenda to {ClientId} — sync stream never came up", clientId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Sending the agenda to {ClientId} failed", clientId);
+        }
     }
 
     /// <summary>

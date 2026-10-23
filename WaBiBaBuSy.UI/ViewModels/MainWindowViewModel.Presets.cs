@@ -25,10 +25,14 @@ public partial class MainWindowViewModel
     /// <summary>Editor "Presets ▾": one entry per preset, loads it into the editor.</summary>
     public ObservableCollection<PresetMenuEntry> ScenePresets { get; } = new();
 
-    /// <summary>Layers strip "▾ → Add layers from preset": one entry per preset, appends its layers on top.</summary>
+    /// <summary>Layers strip "▾ → Add from scene preset": one entry per scene preset, appends its layers (+ picture background).</summary>
+    public ObservableCollection<PresetMenuEntry> SceneLayerPresets { get; } = new();
+
+    /// <summary>Layers strip "▾ → Add layer preset": the saved layer presets (presets\layers\).</summary>
     public ObservableCollection<PresetMenuEntry> LayerPresets { get; } = new();
 
     [ObservableProperty] private bool _hasPresets;
+    [ObservableProperty] private bool _hasLayerPresets;
 
     /// <summary>Name typed in "Save as preset…" (pre-filled with the last loaded preset).</summary>
     [ObservableProperty]
@@ -53,6 +57,7 @@ public partial class MainWindowViewModel
     private void InitPresets()
     {
         _presets.Changed += OnPresetsChanged;
+        _presets.Layers.Changed += OnPresetsChanged;
         RefreshPresetMenus();
     }
 
@@ -67,10 +72,15 @@ public partial class MainWindowViewModel
         ScenePresets.Clear();
         foreach (var name in names)
             ScenePresets.Add(new PresetMenuEntry(name, new AsyncRelayCommand(() => LoadPresetAsync(name))));
-        LayerPresets.Clear();
+        SceneLayerPresets.Clear();
         foreach (var name in names)
-            LayerPresets.Add(new PresetMenuEntry(name, new AsyncRelayCommand(() => AddPresetLayersAsync(name))));
+            SceneLayerPresets.Add(new PresetMenuEntry(name, new AsyncRelayCommand(() => AddPresetLayersAsync(_presets, name))));
+        var layerNames = _presets.Layers.List();
+        LayerPresets.Clear();
+        foreach (var name in layerNames)
+            LayerPresets.Add(new PresetMenuEntry(name, new AsyncRelayCommand(() => AddPresetLayersAsync(_presets.Layers, name))));
         HasPresets = names.Count > 0;
+        HasLayerPresets = layerNames.Count > 0;
         PlaylistEditor.SetPresetEntries(names.Select(name =>
             new PresetMenuEntry(name, new AsyncRelayCommand(() => AddPresetToPlaylistAsync(name)))));
         OnPropertyChanged(nameof(SavePresetButtonText));
@@ -92,16 +102,38 @@ public partial class MainWindowViewModel
         }
     }
 
-    /// <summary>Put a preset's layers (not its background) on top of the draft's stack.</summary>
-    private async Task AddPresetLayersAsync(string name)
+    /// <summary>
+    /// Put a scene or layer preset's layers on top of the draft's stack; a preset with a picture background (e.g. a
+    /// Panorama) also sets the draft's background, any other background is kept. A draft without any sprite swaps its
+    /// empty placeholder layer for the preset's layers.
+    /// </summary>
+    private async Task AddPresetLayersAsync(PresetStore store, string name)
     {
         try
         {
-            var preset = await _presets.LoadAsync(name);
+            var preset = await store.LoadAsync(name);
+            var draft = SceneEditor.BuildConfig();
+            bool takeBackground = preset.Background.UsesImage;
+            if (draft.Layers.All(l => string.IsNullOrEmpty(l.Animation.AnimationPath)))
+            {
+                if (preset.Layers.Count > 0) draft.Layers = preset.Layers;
+                if (takeBackground) draft.Background = preset.Background;
+                LoadDraft(draft);
+                PresetStatus = takeBackground ? $"Loaded “{name}” (background + layers)" : $"Added layers from “{name}”";
+                return;
+            }
             int added = SceneEditor.AppendLayers(preset.Layers);
-            PresetStatus = added == 0 ? $"No room for more layers (max {Models.Wallpaper.SceneChecks.MaxLayers})"
+            if (takeBackground)
+            {
+                draft = SceneEditor.BuildConfig();
+                draft.Background = preset.Background;
+                LoadDraft(draft);
+            }
+            PresetStatus = preset.Layers.Count == 0 ? $"Background from “{name}”"
+                : added == 0 ? $"No room for more layers (max {Models.Wallpaper.SceneChecks.MaxLayers})"
                 : added < preset.Layers.Count ? $"Added {added} of {preset.Layers.Count} layers from “{name}” (max {Models.Wallpaper.SceneChecks.MaxLayers})"
                 : $"Added {added} layer{(added == 1 ? "" : "s")} from “{name}”";
+            if (takeBackground && preset.Layers.Count > 0) PresetStatus += " + its background";
         }
         catch (Exception ex)
         {
@@ -110,16 +142,16 @@ public partial class MainWindowViewModel
         }
     }
 
-    /// <summary>The selected layer alone as a new preset (default background), named after the layer; never overwrites.</summary>
+    /// <summary>The selected layer alone as a layer preset (presets\layers\), named after the layer; never overwrites.</summary>
     [RelayCommand]
     private async Task SaveLayerAsPreset()
     {
         var (layer, layerName) = SceneEditor.SelectedLayerSnapshot();
-        var name = _presets.UniqueName(string.IsNullOrWhiteSpace(layerName) ? "Layer" : layerName.Trim());
+        var name = _presets.Layers.UniqueName(string.IsNullOrWhiteSpace(layerName) ? "Layer" : layerName.Trim());
         try
         {
-            var saved = await _presets.SaveAsync(name, new Models.Wallpaper.CrossScreenConfig { Layers = { layer } });
-            PresetStatus = $"Saved layer as preset “{saved}”";
+            var saved = await _presets.Layers.SaveAsync(name, new Models.Wallpaper.CrossScreenConfig { Layers = { layer } });
+            PresetStatus = $"Saved layer preset “{saved}”";
         }
         catch (Exception ex)
         {

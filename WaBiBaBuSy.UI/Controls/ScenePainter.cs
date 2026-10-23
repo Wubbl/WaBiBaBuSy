@@ -23,9 +23,14 @@ public sealed partial class ScenePainter
     private const int MaxPreviewCellsPerNode = 400;
     private static readonly IBrush MonoCellBrush = new SolidColorBrush(Color.Parse("#BBBBBB"));
 
-    // ponytail: the cache is dropped whole past 32 images; per-scene eviction if big playlists make the preview stutter.
-    private const int MaxCachedBitmaps = 32;
-    private readonly Dictionary<string, Bitmap?> _bitmaps = new(StringComparer.OrdinalIgnoreCase);
+    // ponytail: the cache is dropped whole when full; per-scene eviction if big playlists make the preview stutter.
+    // Sprites are kept downscaled (tiles are a few hundred px), so a 60-image layer fits without thrashing.
+    private const int MaxCachedBitmaps = 256;
+    private const int SpritePreviewMaxPx = 256;
+    private readonly Dictionary<string, Sprite> _bitmaps = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>A decoded preview image and the source's native pixel size (what the players size it by).</summary>
+    private readonly record struct Sprite(Bitmap? Bmp, PixelSize Native);
 
     /// <summary>
     /// Maps a layer's animation file to the image the preview draws (the file for images/GIFs, a thumbnail for
@@ -36,23 +41,37 @@ public sealed partial class ScenePainter
     /// <summary>Forget every decoded image (e.g. after the gallery produced new video thumbnails).</summary>
     public void ClearBitmaps() => _bitmaps.Clear();
 
-    private Bitmap? BitmapFor(string? animationPath)
+    private Bitmap? BitmapFor(string? animationPath) => SpriteFor(animationPath).Bmp;
+
+    private Sprite SpriteFor(string? animationPath)
     {
         var image = SpriteImageResolver != null ? SpriteImageResolver(animationPath) : animationPath;
-        if (string.IsNullOrEmpty(image)) return null;
+        if (string.IsNullOrEmpty(image)) return default;
         if (_bitmaps.TryGetValue(image, out var cached)) return cached;
-        Bitmap? bmp = null;
+        Sprite sprite = default;
         try
         {
-            if (File.Exists(image)) bmp = new Bitmap(image);
+            if (File.Exists(image))
+            {
+                var full = new Bitmap(image);
+                var native = full.PixelSize;
+                double k = (double)SpritePreviewMaxPx / Math.Max(native.Width, native.Height);
+                if (k < 1)
+                {
+                    var small = full.CreateScaledBitmap(new PixelSize(Math.Max(1, (int)(native.Width * k)), Math.Max(1, (int)(native.Height * k))));
+                    full.Dispose();   // never drawn, safe to free now
+                    full = small;
+                }
+                sprite = new Sprite(full, native);
+            }
         }
         catch
         {
-            bmp = null;
+            sprite = default;
         }
         if (_bitmaps.Count >= MaxCachedBitmaps) _bitmaps.Clear();
-        _bitmaps[image] = bmp;
-        return bmp;
+        _bitmaps[image] = sprite;
+        return sprite;
     }
 
     // The preview only needs a few hundred px per tile: decode panoramas at 4096 px wide instead of 20000+.
@@ -63,7 +82,7 @@ public sealed partial class ScenePainter
     {
         if (string.IsNullOrEmpty(path)) return null;
         string key = PanoramaKeyPrefix + path;
-        if (_bitmaps.TryGetValue(key, out var cached)) return cached;
+        if (_bitmaps.TryGetValue(key, out var cached)) return cached.Bmp;
         Bitmap? bmp = null;
         try
         {
@@ -78,7 +97,7 @@ public sealed partial class ScenePainter
             bmp = null;
         }
         if (_bitmaps.Count >= MaxCachedBitmaps) _bitmaps.Clear();
-        _bitmaps[key] = bmp;
+        _bitmaps[key] = new Sprite(bmp, bmp?.PixelSize ?? default);
         return bmp;
     }
 
@@ -104,11 +123,13 @@ public sealed partial class ScenePainter
         ctx.FillRectangle(new SolidColorBrush(color), rect);
         if (bg?.Mode == BackgroundMode.Panorama && PanoramaBitmap(bg.ImagePath) is { } pano)
         {
-            var (px, py, pw, ph) = NodeMapping.PanoramaSource(node, pano.PixelSize.Width, pano.PixelSize.Height);
+            var ((px, py, pw, ph), dst) = NodeMapping.PanoramaSource(node, pano.PixelSize.Width, pano.PixelSize.Height, bg.PanoramaFit);
+            if (pw <= 0 || ph <= 0) return;   // the image misses this screen
             using var flip = node?.Mirrored == true
                 ? ctx.PushTransform(Matrix.CreateTranslation(-rect.Center.X, 0) * Matrix.CreateScale(-1, 1) * Matrix.CreateTranslation(rect.Center.X, 0))
                 : default(DrawingContext.PushedState?);
-            ctx.DrawImage(pano, new Rect(px, py, pw, ph), rect);
+            var to = dst is { } d ? new Rect(rect.X + d.X * s, rect.Y + d.Y * s, d.Width * s, d.Height * s) : rect;
+            ctx.DrawImage(pano, new Rect(px, py, pw, ph), to);
             return;
         }
         if (bg?.Mode != BackgroundMode.ThreeZone) return;
@@ -127,10 +148,10 @@ public sealed partial class ScenePainter
         if (layer == null) return (0, 0);
         var anim = layer.Animation;
         int nativeW = 400, nativeH = 300;
-        var bmp = BitmapFor(anim.AnimationPath);
-        if (bmp != null && bmp.PixelSize.Width > 0 && bmp.PixelSize.Height > 0)
+        var native = SpriteFor(anim.AnimationPath).Native;
+        if (native.Width > 0 && native.Height > 0)
         {
-            nativeW = bmp.PixelSize.Width; nativeH = bmp.PixelSize.Height;
+            nativeW = native.Width; nativeH = native.Height;
         }
         else if (anim.TargetHeight > 0)
         {
@@ -180,7 +201,7 @@ public sealed partial class ScenePainter
         bool? hit = null;
         for (int i = 0; i < scene.Layers.Count; i++)
         {
-            var layer = scene.Layers[i];
+            var layer = scene.Layers[i].ForSeat(node.Order);   // SourcePerSeat: this seat's own source, as its player
             if (!layer.Enabled || string.IsNullOrEmpty(layer.Animation.AnimationPath)) continue;
             float shown = SyncTiming.LayerElapsed(elapsedMs, node.Order, layer) is long le
                 ? LayerSchedule.Visibility(layer.ShowEveryMs, layer.ShowForMs, le) : 1f;   // spawn window, as the players
@@ -236,32 +257,68 @@ public sealed partial class ScenePainter
             tint = Color.FromRgb((byte)(r * 255), (byte)(g * 255), (byte)(b * 255));
         }
 
+        // Every source image of the layer, decoded once (player order: primary first, then the additional ones).
+        var paths = anim.GetAllAnimationPaths();
+        var sources = new Sprite[Math.Max(1, paths.Count)];
+        for (int i = 0; i < paths.Count; i++) sources[i] = SpriteFor(paths[i]);
+
         if (anim.Pattern != null)
         {
-            var cells = PatternLayout.Compute(anim.Pattern, vx, ly, animW, animH,
-                eff.CanvasWidth, eff.CanvasHeight, eff.OffsetX, eff.Width, eff.Height, 1, cellLogicalOffsetI: cellOffsetI);
+            // Cell slot as on the players: the widest source scaled to the sprite height of the tallest one.
+            int maxNativeH = sources.Max(src => src.Native.Height);
+            int cellW = animW;
+            if (maxNativeH > 0)
+            {
+                int widest = sources.Max(src => (int)(src.Native.Width * ((float)animH / maxNativeH)));
+                if (widest > 0) cellW = widest;
+            }
+            var cells = PatternLayout.Compute(anim.Pattern, vx, ly, cellW, animH,
+                eff.CanvasWidth, eff.CanvasHeight, eff.OffsetX, eff.Width, eff.Height, sources.Length, cellLogicalOffsetI: cellOffsetI);
             int stride = Math.Max(1, cells.Count / MaxPreviewCellsPerNode);
-            double cw = Math.Max(2, animW * s), ch = Math.Max(2, animH * s);
             for (int i = 0; i < cells.Count; i += stride)
             {
                 var c = cells[i];
-                float cx = NodeMapping.MirrorLocalX(c.ScreenX, animW, eff);
-                if (!NodeMapping.IsVisible(cx, animW, eff) || c.ScreenY + animH < 0 || c.ScreenY > eff.Height) continue;
-                IBrush brush;
+                var src = sources[c.SourceIndex % sources.Length];
+                int drawW = src.Native.Height > 0 ? (int)(src.Native.Width * ((float)animH / src.Native.Height)) : animW;
+                float cx = NodeMapping.MirrorLocalX(c.ScreenX, drawW, eff);
+                if (!NodeMapping.IsVisible(cx, drawW, eff) || c.ScreenY + animH < 0 || c.ScreenY > eff.Height) continue;
+                Color? cellTint = tint;
                 if (traveling && grading != null)
                 {
                     var rgb = ColorGrader.IsCellColored(grading, c.LogicalI, c.LogicalJ) ? ColorGrader.ComputeCellColor(grading, c.LogicalI, c.LogicalJ) : null;
-                    brush = rgb.HasValue ? new SolidColorBrush(Color.FromRgb((byte)(rgb.Value.R * 255), (byte)(rgb.Value.G * 255), (byte)(rgb.Value.B * 255))) : MonoCellBrush;
+                    cellTint = rgb.HasValue ? Color.FromRgb((byte)(rgb.Value.R * 255), (byte)(rgb.Value.G * 255), (byte)(rgb.Value.B * 255)) : null;
                 }
-                else brush = tint.HasValue ? new SolidColorBrush(tint.Value) : MonoCellBrush;
-                ctx.FillRectangle(brush, new Rect(rect.Left + cx * s, rect.Top + c.ScreenY * s, Math.Max(1, cw - 1), Math.Max(1, ch - 1)), 1);
+                if (src.Bmp != null)
+                    DrawSprite(ctx, rect, s, src.Bmp, cx, c.ScreenY, drawW, animH, 1f, c.RotationDeg, 1.0, cellTint);
+                else
+                    ctx.FillRectangle(cellTint.HasValue ? new SolidColorBrush(cellTint.Value) : MonoCellBrush,
+                        new Rect(rect.Left + cx * s, rect.Top + c.ScreenY * s, Math.Max(1, drawW * s - 1), Math.Max(1, animH * s - 1)), 1);
             }
             return false;
         }
 
+        // Several images without a pattern: each at its seeded offset around the anchor, sized to TargetHeight
+        // (the players' multi-image branch: no wrap copies, no effects).
+        if (sources.Length > 1)
+        {
+            float ax = NodeMapping.ToLocalX(vx, animW, eff);
+            int seed = anim.Pattern?.Seed ?? 0;
+            for (int i = 0; i < sources.Length; i++)
+            {
+                var src = sources[i];
+                var (dx, dy, _) = PatternLayout.MultiImageOffset(seed, i, anim.MultiImageSpread, anim.MultiImagePhaseJitterMs);
+                int h = anim.TargetHeight;
+                int w = src.Native.Height > 0 ? (int)(src.Native.Width * ((float)h / src.Native.Height)) : animW;
+                if (h <= 0) (w, h) = (animW, animH);
+                DrawSprite(ctx, rect, s, src.Bmp, ax + dx, ly + dy, w, h, 1f, 0f, 1.0, tint);
+            }
+            float center = ax + animW / 2f;
+            return center >= 0 && center < eff.Width;
+        }
+
         bool hit = false;
         Span<float> copies = stackalloc float[2];
-        var bmp = BitmapFor(anim.AnimationPath);
+        var bmp = sources[0].Bmp;
 
         // Roadmap 2.4 effects, with the players' pure math (SpriteEffects).
         var fx = SpriteEffects.Supported(anim, movement, bg.Mode) ? anim.Effects : null;

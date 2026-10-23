@@ -1072,6 +1072,13 @@ partial class Program
                     ProcessParentCommand(parentCmd);
                 }
 
+                // Pause on fullscreen: no draw, no Present, no z-order upkeep while a game covers this monitor.
+                if (PauseGate())
+                {
+                    WaitWhilePaused();
+                    continue;
+                }
+
                 // Periodic IconZone icon-position check — runs every 5 s.
                 // Compare live icon positions against the cached set; rebuild zones ONLY
                 // if icons actually moved. Never touches window parenting or Z-order.
@@ -1408,6 +1415,7 @@ partial class Program
                     RecordMovementTrailSample();
                     // Show events: above the scene, below the debug overlay and the timecode strip. Raw = un-phased elapsed.
                     if (_lastFrameElapsedMs != long.MinValue) DrawShowEvents(_lastFrameElapsedMs + _lastFramePhaseMs);
+                    DrawAgenda(NowUtcMs);
                     DrawTransitionVeil();
                     DrawDebugOverlay();
                     if (_testTimecode) DrawTimecodeStrip(_lastFrameElapsedMs);
@@ -1511,11 +1519,7 @@ partial class Program
                 delayMs = 10; // Browser standard: 0-delay = 10ms
                 zeroDelayCount++;
             }
-            if (delayMs > 1000)
-            {
-                _logger?.LogWarning("[GIF-D2D] Frame delay {Original}ms capped to 1000ms", delayMs);
-                delayMs = 1000;
-            }
+            // No upper cap: long holds are deliberate (a morph chain holds each variant for minutes).
             delays.Add(delayMs);
 
             // Convert Magick frame to GDI+ Bitmap, then upload to D2D
@@ -1725,6 +1729,7 @@ partial class Program
             {
                 var player = _vlcPlayer;
                 if (!_running || player == null || !_isPlaying || _videoDurationMs <= 0) return;
+                if (HoldVideoWhilePaused(player)) return;
                 bool loop = _animationConfig?.Loop == true;
                 long elapsed = SyncTiming.ApplyNodePhase((long)(NowUtc - _renderLoopStart).TotalMilliseconds,
                     _nodeOrder, _movementConfig?.NodePhaseDelayMs ?? 0, _perMonitorMode);
@@ -1820,17 +1825,29 @@ partial class Program
                 _logger?.LogInformation("[BG-D2D] Solid color: {Color}", config.ColorHex);
                 break;
 
+            case BackgroundMode.StretchedImage when config.UseLocalDesktopWallpaper && LocalDesktopWallpaper() == null:
+                _backgroundMode = BackgroundMode.SolidColor;   // no wallpaper picture: the desktop's plain color
+                int rgb = GetSysColor(COLOR_DESKTOP);
+                _backgroundColor = new Color4((rgb & 0xFF) / 255f, ((rgb >> 8) & 0xFF) / 255f, ((rgb >> 16) & 0xFF) / 255f, 1f);
+                break;
+
             case BackgroundMode.StretchedImage:
             case BackgroundMode.TiledImage:
             case BackgroundMode.Panorama:
-                if (!string.IsNullOrEmpty(config.ImagePath) && File.Exists(config.ImagePath))
+                var imagePath = config.Mode == BackgroundMode.StretchedImage && config.UseLocalDesktopWallpaper
+                    ? LocalDesktopWallpaper() : config.ImagePath;
+                if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
                 {
-                    using var gdiBitmap = (Bitmap)Image.FromFile(config.ImagePath);
+                    using var gdiBitmap = (Bitmap)Image.FromFile(imagePath);
+                    _backgroundColor = ParseHexColor(config.ColorHex);   // panorama: around a centred image
+                    _panoramaDest = null;
                     // Panorama: cut this node's slice on the CPU, so only a monitor-sized bitmap reaches the GPU
-                    // (a 10-screen image is wider than D2D's 16384 px bitmap limit).
-                    using var slice = config.Mode == BackgroundMode.Panorama ? CropPanorama(gdiBitmap) : null;
-                    _backgroundImageBitmap = UploadBitmapToD2D(slice ?? gdiBitmap);
-                    _logger?.LogInformation("[BG-D2D] Image loaded: {Path} ({W}x{H}){Slice}", config.ImagePath, gdiBitmap.Width, gdiBitmap.Height,
+                    // (a 10-screen image is wider than D2D's 16384 px bitmap limit). The desktop wallpaper is cropped to fill.
+                    using var slice = config.Mode == BackgroundMode.Panorama ? CropPanorama(gdiBitmap, config.PanoramaFit)
+                        : config.UseLocalDesktopWallpaper ? CropToFill(gdiBitmap) : null;
+                    if (config.Mode != BackgroundMode.Panorama || slice != null)   // no slice: the image misses this screen
+                        _backgroundImageBitmap = UploadBitmapToD2D(slice ?? gdiBitmap);
+                    _logger?.LogInformation("[BG-D2D] Image loaded: {Path} ({W}x{H}){Slice}", imagePath, gdiBitmap.Width, gdiBitmap.Height,
                         slice != null ? $" panorama slice {slice.Width}x{slice.Height}" : string.Empty);
                 }
                 else
@@ -1933,12 +1950,58 @@ partial class Program
     }
 
     /// <summary>This node's slice of a panorama image (<see cref="NodeMapping.PanoramaSource"/>), flipped on a mirrored node.</summary>
-    private static Bitmap CropPanorama(Bitmap full)
+    private const int COLOR_DESKTOP = 1;
+    private const uint SPI_GETDESKWALLPAPER = 0x73;
+
+    [DllImport("user32.dll")]
+    private static extern int GetSysColor(int nIndex);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool SystemParametersInfo(uint uiAction, uint uiParam, System.Text.StringBuilder pvParam, uint fWinIni);
+
+    /// <summary>
+    /// This machine's Windows wallpaper file, or null (plain color desktop). Falls back to Windows' own transcoded
+    /// copy when the original file is gone.
+    /// </summary>
+    // ponytail: one wallpaper per machine (SPI); per-monitor wallpapers need IDesktopWallpaper + monitor device paths.
+    private static string? LocalDesktopWallpaper()
+    {
+        var sb = new System.Text.StringBuilder(1024);
+        if (SystemParametersInfo(SPI_GETDESKWALLPAPER, (uint)sb.Capacity, sb, 0) && File.Exists(sb.ToString()))
+            return sb.ToString();
+        if (sb.Length == 0) return null;   // no wallpaper set
+        var transcoded = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "Microsoft", "Windows", "Themes", "TranscodedWallpaper");
+        return File.Exists(transcoded) ? transcoded : null;
+    }
+
+    /// <summary>The centered part of <paramref name="full"/> with this monitor's aspect (Windows' "Fill").</summary>
+    private static Bitmap CropToFill(Bitmap full)
+    {
+        double target = (double)Math.Max(1, _width) / Math.Max(1, _height);
+        int w = full.Width, h = full.Height;
+        if ((double)w / h > target) w = Math.Max(1, (int)(h * target)); else h = Math.Max(1, (int)(w / target));
+        return full.Clone(new Rectangle((full.Width - w) / 2, (full.Height - h) / 2, w, h), System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+    }
+
+    /// <summary>Where the panorama slice is drawn on this screen (null = the whole screen); the rest shows the background colour.</summary>
+    private static System.Drawing.RectangleF? _panoramaDest;
+
+    /// <summary>This node's slice, or null when the image does not reach this screen; sets <see cref="_panoramaDest"/>.</summary>
+    private static Bitmap? CropPanorama(Bitmap full, PanoramaFit fit)
     {
         // ponytail: without a seat-map layout the whole image is uploaded (fails past 16384 px); every LOAD from the server carries one.
-        var (x, y, w, h) = NodeMapping.PanoramaSource(_sequentialLayout, full.Width, full.Height);
+        var ((x, y, w, h), dst) = NodeMapping.PanoramaSource(_sequentialLayout, full.Width, full.Height, fit);
+        if (w <= 0 || h <= 0) return null;
+        var layout = _sequentialLayout;
+        bool mirrored = layout?.Mirrored == true;
+        if (dst is { } d && layout != null)
+        {
+            float kx = _width / (float)layout.Width, ky = _height / (float)layout.Height;   // layout px → swap-chain px
+            _panoramaDest = new System.Drawing.RectangleF((mirrored ? layout.Width - d.X - d.Width : d.X) * kx, d.Y * ky, d.Width * kx, d.Height * ky);
+        }
         var slice = full.Clone(new Rectangle(x, y, w, h), System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
-        if (_sequentialLayout?.Mirrored == true) slice.RotateFlip(RotateFlipType.RotateNoneFlipX);
+        if (mirrored) slice.RotateFlip(RotateFlipType.RotateNoneFlipX);
         return slice;
     }
 
@@ -1959,9 +2022,10 @@ partial class Program
             case BackgroundMode.Panorama:   // the bitmap already is this node's slice
                 if (_backgroundImageBitmap != null)
                 {
-                    _d2dContext.Clear(new Color4(0, 0, 0, 1)); // Black behind image
-                    var fullScreen = new System.Drawing.RectangleF(0, 0, _width, _height);
-                    _d2dContext.DrawBitmap(_backgroundImageBitmap, fullScreen, 1.0f, BitmapInterpolationMode.Linear, null);
+                    bool pano = _backgroundMode == BackgroundMode.Panorama;
+                    _d2dContext.Clear(pano ? _backgroundColor : new Color4(0, 0, 0, 1)); // Black behind image
+                    var dest = pano && _panoramaDest is { } d ? d : new System.Drawing.RectangleF(0, 0, _width, _height);
+                    _d2dContext.DrawBitmap(_backgroundImageBitmap, dest, 1.0f, BitmapInterpolationMode.Linear, null);
                 }
                 else
                 {
@@ -2170,6 +2234,7 @@ partial class Program
             _facingLeft = false;
             DrawNativeGifScene(elapsed, live: false);
             DrawShowEvents(elapsed);   // exact frames have no phase: the raw elapsed is the requested one
+            DrawAgenda(new DateTimeOffset(_renderLoopStart).ToUnixTimeMilliseconds() + elapsed);
             reply.AnimX = _animX; reply.AnimY = _animY; reply.AnimWidth = _animWidth; reply.AnimHeight = _animHeight;
             reply.Flipped = _lastFlipX;
             reply.PhaseMs = 0;   // exact frames are rendered at the given effective elapsed; no phase applies
@@ -2259,6 +2324,7 @@ partial class Program
         {
             string why = stopping ? "player render loop stopped"
                 : _testModeEnabled ? "player is in swap-chain TEST MODE"
+                : _paused ? "player is paused (fullscreen app on its monitor)"
                 : "no frame was rendered since the probe was due";
             _logger?.LogWarning("[Probe] {Id} answered without a frame: {Why}", req.ProbeId, why);
             _ = EmitProbeReplyAsync(new PlayerProbeReply
@@ -3096,12 +3162,14 @@ partial class Program
     private static void ProcessCommands()
     {
         _logger?.LogInformation("Command processor started");
+        // The host writes UTF-8 (D2DPlayerHost); Console.ReadLine would decode with the console code page.
+        using var stdin = new StreamReader(Console.OpenStandardInput(), new System.Text.UTF8Encoding(false));
 
         while (_running)
         {
             try
             {
-                var line = Console.ReadLine();
+                var line = stdin.ReadLine();
                 if (line == null)
                 {
                     _logger?.LogInformation("Stdin closed, exiting");
@@ -3311,9 +3379,19 @@ partial class Program
                     if (eventCmd != null) HandleShowEventCommand(eventCmd);
                     break;
 
+                case "cmd_agenda":
+                    var agendaCmd = JsonConvert.DeserializeObject<PlayerCommandAgenda>(json);
+                    if (agendaCmd != null) HandleAgendaCommand(agendaCmd);
+                    break;
+
                 case "cmd_transition":
                     var transitionCmd = JsonConvert.DeserializeObject<PlayerCommandTransition>(json);
                     if (transitionCmd != null) HandleTransitionCommand(transitionCmd);
+                    break;
+
+                case "cmd_pause":
+                    var pauseCmd = JsonConvert.DeserializeObject<PlayerCommandPause>(json);
+                    if (pauseCmd != null) HandlePauseCommand(pauseCmd);
                     break;
 
                 default:
@@ -3328,7 +3406,7 @@ partial class Program
             // cmd_test_mode / cmd_probe get no stdout reply: the host does not read one, so an ERROR line here
             // would be taken as the reply to its next command. A broken probe is answered on stderr instead.
             if (messageType == "cmd_probe") RejectMalformedProbe(json, ex);
-            if (messageType is "cmd_test_mode" or "cmd_probe" or "cmd_show_event" or "cmd_transition") return;
+            if (messageType is "cmd_test_mode" or "cmd_probe" or "cmd_show_event" or "cmd_agenda" or "cmd_transition" or "cmd_pause") return;
             Console.WriteLine($"ERROR:JSON parsing failed: {ex.Message}");
             Console.Out.Flush();
         }
@@ -3796,15 +3874,11 @@ partial class Program
         {
             // Multi-image without pattern: draw each source at a seeded offset around the anchor.
             int seed = _animationConfig.Pattern?.Seed ?? 0;
-            float spread = Math.Max(0f, _animationConfig.MultiImageSpread);
-            float jitterMs = Math.Max(0f, _animationConfig.MultiImagePhaseJitterMs);
 
             for (int srcIdx = 0; srcIdx < sourceCount; srcIdx++)
             {
-                int hash = Hash2(seed, srcIdx);
-                float dx = ((((hash & 0xFFFF) / 65535f) * 2f) - 1f) * spread;
-                float dy = (((((hash >> 16) & 0xFFFF) / 65535f) * 2f) - 1f) * spread;
-                long phase = (long)(((srcIdx * 0.6180339887) % 1.0) * jitterMs);
+                var (dx, dy, phase) = PatternLayout.MultiImageOffset(seed, srcIdx,
+                    _animationConfig.MultiImageSpread, _animationConfig.MultiImagePhaseJitterMs);
 
                 int frameIdx = GetCurrentFrameIndexForSource(srcIdx, elapsedMs + phase);
                 var frames = _d2dFramesPerSource[srcIdx];
@@ -4020,19 +4094,6 @@ partial class Program
         if (needsTransform) _d2dContext.Transform = prior;
     }
 
-    private static int Hash2(int seed, int k)
-    {
-        unchecked
-        {
-            uint h = (uint)seed;
-            h ^= (uint)k * 2654435761u;
-            h ^= h >> 13;
-            h *= 2246822519u;
-            h ^= h >> 16;
-            return (int)h;
-        }
-    }
-
     private static void HandleLoadAnimationCommand(PlayerCommandLoadAnimation cmd)
     {
         try
@@ -4062,6 +4123,7 @@ partial class Program
                 for (int i = 0; i < layers.Count; i++)
                 {
                     if (i > 0) SaveInto(_layers[i - 1]);
+                    layers[i] = layers[i].ForSeat(cmd.Layout?.Order ?? 0);   // SourcePerSeat: this seat's own source only
                     var runtime = new LayerRuntime { Config = layers[i] };
                     _layers.Add(runtime);
                     _activeLayer = i;
@@ -4389,6 +4451,7 @@ partial class Program
         // Dispose native D2D resources
         DisposeNativeD2DResources();
         DisposeShowEventResources();   // survives scene loads (they keep the D2D device); released only here
+        DisposeAgendaResources();
 
         // Debug overlay brushes (lazy-created, may be null)
         _debugPathBrush?.Dispose();     _debugPathBrush = null;

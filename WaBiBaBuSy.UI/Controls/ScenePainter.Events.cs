@@ -26,11 +26,17 @@ public sealed partial class ScenePainter
         long sceneStartUtcMs, long sceneRawElapsedMs, bool sharedCanvas)
     {
         using var clip = ctx.PushClip(rect);
-        for (int layer = 0; layer <= 2; layer++)
+        for (int layer = 0; layer <= 3; layer++)
         {
             foreach (var evt in events)
             {
-                int l = evt.Type == ShowEventType.Spotlight ? 1 : evt.Type == ShowEventType.Blackout ? 2 : 0;
+                int l = evt.Type switch
+                {
+                    ShowEventType.Spotlight => 1,
+                    ShowEventType.Blackout => 2,
+                    ShowEventType.Bomb or ShowEventType.BombOutcome => 3,
+                    _ => 0,
+                };
                 if (l != layer || !evt.IsFor(node.Id)) continue;
                 long local = ShowEventMath.LocalMs(evt, sceneStartUtcMs, sceneRawElapsedMs);
                 if (!ShowEventMath.IsActive(evt, local)) continue;
@@ -48,6 +54,12 @@ public sealed partial class ScenePainter
                     case ShowEventType.Traversal:
                     case ShowEventType.Announce:
                         PaintEventSprite(ctx, rect, s, node, evt, local);
+                        break;
+                    case ShowEventType.Bomb:
+                        PaintBomb(ctx, rect, s, node, evt, local, events);
+                        break;
+                    case ShowEventType.BombOutcome:
+                        PaintBombOutcome(ctx, rect, s, node, evt, local);
                         break;
                 }
             }

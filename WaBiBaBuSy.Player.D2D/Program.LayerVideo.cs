@@ -106,6 +106,7 @@ partial class Program
                 lock (_compositionLock)
                 {
                     if (_disposed || !_running || !_isPlaying || DurationMs <= 0) return;
+                    if (HoldVideoWhilePaused(_player)) return;
                     long raw = (long)(NowUtc - _renderLoopStart).TotalMilliseconds;
                     long? elapsed = SyncTiming.LayerElapsed(raw, _nodeOrderForLayers, _layer);
                     if (elapsed is not long e || e < 0)

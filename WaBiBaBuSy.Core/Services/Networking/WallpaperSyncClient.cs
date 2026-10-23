@@ -86,9 +86,37 @@ public class WallpaperSyncClient : IDisposable
 
     public bool IsConnected { get; private set; }
     public string? ClientId => _clientId;
+    /// <summary>The server of the current (or last) connect.</summary>
+    public string? ServerAddress => _serverAddress;
+    public int ServerPort => _serverPort;
+    /// <summary>Why the last <see cref="ConnectAsync"/> failed, in words for the user; null after a success.</summary>
+    public string? LastError { get; private set; }
 
     /// <summary>Set by the playback service: (cached, total) of the last PREFETCH list, reported via heartbeat.</summary>
     public Func<(int Ready, int Total)>? PrefetchStatusProvider { get; set; }
+
+    /// <summary>BiBaBo: report a cut / the Recycle Bin on the bomb; true when it decided the game. Never throws.</summary>
+    public async Task<bool> ReportShowActionAsync(string eventId, string action, int cable)
+    {
+        try
+        {
+            if (_client == null || string.IsNullOrEmpty(_clientId)) return false;
+            var ack = await _client.ReportShowActionAsync(new ShowActionReport
+            {
+                ClientId = _clientId, EventId = eventId, Action = action, Cable = cable, ClientUtcMs = NowMs(),
+            });
+            _logger.LogInformation("BiBaBo {Action} (cable {Cable}) reported: {Result}", action, cable, ack.Accepted ? "decided the game" : "ignored");
+            return ack.Accepted;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "BiBaBo report failed");
+            return false;
+        }
+    }
+
+    /// <summary>BiBaBo: this machine's busy monitors (a window covers ≥ 80 %), sent with every heartbeat.</summary>
+    public Func<IReadOnlyList<int>>? BusyMonitorsProvider { get; set; }
 
     /// <summary>Estimated (server - client) clock offset in ms, from heartbeat round-trips.</summary>
     public long ClockOffsetMs => _clockOffset.OffsetMs;
@@ -143,6 +171,7 @@ public class WallpaperSyncClient : IDisposable
         if (RealNowMs() < Interlocked.Read(ref _faultUntilUtcMs))
         {
             _logger.LogInformation("[Test] Server unreachable (simulated link loss)");
+            LastError = "server not reachable (simulated link loss)";
             return false;
         }
 
@@ -180,6 +209,7 @@ public class WallpaperSyncClient : IDisposable
             }
 
             IsConnected = true;
+            LastError = null;
             _heartbeatFailures = 0;
             _backoff.Reset();
             ConnectionStatusChanged?.Invoke(this,
@@ -207,6 +237,7 @@ public class WallpaperSyncClient : IDisposable
         {
             _logger.LogError("[Connect] gRPC error connecting to {Address}:{Port} — Status={Status}, Detail={Detail}",
                 serverAddress, serverPort, rpcEx.StatusCode, rpcEx.Status.Detail);
+            LastError = Describe(rpcEx);
             IsConnected = false;
             ConnectionStatusChanged?.Invoke(this,
                 new ConnectionStatusChangedEventArgs(false, serverAddress, serverPort));
@@ -216,6 +247,7 @@ public class WallpaperSyncClient : IDisposable
         {
             _logger.LogError(ex, "[Connect] Error connecting to {Address}:{Port} — {Message}",
                 serverAddress, serverPort, ex.InnerException?.Message ?? ex.Message);
+            LastError = ex.InnerException?.Message ?? ex.Message;
             IsConnected = false;
             ConnectionStatusChanged?.Invoke(this,
                 new ConnectionStatusChangedEventArgs(false, serverAddress, serverPort));
@@ -376,7 +408,8 @@ public class WallpaperSyncClient : IDisposable
             _logger.LogInformation("Registering with server. Version: {Version}, Build: {Build}",
                 AppVersionInfo.AppVersion, AppVersionInfo.BuildNumber);
 
-            var response = await _client.RegisterClientAsync(clientInfo);
+            // A deadline: a server whose port drops packets (firewall) would otherwise hang the connect for long.
+            var response = await _client.RegisterClientAsync(clientInfo, deadline: DateTime.UtcNow.AddSeconds(10));
 
             if (response.Success)
             {
@@ -413,15 +446,24 @@ public class WallpaperSyncClient : IDisposable
             else
             {
                 _logger.LogError("Registration failed: {Message}", response.Message);
+                LastError = response.Message;
                 return false;
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during registration");
+            LastError = ex is global::Grpc.Core.RpcException rpc ? Describe(rpc) : ex.Message;
             return false;
         }
     }
+
+    private static string Describe(global::Grpc.Core.RpcException ex) => ex.StatusCode switch
+    {
+        global::Grpc.Core.StatusCode.Unavailable => "server not reachable (not running, wrong address or blocked by a firewall)",
+        global::Grpc.Core.StatusCode.DeadlineExceeded => "server did not answer within 10 s",
+        _ => string.IsNullOrWhiteSpace(ex.Status.Detail) ? ex.StatusCode.ToString() : ex.Status.Detail,
+    };
 
     /// <summary>
     /// Start sending periodic heartbeats to the server
@@ -505,6 +547,12 @@ public class WallpaperSyncClient : IDisposable
             request.ClockOffsetMs = _clockOffset.OffsetMs;
             request.RttMs = _clockOffset.RttMs;
             request.HasDriftReport = true;
+        }
+
+        if (BusyMonitorsProvider is { } busy)
+        {
+            try { request.BusyMonitorIndexes.AddRange(busy()); }
+            catch (Exception ex) { _logger.LogDebug(ex, "Busy-monitor probe failed"); }
         }
 
         var prefetch = PrefetchStatusProvider?.Invoke();

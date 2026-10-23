@@ -103,6 +103,23 @@ public class WaBiBaBuSyService : IDisposable
             _playbackService.ShowEventDelegate = showEvent;
     }
 
+    /// <summary>Set the agenda delegate (keeps and forwards the AGENDA to this machine's players). Kept for later connections.</summary>
+    public void SetAgendaDelegate(Func<Models.Show.Agenda?, Task>? agenda)
+    {
+        PlaybackDelegates.Agenda = agenda;
+        if (_playbackService != null)
+            _playbackService.AgendaDelegate = agenda;
+    }
+
+    /// <summary>Client mode: this machine's busy monitors for the heartbeat (BiBaBo); set once by the app.</summary>
+    public Func<IReadOnlyList<int>>? BusyMonitorsProvider { get; set; }
+
+    /// <summary>Server mode: referees BiBaBo actions reported by clients (set by the server's playback host).</summary>
+    public Func<WaBiBaBuSy.Grpc.ShowActionReport, Task<bool>>? ShowActionHandler { get; set; }
+
+    /// <summary>Server mode: the agenda every client gets when it registers (set by the server's playback host).</summary>
+    public Func<Models.Show.Agenda?>? AgendaProvider { get; set; }
+
     /// <summary>
     /// Get the wallpaper sync client (only available in client mode)
     /// </summary>
@@ -195,12 +212,16 @@ public class WaBiBaBuSyService : IDisposable
             if (_serverHost.SyncService != null)
             {
                 _serverHost.SyncService.ThumbnailsWanted = _thumbnailsWanted;
+                _serverHost.SyncService.ShowActionHandler = r => ShowActionHandler?.Invoke(r) ?? Task.FromResult(false);
                 _serverHost.SyncService.ClientLogsReceived += (s, e) =>
                     ClientLogsReceived?.Invoke(this, e);
             }
 
             // Create sync coordinator
-            _syncCoordinator = new WallpaperSyncCoordinator(AppLogger.CreateLogger<WallpaperSyncCoordinator>(), _serverHost.SyncService);
+            _syncCoordinator = new WallpaperSyncCoordinator(AppLogger.CreateLogger<WallpaperSyncCoordinator>(), _serverHost.SyncService)
+            {
+                AgendaProvider = () => AgendaProvider?.Invoke(),
+            };
 
             IsServerMode = true;
             _logger.LogInformation("Server mode started successfully");
@@ -323,6 +344,7 @@ public class WaBiBaBuSyService : IDisposable
             {
                 TestProbeTargets = _clientTestProbeTargets,
                 ThumbnailCaptureService = _clientThumbnailCapture,
+                BusyMonitorsProvider = BusyMonitorsProvider,
             };
             _client.ConnectionStatusChanged += OnClientConnectionStatusChanged;
             _client.UpdateAvailable += OnUpdateAvailable;
@@ -356,6 +378,7 @@ public class WaBiBaBuSyService : IDisposable
             }
             else
             {
+                LastConnectError = $"{serverAddress}:{serverPort}: {_client.LastError ?? "could not connect"}";
                 // Nothing to keep from a failed connect (its channel would otherwise leak until the next attempt).
                 _client.ConnectionStatusChanged -= OnClientConnectionStatusChanged;
                 _client.UpdateAvailable -= OnUpdateAvailable;
@@ -368,9 +391,13 @@ public class WaBiBaBuSyService : IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to connect to server");
+            LastConnectError = $"{serverAddress}:{serverPort}: {ex.Message}";
             return false;
         }
     }
+
+    /// <summary>Why the last connect failed ("address:port: reason"), for the tray; set on every failed connect.</summary>
+    public string? LastConnectError { get; private set; }
 
     /// <summary>
     /// Disconnect from server
@@ -391,6 +418,10 @@ public class WaBiBaBuSyService : IDisposable
             // Dispose playback service first
             _playbackService?.Dispose();
             _playbackService = null;
+
+            // An explicit disconnect hides the agenda (a dropped link keeps it until the server sends a new one)
+            try { if (PlaybackDelegates.Agenda is { } agenda) await agenda(null); }
+            catch (Exception ex) { _logger.LogWarning(ex, "Hiding the agenda failed"); }
 
             if (_client != null)
             {
@@ -478,6 +509,16 @@ public class WaBiBaBuSyService : IDisposable
     {
         var thumbnail = _serverHost?.SyncService?.GetClientThumbnail(clientId);
         return thumbnail?.ThumbnailJpeg?.ToByteArray();
+    }
+
+    /// <summary>
+    /// Update download to a node's machine (server mode): -1 = server builds the package, 0–100 = sent, null = none.
+    /// An expanded <c>…_MONITOR_n</c> node shares its machine's download.
+    /// </summary>
+    public int? GetUpdateTransferPercent(string nodeId)
+    {
+        int infix = nodeId.LastIndexOf(TopologyStore.MonitorInfix, StringComparison.Ordinal);
+        return _serverHost?.SyncService?.GetUpdateTransferPercent(infix >= 0 ? nodeId[..infix] : nodeId);
     }
 
     private bool _thumbnailsWanted;
@@ -618,7 +659,7 @@ public class WaBiBaBuSyService : IDisposable
         }
 
         return await _updateManager.DownloadAndPrepareUpdateAsync(
-            _client.GrpcClient, updateInfo, cancellationToken);
+            _client.GrpcClient, updateInfo, _client.ClientId ?? string.Empty, cancellationToken);
     }
 
     /// <summary>
@@ -647,8 +688,14 @@ public class WaBiBaBuSyService : IDisposable
         // Create backup first
         _ = _updateManager?.CreateBackupAsync(installDir);
 
+        // The updated app comes back connected to the same server (read and cleared once at startup).
+        var resumeTo = _client?.ServerAddress is { Length: > 0 } address ? $"{address}:{_client.ServerPort}" : string.Empty;
+        ConfigurationManager.UpdateClientConfiguration(c => c.ReconnectAfterUpdate = resumeTo);
+
         // Launch updater (this will exit the application)
-        return _updateApplicator.LaunchUpdaterAndExit(updateDirectory, installDir, backupDir);
+        if (_updateApplicator.LaunchUpdaterAndExit(updateDirectory, installDir, backupDir)) return true;
+        ConfigurationManager.UpdateClientConfiguration(c => c.ReconnectAfterUpdate = string.Empty);
+        return false;
     }
 
     #endregion

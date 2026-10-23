@@ -52,6 +52,18 @@ public class PresetStoreTests : IDisposable
     };
 
     [Fact]
+    public async Task LayerPresets_LiveInTheirOwnFolder_NotInTheSceneList()
+    {
+        var logo = Asset("gallery/logo.png");
+        await _store.SaveAsync("Comet", Scene(logo));
+        await _store.Layers.SaveAsync("Logo drift", Scene(logo));
+
+        Assert.Equal(new[] { "Comet" }, _store.List());
+        Assert.Equal(new[] { "Logo drift" }, _store.Layers.List());
+        Assert.Equal(logo, (await _store.Layers.LoadAsync("Logo drift")).Layers[0].Animation.AnimationPath);
+    }
+
+    [Fact]
     public async Task Save_Load_Roundtrip_StripsTargets_KeepsGalleryPath()
     {
         var logo = Asset("gallery/logo.png");

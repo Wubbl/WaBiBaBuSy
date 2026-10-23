@@ -5,6 +5,15 @@
              x:Class="WaBiBaBuSy.UI.Views.PlaylistPanel"
              x:DataType="vm:PlaylistViewModel"
              FontSize="12">
+    <UserControl.Styles>
+        <!-- Dark selection so the colored chips stay readable on the selected row -->
+        <Style Selector="ListBox#ItemsList ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#24344A"/>
+        </Style>
+        <Style Selector="ListBox#ItemsList ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#2C3E57"/>
+        </Style>
+    </UserControl.Styles>
     <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="0,8,0,0">
         <!-- Picker · New · Save -->
         <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
@@ -29,14 +38,14 @@
                 <NumericUpDown Value="{Binding DefaultDurationSeconds}" Minimum="1" Maximum="86400" Increment="5" Width="110"/>
                 <TextBlock Text="s" VerticalAlignment="Center" Margin="4,0,0,0"/>
                 <TextBlock Text="Transition" VerticalAlignment="Center" Margin="12,0,6,0"
-                           ToolTip.Tip="How items replace each other: Cut, Fade (through black) or Wipe (a boundary runs once around the room). An item can override it under Details."/>
+                           ToolTip.Tip="How items replace each other: Cut, Fade (through black) or Wipe (a boundary runs once around the room). Select an item to override it."/>
                 <ComboBox ItemsSource="{Binding TransitionKinds}" SelectedItem="{Binding DefaultTransitionKind}"/>
                 <NumericUpDown Value="{Binding DefaultTransitionSeconds}" Minimum="0.2" Maximum="20" Increment="0.5" FormatString="0.0"
-                               Width="96" Margin="6,0,0,0" ToolTip.Tip="Transition length in seconds (a Wipe takes this long for the whole room)"/>
+                               Width="110" Margin="6,0,0,0" ToolTip.Tip="Transition length in seconds (a Wipe takes this long for the whole room)"/>
                 <TextBlock Text="s" VerticalAlignment="Center" Margin="4,0,0,0"/>
                 <CheckBox Content="Every" IsChecked="{Binding InterruptEnabled}" Margin="12,0,6,0"
                           ToolTip.Tip="Fire a show event on a timer while the show runs (does not change the item)"/>
-                <NumericUpDown Value="{Binding InterruptEveryMinutes}" Minimum="1" Maximum="1440" Width="90" IsEnabled="{Binding InterruptEnabled}"/>
+                <NumericUpDown Value="{Binding InterruptEveryMinutes}" Minimum="1" Maximum="1440" Width="110" IsEnabled="{Binding InterruptEnabled}"/>
                 <TextBlock Text="min" VerticalAlignment="Center" Margin="4,0,6,0"/>
                 <ComboBox ItemsSource="{Binding InterruptTypes}" SelectedItem="{Binding InterruptType}" IsEnabled="{Binding InterruptEnabled}"/>
             </WrapPanel>
@@ -48,7 +57,7 @@
             <ListBox Name="ItemsList" ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedItem}">
                 <ListBox.ItemTemplate>
                     <DataTemplate x:DataType="vm:PlaylistItemRow">
-                        <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8" Background="Transparent">
+                        <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8" Background="Transparent" Margin="0,2">
                             <Grid.ContextMenu>
                                 <ContextMenu>
                                     <MenuItem Header="Duplicate"
@@ -61,36 +70,51 @@
                             </Grid.ContextMenu>
                             <TextBlock Grid.Column="0" Text="≡" FontSize="16" VerticalAlignment="Center" Cursor="SizeNorthSouth"
                                        Foreground="#888888" PointerPressed="OnHandlePressed" ToolTip.Tip="Drag to reorder"/>
-                            <Border Grid.Column="1" Width="56" Height="40" CornerRadius="3" Background="#404040"
+                            <!-- 16:9 thumbnail on the scene's background color; green frame = on the wall now -->
+                            <Border Grid.Column="1" Width="96" Height="54" CornerRadius="4" Background="{Binding SceneBackground}"
+                                    BorderBrush="#00CC66" BorderThickness="{Binding PlayingFrame}"
                                     ClipToBounds="True" VerticalAlignment="Top">
-                                <Image Source="{Binding Thumbnail}" Stretch="UniformToFill"/>
+                                <Image Source="{Binding Thumbnail}" Stretch="Uniform"/>
                             </Border>
-                            <StackPanel Grid.Column="2" Spacing="2">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <TextBlock Text="▶" Foreground="#00CC66" VerticalAlignment="Center" IsVisible="{Binding IsPlaying}"/>
-                                    <TextBox Text="{Binding Name}" MinWidth="120" PlaceholderText="Item name"/>
-                                </StackPanel>
-                                <Expander Header="Details" Padding="6,2">
-                                    <StackPanel Spacing="2">
-                                        <TextBlock Text="{Binding SourceSummary}" Opacity="0.75" FontSize="11" TextWrapping="Wrap"/>
-                                        <TextBlock Text="{Binding MovementSummary}" Opacity="0.75" FontSize="11" TextWrapping="Wrap"/>
-                                        <TextBlock Text="{Binding TargetSummary}" Opacity="0.75" FontSize="11" TextWrapping="Wrap"/>
-                                        <TextBlock Text="{Binding VisualsSummary}" Opacity="0.75" FontSize="11" TextWrapping="Wrap"/>
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <TextBlock Text="Comes in with" FontSize="11" VerticalAlignment="Center"/>
-                                            <ComboBox ItemsSource="{x:Static vm:PlaylistItemRow.TransitionChoices}" SelectedItem="{Binding TransitionChoice}" FontSize="11"/>
-                                            <TextBox Text="{Binding TransitionSecondsText}" PlaceholderText="1.5" Width="56" FontSize="11"
-                                                     ToolTip.Tip="Seconds (blank = 1.5). Ignored for Playlist default and Cut."/>
-                                        </StackPanel>
-                                        <CheckBox Content="Lap-snap" IsChecked="{Binding SnapToLap}" FontSize="11"
-                                                  ToolTip.Tip="Round the duration up to whole movement laps, so the switch comes when the sprite is back where it started (Linear / SineWave lap, Bounce round trip, Circular orbit; Static, Random walk and the IconZone path switch on time)."/>
-                                    </StackPanel>
-                                </Expander>
+                            <StackPanel Grid.Column="2" Spacing="4">
+                                <Grid ColumnDefinitions="Auto,*">
+                                    <TextBlock Text="▶ " Foreground="#00CC66" FontWeight="Bold" VerticalAlignment="Center" IsVisible="{Binding IsPlaying}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding Name}" PlaceholderText="Item name" FontWeight="SemiBold"
+                                             HorizontalAlignment="Stretch"/>
+                                </Grid>
+                                <ItemsControl ItemsSource="{Binding Chips}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:SceneChip">
+                                            <Border Background="{Binding Background}" CornerRadius="8" Padding="6,1" Margin="0,0,4,3"
+                                                    ToolTip.Tip="{Binding Tip}">
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <TextBlock Text="{Binding Glyph}" Foreground="{Binding Foreground}" FontSize="13" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="{Binding Text}" Foreground="{Binding Foreground}" FontSize="11" VerticalAlignment="Center"
+                                                               MaxWidth="220" TextTrimming="CharacterEllipsis"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <!-- Per-item overrides: only on the selected row -->
+                                <WrapPanel IsVisible="{Binding $parent[ListBoxItem].IsSelected}">
+                                    <TextBlock Text="Comes in with" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"
+                                               Foreground="{x:Static vm:SceneGlyphs.Transition}"/>
+                                    <ComboBox ItemsSource="{x:Static vm:PlaylistItemRow.TransitionChoices}" SelectedItem="{Binding TransitionChoice}"
+                                              FontSize="11" Margin="0,0,6,0"/>
+                                    <TextBox Text="{Binding TransitionSecondsText}" PlaceholderText="1.5" Width="56" FontSize="11" Margin="0,0,12,0"
+                                             ToolTip.Tip="Seconds (blank = 1.5). Ignored for Playlist default and Cut."/>
+                                    <CheckBox Content="Lap-snap" IsChecked="{Binding SnapToLap}" FontSize="11"
+                                              ToolTip.Tip="Round the duration up to whole movement laps, so the switch comes when the sprite is back where it started (Linear / SineWave lap, Bounce round trip, Circular orbit; Static, Random walk and the IconZone path switch on time)."/>
+                                </WrapPanel>
                             </StackPanel>
-                            <StackPanel Grid.Column="3" Spacing="2" Width="84" VerticalAlignment="Top">
-                                <TextBox Text="{Binding DurationText}" PlaceholderText="default"
+                            <StackPanel Grid.Column="3" Spacing="2" Width="72" VerticalAlignment="Top">
+                                <TextBox Text="{Binding DurationText}" PlaceholderText="default" HorizontalContentAlignment="Right"
                                          ToolTip.Tip="Seconds. Empty = the playlist default."/>
-                                <TextBlock Text="{Binding DurationSummary}" FontSize="10" Opacity="0.7"/>
+                                <TextBlock Text="{Binding DurationSummary}" FontSize="10" Opacity="0.7" HorizontalAlignment="Right"/>
                             </StackPanel>
                         </Grid>
                     </DataTemplate>

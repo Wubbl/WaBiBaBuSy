@@ -80,6 +80,9 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     /// <summary>The Events strip (one-shot show events).</summary>
     public ShowEventsViewModel Events { get; }
 
+    /// <summary>The Agenda tab (room timetable overlay).</summary>
+    public AgendaViewModel Agenda { get; }
+
     [ObservableProperty]
     private WallpaperItemViewModel? _selectedWallpaper;
 
@@ -385,6 +388,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         // at app start. Detach() undoes these subscriptions when the window closes.
         _server = server;
         Events = new ShowEventsViewModel(server);
+        Agenda = new AgendaViewModel(server);
         _server.PropertyChanged += OnServerPropertyChanged;
         _server.SceneApplied += OnSceneApplied;
         _server.NodesStopped += OnNodesStopped;
@@ -682,6 +686,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         _server.NodesStopped -= OnNodesStopped;
         _server.ShowChanged -= OnShowChanged;
         _presets.Changed -= OnPresetsChanged;
+        _presets.Layers.Changed -= OnPresetsChanged;
         _service.ServerStatusChanged -= OnServerStatusChanged;
         _service.ClientConnectionStatusChanged -= OnClientConnectionStatusChanged;
         _service.UpdateAvailable -= OnUpdateAvailableFromServer;
@@ -700,19 +705,16 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     /// <summary>Live one-shot events for the room preview.</summary>
     public IReadOnlyList<ShowEvent> RoomShowEvents => _server.ActiveShowEvents;
 
-    /// <summary>Spotlight picker: the running layout's seats in traversal order, labeled with the node names.</summary>
+    /// <summary>The room agenda for the room view (null = none).</summary>
+    public Agenda? RoomAgenda => _server.CurrentAgenda;
+
+    /// <summary>Events strip: the room's seats (Spotlight follows the room selection) and the target picker.</summary>
     private void RefreshEventSeats()
     {
-        var layout = _server.ActiveLayout;
-        var names = Clients.GroupBy(c => c.ClientId).ToDictionary(g => g.Key, g => g.First().DisplayName);
-        var seats = layout == null
-            ? new List<SeatChoice>()
-            : layout.Nodes.OrderBy(n => n.Order)
-                .Select(n => new SeatChoice(n.Id, $"{n.Order + 1}. {names.GetValueOrDefault(n.Id, n.Id)}"))
-                .ToList();
-        Events.RefreshSeats(seats);
-        Events.RefreshTargets(Clients.GroupBy(c => c.ClientId).Select(g => g.First()).OrderBy(c => c.Order)
-            .Select(c => (c.ClientId, $"#{c.Order} {c.DisplayName}")).ToList());
+        var nodes = Clients.GroupBy(c => c.ClientId).Select(g => g.First()).OrderBy(c => c.Order).ToList();
+        Events.RefreshSeats(nodes.Select(c => new SeatChoice(c.ClientId, $"#{c.Order}")).ToList());
+        Events.SelectSeat(SelectedClient?.ClientId);
+        Events.RefreshTargets(nodes.Select(c => (c.ClientId, $"#{c.Order} {c.DisplayName}")).ToList());
     }
 
     private void OnServerPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -726,6 +728,9 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             case nameof(ServerPlaybackHost.ActiveShowEvents):
                 OnPropertyChanged(nameof(RoomShowEvents));
                 break;
+            case nameof(ServerPlaybackHost.CurrentAgenda):
+                OnPropertyChanged(nameof(RoomAgenda));
+                break;
             case nameof(ServerPlaybackHost.ActiveSharedStartMs):
                 OnPropertyChanged(nameof(ActiveSharedStartMs));
                 OnPropertyChanged(nameof(RoomSharedStartMs));
@@ -733,7 +738,6 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             case nameof(ServerPlaybackHost.ActiveLayout):
                 OnPropertyChanged(nameof(ActiveLayout));
                 OnPropertyChanged(nameof(RoomLayout));
-                RefreshEventSeats();
                 break;
             case nameof(ServerPlaybackHost.ActiveStartLeadMs):
             case nameof(ServerPlaybackHost.ActiveEffectiveMovement):
@@ -1055,7 +1059,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         _server.Tags.Set(nodeIds, NodeTagStore.Parse(tags));
         RefreshEventSeats();   // the target picker lists the tags
         SeatMapVersion++;      // tiles show their tags
-        return Task.CompletedTask;
+        return _server.RefreshAgendaAsync();   // an "agenda" tag makes a seat a full-size agenda screen
     }
 
     public Task ShowNodeLogsAsync(string nodeId)
@@ -2074,6 +2078,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                     existing.RttMs = grpcClient.RttMs;
                     existing.PrefetchReady = grpcClient.PrefetchReady;
                     existing.PrefetchTotal = grpcClient.PrefetchTotal;
+                    existing.UpdateTransferPercent = _service.GetUpdateTransferPercent(grpcClient.ClientId);
                     existing.DriftState = DriftMonitor.Classify(
                         DriftMonitor.SyncErrorMs(grpcClient.RttMs),
                         grpcClient.LastDriftReportUtc,
@@ -2127,6 +2132,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
                         RttMs = grpcClient.RttMs,
                         PrefetchReady = grpcClient.PrefetchReady,
                         PrefetchTotal = grpcClient.PrefetchTotal,
+                        UpdateTransferPercent = _service.GetUpdateTransferPercent(grpcClient.ClientId),
                         DriftState = DriftMonitor.Classify(
                             DriftMonitor.SyncErrorMs(grpcClient.RttMs),
                             grpcClient.LastDriftReportUtc,
@@ -2165,7 +2171,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
             OnPropertyChanged(nameof(ShowHealthSummary));
             NotifyClientSelectionCommands();
             UpdatePlaylistNextLabel();
-            RefreshEventSeats();   // node names for the Spotlight picker (no-op while ids and labels are unchanged)
+            RefreshEventSeats();   // seat labels for Spotlight and the target picker
 
             ClientCount = Clients.Count;
             ConnectedClientCount = Clients.Count(c => c.IsConnected
