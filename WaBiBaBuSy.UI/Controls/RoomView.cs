@@ -476,11 +476,13 @@ public partial class RoomView : Control
         return d.TotalMinutes < 1 ? "" : d.TotalHours < 1 ? $" {d.TotalMinutes:F0} min" : d.TotalDays < 1 ? $" {d.TotalHours:F0} h" : $" {d.TotalDays:F0} d";
     }
 
+    /// <summary>Selection always wins the border (blue); while live, the fill still shows the playing state.</summary>
     private static (IBrush Fill, IPen Pen) TileStyle(ClientNodeViewModel? c, bool hover)
     {
-        if (c?.IsCurrentAnimationTarget == true) return (Solid("#4E4A2E"), new Pen(Solid("#FFD700"), 3));
-        if (c?.IsAnimating == true) return (Solid("#2E4A3E"), new Pen(Solid("#00AA44"), 3));
-        if (c?.IsSelected == true) return (Solid("#3E4A5E"), new Pen(Solid("#0078D4"), 3));
+        var selectedPen = new Pen(Solid("#0078D4"), 3);
+        if (c?.IsCurrentAnimationTarget == true) return (Solid("#4E4A2E"), c.IsSelected ? selectedPen : new Pen(Solid("#FFD700"), 3));
+        if (c?.IsAnimating == true) return (Solid("#2E4A3E"), c.IsSelected ? selectedPen : new Pen(Solid("#00AA44"), 3));
+        if (c?.IsSelected == true) return (Solid("#3E4A5E"), selectedPen);
         if (c?.GroupColor is Color gc) return (new SolidColorBrush(Color.FromArgb(30, gc.R, gc.G, gc.B)), new Pen(new SolidColorBrush(gc), 2));
         return (Solid(hover ? "#35353A" : "#2A2A2E"), new Pen(Solid("#555555"), 1.5));
     }

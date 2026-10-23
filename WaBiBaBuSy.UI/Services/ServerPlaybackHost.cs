@@ -1091,7 +1091,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
             if (_renderers.TryRemove(monitorIndex, out var existingRenderer))
                 existingRenderer.Dispose();
 
-            var screens = System.Windows.Forms.Screen.AllScreens;
+            var screens = NativeMonitorInfo.GetAllMonitors();
             if (monitorIndex < 0 || monitorIndex >= screens.Length)
             {
                 Debug.WriteLine($"[ApplyWallpaperLocally] Invalid monitor index {monitorIndex}. Available monitors: {screens.Length}");
@@ -1485,8 +1485,8 @@ public sealed partial class ServerPlaybackHost : ObservableObject
         Debug.WriteLine($"[CrossScreen] Starting D2D animation on {localClients.Count} local + {remoteClients.Count} remote node(s)");
         Debug.WriteLine($"[CrossScreen] Virtual canvas: {layout.CanvasWidth}x{layout.CanvasHeight} ({_seatMap.Traversal}, {_seatMap.Rows.Count} row(s), wraps={layout.Wraps})");
 
-        // Get actual monitor bounds from Windows
-        var screens = System.Windows.Forms.Screen.AllScreens;
+        // Actual monitor bounds, in the order local node ids use (left to right, LocalMonitors)
+        var screens = nativeMonitors;
 
         // Sequential + IconZone: compute one global A* path across the full virtual canvas
         // so all local monitors share the same coordinated corridor path (layer 0 only follows it).

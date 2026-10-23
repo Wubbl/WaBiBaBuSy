@@ -11,15 +11,15 @@ public static class LocalMonitors
 {
     private static float? _referencePixelsPerCm;
 
-    /// <summary>The monitors now, in WinForms order (the order local node ids use).</summary>
+    /// <summary>
+    /// The monitors now, left to right (<see cref="NativeMonitorInfo.GetAllMonitors"/> order — the order local node
+    /// ids, the players, the busy probe and remote clients all use). Not WinForms <c>Screen.AllScreens</c>: that is
+    /// in enumeration order (the primary is not always first) and cached, so its index 1 could be the primary.
+    /// </summary>
     public static LocalScreens Snapshot()
     {
-        var screens = System.Windows.Forms.Screen.AllScreens;
-        var refreshByDevice = NativeMonitorInfo.GetAllMonitors()
-            .GroupBy(m => m.DeviceName)
-            .ToDictionary(g => g.Key, g => g.First().RefreshRateHz);
-        var monitors = screens.Select((s, i) => new LocalMonitor(i, s.Bounds.Width, s.Bounds.Height, s.Bounds.X, s.Bounds.Y,
-            s.Primary, s.DeviceName, refreshByDevice.GetValueOrDefault(s.DeviceName))).ToList();
+        var monitors = NativeMonitorInfo.GetAllMonitors().Select((s, i) => new LocalMonitor(i, s.Bounds.Width, s.Bounds.Height,
+            s.Bounds.X, s.Bounds.Y, s.IsPrimary, s.DeviceName, s.RefreshRateHz)).ToList();
         var virtualScreen = System.Windows.Forms.SystemInformation.VirtualScreen;
         return new LocalScreens(monitors, virtualScreen.Width, virtualScreen.Height, Environment.MachineName);
     }
