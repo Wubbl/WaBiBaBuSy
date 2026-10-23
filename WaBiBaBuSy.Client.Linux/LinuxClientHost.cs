@@ -33,7 +33,8 @@ public sealed class LinuxClientHost : IAsyncDisposable
     private readonly IReadOnlyList<MonitorGeometry> _monitors;
     private readonly ConcurrentDictionary<int, (WallpaperScene Scene, WallpaperWindow Window)> _outputs = new();
     private readonly CancellationTokenSource _cts = new();
-    private readonly SemaphoreSlim _gate = new(1, 1);   // scene starts / stops / agenda reconcile, one at a time
+    private readonly SemaphoreSlim _gate = new(1, 1);   // scene bookkeeping / stops / agenda reconcile, one at a time
+    private readonly ConcurrentDictionary<int, SemaphoreSlim> _monitorGates = new();   // load → start order per monitor
     private ClientConfiguration _clientConfig = new();
     private WaBiBaBuSyService? _service;
 
@@ -204,8 +205,14 @@ public sealed class LinuxClientHost : IAsyncDisposable
     private async Task ApplyCrossScreenAsync(CrossScreenApplyRequest req)
     {
         int monitorIndex = req.MonitorIndex;
-        _logger.LogInformation("[CrossScreen] file={File} monitor={Monitor} ts={Ts} transition={Transition}",
-            Path.GetFileName(req.FilePath), monitorIndex, req.SharedStartTimestampMs, req.TransitionEffect);
+        var client = _service?.Client;
+        long offset = client?.ClockOffsetMs ?? 0;
+        _logger.LogInformation("[CrossScreen] file={File} monitor={Monitor} ts={Ts} ({In} ms from now) transition={Transition} | clock offset to server {Offset} ms",
+            Path.GetFileName(req.FilePath), monitorIndex, req.SharedStartTimestampMs, req.SharedStartTimestampMs - (long)WallpaperScene.NowUnixMs(),
+            req.TransitionEffect, offset);
+        if (Math.Abs(offset) > 1000)
+            _logger.LogWarning("This clock is {Offset} ms off the server's. The offset is corrected, but it is only measured "
+                + "once heartbeats run: enable NTP (timedatectl set-ntp true) on this machine and the server", offset);
         if (monitorIndex < 0 || monitorIndex >= _monitors.Count)
         {
             _logger.LogError("[CrossScreen] Invalid monitor index {Index} (have {Count})", monitorIndex, _monitors.Count);
@@ -274,22 +281,42 @@ public sealed class LinuxClientHost : IAsyncDisposable
 
     private async Task StartSceneAsync(int monitorIndex, PlayerCommandLoadAnimation load, PlayerCommandStartAnimation start, string transition)
     {
-        await _gate.WaitAsync();
+        // Each monitor decodes on its own (a second screen must not wait for the first one's GIFs); the shared
+        // bookkeeping below runs one at a time.
+        var monitorGate = _monitorGates.GetOrAdd(monitorIndex, _ => new SemaphoreSlim(1, 1));
+        await monitorGate.WaitAsync();
         try
         {
             var (scene, window) = await GetOrCreateOutputAsync(monitorIndex);
             // Decoding can take a while for big GIFs — off the UI thread; the old scene keeps playing meanwhile
+            var decode = System.Diagnostics.Stopwatch.StartNew();
             await Task.Run(() => scene.Load(load));
-            scene.Start(start, transition);
-            _sceneMonitors[monitorIndex] = true;
-            _standIns.TryRemove(monitorIndex, out _);   // the scene replaces the stand-in at its start
-            ApplyAgenda(monitorIndex);
-            ReplayEvents(monitorIndex);
-            // A bomb that arrived before its seat's scene (the BiBaBo stand-in starts together with the game)
-            var events = _showEvents.Values.ToList();
-            foreach (var bomb in events.Where(e => e.Type == ShowEventType.Bomb && e.EventId != _bombGameId))
-                if (!events.Any(e => e.Type == ShowEventType.BombOutcome && e.Bomb?.GameId == bomb.EventId))
-                    await WatchBombInputAsync(bomb);
+            long lateMs = start.StartTimestampMs > 0 ? (long)WallpaperScene.NowUnixMs() - start.StartTimestampMs : 0;
+            if (lateMs > 0)
+                _logger.LogWarning("[Scene] Monitor {Monitor}: ready {Late} ms after the shared start (decoding took {Decode} ms) — "
+                    + "it joins mid-animation, still in sync", monitorIndex, lateMs, decode.ElapsedMilliseconds);
+            else
+                _logger.LogInformation("[Scene] Monitor {Monitor}: decoded in {Decode} ms, {Lead} ms before the shared start",
+                    monitorIndex, decode.ElapsedMilliseconds, -lateMs);
+
+            await _gate.WaitAsync();
+            try
+            {
+                scene.Start(start, transition);
+                _sceneMonitors[monitorIndex] = true;
+                _standIns.TryRemove(monitorIndex, out _);   // the scene replaces the stand-in at its start
+                ApplyAgenda(monitorIndex);
+                ReplayEvents(monitorIndex);
+                // A bomb that arrived before its seat's scene (the BiBaBo stand-in starts together with the game)
+                var events = _showEvents.Values.ToList();
+                foreach (var bomb in events.Where(e => e.Type == ShowEventType.Bomb && e.EventId != _bombGameId))
+                    if (!events.Any(e => e.Type == ShowEventType.BombOutcome && e.Bomb?.GameId == bomb.EventId))
+                        await WatchBombInputAsync(bomb);
+            }
+            finally
+            {
+                _gate.Release();
+            }
             await ShowAtStartAsync(window, start.StartTimestampMs);
         }
         catch (Exception ex)
@@ -298,7 +325,7 @@ public sealed class LinuxClientHost : IAsyncDisposable
         }
         finally
         {
-            _gate.Release();
+            monitorGate.Release();
         }
     }
 
