@@ -89,4 +89,17 @@ internal static class X11Native
     [DllImport(LibXext)]
     public static extern void XShapeCombineRectangles(IntPtr display, IntPtr window, int destKind, int xOff, int yOff,
         IntPtr rectangles, int nRects, int op, int ordering);
+
+    /// <summary>With <c>src</c> = None (0) and ShapeSet: back to the default (whole window) region.</summary>
+    [DllImport(LibXext)]
+    public static extern void XShapeCombineMask(IntPtr display, IntPtr window, int destKind, int xOff, int yOff, IntPtr src, int op);
+
+    // ── Geometry (busy / fullscreen monitors) ──
+    [DllImport(LibX11)]
+    public static extern int XGetGeometry(IntPtr display, IntPtr drawable, out IntPtr root, out int x, out int y,
+        out uint width, out uint height, out uint borderWidth, out uint depth);
+
+    [DllImport(LibX11)]
+    public static extern bool XTranslateCoordinates(IntPtr display, IntPtr srcWindow, IntPtr destWindow, int srcX, int srcY,
+        out int destX, out int destY, out IntPtr child);
 }
