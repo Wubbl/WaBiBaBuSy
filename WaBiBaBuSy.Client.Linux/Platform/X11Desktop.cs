@@ -241,21 +241,83 @@ public sealed class X11Desktop : IDisposable
     }
 
     /// <summary>
-    /// True when the focused window is fullscreen (a game, a video) — the Linux counterpart of the
-    /// Windows FullscreenDetectionService. Only X11/XWayland windows are visible here; native
-    /// Wayland apps never report as fullscreen. BadWindow races are absorbed by Avalonia's
-    /// process-wide Xlib error handler.
+    /// The screen rectangles of the visible app windows on the current workspace (not ours, not desktop / dock /
+    /// minimized ones), with whether the window asked for fullscreen. Only X11/XWayland windows are visible here;
+    /// native Wayland apps are not. BadWindow races are absorbed by Avalonia's process-wide Xlib error handler.
     /// </summary>
-    public bool IsActiveWindowFullscreen()
+    public IReadOnlyList<(System.Drawing.Rectangle Bounds, bool Fullscreen)> AppWindows()
     {
         lock (_lock)
         {
             var root = XDefaultRootWindow(_display);
-            var active = ReadProperty(root, Atom("_NET_ACTIVE_WINDOW"), (IntPtr)XA_WINDOW, 1);
-            if (active.Length == 0 || active[0] == IntPtr.Zero || _ownWindows.Contains(active[0])) return false;
-
+            var result = new List<(System.Drawing.Rectangle, bool)>();
+            var clients = ReadProperty(root, Atom("_NET_CLIENT_LIST"), (IntPtr)XA_WINDOW, 1024);
+            var currentDesktop = ReadProperty(root, Atom("_NET_CURRENT_DESKTOP"), (IntPtr)XA_CARDINAL, 1);
+            var windowType = Atom("_NET_WM_WINDOW_TYPE");
+            var skipTypes = new[] { Atom("_NET_WM_WINDOW_TYPE_DESKTOP"), Atom("_NET_WM_WINDOW_TYPE_DOCK") };
+            var wmState = Atom("_NET_WM_STATE");
+            var hidden = Atom("_NET_WM_STATE_HIDDEN");
             var fullscreen = Atom("_NET_WM_STATE_FULLSCREEN");
-            return ReadProperty(active[0], Atom("_NET_WM_STATE"), (IntPtr)XA_ATOM, 32).Contains(fullscreen);
+            var wmDesktop = Atom("_NET_WM_DESKTOP");
+            foreach (var w in clients)
+            {
+                if (_ownWindows.Contains(w)) continue;
+                if (ReadProperty(w, windowType, (IntPtr)XA_ATOM, 8).Any(skipTypes.Contains)) continue;
+                var states = ReadProperty(w, wmState, (IntPtr)XA_ATOM, 32);
+                if (states.Contains(hidden)) continue;
+                var desktop = ReadProperty(w, wmDesktop, (IntPtr)XA_CARDINAL, 1);
+                if (desktop.Length > 0 && currentDesktop.Length > 0 && (uint)desktop[0] != 0xFFFFFFFF && desktop[0] != currentDesktop[0]) continue;
+                if (XGetGeometry(_display, w, out _, out _, out _, out uint width, out uint height, out _, out _) == 0) continue;
+                if (!XTranslateCoordinates(_display, w, root, 0, 0, out int x, out int y, out _)) continue;
+                result.Add((new System.Drawing.Rectangle(x, y, (int)width, (int)height), states.Contains(fullscreen)));
+            }
+            return result;
+        }
+    }
+
+    /// <summary>BiBaBo: the monitors a window covers ≥ 80 % (<see cref="WaBiBaBuSy.Models.Show.BusyRule.IsBusy"/>).</summary>
+    public IReadOnlyList<int> BusyMonitors(IReadOnlyList<MonitorGeometry> monitors)
+    {
+        var windows = AppWindows().Select(w => w.Bounds).ToList();
+        return Enumerable.Range(0, monitors.Count).Where(i => WaBiBaBuSy.Models.Show.BusyRule.IsBusy(Bounds(monitors[i]), windows)).ToList();
+    }
+
+    /// <summary>
+    /// Pause on fullscreen: the monitors one window covers completely (<see cref="WaBiBaBuSy.Models.Show.BusyRule.IsFullscreen"/>),
+    /// or that a window in fullscreen state sits on.
+    /// </summary>
+    public IReadOnlyList<int> FullscreenMonitors(IReadOnlyList<MonitorGeometry> monitors)
+    {
+        var windows = AppWindows();
+        var rects = windows.Select(w => w.Bounds).ToList();
+        return Enumerable.Range(0, monitors.Count).Where(i =>
+        {
+            var m = Bounds(monitors[i]);
+            return WaBiBaBuSy.Models.Show.BusyRule.IsFullscreen(m, rects)
+                || windows.Any(w => w.Fullscreen && m.Contains(w.Bounds.X + w.Bounds.Width / 2, w.Bounds.Y + w.Bounds.Height / 2));
+        }).ToList();
+    }
+
+    private static System.Drawing.Rectangle Bounds(MonitorGeometry m) => new(m.X, m.Y, m.Width, m.Height);
+
+    /// <summary>
+    /// BiBaBo: let the wallpaper window take clicks (it is the "desktop" the bomb seat's player clicks on) or make it
+    /// click-through again.
+    /// </summary>
+    public void SetClickThrough(IntPtr window, bool clickThrough)
+    {
+        lock (_lock)
+        {
+            try
+            {
+                if (clickThrough) MakeClickThrough(window);
+                else XShapeCombineMask(_display, window, ShapeInput, 0, 0, IntPtr.Zero, ShapeSet);
+                XFlush(_display);
+            }
+            catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException)
+            {
+                _logger.LogDebug("XShape unavailable ({Message})", ex.Message);
+            }
         }
     }
 

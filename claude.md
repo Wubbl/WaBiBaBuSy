@@ -159,7 +159,7 @@ The mode is chosen **per scene layer** (`SceneLayer.Distribution`, 2026-10-14):
 
 ### Linux Client / Cross-Platform Core
 - **`WaBiBaBuSy.Core` multi-targets `net9.0-windows;net9.0`.** The `net9.0` build (used by the Linux client) has no WinForms. Guard any new Windows-only API in Core with `#if WINDOWS`, or the Linux build breaks.
-- **`WallpaperScene` mirrors `Player.D2D/Program.cs`.** Changes to layout, movement, pattern or grading in the D2D player must be ported to `WaBiBaBuSy.Client.Linux/Rendering/WallpaperScene.cs`, or Linux machines drift visually from Windows ones.
+- **`WaBiBaBuSy.Client.Linux/Rendering/` mirrors `Player.D2D`.** `SpriteLayer` / `SceneContent` ↔ `Program.cs` + `Program.Layers.cs` + `Program.Effects.cs`, `ShowEventPainter(.Bomb)` ↔ `Program.ShowEvents.cs` / `Program.Bomb.cs`, `AgendaPainter` ↔ `Program.Agenda.cs`, transitions in `WallpaperScene` ↔ `Program.Transitions.cs`; `LinuxClientHost` ↔ `RemotePlaybackHost`. Port player changes there, or Linux machines drift visually from Windows ones. New server→client features (command types, delegates on `WaBiBaBuSyService`) need a Linux handler too.
 
 ### Windows Desktop Integration
 - **WorkerW technique**: Wallpaper windows are parented to the desktop behind icons.

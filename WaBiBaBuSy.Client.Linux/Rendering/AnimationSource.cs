@@ -6,8 +6,8 @@ namespace WaBiBaBuSy.Client.Linux.Rendering;
 
 /// <summary>
 /// Decoded animation content: every frame as a raster SKImage plus per-frame delays.
-/// Mirrors the Windows player's GIF pipeline (Magick.NET coalesce, 0-delay → 10 ms,
-/// delays capped at 1000 ms) so frame selection is identical across platforms.
+/// Mirrors the Windows player's GIF pipeline (Magick.NET coalesce, 0-delay → 10 ms, no upper
+/// cap) so frame selection is identical across platforms.
 /// </summary>
 public sealed class AnimationSource : IDisposable
 {
@@ -63,7 +63,7 @@ public sealed class AnimationSource : IDisposable
             // AnimationDelay is in 1/100th of a second
             int delayMs = (int)(frame.AnimationDelay * 10);
             if (delayMs <= 0) delayMs = 10; // Browser standard: 0-delay = 10ms
-            if (delayMs > 1000) delayMs = 1000;
+            // No upper cap: long holds are deliberate (a morph chain holds each variant for minutes).
             delays.Add(delayMs);
 
             frames[i] = ToSkImage(frame);
@@ -95,8 +95,7 @@ public sealed class AnimationSource : IDisposable
     public int FrameIndexAt(long effectiveMs)
     {
         if (Frames.Length <= 1) return 0;
-        long t = effectiveMs % TotalDurationMs;
-        if (t < 0) t += TotalDurationMs;
+        long t = WaBiBaBuSy.Models.Wallpaper.SyncTiming.PositiveModulo(effectiveMs, TotalDurationMs);
         long acc = 0;
         for (int i = 0; i < Delays.Count; i++)
         {

@@ -1,5 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Rendering.SceneGraph;
@@ -71,7 +73,49 @@ public sealed class WallpaperWindow : Window
         };
         Closed += (_, _) => _closed = true;
         ScalingChanged += (_, _) => ApplySize();
+        AddHandler(PointerPressedEvent, OnPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
     }
+
+    // ── BiBaBo input: while this monitor holds the bomb the window takes clicks and keys (it is the desktop) ──
+
+    private Action<float, float>? _onClick;   // device pixels, origin = monitor top-left
+    private Action<Key>? _onKey;
+
+    /// <summary>
+    /// Take clicks and keys on the wallpaper (UI thread). A desktop window below every app only gets the clicks that hit
+    /// the bare desktop, like the Windows Raw Input sink. <see cref="StopInput"/> makes it click-through again.
+    /// </summary>
+    public void WatchInput(Action<float, float> onClick, Action<Key> onKey)
+    {
+        _onClick = onClick;
+        _onKey = onKey;
+        Focusable = true;
+        if (TryGetPlatformHandle() is { } h) _x11.SetClickThrough(h.Handle, clickThrough: false);
+        _logger.LogInformation("[Window] {Monitor}: taking clicks and keys (BiBaBo)", _monitor.Name);
+    }
+
+    public void StopInput()
+    {
+        if (_onClick == null) return;
+        _onClick = null;
+        _onKey = null;
+        Focusable = false;
+        if (TryGetPlatformHandle() is { } h) _x11.SetClickThrough(h.Handle, clickThrough: true);
+        _logger.LogInformation("[Window] {Monitor}: click-through again", _monitor.Name);
+    }
+
+    private void OnPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (_onClick is not { } onClick || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+        Activate();   // keyboard focus for typed keypad digits
+        Focus();
+        var p = e.GetPosition(this);
+        double scale = RenderScaling > 0 ? RenderScaling : 1.0;
+        onClick((float)(p.X * scale), (float)(p.Y * scale));
+    }
+
+    private void OnKeyDown(object? sender, KeyEventArgs e) => _onKey?.Invoke(e.Key);
 
     /// <summary>
     /// Show again after a Stop. The WM drops _NET_WM_STATE when a window is withdrawn, so the
@@ -82,7 +126,11 @@ public sealed class WallpaperWindow : Window
         if (IsVisible) return;
         if (TryGetPlatformHandle() is { } handle) _x11.ApplyPreMapHints(handle.Handle, _placement);
         Show();
-        if (TryGetPlatformHandle() is { } h) _x11.ApplyPostMapHints(h.Handle, _placement);
+        if (TryGetPlatformHandle() is { } h)
+        {
+            _x11.ApplyPostMapHints(h.Handle, _placement);
+            if (_onClick != null) _x11.SetClickThrough(h.Handle, clickThrough: false);   // a bomb game is still on
+        }
     }
 
     /// <summary>Window size is in DIPs; the scene renders in physical pixels.</summary>

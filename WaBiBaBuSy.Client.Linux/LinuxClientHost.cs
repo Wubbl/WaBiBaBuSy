@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Microsoft.Extensions.Logging;
 using SkiaSharp;
@@ -11,6 +12,9 @@ using WaBiBaBuSy.Core.Services.Networking;
 using MonitorInfo = WaBiBaBuSy.Grpc.MonitorInfo;
 using ScreenConfiguration = WaBiBaBuSy.Grpc.ScreenConfiguration;
 using WaBiBaBuSy.Models.Configuration;
+using WaBiBaBuSy.Models.Content;
+using WaBiBaBuSy.Models.Show;
+using WaBiBaBuSy.Models.Topology;
 using WaBiBaBuSy.Models.Wallpaper;
 using WaBiBaBuSy.Player.Common.Messages;
 
@@ -18,8 +22,8 @@ namespace WaBiBaBuSy.Client.Linux;
 
 /// <summary>
 /// Headless Linux client: discovers/connects to the WaBiBaBuSy server and renders whatever it
-/// sends on this machine's monitors. Plays the role of the Windows MainWindowViewModel's
-/// client path + D2DCompositionService, minus the UI.
+/// sends on this machine's monitors. Plays the role of the Windows RemotePlaybackHost (scenes, show events,
+/// BiBaBo input, agenda + stand-ins) and the client side of the tray (connect, pause on fullscreen), minus the UI.
 /// </summary>
 public sealed class LinuxClientHost : IAsyncDisposable
 {
@@ -29,7 +33,22 @@ public sealed class LinuxClientHost : IAsyncDisposable
     private readonly IReadOnlyList<MonitorGeometry> _monitors;
     private readonly ConcurrentDictionary<int, (WallpaperScene Scene, WallpaperWindow Window)> _outputs = new();
     private readonly CancellationTokenSource _cts = new();
+    private readonly SemaphoreSlim _gate = new(1, 1);   // scene starts / stops / agenda reconcile, one at a time
+    private ClientConfiguration _clientConfig = new();
     private WaBiBaBuSyService? _service;
+
+    // Monitors playing a server scene (the rest may run an agenda stand-in)
+    private readonly ConcurrentDictionary<int, bool> _sceneMonitors = new();
+    private readonly ConcurrentDictionary<int, bool> _standIns = new();
+
+    // Show events seen so far: replayed to an output created later (pruned once they ended)
+    private readonly ConcurrentDictionary<string, ShowEvent> _showEvents = new();
+    private Agenda? _agenda;
+
+    // BiBaBo: the game this machine holds the bomb of, and the monitor it sits on
+    private string? _bombGameId;
+    private int _bombMonitor = -1;
+    private CancellationTokenSource? _bombCts;
 
     public LinuxClientHost(ClientOptions options)
     {
@@ -65,10 +84,22 @@ public sealed class LinuxClientHost : IAsyncDisposable
     private async Task ConnectLoopAsync(CancellationToken ct)
     {
         var serverConfig = ConfigurationManager.LoadServerConfiguration();
-        var clientConfig = ConfigurationManager.LoadClientConfiguration();
-        _service = new WaBiBaBuSyService(AppLogger.CreateLogger<WaBiBaBuSyService>(), serverConfig, clientConfig);
+        _clientConfig = ConfigurationManager.LoadClientConfiguration();
+        _service = new WaBiBaBuSyService(AppLogger.CreateLogger<WaBiBaBuSyService>(), serverConfig, _clientConfig);
         _service.ClientConnectionStatusChanged += (_, e) =>
             _logger.LogInformation("Connection status: {Connected}", e.IsConnected ? "connected" : "disconnected");
+
+        // Everything the server may send, kept by the service for every (re)connect
+        _service.SetD2DCrossScreenApplyDelegate(ApplyCrossScreenAsync);
+        _service.SetD2DCrossScreenStopDelegate(StopAllAsync);
+        _service.SetShowEventDelegate(OnShowEventAsync);
+        _service.SetAgendaDelegate(OnAgendaAsync);
+        // BiBaBo skips seats a window covers (read at connect, so before it)
+        _service.BusyMonitorsProvider = () =>
+        {
+            try { return _x11.BusyMonitors(_monitors); }
+            catch (Exception ex) { _logger.LogDebug(ex, "Busy-monitor probe failed"); return Array.Empty<int>(); }
+        };
 
         // Initial connect; after that WallpaperSyncClient reconnects on its own (1..30 s backoff)
         while (!ct.IsCancellationRequested)
@@ -77,35 +108,34 @@ public sealed class LinuxClientHost : IAsyncDisposable
             if (_options.ServerAddress != null)
             {
                 connected = await _service.ConnectToServerAsync(_options.ServerAddress, _options.ServerPort);
-                if (connected) _service.SetD2DApplyDelegate(ApplySimpleAsync);
+                if (connected) _service.SetD2DApplyDelegate(ApplyPlainAsync);
             }
             else
             {
-                var fallback = string.IsNullOrEmpty(clientConfig.ServerAddress) ? "localhost" : clientConfig.ServerAddress;
-                connected = await _service.DiscoverAndConnectAsync(fallback, clientConfig.ServerPort, ApplySimpleAsync);
+                var fallback = string.IsNullOrEmpty(_clientConfig.ServerAddress) ? "localhost" : _clientConfig.ServerAddress;
+                connected = await _service.DiscoverAndConnectAsync(fallback, _clientConfig.ServerPort, ApplyPlainAsync);
             }
 
             if (connected)
             {
-                _service.SetD2DCrossScreenApplyDelegate(ApplyCrossScreenAsync);
-                _service.SetD2DCrossScreenStopDelegate(StopAllAsync);
                 _logger.LogInformation("Connected — waiting for the server to start an animation");
                 return;
             }
 
-            _logger.LogWarning("No server found, retrying in 5 s (use --server HOST[:PORT] to skip discovery)");
+            _logger.LogWarning("No server found ({Reason}), retrying in 5 s (use --server HOST[:PORT] to skip discovery)",
+                _service.LastConnectError ?? "no answer");
             try { await Task.Delay(5000, ct); } catch (OperationCanceledException) { return; }
         }
     }
 
     /// <summary>
-    /// Every 0.5 s keep the wallpaper above the shell's own desktop window; every 2 s pause drawing
-    /// while a fullscreen app has focus (mirrors the Windows FullscreenDetectionService).
+    /// Every 0.5 s keep the wallpaper above the shell's own desktop window; every 2 s pause the monitors a fullscreen
+    /// app covers (mirrors the Windows FullscreenDetectionService + PauseOnlyFullscreenMonitor).
     /// </summary>
     private async Task DesktopWatchLoopAsync(CancellationToken ct)
     {
-        bool paused = false;
         bool loggedRaise = false;
+        IReadOnlyList<int> lastFullscreen = Array.Empty<int>();
         for (long tick = 0; !ct.IsCancellationRequested; tick++)
         {
             try
@@ -120,16 +150,17 @@ public sealed class LinuxClientHost : IAsyncDisposable
                 }
 
                 if (tick % 4 != 0) continue;
-                bool fullscreen = _x11.IsActiveWindowFullscreen();
-                if (fullscreen != paused)
+                var fullscreen = _clientConfig.PauseOnFullscreen ? _x11.FullscreenMonitors(_monitors) : Array.Empty<int>();
+                if (!fullscreen.SequenceEqual(lastFullscreen))
+                    _logger.LogInformation("Fullscreen monitors: [{Monitors}]", string.Join(", ", fullscreen));
+                lastFullscreen = fullscreen;
+                bool onlyThat = _clientConfig.PauseOnlyFullscreenMonitor;
+                await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    paused = fullscreen;
-                    _logger.LogInformation(paused ? "Fullscreen app detected — pausing wallpaper rendering" : "Fullscreen app gone — resuming");
-                    await Dispatcher.UIThread.InvokeAsync(() =>
-                    {
-                        foreach (var (_, window) in _outputs.Values) window.Paused = paused;
-                    });
-                }
+                    // Re-applied every check, so outputs started in between pause too
+                    foreach (var (monitor, (_, window)) in _outputs)
+                        window.Paused = BusyRule.IsPausedMonitor(monitor, fullscreen, onlyThat);
+                });
             }
             catch (OperationCanceledException) { return; }
             catch (Exception ex)
@@ -167,131 +198,137 @@ public sealed class LinuxClientHost : IAsyncDisposable
     }
 
     // ════════════════════════════════════════════════════════════════════
-    // Server commands (mirror MainWindowViewModel.ApplyCrossScreenD2DFromRemoteAsync etc.)
+    // Scenes (mirror RemotePlaybackHost.ApplyCrossScreenCoreAsync / ApplyPlainCoreAsync / StopAllCoreAsync)
     // ════════════════════════════════════════════════════════════════════
 
     private async Task ApplyCrossScreenAsync(CrossScreenApplyRequest req)
     {
         int monitorIndex = req.MonitorIndex;
-        _logger.LogInformation("[CrossScreen] file={File} monitor={Monitor} canvas={VCW}px offset={Off}px ts={Ts} perMonitor={PerMonitor}",
-            Path.GetFileName(req.FilePath), monitorIndex, req.VirtualCanvasWidth, req.MonitorOffsetX,
-            req.SharedStartTimestampMs, req.PerMonitorMode);
-
+        _logger.LogInformation("[CrossScreen] file={File} monitor={Monitor} ts={Ts} transition={Transition}",
+            Path.GetFileName(req.FilePath), monitorIndex, req.SharedStartTimestampMs, req.TransitionEffect);
         if (monitorIndex < 0 || monitorIndex >= _monitors.Count)
         {
             _logger.LogError("[CrossScreen] Invalid monitor index {Index} (have {Count})", monitorIndex, _monitors.Count);
             return;
         }
-        var monitor = _monitors[monitorIndex];
 
-        // Background: full config when transmitted, solid-colour fallback otherwise
-        var backgroundConfig = Deserialize<BackgroundLayerConfig>(req.BackgroundJson)
-            ?? new BackgroundLayerConfig { Mode = BackgroundMode.SolidColor, ColorHex = req.BackgroundColor };
-        if ((backgroundConfig.Mode == BackgroundMode.StretchedImage || backgroundConfig.Mode == BackgroundMode.TiledImage)
-            && (string.IsNullOrEmpty(backgroundConfig.ImagePath) || !File.Exists(backgroundConfig.ImagePath)))
+        // Scene (background + layers, cm already resolved): every server-side path is rewritten to this client's cache.
+        // A layer whose file could not be fetched is disabled; a missing background image degrades to solid colour.
+        var remoteScene = Deserialize<CrossScreenConfig>(req.SceneJson);
+        if (remoteScene == null)
         {
-            // Background images are not transferred to clients; the server-local path won't exist here
-            backgroundConfig = new BackgroundLayerConfig { Mode = BackgroundMode.SolidColor, ColorHex = req.BackgroundColor };
+            _logger.LogError("[CrossScreen] No scene in the LOAD command (server too old?) — nothing to play");
+            return;
         }
+        var scene = SceneAssets.RewriteToLocal(remoteScene, req.LocalAssetPaths, req.FilePath);
+        var layout = Deserialize<NodeLayout>(req.LayoutJson);   // the canvas of Sequential layers
+        _logger.LogInformation("[CrossScreen] {Count} layer(s) ({Disabled} disabled), bg={Bg}, seat={Seat}",
+            scene.Layers.Count, scene.Layers.Count(l => !l.Enabled), scene.Background.Mode, layout?.Id ?? "(this monitor)");
 
-        var animationConfig = Deserialize<AnimationLayerConfig>(req.AnimationJson);
-        if (animationConfig != null)
-        {
-            // The file was downloaded into this client's cache — always override the server-local path
-            animationConfig.AnimationPath = req.FilePath;
-            animationConfig.AdditionalAnimationPaths = animationConfig.AdditionalAnimationPaths.Where(File.Exists).ToList();
-        }
-        else
-        {
-            animationConfig = new AnimationLayerConfig
-            {
-                AnimationPath = req.FilePath,
-                TargetHeight = monitor.Height,
-                Loop = true,
-                VerticalAlign = VerticalAlignment.Center,
-                CenterInitialPosition = true,
-                FitMode = (ContentFitMode)req.FitMode,
-                Pattern = Deserialize<PatternConfig>(req.PatternJson),
-                ColorGrading = Deserialize<ColorGradingConfig>(req.ColorGradingJson) ?? new()
-            };
-        }
-
-        var movementConfig = Deserialize<MovementConfig>(req.MovementJson)
-            ?? (req.MovementType == 0
-                ? null
-                : new MovementConfig { Type = (MovementType)req.MovementType, SpeedPixelsPerSecond = req.PixelsPerSecond });
-
-        bool maskZones = backgroundConfig.Mode == BackgroundMode.IconZone && animationConfig.Pattern != null;
-        var loadCmd = new PlayerCommandLoadAnimation
-        {
-            AnimationConfig = animationConfig,
-            BackgroundConfig = backgroundConfig,
-            MonitorIndex = monitorIndex,
-            VirtualCanvasHeight = monitor.Height,
-            // Simultaneous: this monitor is the whole canvas. Sequential: server-provided spanning canvas.
-            VirtualCanvasWidth = req.PerMonitorMode ? monitor.Width : req.VirtualCanvasWidth,
-            MonitorOffsetX = req.PerMonitorMode ? 0 : req.MonitorOffsetX,
-            MovementConfig = movementConfig,
-            MaskZones = maskZones,
-            UseZonePalette = backgroundConfig.IconZonePaletteEnabled,
-            IconFadePaddingPx = maskZones ? backgroundConfig.IconFadePaddingPx : 0,
-            IconZoneExpansionPx = maskZones ? backgroundConfig.IconZoneExpansionPx : 0
-        };
-
-        int pixelsPerSecond = movementConfig == null || movementConfig.Type == MovementType.Static
-            ? 0
-            : (int)movementConfig.SpeedPixelsPerSecond;
-
-        await LoadAndStartAsync(monitorIndex, loadCmd,
-            new PlayerCommandStartAnimation { StartTimestampMs = req.SharedStartTimestampMs, PixelsPerSecond = pixelsPerSecond });
+        var bottom = scene.FirstLayer?.Movement;
+        int pixelsPerSecond = bottom == null || bottom.Type == MovementType.Static ? 0 : (int)bottom.SpeedPixelsPerSecond;
+        await StartSceneAsync(monitorIndex, LoadCommand(monitorIndex, scene.Background, scene.Layers, layout),
+            new PlayerCommandStartAnimation { StartTimestampMs = req.SharedStartTimestampMs, PixelsPerSecond = pixelsPerSecond },
+            req.TransitionEffect);
     }
 
-    /// <summary>Plain "d2d" LOAD: one centered, static wallpaper on a solid background.</summary>
-    private async Task ApplySimpleAsync(string filePath, int monitorIndex, string backgroundColor, int fitMode)
+    /// <summary>Plain "d2d" LOAD: one centred, static wallpaper on a solid background.</summary>
+    private Task ApplyPlainAsync(string filePath, int monitorIndex, string backgroundColor, int fitMode)
     {
-        if (monitorIndex < 0 || monitorIndex >= _monitors.Count) return;
-        var monitor = _monitors[monitorIndex];
-        var loadCmd = new PlayerCommandLoadAnimation
+        if (monitorIndex < 0 || monitorIndex >= _monitors.Count) return Task.CompletedTask;
+        var layer = new SceneLayer
         {
-            AnimationConfig = new AnimationLayerConfig
+            Animation = new AnimationLayerConfig
             {
                 AnimationPath = filePath,
-                TargetHeight = monitor.Height,
+                TargetHeight = _monitors[monitorIndex].Height,
                 Loop = true,
                 VerticalAlign = VerticalAlignment.Center,
                 CenterInitialPosition = true,
                 FitMode = (ContentFitMode)fitMode
             },
-            BackgroundConfig = new BackgroundLayerConfig { Mode = BackgroundMode.SolidColor, ColorHex = backgroundColor },
-            MonitorIndex = monitorIndex,
-            VirtualCanvasHeight = monitor.Height,
-            VirtualCanvasWidth = monitor.Width,
-            MonitorOffsetX = 0
+            Distribution = AnimationDistributionMode.Simultaneous,
         };
-        await LoadAndStartAsync(monitorIndex, loadCmd, new PlayerCommandStartAnimation { StartTimestampMs = 0, PixelsPerSecond = 0 });
+        var background = new BackgroundLayerConfig { Mode = BackgroundMode.SolidColor, ColorHex = backgroundColor };
+        return StartSceneAsync(monitorIndex, LoadCommand(monitorIndex, background, new[] { layer }, null),
+            new PlayerCommandStartAnimation(), transition: "");
+    }
+
+    /// <summary>The player command the Windows D2DCompositionService would send for this scene.</summary>
+    private static PlayerCommandLoadAnimation LoadCommand(int monitorIndex, BackgroundLayerConfig background, IReadOnlyList<SceneLayer> layers, NodeLayout? layout)
+    {
+        // Pattern + IconZone: zones become a clip mask, no path (layer 0 only)
+        bool maskZones = background.Mode == BackgroundMode.IconZone && layers.Count > 0 && layers[0].Animation.Pattern != null;
+        return new PlayerCommandLoadAnimation
+        {
+            Layers = layers.ToList(),
+            BackgroundConfig = background,
+            MonitorIndex = monitorIndex,
+            Layout = layout,
+            MaskZones = maskZones,
+            UseZonePalette = background.IconZonePaletteEnabled,
+            IconFadePaddingPx = maskZones ? background.IconFadePaddingPx : 0,
+            IconZoneExpansionPx = maskZones ? background.IconZoneExpansionPx : 0
+        };
+    }
+
+    private async Task StartSceneAsync(int monitorIndex, PlayerCommandLoadAnimation load, PlayerCommandStartAnimation start, string transition)
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            var (scene, window) = await GetOrCreateOutputAsync(monitorIndex);
+            // Decoding can take a while for big GIFs — off the UI thread; the old scene keeps playing meanwhile
+            await Task.Run(() => scene.Load(load));
+            scene.Start(start, transition);
+            _sceneMonitors[monitorIndex] = true;
+            _standIns.TryRemove(monitorIndex, out _);   // the scene replaces the stand-in at its start
+            ApplyAgenda(monitorIndex);
+            ReplayEvents(monitorIndex);
+            // A bomb that arrived before its seat's scene (the BiBaBo stand-in starts together with the game)
+            var events = _showEvents.Values.ToList();
+            foreach (var bomb in events.Where(e => e.Type == ShowEventType.Bomb && e.EventId != _bombGameId))
+                if (!events.Any(e => e.Type == ShowEventType.BombOutcome && e.Bomb?.GameId == bomb.EventId))
+                    await WatchBombInputAsync(bomb);
+            await ShowAtStartAsync(window, start.StartTimestampMs);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Scene] Monitor {Monitor}: could not start the scene", monitorIndex);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>A hidden window appears at the shared start (like a Windows player), a visible one keeps the old scene until then.</summary>
+    private async Task ShowAtStartAsync(WallpaperWindow window, long startMs)
+    {
+        bool visible = await Dispatcher.UIThread.InvokeAsync(() => window.IsVisible);
+        if (visible) return;
+        long wait = startMs - (long)WallpaperScene.NowUnixMs();
+        if (wait > 0) _ = Task.Delay((int)Math.Min(wait, 60_000)).ContinueWith(_ => Dispatcher.UIThread.Post(window.ShowWallpaper));
+        else await Dispatcher.UIThread.InvokeAsync(window.ShowWallpaper);
     }
 
     private async Task StopAllAsync()
     {
-        _logger.LogInformation("[Stop] Stopping {Count} output(s)", _outputs.Count);
-        foreach (var (scene, _) in _outputs.Values) scene.Stop();
-        // Hide the windows so the user's normal wallpaper shows again (like the Windows client disposing its players)
-        await Dispatcher.UIThread.InvokeAsync(() =>
+        await _gate.WaitAsync();
+        try
         {
-            foreach (var (_, window) in _outputs.Values) window.Hide();
-        });
-    }
-
-    private async Task LoadAndStartAsync(int monitorIndex, PlayerCommandLoadAnimation load, PlayerCommandStartAnimation start)
-    {
-        var (scene, window) = await GetOrCreateOutputAsync(monitorIndex);
-
-        // Decoding can take a while for big GIFs — keep it off the UI thread
-        await Task.Run(() => scene.Load(load));
-
-        scene.Start(start);
-
-        await Dispatcher.UIThread.InvokeAsync(window.ShowWallpaper);
+            _logger.LogInformation("[Stop] Stopping {Count} output(s)", _sceneMonitors.Count);
+            foreach (var monitor in _sceneMonitors.Keys)
+                if (_outputs.TryGetValue(monitor, out var output)) output.Scene.Stop();
+            _sceneMonitors.Clear();
+            _showEvents.Clear();
+            await StopBombInputAsync();
+            await ReconcileStandInsAsync();   // the agenda stays: stand-ins take over the now idle monitors
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     private async Task<(WallpaperScene Scene, WallpaperWindow Window)> GetOrCreateOutputAsync(int monitorIndex)
@@ -320,6 +357,161 @@ public sealed class LinuxClientHost : IAsyncDisposable
     }
 
     // ════════════════════════════════════════════════════════════════════
+    // Show events + BiBaBo input (mirror RemotePlaybackHost.OnShowEventAsync / WatchBombInput)
+    // ════════════════════════════════════════════════════════════════════
+
+    /// <summary>EVENT from the server (T0 in this machine's clock, image in the cache): keep it and hand it to every monitor.</summary>
+    private Task OnShowEventAsync(ShowEvent evt)
+    {
+        if (!_showEvents.TryAdd(evt.EventId, evt)) return Task.CompletedTask;
+        long now = (long)WallpaperScene.NowUnixMs();
+        foreach (var (id, e) in _showEvents)
+            if (e.T0Utc + Math.Max(0, e.DurationMs) + 60_000 < now) _showEvents.TryRemove(id, out _);
+
+        foreach (var (scene, _) in _outputs.Values) scene.AddShowEvent(evt);
+        return WatchBombInputAsync(evt);
+    }
+
+    private void ReplayEvents(int monitorIndex)
+    {
+        if (!_outputs.TryGetValue(monitorIndex, out var output)) return;
+        foreach (var evt in _showEvents.Values.OrderBy(e => e.T0Utc)) output.Scene.AddShowEvent(evt);
+    }
+
+    /// <summary>A Bomb on one of this machine's monitors makes that window take clicks and keys; its outcome stops it.</summary>
+    private async Task WatchBombInputAsync(ShowEvent evt)
+    {
+        if (evt.Type == ShowEventType.BombOutcome && evt.Bomb is { } done && done.GameId == _bombGameId)
+        {
+            await StopBombInputAsync();
+            return;
+        }
+        if (evt.Type != ShowEventType.Bomb || evt.Bomb is not { } game) return;
+
+        foreach (var (monitor, (scene, window)) in _outputs)
+        {
+            if (scene.EventLayout is not { } node || node.Id != game.BombNodeId) continue;
+            await StopBombInputAsync();
+            _bombGameId = evt.EventId;
+            _bombMonitor = monitor;
+            var cts = _bombCts = new CancellationTokenSource();
+            long untilMs = evt.T0Utc + game.IntroMs + game.TimerMs + 1000 - (long)WallpaperScene.NowUnixMs();
+            cts.CancelAfter(TimeSpan.FromMilliseconds(Math.Max(1000, untilMs)));
+            cts.Token.Register(() => Dispatcher.UIThread.Post(window.StopInput));
+            _logger.LogInformation("[BiBaBo] The bomb is on monitor {Monitor} ({Node}) — watching clicks and keys", monitor, node.Id);
+
+            await Dispatcher.UIThread.InvokeAsync(() => window.WatchInput(
+                (x, y) =>
+                {
+                    if (cts.IsCancellationRequested) return;
+                    if (game.Mode == BombMode.Keypad)
+                    {
+                        int key = BombHit.KeyAt(game, node, x, y);
+                        if (key >= 0) Report(evt.EventId, "key", key);
+                        return;
+                    }
+                    int cable = BombHit.CableAt(game, node, x, y);
+                    _logger.LogDebug("[BiBaBo] Click at {X:F0},{Y:F0} → cable {Cable}", x, y, cable);
+                    if (cable >= 0) Report(evt.EventId, "cut", cable);
+                },
+                key =>
+                {
+                    if (cts.IsCancellationRequested || game.Mode != BombMode.Keypad) return;
+                    int k = BombKeys.FromKey(key);
+                    if (k >= 0) Report(evt.EventId, "key", k);
+                }));
+            return;
+        }
+    }
+
+    private void Report(string gameId, string action, int cable) => _ = Task.Run(async () =>
+    {
+        try
+        {
+            if (_service?.Client is { } client) await client.ReportShowActionAsync(gameId, action, cable);
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "[BiBaBo] Report {Action} failed", action); }
+    });
+
+    private async Task StopBombInputAsync()
+    {
+        _bombCts?.Cancel();
+        _bombCts = null;
+        _bombGameId = null;
+        if (_bombMonitor >= 0 && _outputs.TryGetValue(_bombMonitor, out var output))
+            await Dispatcher.UIThread.InvokeAsync(output.Window.StopInput);
+        _bombMonitor = -1;
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    // Agenda (mirror AgendaDisplay: every monitor gets it, idle monitors a stand-in with this desktop's wallpaper)
+    // ════════════════════════════════════════════════════════════════════
+
+    /// <summary>AGENDA from the server (times in this machine's clock), or null after an explicit disconnect.</summary>
+    private async Task OnAgendaAsync(Agenda? agenda)
+    {
+        _agenda = agenda;
+        _logger.LogInformation("[Agenda] enabled={Enabled}, {Count} item(s)", agenda?.Enabled ?? false, agenda?.Items.Count ?? 0);
+        await _gate.WaitAsync();
+        try
+        {
+            foreach (var monitor in _outputs.Keys) ApplyAgenda(monitor);
+            await ReconcileStandInsAsync();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private void ApplyAgenda(int monitorIndex)
+    {
+        if (!_outputs.TryGetValue(monitorIndex, out var output)) return;
+        var id = _service?.Client?.ClientId;
+        var nodeIds = string.IsNullOrEmpty(id) ? Array.Empty<string>() : new[] { id, $"{id}_MONITOR_{monitorIndex}" };
+        output.Scene.SetAgenda(_agenda, _agenda?.IsScreen(nodeIds) ?? false);
+    }
+
+    /// <summary>Stand-ins where no scene plays (agenda on), none elsewhere; a monitor with neither is hidden. Caller holds the gate.</summary>
+    private async Task ReconcileStandInsAsync()
+    {
+        var (start, stop) = AgendaStandIns.Plan(_agenda is { Enabled: true }, _monitors.Count,
+            _sceneMonitors.Keys.ToHashSet(), _standIns.Keys.ToHashSet());
+        foreach (var monitor in stop)
+        {
+            _standIns.TryRemove(monitor, out _);
+            if (_outputs.TryGetValue(monitor, out var output)) output.Scene.Stop();
+        }
+        foreach (var monitor in start)
+        {
+            try
+            {
+                var (scene, _) = await GetOrCreateOutputAsync(monitor);
+                var background = new BackgroundLayerConfig { Mode = BackgroundMode.StretchedImage, UseLocalDesktopWallpaper = true };
+                await Task.Run(() => scene.Load(LoadCommand(monitor, background, Array.Empty<SceneLayer>(), null)));
+                scene.Start(new PlayerCommandStartAnimation());
+                _standIns[monitor] = true;
+                ApplyAgenda(monitor);
+                _logger.LogInformation("[Agenda] Stand-in started on monitor {Monitor}", monitor);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Agenda] Stand-in on monitor {Monitor} failed", monitor);
+            }
+        }
+
+        // Show what plays, hide what does not (the user's normal wallpaper shows again)
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            foreach (var (monitor, (scene, window)) in _outputs)
+            {
+                if (scene.IsPlaying) window.ShowWallpaper();
+                else window.Hide();
+            }
+        });
+    }
+
+    // ════════════════════════════════════════════════════════════════════
     // Demo mode: local test animation, no server — for checking window placement
     // ════════════════════════════════════════════════════════════════════
 
@@ -343,28 +535,31 @@ public sealed class LinuxClientHost : IAsyncDisposable
         // One animation sweeping across all monitors left to right (Sequential mode)
         int minX = _monitors.Min(m => m.X);
         int canvasWidth = _monitors.Max(m => m.X + m.Width) - minX;
-        long ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var movement = new MovementConfig { Type = MovementType.Linear, SpeedPixelsPerSecond = 400 };
+        int canvasHeight = _monitors.Max(m => m.Height);
+        long ts = (long)WallpaperScene.NowUnixMs() + 500;
+        var layer = new SceneLayer
+        {
+            Animation = new AnimationLayerConfig
+            {
+                AnimationPath = demoPath,
+                FitMode = ContentFitMode.Center,
+                ColorGrading = new ColorGradingConfig { Mode = ColorGradingMode.Rainbow }
+            },
+            Movement = new MovementConfig { Type = MovementType.Linear, SpeedPixelsPerSecond = 400 },
+            Distribution = AnimationDistributionMode.Sequential,
+        };
 
         for (int i = 0; i < _monitors.Count; i++)
         {
             var m = _monitors[i];
-            var load = new PlayerCommandLoadAnimation
+            var layout = new NodeLayout
             {
-                AnimationConfig = new AnimationLayerConfig
-                {
-                    AnimationPath = demoPath,
-                    FitMode = ContentFitMode.Center,
-                    ColorGrading = new ColorGradingConfig { Mode = ColorGradingMode.Rainbow }
-                },
-                BackgroundConfig = new BackgroundLayerConfig { Mode = BackgroundMode.SolidColor, ColorHex = "#1A3A5C" },
-                MonitorIndex = i,
-                VirtualCanvasHeight = m.Height,
-                VirtualCanvasWidth = canvasWidth,
-                MonitorOffsetX = m.X - minX,
-                MovementConfig = movement
+                Id = $"demo-{i}", Order = i, OffsetX = m.X - minX, OffsetY = 0, Width = m.Width, Height = m.Height,
+                CanvasWidth = canvasWidth, CanvasHeight = canvasHeight, Scale = 1f,
             };
-            await LoadAndStartAsync(i, load, new PlayerCommandStartAnimation { StartTimestampMs = ts, PixelsPerSecond = 400 });
+            var background = new BackgroundLayerConfig { Mode = BackgroundMode.SolidColor, ColorHex = "#1A3A5C" };
+            await StartSceneAsync(i, LoadCommand(i, background, new[] { layer }, layout),
+                new PlayerCommandStartAnimation { StartTimestampMs = ts, PixelsPerSecond = 400 }, transition: "");
         }
         _logger.LogInformation("[Demo] Running on {Count} monitor(s) — the wallpaper should sit behind all windows", _monitors.Count);
     }
@@ -372,6 +567,7 @@ public sealed class LinuxClientHost : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _cts.Cancel();
+        _bombCts?.Cancel();
         if (_service != null)
         {
             try { await _service.DisconnectFromServerAsync(); } catch { /* shutting down */ }
@@ -387,4 +583,16 @@ public sealed class LinuxClientHost : IAsyncDisposable
         });
         _x11.Dispose();
     }
+}
+
+/// <summary>BiBaBo keypad keys from the keyboard: number row and numpad digits, Backspace / Delete / C = clear (10).</summary>
+public static class BombKeys
+{
+    public static int FromKey(Key key) => key switch
+    {
+        >= Key.D0 and <= Key.D9 => key - Key.D0,
+        >= Key.NumPad0 and <= Key.NumPad9 => key - Key.NumPad0,
+        Key.Back or Key.Delete or Key.C => 10,
+        _ => -1,
+    };
 }
