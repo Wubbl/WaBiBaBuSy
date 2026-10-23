@@ -1,0 +1,68 @@
+# Builds the self-contained Linux client (x64 + arm64) and attaches the tarballs to a GitHub release.
+# Trigger: push a tag like linux-v2.7.5, or run it by hand (Actions → Linux client release → Run workflow).
+# Tags are linux-v*, not v*, so they don't feed the Windows app's git-describe version rule.
+name: Linux client release
+
+on:
+  push:
+    tags: ['linux-v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create, e.g. linux-v2.7.5'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rid: [linux-x64, linux-arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the client's version rule reads git tags / commit count
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Publish
+        run: bash tools/linux/publish-client.sh ${{ matrix.rid }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wabibabusy-client-${{ matrix.rid }}
+          path: publish-linux/wabibabusy-client-${{ matrix.rid }}.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        run: cd dist && sha256sum *.tar.gz > SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          name: Linux client ${{ github.event.inputs.tag || github.ref_name }}
+          body: |
+            Self-contained WaBiBaBuSy Linux client (no .NET install needed). Pick the tarball for your CPU.
+
+            ```bash
+            tar xzf wabibabusy-client-linux-x64.tar.gz
+            bash wabibabusy-client-linux-x64/packaging/install.sh          # add --args "--server 192.168.1.10" to skip discovery
+            wabibabusy-client --demo                                        # check placement without a server, Ctrl+C to quit
+            ```
+
+            Needs X11 libraries (present on any desktop install). See `.docs/LINUX_CLIENT.md` for packages, network and desktop notes.
+          files: dist/*
