@@ -47,9 +47,12 @@ if [[ ! -x "$SRC/wabibabusy-client" ]]; then
 fi
 
 # ── Native libraries the client loads at runtime ──
+# Read the cache once: piping ldconfig into grep -q under pipefail fails spuriously
+# (grep exits on the first match, ldconfig gets SIGPIPE, the pipeline reports 141).
+ld_cache="$(ldconfig -p 2>/dev/null || true)"
 missing=()
 for lib in libX11.so.6 libXrandr.so.2 libXext.so.6 libICE.so.6 libSM.so.6 libfontconfig.so.1; do
-    ldconfig -p 2>/dev/null | grep -q "$lib" || missing+=("$lib")
+    grep -qF "$lib" <<<"$ld_cache" || missing+=("$lib")
 done
 if [[ ${#missing[@]} -gt 0 ]]; then
     echo "WARNING: missing libraries: ${missing[*]}"
