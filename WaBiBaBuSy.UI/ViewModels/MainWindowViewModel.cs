@@ -387,7 +387,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         // a closed window started keeps running and shows up here again. Prior-session orphans are killed
         // at app start. Detach() undoes these subscriptions when the window closes.
         _server = server;
-        Events = new ShowEventsViewModel(server);
+        Events = new ShowEventsViewModel(server, () => SelectedNodeIds);
         Agenda = new AgendaViewModel(server);
         _server.PropertyChanged += OnServerPropertyChanged;
         _server.SceneApplied += OnSceneApplied;

@@ -23,11 +23,14 @@ public sealed record SeatChoice(string Id, string Label)
 public partial class ShowEventsViewModel : ObservableObject
 {
     private readonly ServerPlaybackHost _server;
+    private readonly Func<IEnumerable<string>> _selectedNodeIds;
     private IStorageProvider? _storageProvider;
 
-    public ShowEventsViewModel(ServerPlaybackHost server)
+    /// <param name="selectedNodeIds">The nodes selected in the room view now (the "Selected nodes" target).</param>
+    public ShowEventsViewModel(ServerPlaybackHost server, Func<IEnumerable<string>> selectedNodeIds)
     {
         _server = server;
+        _selectedNodeIds = selectedNodeIds;
         _server.PropertyChanged += OnServerPropertyChanged;
         _announceText = server.EventSettings.AnnounceText;
         _hotkeysEnabled = server.EventSettings.HotkeysEnabled;
@@ -36,7 +39,7 @@ public partial class ShowEventsViewModel : ObservableObject
     // The room's seats, for labelling the room view's selection.
     private IReadOnlyList<SeatChoice> _seats = Array.Empty<SeatChoice>();
 
-    /// <summary>Who the event buttons fire for: Everyone, a tag, or one seat of the room.</summary>
+    /// <summary>Who the event buttons fire for: Everyone, the room view's selected nodes, a tag, or one seat of the room.</summary>
     public ObservableCollection<EventTarget> Targets { get; } = new() { EventTarget.Everyone };
 
     [ObservableProperty] private EventTarget? _selectedTarget = EventTarget.Everyone;
@@ -91,8 +94,15 @@ public partial class ShowEventsViewModel : ObservableObject
         SelectedTarget = Targets.FirstOrDefault(t => keep != null && t.Kind == keep.Kind && t.Value == keep.Value) ?? Targets[0];
     }
 
-    /// <summary>Node ids of the picked target; null = everyone.</summary>
-    private IReadOnlyList<string>? TargetIds() => (SelectedTarget ?? EventTarget.Everyone).Resolve(_server.Tags.NodesWith);
+    /// <summary>Node ids of the picked target; null = everyone, empty = nobody (Selected nodes with nothing selected).</summary>
+    private IReadOnlyList<string>? TargetIds() => (SelectedTarget ?? EventTarget.Everyone).Resolve(_server.Tags.NodesWith, _selectedNodeIds);
+
+    /// <summary>Fires <paramref name="type"/> for the picked target; a target that covers nobody fires nothing.</summary>
+    private Task Fire(ShowEventType type, string? seatId = null)
+    {
+        var ids = TargetIds();
+        return ids is { Count: 0 } ? Task.CompletedTask : _server.FireEventAsync(type, seatId, ids);
+    }
 
     /// <summary>The room view's selected node becomes the Spotlight target; no selection disables Spotlight.</summary>
     public void SelectSeat(string? id) => SelectedSeat = _seats.FirstOrDefault(s => s.Id == id);
@@ -115,32 +125,36 @@ public partial class ShowEventsViewModel : ObservableObject
     }
 
     [RelayCommand(CanExecute = nameof(CanSpotlight))]
-    private Task Spotlight() => _server.FireEventAsync(ShowEventType.Spotlight, SelectedSeat?.Id, TargetIds());
+    private Task Spotlight() => Fire(ShowEventType.Spotlight, SelectedSeat?.Id);
 
     [RelayCommand(CanExecute = nameof(CanFire))]
-    private Task Celebration() => _server.FireEventAsync(ShowEventType.Celebration, null, TargetIds());
+    private Task Celebration() => Fire(ShowEventType.Celebration);
 
     [RelayCommand(CanExecute = nameof(CanTraverse))]
-    private Task Traversal() => _server.FireEventAsync(ShowEventType.Traversal, null, TargetIds());
+    private Task Traversal() => Fire(ShowEventType.Traversal);
 
     [RelayCommand(CanExecute = nameof(CanFire))]
-    private Task Blackout() => _server.FireEventAsync(ShowEventType.Blackout, null, TargetIds());
+    private Task Blackout() => Fire(ShowEventType.Blackout);
 
     [RelayCommand(CanExecute = nameof(CanFire))]
     private Task Announce()
     {
         _server.SaveEventSettings(_server.EventSettings);   // persist the typed text (interrupts and the hotkey use it)
-        return _server.FireEventAsync(ShowEventType.Announce, null, TargetIds());
+        return Fire(ShowEventType.Announce);
     }
 
     [RelayCommand(CanExecute = nameof(CanFire))]
-    private Task Identify() => _server.FireEventAsync(ShowEventType.Identify, null, TargetIds());
+    private Task Identify() => Fire(ShowEventType.Identify);
 
     /// <summary>"💣 BiBaBo", or "■ Abort BiBaBo" while a game runs.</summary>
     public string BiBaBoLabel => _server.IsBiBaBoRunning ? "■ Abort BiBaBo" : "💣 BiBaBo";
 
     [RelayCommand(CanExecute = nameof(CanFire))]
-    private Task BiBaBo() => _server.ToggleBiBaBoAsync(TargetIds());
+    private Task BiBaBo()
+    {
+        var ids = TargetIds();
+        return ids is { Count: 0 } && !_server.IsBiBaBoRunning ? Task.CompletedTask : _server.ToggleBiBaBoAsync(ids);   // abort always works
+    }
 
     private static readonly int[] BiBaBoTimerChoicesMs = { 60_000, 120_000, 180_000, 300_000, 420_000, 600_000 };
 

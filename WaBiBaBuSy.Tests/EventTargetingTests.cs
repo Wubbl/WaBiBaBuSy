@@ -64,12 +64,14 @@ public class EventTargetingTests
     public void Target_ChoicesAndResolve()
     {
         var choices = EventTarget.Choices(new[] { "BiBaBu" }, new[] { ("s1", "#1 PC-A") });
-        Assert.Equal(new[] { "Everyone", "Tag: BiBaBu", "Seat #1 PC-A" }, choices.Select(c => c.Label));
+        Assert.Equal(new[] { "Everyone", "Selected nodes", "Tag: BiBaBu", "Seat #1 PC-A" }, choices.Select(c => c.Label));
 
         IReadOnlyList<string> Lookup(string tag) => tag == "BiBaBu" ? new[] { "s1", "s2" } : Array.Empty<string>();
         Assert.Null(choices[0].Resolve(Lookup));
-        Assert.Equal(new[] { "s1", "s2" }, choices[1].Resolve(Lookup));
-        Assert.Equal(new[] { "s1" }, choices[2].Resolve(Lookup));
+        Assert.Equal(new[] { "s2", "s3" }, choices[1].Resolve(Lookup, () => new[] { "s2", "s3" }));
+        Assert.Empty(choices[1].Resolve(Lookup, () => Array.Empty<string>()));   // nothing selected = nobody, never everyone
+        Assert.Equal(new[] { "s1", "s2" }, choices[2].Resolve(Lookup));
+        Assert.Equal(new[] { "s1" }, choices[3].Resolve(Lookup));
     }
 
     private static List<LayoutNodeInput> Nodes(int count, Func<int, int>? gapCm = null) =>
