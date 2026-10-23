@@ -1,0 +1,80 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>wabibabusy-client</AssemblyName>
+    <RootNamespace>WaBiBaBuSy.Client.Linux</RootNamespace>
+    <RuntimeIdentifiers>linux-x64;linux-arm64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <!-- Version: the same as the Windows app built from this commit, so the server's version gates (scene layers need
+       2.7.0+) treat a Linux seat like a Windows one. Fallback = WaBiBaBuSy.UI.csproj's Major/Minor/Patch; with git, the
+       newest vMAJOR.MINOR.PATCH tag + commits since it (the UI project's SetBuildNumber rule, with POSIX redirects). -->
+  <Target Name="SetLinuxClientVersion" BeforeTargets="GetAssemblyVersion;GenerateNuspec;BeforeBuild">
+    <XmlPeek XmlInputPath="..\WaBiBaBuSy.UI\WaBiBaBuSy.UI.csproj" Query="/Project/PropertyGroup/MajorVersion/text()">
+      <Output TaskParameter="Result" PropertyName="MajorVersion" />
+    </XmlPeek>
+    <XmlPeek XmlInputPath="..\WaBiBaBuSy.UI\WaBiBaBuSy.UI.csproj" Query="/Project/PropertyGroup/MinorVersion/text()">
+      <Output TaskParameter="Result" PropertyName="MinorVersion" />
+    </XmlPeek>
+    <XmlPeek XmlInputPath="..\WaBiBaBuSy.UI\WaBiBaBuSy.UI.csproj" Query="/Project/PropertyGroup/PatchVersion/text()">
+      <Output TaskParameter="Result" PropertyName="PatchVersion" />
+    </XmlPeek>
+    <Exec Command="git describe --tags --abbrev=0 --match &quot;v[0-9]*.[0-9]*.[0-9]*&quot; 2&gt;/dev/null" ConsoleToMSBuild="true" StandardOutputImportance="low" IgnoreExitCode="true" Condition="'$(VersionFromGit)' != 'false'">
+      <Output TaskParameter="ConsoleOutput" PropertyName="VersionTag" />
+      <Output TaskParameter="ExitCode" PropertyName="VersionTagExit" />
+    </Exec>
+    <Exec Command="git rev-list --count $(VersionTag)..HEAD" ConsoleToMSBuild="true" StandardOutputImportance="low" Condition="'$(VersionTagExit)' == '0'">
+      <Output TaskParameter="ConsoleOutput" PropertyName="VersionHeight" />
+    </Exec>
+    <Exec Command="git rev-list --count HEAD 2&gt;/dev/null" ConsoleToMSBuild="true" StandardOutputImportance="low" IgnoreExitCode="true" Condition="'$(BuildNumber)' == ''">
+      <Output TaskParameter="ConsoleOutput" PropertyName="BuildNumber" />
+    </Exec>
+    <PropertyGroup Condition="'$(VersionTagExit)' == '0'">
+      <_TagVersion>$([System.Version]::Parse($(VersionTag.TrimStart('v'))))</_TagVersion>
+      <MajorVersion>$([System.Version]::Parse($(_TagVersion)).Major)</MajorVersion>
+      <MinorVersion>$([System.Version]::Parse($(_TagVersion)).Minor)</MinorVersion>
+      <PatchVersion>$([MSBuild]::Add($([System.Version]::Parse($(_TagVersion)).Build), $(VersionHeight)))</PatchVersion>
+    </PropertyGroup>
+    <PropertyGroup>
+      <BuildNumber Condition="'$(BuildNumber)' == '' Or !$([System.Text.RegularExpressions.Regex]::IsMatch($(BuildNumber), '^\d+$'))">0</BuildNumber>
+      <Version>$(MajorVersion).$(MinorVersion).$(PatchVersion)</Version>
+      <AssemblyVersion>$(MajorVersion).$(MinorVersion).$(PatchVersion).$(BuildNumber)</AssemblyVersion>
+      <FileVersion>$(MajorVersion).$(MinorVersion).$(PatchVersion).$(BuildNumber)</FileVersion>
+      <InformationalVersion>$(MajorVersion).$(MinorVersion).$(PatchVersion)+build.$(BuildNumber)</InformationalVersion>
+    </PropertyGroup>
+  </Target>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.2" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.2" />
+    <PackageReference Include="Avalonia.Skia" Version="12.1.2" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.2" />
+    <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="14.17.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WaBiBaBuSy.Core\WaBiBaBuSy.Core.csproj" />
+    <ProjectReference Include="..\WaBiBaBuSy.Models\WaBiBaBuSy.Models.csproj" />
+    <ProjectReference Include="..\WaBiBaBuSy.Grpc\WaBiBaBuSy.Grpc.csproj" />
+    <ProjectReference Include="..\WaBiBaBuSy.Player.Common\WaBiBaBuSy.Player.Common.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Pure C# A* planner; shared with the Windows player (WallpaperEngine is Windows-only) -->
+    <Compile Include="..\WaBiBaBuSy.WallpaperEngine\Desktop\ZonePlanner.cs" Link="Shared\ZonePlanner.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="WaBiBaBuSy.Client.Linux.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="packaging\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

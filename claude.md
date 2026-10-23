@@ -62,6 +62,7 @@ Other: `TestScenarios/` (test-mode scenarios), `Installer/` (Inno Setup), `tools
 - **[D2D Rendering Architecture](.docs/2025.12_DIRECT2D_RENDERING_ARCHITECTURE.md)** — Composition pipeline, HeadlessMode, Windows 11 24H2+ compatibility (**read before touching rendering**)
 - **[Distributed Animation System](.docs/2025.11_DISTRIBUTED_ANIMATION_SYSTEM.md)** — Phases 1-4 implementation guide
 - **[Animation Movement System](.docs/ANIMATION_MOVEMENT_SYSTEM.md)** — Deterministic position calculation
+- **[Linux Client](.docs/LINUX_CLIENT.md)** — Headless Linux client (`WaBiBaBuSy.Client.Linux`): Skia port of the D2D player, X11/EWMH desktop placement
 
 ### Project Tracking
 - **[Open Items / Session Handoff](.docs/2026.07_OPEN_ITEMS.md)** — Consolidated validation list, code follow-ups, limitations, roadmap pointer (start here, refreshed 2026-10-09)
@@ -155,6 +156,10 @@ The mode is chosen **per scene layer** (`SceneLayer.Distribution`, 2026-10-14):
 - **`AppLogger`** is a static factory using volatile `LoggingConfiguration`. `ApplyConfig()` takes effect immediately.
 - **`FileLoggerProvider`** creates rolling daily files in `LogDirectory`. Errors written to `Console.Error`.
 - **Config persistence**: `%APPDATA%\WaBiBaBuSy\logging-config.json` (separate from main config).
+
+### Linux Client / Cross-Platform Core
+- **`WaBiBaBuSy.Core` multi-targets `net9.0-windows;net9.0`.** The `net9.0` build (used by the Linux client) has no WinForms. Guard any new Windows-only API in Core with `#if WINDOWS`, or the Linux build breaks.
+- **`WaBiBaBuSy.Client.Linux/Rendering/` mirrors `Player.D2D`.** `SpriteLayer` / `SceneContent` ↔ `Program.cs` + `Program.Layers.cs` + `Program.Effects.cs`, `ShowEventPainter(.Bomb)` ↔ `Program.ShowEvents.cs` / `Program.Bomb.cs`, `AgendaPainter` ↔ `Program.Agenda.cs`, transitions in `WallpaperScene` ↔ `Program.Transitions.cs`; `LinuxClientHost` ↔ `RemotePlaybackHost`. Port player changes there, or Linux machines drift visually from Windows ones. New server→client features (command types, delegates on `WaBiBaBuSyService`) need a Linux handler too.
 
 ### Windows Desktop Integration
 - **WorkerW technique**: Wallpaper windows are parented to the desktop behind icons.
