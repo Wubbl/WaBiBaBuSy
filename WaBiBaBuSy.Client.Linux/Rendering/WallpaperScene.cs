@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using SkiaSharp;
 using WaBiBaBuSy.Models.Show;
@@ -37,9 +36,6 @@ public sealed class WallpaperScene : IDisposable
     private readonly ShowEventPainter _events;
     private readonly AgendaPainter _agenda;
 
-    // Precise "now": wall clock sampled once, advanced by Stopwatch (monotonic, sub-ms)
-    private static readonly double s_anchorUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-    private static readonly long s_anchorTicks = Stopwatch.GetTimestamp();
 
     public WallpaperScene(int width, int height, ILogger logger, string? machineName = null)
     {
@@ -65,8 +61,12 @@ public sealed class WallpaperScene : IDisposable
     /// <summary>True while an agenda is on.</summary>
     public bool AgendaOn => _agenda.IsOn;
 
-    internal static double NowUnixMs()
-        => s_anchorUnixMs + (Stopwatch.GetTimestamp() - s_anchorTicks) * 1000.0 / Stopwatch.Frequency;
+    /// <summary>
+    /// The wall clock, read every frame like the Windows player's <c>DateTime.UtcNow</c>. Shared starts arrive in this
+    /// clock's terms (WallpaperSyncClient subtracts the measured server offset from the real UTC clock), so it must
+    /// follow NTP corrections and suspend / resume — a monotonic timer anchored at process start does not.
+    /// </summary>
+    internal static double NowUnixMs() => (DateTime.UtcNow - DateTime.UnixEpoch).TotalMilliseconds;
 
     // ════════════════════════════════════════════════════════════════════
     // Commands (mirror the player's cmd_load_animation / cmd_start_animation / cmd_transition / stop)
