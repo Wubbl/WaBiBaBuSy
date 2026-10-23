@@ -3,7 +3,8 @@
 
 param(
     [string]$Configuration = "Release",
-    [string]$Version = ""
+    [string]$Version = "",
+    [switch]$NoPause   # scripted / release builds: don't wait for a key at the end
 )
 
 $ErrorActionPreference = "Stop"
@@ -33,7 +34,7 @@ Write-Host "Publish Directory: $PublishDir" -ForegroundColor Gray
 Write-Host ""
 
 # Step 1: Clean previous build
-Write-Host "[1/4] Cleaning previous build..." -ForegroundColor Yellow
+Write-Host "[1/5] Cleaning previous build..." -ForegroundColor Yellow
 if (Test-Path $PublishDir) {
     Remove-Item $PublishDir -Recurse -Force
     Write-Host "  Removed old publish directory" -ForegroundColor Gray
@@ -42,7 +43,7 @@ Write-Host "  Done" -ForegroundColor Green
 Write-Host ""
 
 # Step 2: Publish the application
-Write-Host "[2/4] Publishing application..." -ForegroundColor Yellow
+Write-Host "[2/5] Publishing application..." -ForegroundColor Yellow
 $ProjectPath = Join-Path $SolutionRoot "WaBiBaBuSy.UI\WaBiBaBuSy.UI.csproj"
 
 dotnet publish $ProjectPath `
@@ -65,7 +66,7 @@ Write-Host "  Published to: $PublishDir (version $Version, build $BuildNum)" -Fo
 Write-Host ""
 
 # Step 3: Check for Inno Setup
-Write-Host "[3/4] Checking for Inno Setup..." -ForegroundColor Yellow
+Write-Host "[3/5] Checking for Inno Setup..." -ForegroundColor Yellow
 $InnoSetupPaths = @(
     "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
     "C:\Program Files\Inno Setup 6\ISCC.exe",
@@ -92,7 +93,7 @@ Write-Host "  Found Inno Setup at: $InnoSetupPath" -ForegroundColor Green
 Write-Host ""
 
 # Step 4: Build installer
-Write-Host "[4/4] Building installer..." -ForegroundColor Yellow
+Write-Host "[4/5] Building installer..." -ForegroundColor Yellow
 $IssPath = Join-Path $ScriptDir "WaBiBaBuSy.iss"
 
 Write-Host "  Version: $Version, Build: $BuildNum" -ForegroundColor Gray
@@ -123,5 +124,15 @@ if ($InstallerFile) {
     Write-Host "  Warning: Could not find generated installer file" -ForegroundColor Yellow
 }
 
-Write-Host "Press any key to exit..."
-$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+# Step 5: Linux client tarball, next to the Setup.exe (same version)
+Write-Host "[5/5] Building Linux client..." -ForegroundColor Yellow
+& (Join-Path $SolutionRoot "tools\linux\publish-client.ps1") -Rid linux-x64 @VersionArgs
+$LinuxTarball = Join-Path $InstallerOutputDir "WaBiBaBuSy-v$Version-linux-x64.tar.gz"
+Copy-Item (Join-Path $SolutionRoot "publish-linux\wabibabusy-client-linux-x64.tar.gz") $LinuxTarball -Force
+Write-Host "  Linux client: $LinuxTarball ($([math]::Round((Get-Item $LinuxTarball).Length / 1MB, 2)) MB)" -ForegroundColor Green
+Write-Host ""
+
+if (-not $NoPause) {
+    Write-Host "Press any key to exit..."
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+}
