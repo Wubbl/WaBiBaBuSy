@@ -776,15 +776,18 @@ public class WallpaperSyncService : WallpaperSync.WallpaperSyncBase
     }
 
     /// <summary>
-    /// Send a command to a specific client
+    /// Send a command to a specific client. A multi-monitor client's seat (<c>{client}_MONITOR_n</c>) goes over its
+    /// machine's stream; the command's target monitor tells the client which screen.
     /// </summary>
     public async Task<bool> SendCommandToClientAsync(string clientId, SyncCommand command)
     {
-        if (_clientCommandStreams.TryGetValue(clientId, out var stream))
+        // The machine's id: its seats share one stream and so one write gate (gRPC allows one write at a time).
+        var streamId = _clientCommandStreams.ContainsKey(clientId) ? clientId : WaBiBaBuSy.Models.Topology.NodeIds.MachineOf(clientId);
+        if (_clientCommandStreams.TryGetValue(streamId, out var stream))
         {
             try
             {
-                await WriteToClientStreamAsync(clientId, stream, command);
+                await WriteToClientStreamAsync(streamId, stream, command);
                 _logger.LogDebug("Sent {CommandType} command to client {ClientId}", command.Type, clientId);
                 return true;
             }

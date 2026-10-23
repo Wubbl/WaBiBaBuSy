@@ -80,6 +80,15 @@ public class SeatMap
 
     public List<SeatRow> Rows { get; set; } = new();
 
+    /// <summary>
+    /// Seats the server switched off (room view → Disable seat): they keep their place in the layout, like a ghost seat,
+    /// but get no scene, no event and no agenda. Node ids.
+    /// </summary>
+    public List<string> DisabledNodeIds { get; set; } = new();
+
+    /// <summary>True when the server switched this seat off.</summary>
+    public bool IsDisabled(string nodeId) => DisabledNodeIds.Contains(nodeId, StringComparer.Ordinal);
+
     /// <summary>The classic single-row, left-to-right wall (behavior identical to pre-seat-map layouts).</summary>
     public static SeatMap SingleRow() => new()
     {

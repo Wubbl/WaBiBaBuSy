@@ -1052,6 +1052,17 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
         SeatMapVersion++;
     }
 
+    public async Task SetSeatsEnabledAsync(IReadOnlyCollection<string> nodeIds, bool enabled)
+    {
+        var map = SeatMapEditor.Clone(_seatMap);
+        map.DisabledNodeIds = enabled
+            ? map.DisabledNodeIds.Except(nodeIds, StringComparer.Ordinal).ToList()
+            : map.DisabledNodeIds.Union(nodeIds, StringComparer.Ordinal).ToList();
+        CommitSeatMap(map);
+        if (!enabled) await _server.ClearNodesAsync(nodeIds);   // a running playlist leaves them out from its next item on
+        await _server.RefreshAgendaAsync();                     // their agenda goes too
+    }
+
     public IReadOnlyList<string> TagsOf(string nodeId) => _server.Tags.Of(nodeId);
 
     public Task SetTagsAsync(IReadOnlyCollection<string> nodeIds, string tags)
@@ -1074,7 +1085,7 @@ public partial class MainWindowViewModel : ViewModelBase, IRoomHost
     {
         if (!IsLocalMonitor(nodeId))
         {
-            var version = _service.GetConnectedClients().FirstOrDefault(c => c.ClientId == nodeId)?.AppVersion;
+            var version = _service.GetConnectedClients().FirstOrDefault(c => c.ClientId == NodeIds.MachineOf(nodeId))?.AppVersion;
             return version == null || WaBiBaBuSy.Common.Version.VersionInfo.SupportsSceneLayers(version)
                 ? null
                 : $"Runs v{version} — needs update to {WaBiBaBuSy.Common.Version.VersionInfo.MinSceneLayersVersion}+ before it plays scenes.";

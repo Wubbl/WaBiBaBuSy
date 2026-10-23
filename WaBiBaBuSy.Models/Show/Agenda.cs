@@ -35,9 +35,15 @@ public sealed class Agenda
     /// <summary>Nodes tagged "agenda": they show the full-size timetable instead of the corner panel.</summary>
     public List<string> ScreenNodeIds { get; set; } = new();
 
+    /// <summary>Seats the server disabled: they show no agenda (nor anything else of the room).</summary>
+    public List<string> HiddenNodeIds { get; set; } = new();
+
     /// <summary>Server time the agenda was sent (set by the codec); the receiver shifts item times by its clock offset.</summary>
     public long SentUtcMs { get; set; }
 
     /// <summary>True when any of the ids this monitor may be known by is an agenda screen.</summary>
     public bool IsScreen(IEnumerable<string> nodeIdCandidates) => nodeIdCandidates.Any(id => ScreenNodeIds.Contains(id, StringComparer.Ordinal));
+
+    /// <summary>True when any of the ids this monitor may be known by is a disabled seat.</summary>
+    public bool IsHidden(IEnumerable<string> nodeIdCandidates) => nodeIdCandidates.Any(id => HiddenNodeIds.Contains(id, StringComparer.Ordinal));
 }

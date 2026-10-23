@@ -41,7 +41,8 @@ public static class SeatMapEditor
         RowGapCm = map.RowGapCm,
         CanvasMode = map.CanvasMode,
         VerticalAnchor = map.VerticalAnchor,
-        Rows = map.Rows.Select(CloneRow).ToList()
+        Rows = map.Rows.Select(CloneRow).ToList(),
+        DisabledNodeIds = map.DisabledNodeIds.ToList()
     };
 
     /// <summary>

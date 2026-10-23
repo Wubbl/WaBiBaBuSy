@@ -67,6 +67,17 @@ public class ClientConfiguration
     public bool PauseOnlyFullscreenMonitor { get; set; }
 
     /// <summary>
+    /// The one monitor (left-to-right index) this machine shares with the server; -1 = all monitors. The server then
+    /// sees a single-monitor seat; the other screens keep the Windows wallpaper (no scene, no agenda). An index that no
+    /// longer exists (monitor unplugged) shares all. Applies on the next connect.
+    /// </summary>
+    public int SharedMonitorIndex { get; set; } = -1;
+
+    /// <summary>True when monitor <paramref name="index"/> of <paramref name="monitorCount"/> is shared with the server.</summary>
+    public bool IsMonitorShared(int index, int monitorCount) =>
+        SharedMonitorIndex < 0 || SharedMonitorIndex >= monitorCount || index == SharedMonitorIndex;
+
+    /// <summary>
     /// Answer automated test runs from the server (timecode strip, probes with wallpaper screenshots).
     /// Captures contain only the wallpaper back buffer, never other windows.
     /// </summary>

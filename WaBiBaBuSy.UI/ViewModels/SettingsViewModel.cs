@@ -5,6 +5,7 @@ using WaBiBaBuSy.Models.Configuration;
 using WaBiBaBuSy.Core.Services.Logging;
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace WaBiBaBuSy.UI.ViewModels;
@@ -65,6 +66,21 @@ public partial class SettingsViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool _pauseOnlyFullscreenMonitor;
+
+    /// <summary>Monitors shared with the server: index into <see cref="SharedMonitorChoices"/> (0 = all, n = monitor n only).</summary>
+    [ObservableProperty]
+    private int _sharedMonitorChoice;
+
+    /// <summary>"All monitors", then "Only monitor 1 (2560×1440)"… left to right, as the server numbers them.</summary>
+    public string[] SharedMonitorChoices { get; } = BuildSharedMonitorChoices();
+
+    private static string[] BuildSharedMonitorChoices()
+    {
+        var monitors = WaBiBaBuSy.WallpaperEngine.Native.NativeMonitorInfo.GetAllMonitors();
+        return new[] { "All monitors" }
+            .Concat(monitors.Select((m, i) => $"Only monitor {i + 1} ({m.Bounds.Width}×{m.Bounds.Height}{(m.IsPrimary ? ", main" : "")})"))
+            .ToArray();
+    }
 
     [ObservableProperty]
     private bool _allowTestRuns;
@@ -148,6 +164,7 @@ public partial class SettingsViewModel : ViewModelBase
         HeartbeatIntervalSeconds = clientConfig.HeartbeatIntervalSeconds;
         PauseOnFullscreen = clientConfig.PauseOnFullscreen;
         PauseOnlyFullscreenMonitor = clientConfig.PauseOnlyFullscreenMonitor;
+        SharedMonitorChoice = clientConfig.SharedMonitorIndex + 1 is var choice && choice > 0 && choice < SharedMonitorChoices.Length ? choice : 0;
         AllowTestRuns = clientConfig.AllowTestRuns;
 
         // Logging settings
@@ -201,6 +218,7 @@ public partial class SettingsViewModel : ViewModelBase
                 c.HeartbeatIntervalSeconds = HeartbeatIntervalSeconds;
                 c.PauseOnFullscreen = PauseOnFullscreen;
                 c.PauseOnlyFullscreenMonitor = PauseOnlyFullscreenMonitor;
+                c.SharedMonitorIndex = SharedMonitorChoice - 1;
                 c.AllowTestRuns = AllowTestRuns;
             });
 

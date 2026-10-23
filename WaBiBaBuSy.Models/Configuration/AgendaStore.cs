@@ -17,7 +17,8 @@ public sealed class AgendaDocument
     public AgendaCorner Corner { get; set; } = AgendaCorner.TopRight;
 
     /// <summary>The agenda to send: items parsed in <paramref name="tz"/>, notes = the non-blank lines.</summary>
-    public Agenda Build(TimeZoneInfo tz, IReadOnlyList<string> screenNodeIds) => new()
+    /// <param name="hiddenNodeIds">Seats the server disabled (no agenda there).</param>
+    public Agenda Build(TimeZoneInfo tz, IReadOnlyList<string> screenNodeIds, IReadOnlyCollection<string>? hiddenNodeIds = null) => new()
     {
         Enabled = Enabled,
         Title = Title.Trim(),
@@ -26,6 +27,7 @@ public sealed class AgendaDocument
         Corner = Corner,
         UtcOffsetMinutes = (int)tz.GetUtcOffset(DateTime.UtcNow).TotalMinutes,
         ScreenNodeIds = screenNodeIds.ToList(),
+        HiddenNodeIds = hiddenNodeIds?.ToList() ?? new(),
     };
 }
 

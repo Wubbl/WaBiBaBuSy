@@ -10,6 +10,7 @@ using WaBiBaBuSy.Core.Services;
 using WaBiBaBuSy.Core.Services.Logging;
 using WaBiBaBuSy.Core.Services.Testing;
 using WaBiBaBuSy.Models.Content;
+using WaBiBaBuSy.Models.Configuration;
 using WaBiBaBuSy.Models.Show;
 using WaBiBaBuSy.Models.Topology;
 using WaBiBaBuSy.Models.Wallpaper;
@@ -42,7 +43,9 @@ public sealed class RemotePlaybackHost
     {
         _service = service;
         _desktopManager = desktopManager;
-        _agenda = new AgendaDisplay(desktopManager, AgendaNodeIds);
+        // A monitor this client does not share (Settings → Wallpaper) keeps the Windows wallpaper: no agenda either.
+        _agenda = new AgendaDisplay(desktopManager, AgendaNodeIds,
+            (m, count) => ConfigurationManager.LoadClientConfiguration().IsMonitorShared(m, count));
         _bombInput = new BombInputWatcher((game, action, cable) =>
             _service.Client?.ReportShowActionAsync(game, action, cable) ?? Task.FromResult(false));
     }

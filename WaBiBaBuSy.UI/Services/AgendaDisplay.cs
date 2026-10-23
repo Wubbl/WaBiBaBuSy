@@ -22,14 +22,18 @@ public sealed class AgendaDisplay
 {
     private readonly DesktopWindowManager _desktopManager;
     private readonly Func<int, IReadOnlyList<string>> _nodeIdsOfMonitor;
+    private readonly Func<int, int, bool> _isMonitorShared;
     private readonly Dictionary<int, D2DCompositionService> _standIns = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     /// <param name="nodeIdsOfMonitor">The room ids a monitor may be known by (agenda screens are tagged by node id).</param>
-    public AgendaDisplay(DesktopWindowManager desktopManager, Func<int, IReadOnlyList<string>> nodeIdsOfMonitor)
+    /// <param name="isMonitorShared">(index, count) → false for a monitor this client does not share; null = all shared.</param>
+    public AgendaDisplay(DesktopWindowManager desktopManager, Func<int, IReadOnlyList<string>> nodeIdsOfMonitor,
+        Func<int, int, bool>? isMonitorShared = null)
     {
         _desktopManager = desktopManager;
         _nodeIdsOfMonitor = nodeIdsOfMonitor;
+        _isMonitorShared = isMonitorShared ?? ((_, _) => true);
     }
 
     /// <summary>The agenda last set (null = none).</summary>
@@ -119,7 +123,11 @@ public sealed class AgendaDisplay
     {
         var monitors = NativeMonitorInfo.GetAllMonitors();
         var withScene = scenePlayers.Where(kv => kv.Value.IsRunning).Select(kv => kv.Key).ToHashSet();
-        var (start, stop) = AgendaStandIns.Plan(IsOn, monitors.Length, withScene, Snapshot().Select(kv => kv.Key).ToHashSet());
+        // No agenda on a seat the server disabled or a monitor this client keeps to itself.
+        var off = Enumerable.Range(0, monitors.Length)
+            .Where(m => !_isMonitorShared(m, monitors.Length) || Current?.IsHidden(_nodeIdsOfMonitor(m)) == true)
+            .ToHashSet();
+        var (start, stop) = AgendaStandIns.Plan(IsOn, monitors.Length, withScene, Snapshot().Select(kv => kv.Key).ToHashSet(), off);
         foreach (var monitor in stop) await StopStandInAsync(monitor);
         foreach (var monitor in start)
         {

@@ -399,7 +399,8 @@ public class WallpaperSyncClient : IDisposable
                 Hostname = Environment.MachineName,
                 IpAddress = GetLocalIpAddress(),
                 RegistrationTimestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                ScreenConfig = GetScreenConfiguration(),
+                // Re-read: the Settings window writes the file, this client holds the config it was started with.
+                ScreenConfig = SharedMonitorsOnly(GetScreenConfiguration(), ConfigurationManager.LoadClientConfiguration().SharedMonitorIndex),
                 AppVersion = AppVersionInfo.AppVersion,
                 BuildNumber = AppVersionInfo.BuildNumber,
                 FrameworkVersion = AppVersionInfo.FrameworkVersion
@@ -1242,6 +1243,25 @@ public class WallpaperSyncClient : IDisposable
     /// <summary>
     /// Get screen configuration for this machine
     /// </summary>
+    /// <summary>
+    /// The monitors this machine shares with the server (<see cref="ClientConfiguration.SharedMonitorIndex"/>): all, or
+    /// only that one. Each keeps its own <see cref="MonitorInfo.Index"/>, so the server renders on the right screen.
+    /// </summary>
+    internal static ScreenConfiguration SharedMonitorsOnly(ScreenConfiguration all, int sharedMonitorIndex)
+    {
+        var config = new ClientConfiguration { SharedMonitorIndex = sharedMonitorIndex };
+        var shared = all.Monitors.Where(m => config.IsMonitorShared(m.Index, all.Monitors.Count)).ToList();
+        if (shared.Count == all.Monitors.Count) return all;
+        var result = new ScreenConfiguration
+        {
+            MonitorCount = shared.Count,
+            TotalWidth = shared.Max(m => m.X + m.Width) - shared.Min(m => m.X),
+            TotalHeight = shared.Max(m => m.Y + m.Height) - shared.Min(m => m.Y),
+        };
+        result.Monitors.AddRange(shared);
+        return result;
+    }
+
     private ScreenConfiguration GetScreenConfiguration()
     {
         if (ScreenConfigurationProvider != null)

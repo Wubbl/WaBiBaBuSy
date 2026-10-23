@@ -171,7 +171,8 @@ public static class RoomNodeSources
 
     /// <summary>
     /// The monitor a node shows: the index from a <c>…MONITOR_n</c> id (info when the client reported it), else the
-    /// only monitor of a single-monitor client, else (-1, null).
+    /// only monitor of a single-monitor client (its own index: a client that shares only its 2nd screen reports
+    /// index 1), else (-1, null).
     /// </summary>
     public static (int Index, MonitorInfo? Monitor) MonitorFor(ConnectedClient client)
     {
@@ -184,7 +185,7 @@ public static class RoomNodeSources
         var monitors = client.ScreenConfig?.Monitors;
         if (suffix != null && int.TryParse(suffix, out int index))
             return (index, monitors != null && monitors.Count > index ? monitors[index] : null);
-        if (monitors?.Count == 1) return (0, monitors[0]);
+        if (monitors?.Count == 1) return (Math.Max(0, monitors[0].Index), monitors[0]);
         return (-1, null);
     }
 

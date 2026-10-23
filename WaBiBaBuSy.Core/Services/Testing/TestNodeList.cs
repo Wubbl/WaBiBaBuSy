@@ -26,7 +26,7 @@ public static class TestNodeList
                 RefreshHz = n.RefreshHz,
                 ClockOffsetMs = n.ClockOffsetMs,
                 RttMs = n.RttMs,
-                AppVersion = local ? localAppVersion : remoteVersions.GetValueOrDefault(n.Id, string.Empty),
+                AppVersion = local ? localAppVersion : remoteVersions.GetValueOrDefault(NodeIds.MachineOf(n.Id), string.Empty),
             };
         }).ToList();
 }

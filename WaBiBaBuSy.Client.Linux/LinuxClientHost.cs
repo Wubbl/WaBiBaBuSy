@@ -467,16 +467,25 @@ public sealed class LinuxClientHost : IAsyncDisposable
     private void ApplyAgenda(int monitorIndex)
     {
         if (!_outputs.TryGetValue(monitorIndex, out var output)) return;
+        output.Scene.SetAgenda(_agenda, _agenda?.IsScreen(NodeIdsOf(monitorIndex)) ?? false);
+    }
+
+    /// <summary>The room ids a monitor may be known by: the whole machine, or one of its expanded monitors.</summary>
+    private string[] NodeIdsOf(int monitorIndex)
+    {
         var id = _service?.Client?.ClientId;
-        var nodeIds = string.IsNullOrEmpty(id) ? Array.Empty<string>() : new[] { id, $"{id}_MONITOR_{monitorIndex}" };
-        output.Scene.SetAgenda(_agenda, _agenda?.IsScreen(nodeIds) ?? false);
+        return string.IsNullOrEmpty(id) ? Array.Empty<string>() : new[] { id, $"{id}_MONITOR_{monitorIndex}" };
     }
 
     /// <summary>Stand-ins where no scene plays (agenda on), none elsewhere; a monitor with neither is hidden. Caller holds the gate.</summary>
     private async Task ReconcileStandInsAsync()
     {
+        // No agenda on a seat the server disabled or a monitor not shared (client config SharedMonitorIndex), as on Windows.
+        var off = Enumerable.Range(0, _monitors.Count)
+            .Where(m => !_clientConfig.IsMonitorShared(m, _monitors.Count) || _agenda?.IsHidden(NodeIdsOf(m)) == true)
+            .ToHashSet();
         var (start, stop) = AgendaStandIns.Plan(_agenda is { Enabled: true }, _monitors.Count,
-            _sceneMonitors.Keys.ToHashSet(), _standIns.Keys.ToHashSet());
+            _sceneMonitors.Keys.ToHashSet(), _standIns.Keys.ToHashSet(), off);
         foreach (var monitor in stop)
         {
             _standIns.TryRemove(monitor, out _);

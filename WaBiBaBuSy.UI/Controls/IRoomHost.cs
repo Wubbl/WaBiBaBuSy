@@ -84,6 +84,12 @@ public interface IRoomHost : INotifyPropertyChanged
     /// <summary>Replace the tags of the given nodes with the comma-separated <paramref name="tags"/> (blank clears).</summary>
     Task SetTagsAsync(IReadOnlyCollection<string> nodeIds, string tags);
 
+    /// <summary>
+    /// Switch seats off (or back on): a disabled seat keeps its place but gets no scene, event or agenda; switching
+    /// off stops what it shows now.
+    /// </summary>
+    Task SetSeatsEnabledAsync(IReadOnlyCollection<string> nodeIds, bool enabled);
+
     /// <summary>Stop what the given nodes show.</summary>
     Task ClearNodesAsync(IReadOnlyCollection<string> nodeIds);
 

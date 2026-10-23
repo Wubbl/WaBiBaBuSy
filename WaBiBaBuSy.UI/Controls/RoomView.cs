@@ -373,7 +373,8 @@ public partial class RoomView : Control
     private void DrawTile(DrawingContext ctx, TileBox t, ClientNodeViewModel? c, NodeLayout? node, CrossScreenConfig? scene, long elapsed, bool live)
     {
         bool dragged = _gesture == Gesture.DraggingTile && t.Id == _pressedId;
-        using var opacity = ctx.PushOpacity(dragged ? 0.35 : c?.IsGhost == true ? 0.45 : 1.0);
+        bool disabled = _host?.SeatMap.IsDisabled(t.Id) == true;
+        using var opacity = ctx.PushOpacity(dragged ? 0.35 : c?.IsGhost == true || disabled ? 0.45 : 1.0);
 
         var (fill, pen) = TileStyle(c, t.Id == _hoverId);
         ctx.DrawRectangle(fill, pen, ToRect(t.Tile), 8, 8);
@@ -392,6 +393,11 @@ public partial class RoomView : Control
             if (live && ShowEvents is { Count: > 0 } events)
                 _painter.PaintShowEvents(ctx, screen, s, ScenePainter.EffectiveNode(scene?.FirstLayer, node), events, SharedStartUtcMs, elapsed,
                     sharedCanvas: scene?.FirstLayer?.Distribution != AnimationDistributionMode.Simultaneous);
+        }
+        else if (disabled)
+        {
+            var ft = Format("disabled", Faint, 10, bold: false);
+            ctx.DrawText(ft, new Point(sceneBox.Center.X - ft.Width / 2, sceneBox.Center.Y - ft.Height / 2));
         }
         else if (c?.ThumbnailImage is { } thumb)
         {

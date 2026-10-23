@@ -32,6 +32,9 @@ public partial class RoomView
             Item("Gap before this seat (cm)…", () => { OpenGapEditor(new GapBox(tile.Id, tile.Row, default)); return Task.CompletedTask; }),
             new Separator(),
             Item("Clear wallpaper" + suffix, () => host.ClearNodesAsync(ids)),
+            ids.All(host.SeatMap.IsDisabled)
+                ? Item("Enable seat" + suffix, () => host.SetSeatsEnabledAsync(ids, true))
+                : Item("Disable seat" + suffix, () => host.SetSeatsEnabledAsync(ids, false)),
             Item("Resync" + suffix, () => host.ResyncNodesAsync(ids)),
             Item("View logs", () => host.ShowNodeLogsAsync(tile.Id), host.CanFetchLogs(tile.Id)),
         };

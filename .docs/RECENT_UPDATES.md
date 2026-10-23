@@ -1,8 +1,19 @@
 # WaBiBaBuSy - Recent Updates & Changelog
 
-**Last Updated:** 2026-10-22
+**Last Updated:** 2026-10-23
 
 ---
+
+## 2026-10-23 — Remote multi-monitor clients get scenes; "share one monitor"; disable seats
+
+- **Report**: a client with 2 screens showed the agenda but no wallpaper / animation, whatever was selected.
+- **Cause**: a multi-monitor client's seats are `{client}_MONITOR_n`, but the server looked up the client version and the command stream under that seat id. Neither exists (both live under the client id), so every scene was dropped ("runs (unknown), scenes need 2.7.0+"), and even without the version gate the send had "no active stream". The agenda is broadcast, so it got through. Also broken for those seats: resume after reconnect, the room's "needs update" ⚠ and test-run versions.
+- **Fix**: `NodeIds.MachineOf` maps a seat to its client; `SendCommandToClientAsync` routes over the machine's stream (and its write gate, so two seats never write at once), the version gate, resume (`OnClientRegistered` re-sends every seat's command), `NodeWarning` and `TestNodeList` use it.
+- **Client: share one monitor** (Settings → Wallpaper, `ClientConfiguration.SharedMonitorIndex`, -1 = all): the client reports only that monitor (keeping its real index, `WallpaperSyncClient.SharedMonitorsOnly`), so the server sees one seat and renders on the right screen (`RoomNodeSources.MonitorFor` uses the monitor's own index). The other screens keep the Windows wallpaper and show no agenda. Applies on the next connect. Linux: same key in the client config file (no UI).
+- **Server: disable seats** (room view right-click → Disable / Enable seat, multi-select works; `SeatMap.DisabledNodeIds`, persisted with the seat map): a disabled seat keeps its place in the layout like a ghost (`CrossScreenPlan.Disabled`), gets no scene, no events, no BiBaBo bomb or card, and no agenda (`Agenda.HiddenNodeIds`, Windows + Linux clients). Disabling stops what it shows now; the tile is dimmed with "disabled".
+- **Known limit**: a Stop for one seat of a multi-monitor client still stops both of its screens (the client's stop has no monitor index). Stops are sent before starts, so a new scene is not affected.
+- **Verified**: build + 1332 tests (`MultiMonitorSeatTests`). **Not verified**: a real 2-monitor client, the settings combo, the room menu.
+
 
 ## 2026-10-22 — Panorama fit modes; panorama presets are background-only
 

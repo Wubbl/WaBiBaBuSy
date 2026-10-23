@@ -48,6 +48,20 @@ public static class NodeIds
     public static bool IsLocalMonitor(string id) =>
         id.StartsWith(LocalMachinePrefix, StringComparison.Ordinal) || id.StartsWith(ServerLocalPrefix, StringComparison.Ordinal);
 
+    /// <summary>
+    /// The connected client a node belongs to: <c>"c1_MONITOR_2"</c> → <c>"c1"</c> (a multi-monitor client's seats share
+    /// its stream, version and registration); any other id is returned as is.
+    /// </summary>
+    public static string MachineOf(string id)
+    {
+        if (IsLocalMonitor(id)) return id;
+        int idx = id.LastIndexOf(RemoteMonitorInfix, StringComparison.Ordinal);
+        return idx > 0 && int.TryParse(id.AsSpan(idx + RemoteMonitorInfix.Length), out _) ? id[..idx] : id;
+    }
+
+    /// <summary>Separator of a multi-monitor client's seat ids: <c>{client}_MONITOR_{n}</c>.</summary>
+    public const string RemoteMonitorInfix = "_MONITOR_";
+
     /// <summary>The monitor index of a local monitor id; -1 for any other id.</summary>
     public static int MonitorIndex(string id)
     {

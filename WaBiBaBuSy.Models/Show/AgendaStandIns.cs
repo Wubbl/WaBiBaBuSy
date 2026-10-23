@@ -6,15 +6,16 @@ namespace WaBiBaBuSy.Models.Show;
 /// </summary>
 public static class AgendaStandIns
 {
+    /// <param name="off">Monitors that show nothing of the room (seat disabled by the server, monitor not shared by this client).</param>
     public static (IReadOnlyList<int> Start, IReadOnlyList<int> Stop) Plan(bool agendaOn, int monitorCount,
-        IReadOnlySet<int> withScene, IReadOnlySet<int> withStandIn)
+        IReadOnlySet<int> withScene, IReadOnlySet<int> withStandIn, IReadOnlySet<int>? off = null)
     {
         var start = new List<int>();
         if (agendaOn)
             for (int m = 0; m < monitorCount; m++)
-                if (!withScene.Contains(m) && !withStandIn.Contains(m)) start.Add(m);
+                if (!withScene.Contains(m) && !withStandIn.Contains(m) && off?.Contains(m) != true) start.Add(m);
         var stop = withStandIn
-            .Where(m => !agendaOn || withScene.Contains(m) || m < 0 || m >= monitorCount)
+            .Where(m => !agendaOn || withScene.Contains(m) || m < 0 || m >= monitorCount || off?.Contains(m) == true)
             .OrderBy(m => m)
             .ToList();
         return (start, stop);

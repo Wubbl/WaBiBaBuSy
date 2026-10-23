@@ -303,6 +303,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     /// </summary>
     private bool IsSeatBusy(string nodeId)
     {
+        if (_seatMap.IsDisabled(nodeId)) return true;   // switched off by the server: no bomb, no card there
         if (NodeIds.IsLocalMonitor(nodeId))
             return _localBusy?.Contains(NodeIds.MonitorIndex(nodeId)) == true;
         string machine = BombSeats.MachineOf(nodeId);
@@ -354,7 +355,7 @@ public sealed partial class ServerPlaybackHost : ObservableObject
     {
         try
         {
-            var agenda = AgendaDocument.Build(TimeZoneInfo.Local, Tags.NodesWith("agenda"));
+            var agenda = AgendaDocument.Build(TimeZoneInfo.Local, Tags.NodesWith("agenda"), _seatMap.DisabledNodeIds);
             CurrentAgenda = agenda;
             await _agenda.SetAsync(_clientMode ? null : agenda, _players, reconcile: !IsStartingScene);
             if (_service.SyncCoordinator is { } coordinator) await coordinator.BroadcastAgendaAsync(agenda);

@@ -66,15 +66,19 @@ public class WallpaperSyncCoordinator
         _ = SendAgendaWhenReadyAsync(clientId);
         try
         {
-            if (!_activeCrossScreenCommands.TryGetValue(clientId, out var command))
+            // The machine's own command, or one per seat of a multi-monitor client ({client}_MONITOR_n).
+            var commands = _activeCrossScreenCommands.Where(kv => NodeIds.MachineOf(kv.Key) == clientId).ToList();
+            if (commands.Count == 0)
                 return;
 
             for (int attempt = 0; attempt < 10; attempt++)
             {
                 await Task.Delay(500);
-                if (_syncService != null && await _syncService.SendCommandToClientAsync(clientId, command))
+                if (_syncService != null && await _syncService.SendCommandToClientAsync(clientId, commands[0].Value))
                 {
-                    _logger.LogInformation("Resumed active cross-screen animation on reconnected client {ClientId}", clientId);
+                    foreach (var (seatId, command) in commands.Skip(1))
+                        await _syncService.SendCommandToClientAsync(seatId, command);
+                    _logger.LogInformation("Resumed active cross-screen animation on reconnected client {ClientId} ({Seats} seat(s))", clientId, commands.Count);
                     await ReplayShowEventsAsync(clientId);
                     return;
                 }
@@ -458,7 +462,8 @@ public class WallpaperSyncCoordinator
         // Scene layers changed the LOAD format: a client older than the floor would show an empty scene. It gets no
         // scene until auto-update brings it level (the room flags the seat "needs update").
         // parkOnly (an offline seat): nothing to check or send now — the command waits for its session resume.
-        var version = _syncService.GetConnectedClients().FirstOrDefault(c => c.ClientId == clientId)?.AppVersion;
+        var machineId = NodeIds.MachineOf(clientId);   // a multi-monitor client's seat reports no version of its own
+        var version = _syncService.GetConnectedClients().FirstOrDefault(c => c.ClientId == machineId)?.AppVersion;
         if (!parkOnly && !WaBiBaBuSy.Common.Version.VersionInfo.SupportsSceneLayers(version))
         {
             _logger.LogWarning("Client {ClientId} runs {Version}, scenes need {Min}+ — not sent until it updates",

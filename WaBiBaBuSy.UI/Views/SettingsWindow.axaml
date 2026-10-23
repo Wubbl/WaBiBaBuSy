@@ -136,6 +136,11 @@
                               Foreground="White" Margin="24,0,0,0"/>
                     <TextBlock Text="While paused nothing renders (no CPU / GPU load); the machine stays connected and online."
                                Foreground="#AAAAAA" FontSize="12" Margin="24,2,0,0" TextWrapping="Wrap"/>
+
+                    <TextBlock Text="Monitors shared with the server (as a client):" Foreground="#CCCCCC" Margin="0,16,0,4"/>
+                    <ComboBox ItemsSource="{Binding SharedMonitorChoices}" SelectedIndex="{Binding SharedMonitorChoice}" MinWidth="280"/>
+                    <TextBlock Text="With one monitor picked, the server sees this machine as a single seat; the other screens keep your Windows wallpaper. Applies on the next connect."
+                               Foreground="#AAAAAA" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap"/>
                 </StackPanel>
 
                 <!-- Logging -->
